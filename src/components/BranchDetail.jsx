@@ -5,8 +5,9 @@
 
 import { useMemo, useState, Suspense, lazy, useEffect } from "react";
 import {
-  aggregateDocs, fmt, pct, tagStyle,
+  aggregateDocs, fmt, pct,
   dateInRange, dateInputToRu,
+  paidForBranch,
 } from "../utils";
 
 const BranchLine = lazy(() => import("./charts/BranchLine"));
@@ -44,9 +45,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
     for (const d of docs || []) {
       const dateKey = d.date || d.sheetName || "Без даты";
       const t = +(d.totals?.[branch] || 0);
-      const paid = (d.payments?.[branch]?.history || []).reduce(
-        (s, h) => s + (+h.amount || 0), 0
-      ) + (+(d.payments?.[branch]?.globalAlloc || 0));
+      const paid = paidForBranch(d.payments, branch);
       if (t > 0 || paid > 0) {
         out.push({ date: dateKey, total: t, paid, debt: Math.max(0, t - paid), doc: d });
       }
@@ -115,33 +114,53 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
       <div className="branch-detail-title">
         <i className="ti ti-building-store" aria-hidden="true" />
         <h1>{branch}</h1>
-        <span style={tagStyle(isPaid ? "paid" : pc >= 50 ? "warn" : "danger")}>
+        <span className={`pill ${isPaid ? "pill-paid" : pc >= 50 ? "pill-warn" : "pill-danger"}`}>
           {isPaid ? "✓ Оплачено" : `Долг: ${fmt(d)}`}
         </span>
       </div>
 
       {/* Сводка по филиалу */}
       <div className="summary-grid">
-        {[
-          { label: "Поставка", val: t, icon: "ti-package", col: "var(--text-primary)", sub: `${branchAgg.reports} ${branchAgg.reports === 1 ? "отчёт" : "отчётов"}` },
-          { label: "Средняя поставка", val: avgSupply, icon: "ti-avg", col: "var(--text-accent)", sub: "за отчёт" },
-          { label: "Оплачено", val: p, icon: "ti-circle-check", col: "var(--text-success)", sub: t > 0 ? `${pc.toFixed(0)}%` : "—" },
-          { label: "Долг", val: d, icon: "ti-alert-triangle", col: d > 0 ? "var(--text-danger)" : "var(--text-success)", sub: d > 0 ? "Требует оплаты" : "Всё закрыто" },
-        ].map((s) => (
-          <div key={s.label} className="card sum-card">
-            <div className="sum-head">
-              <i className={`ti ${s.icon}`} style={{ color: s.col }} aria-hidden="true" />
-              <span className="sum-label">{s.label}</span>
-            </div>
-            <div className="sum-val" style={{ color: s.col }}>{fmt(s.val)}</div>
-            <div className="sum-sub">{s.sub}</div>
+        <div className="kpi-card kpi-accent">
+          <div className="kpi-stripe" />
+          <div className="kpi-row">
+            <div className="kpi-label"><i className="ti ti-package" aria-hidden="true" /> Поставка</div>
           </div>
-        ))}
+          <div className="kpi-value accent">{fmt(t)}</div>
+          <div className="kpi-sub">{branchAgg.reports} {branchAgg.reports === 1 ? "отчёт" : "отчётов"}</div>
+        </div>
+
+        <div className="kpi-card kpi-paid">
+          <div className="kpi-stripe" />
+          <div className="kpi-row">
+            <div className="kpi-label"><i className="ti ti-avg" aria-hidden="true" /> Средняя поставка</div>
+          </div>
+          <div className="kpi-value">{fmt(avgSupply)}</div>
+          <div className="kpi-sub">за отчёт</div>
+        </div>
+
+        <div className="kpi-card kpi-accent">
+          <div className="kpi-stripe" />
+          <div className="kpi-row">
+            <div className="kpi-label"><i className="ti ti-circle-check" aria-hidden="true" /> Оплачено</div>
+          </div>
+          <div className="kpi-value success">{fmt(p)}</div>
+          <div className="kpi-sub">{t > 0 ? `${pc.toFixed(0)}%` : "—"}</div>
+        </div>
+
+        <div className={`kpi-card ${d > 0 ? "kpi-danger" : "kpi-paid"}`}>
+          <div className="kpi-stripe" />
+          <div className="kpi-row">
+            <div className="kpi-label"><i className="ti ti-alert-triangle" aria-hidden="true" /> Долг</div>
+          </div>
+          <div className={`kpi-value ${d > 0 ? "danger" : "success"}`}>{fmt(d)}</div>
+          <div className="kpi-sub">{d > 0 ? "Требует оплаты" : "Всё закрыто"}</div>
+        </div>
       </div>
 
       {/* Тренд по датам */}
       {dateFilteredRows.length > 1 && (
-        <div className="card chart-card chart-card-wide">
+        <div className="chart-card">
           <div className="chart-head">
             <i className="ti ti-trending-up" aria-hidden="true" /> Динамика по датам
           </div>
@@ -149,7 +168,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
             <Suspense fallback={<ChartFallback />}>
               {chartsReady && (
                 <BranchLine
-                  dates={dates.filter((d) => dateFilteredRows.some((r) => r.date === d))}
+                  dates={dates.filter((dd) => dateFilteredRows.some((r) => r.date === dd))}
                   totalsByDate={totalsByDate}
                   paidByDate={paidByDate}
                 />
@@ -163,9 +182,9 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
       <div className="branch-detail-filter">
         <div className="section-label">История по датам</div>
         <div className="branch-detail-datepick">
-          <div className="date-range" style={{ marginRight: 8 }}>
+          <div className="date-range">
             <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} title="Дата от" />
-            <span className="date-range-sep">—</span>
+            <span className="period-range-sep">—</span>
             <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} title="Дата до" />
           </div>
         </div>
@@ -195,34 +214,28 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ textAlign: "left" }}>Дата</th>
-              <th style={{ textAlign: "right" }}>Поставка</th>
-              <th style={{ textAlign: "right" }}>Оплачено</th>
-              <th style={{ textAlign: "right" }}>Долг</th>
+              <th className="text-left">Дата</th>
+              <th className="text-right">Поставка</th>
+              <th className="text-right">Оплачено</th>
+              <th className="text-right">Долг</th>
               <th>Прогресс</th>
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((r, i) => {
+            {filteredRows.map((r) => {
               const rPct = pct(r.paid, r.total);
               return (
-                <tr key={r.date} className="rh" style={{ borderBottom: i < filteredRows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                  <td style={{ fontWeight: 500 }}>{r.date}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(r.total)}</td>
-                  <td style={{ textAlign: "right", color: "var(--text-success)", fontWeight: 500 }}>{fmt(r.paid)}</td>
-                  <td style={{ textAlign: "right", fontWeight: 500, color: r.debt > 0 ? "var(--text-danger)" : "var(--text-success)" }}>
+                <tr key={r.date} className="rh">
+                  <td className="fw-600">{r.date}</td>
+                  <td className="text-right">{fmt(r.total)}</td>
+                  <td className="text-right text-success fw-600">{fmt(r.paid)}</td>
+                  <td className={`text-right fw-600 ${r.debt > 0 ? "text-danger" : "text-success"}`}>
                     {r.debt > 0 ? fmt(r.debt) : "—"}
                   </td>
                   <td>
                     <div className="progress-row">
-                      <div className="progress progress-thin">
-                        <div
-                          className="progress-bar"
-                          style={{
-                            width: `${rPct}%`,
-                            background: rPct >= 100 ? "var(--text-success)" : rPct >= 50 ? "var(--text-warning)" : "var(--text-accent)",
-                          }}
-                        />
+                      <div className={`progress progress-thin ${rPct >= 100 ? "success" : rPct >= 50 ? "warn" : ""}`}>
+                        <div className="progress-bar" style={{ width: `${Math.min(100, rPct)}%` }} />
                       </div>
                       <span className="progress-text">{rPct.toFixed(0)}%</span>
                     </div>
@@ -232,7 +245,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
             })}
             {filteredRows.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: 24 }}>
+                <td colSpan={5} className="text-center text-muted" style={{ padding: 24 }}>
                   Нет данных за выбранный период
                 </td>
               </tr>
@@ -241,14 +254,14 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
           {filteredRows.length > 1 && (
             <tfoot>
               <tr className="tfoot-row">
-                <td style={{ fontWeight: 500 }}>Итого{selectedDate ? ` (${selectedDate})` : (from || to) ? " (фильтр)" : ""}</td>
-                <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)" }}>
+                <td className="fw-600">Итого{selectedDate ? ` (${selectedDate})` : (from || to) ? " (фильтр)" : ""}</td>
+                <td className="text-right fw-600 text-accent">
                   {fmt(filteredRows.reduce((s, r) => s + r.total, 0))}
                 </td>
-                <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-success)" }}>
+                <td className="text-right fw-600 text-success">
                   {fmt(filteredRows.reduce((s, r) => s + r.paid, 0))}
                 </td>
-                <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-danger)" }}>
+                <td className="text-right fw-600 text-danger">
                   {fmt(filteredRows.reduce((s, r) => s + r.debt, 0))}
                 </td>
                 <td>—</td>

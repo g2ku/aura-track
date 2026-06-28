@@ -2,13 +2,20 @@
 // сортировкой и быстрыми действиями.
 
 import { useMemo, useState } from "react";
-import { aggregateDocs, fmt, pct, tagStyle } from "../utils";
+import { aggregateDocs, fmt, pct } from "../utils";
 
 const SORT_OPTIONS = [
   { v: "debt", label: "По долгу (убыв.)" },
   { v: "total", label: "По поставке (убыв.)" },
   { v: "name", label: "По имени (А-Я)" },
   { v: "paid", label: "По оплате (убыв.)" },
+];
+
+const FILTERS = [
+  { v: "all", label: "Все" },
+  { v: "debt", label: "С долгом" },
+  { v: "paid", label: "Оплачено" },
+  { v: "empty", label: "Пустые" },
 ];
 
 export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
@@ -41,7 +48,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
             <i className="ti ti-building-store" aria-hidden="true" /> Филиалы
           </h1>
           <div className="view-sub">
-            Всего: <b>{agg.branches.length}</b>. Общий долг: <b style={{ color: "var(--text-danger)" }}>{fmt(agg.global.debt)}</b>
+            Всего: <b>{agg.branches.length}</b>. Общий долг: <b className="text-danger">{fmt(agg.global.debt)}</b>
           </div>
         </div>
       </div>
@@ -62,12 +69,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
           )}
         </div>
         <div className="toolbar-filters">
-          {[
-            { v: "all", label: "Все" },
-            { v: "debt", label: "С долгом" },
-            { v: "paid", label: "Оплачено" },
-            { v: "empty", label: "Пустые" },
-          ].map((f) => (
+          {FILTERS.map((f) => (
             <button
               key={f.v}
               className={`date-pill${filter === f.v ? " active" : ""}`}
@@ -88,63 +90,58 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ textAlign: "left" }}>Филиал</th>
-              <th style={{ textAlign: "right" }}>Отчётов</th>
-              <th style={{ textAlign: "right" }}>Поставка</th>
-              <th style={{ textAlign: "right" }}>Оплачено</th>
-              <th style={{ textAlign: "right" }}>Долг</th>
+              <th className="text-left">Филиал</th>
+              <th className="text-right">Отчётов</th>
+              <th className="text-right">Поставка</th>
+              <th className="text-right">Оплачено</th>
+              <th className="text-right">Долг</th>
               <th>Прогресс</th>
-              <th style={{ textAlign: "right" }}>Действия</th>
+              <th className="text-right">Действия</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((b, i) => {
+            {filtered.map((b) => {
               const pc = pct(b.paid, b.total);
               const isPaid = b.debt <= 0 && b.total > 0;
+              const stripe =
+                "row-stripe " + (isPaid ? "row-paid" : pc >= 50 ? "row-warn" : "row-danger");
               return (
                 <tr
                   key={b.name}
                   className="rh clickable-row"
-                  style={{ borderBottom: i < filtered.length - 1 ? "1px solid var(--border)" : "none" }}
                   onClick={() => onOpen(b.name)}
                 >
                   <td>
-                    <span className="branch-name-cell">
+                    <span className={`${stripe} branch-name-cell`} style={{ paddingLeft: 8, display: "inline-flex" }}>
                       <i className="ti ti-building-store" aria-hidden="true" />
                       {b.name}
                     </span>
                   </td>
-                  <td style={{ textAlign: "right" }}>{b.reports}</td>
-                  <td style={{ textAlign: "right", fontWeight: 500 }}>{fmt(b.total)}</td>
-                  <td style={{ textAlign: "right", color: "var(--text-success)", fontWeight: 500 }}>{fmt(b.paid)}</td>
-                  <td style={{ textAlign: "right", fontWeight: 500, color: b.debt > 0 ? "var(--text-danger)" : "var(--text-success)" }}>
+                  <td className="text-right">{b.reports}</td>
+                  <td className="text-right fw-600">{fmt(b.total)}</td>
+                  <td className="text-right text-success fw-600">{fmt(b.paid)}</td>
+                  <td className={`text-right fw-600 ${b.debt > 0 ? "text-danger" : "text-success"}`}>
                     {b.debt > 0 ? fmt(b.debt) : "—"}
                   </td>
                   <td>
                     <div className="progress-row">
-                      <div className="progress progress-thin">
-                        <div
-                          className="progress-bar"
-                          style={{
-                            width: `${pc}%`,
-                            background: pc >= 100 ? "var(--text-success)" : pc >= 50 ? "var(--text-warning)" : "var(--text-accent)",
-                          }}
-                        />
+                      <div className={`progress progress-thin ${pc >= 100 ? "success" : pc >= 50 ? "warn" : ""}`}>
+                        <div className="progress-bar" style={{ width: `${Math.min(100, pc)}%` }} />
                       </div>
                       <span className="progress-text">{pc.toFixed(0)}%</span>
                     </div>
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td className="text-right">
                     {canEdit && b.debt > 0 && (
                       <button
-                        className="btn btn-sm btn-out"
+                        className="btn btn-sm btn-pri"
                         onClick={(e) => { e.stopPropagation(); onPayBranch?.(b.name); }}
                       >
                         <i className="ti ti-plus" aria-hidden="true" /> Оплата
                       </button>
                     )}
                     {!canEdit && (
-                      <span style={tagStyle(isPaid ? "paid" : pc >= 50 ? "warn" : "danger")}>
+                      <span className={`pill ${isPaid ? "pill-paid" : pc >= 50 ? "pill-warn" : "pill-danger"}`}>
                         {isPaid ? "✓" : `${pc.toFixed(0)}%`}
                       </span>
                     )}
@@ -154,7 +151,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", color: "var(--text-muted)", padding: 32 }}>
+                <td colSpan={7} className="text-center text-muted" style={{ padding: 32 }}>
                   Нет филиалов по заданным фильтрам
                 </td>
               </tr>

@@ -40,19 +40,25 @@ function isWordCell(v) {
 }
 
 function isTotalRow(row) {
-  const a = String(row[0] || "").trim().toLowerCase();
-  return /^(общ|итого|всего|total|итог)/.test(a);
+  // Сканируем первые ~6 ячеек — «Итого» может стоять не только в первом столбце.
+  for (let i = 0; i < Math.min(row.length, 6); i++) {
+    const v = String(row[i] || "").trim().toLowerCase();
+    if (!v) continue;
+    if (/^(общ|итого|всего|total|grand total|итог|общий итог)\b/.test(v)) return true;
+  }
+  return false;
 }
 
 // Парсим число с поддержкой ru-RU формата (запятая как десятичный разделитель).
 // Также вытаскиваем цифры из строк вроде "17 944,2".
+// Если в строке только точки (нет запятых) — трактуем как разделитель тысяч:
+// "1.234" → 1234. Если точка одна и после неё 3 цифры — это тысячи;
+// иначе (1.5, 12.34) — десятичный разделитель.
 function parseNum(v) {
   if (v === null || v === undefined || v === "") return 0;
   if (typeof v === "number") return v;
   let s = String(v).trim();
   if (!s) return 0;
-  // Если есть и точка и запятая — то что стоит правее, является десятичным разделителем.
-  // Пример: "1,234.56" → точка дробная; "17 944,2" → запятая дробная.
   const hasDot = s.includes(".");
   const hasComma = s.includes(",");
   if (hasDot && hasComma) {
@@ -66,6 +72,13 @@ function parseNum(v) {
   } else if (hasComma) {
     // Только запятая — считаем её дробной (ru формат)
     s = s.replace(/\s/g, "").replace(",", ".");
+  } else if (hasDot) {
+    // Только точки: 1.234 → 1234 (тысячи), 1.5 → 1.5 (дробь).
+    const dotParts = s.split(".");
+    if (dotParts.length === 2 && dotParts[1].length === 3) {
+      s = s.replace(".", "");
+    }
+    // Иначе оставляем как десятичное.
   }
   // Убираем всё, кроме цифр, знака минуса и точки
   s = s.replace(/[^\d.\-]/g, "");
@@ -122,21 +135,35 @@ function isSkippedHeader(name) {
 }
 
 // Поиск даты в любой ячейке документа.
+// Возвращает строку dd.mm.yyyy или fallback.
 function findDate(rows, fallback) {
-  // 1. Формат dd.mm.yyyy / dd/mm/yyyy / dd-mm-yyyy
+  // 1. Формат dd.mm.yyyy / dd/mm/yyyy / dd-mm-yyyy (4-значный год обязателен)
   for (const row of rows) {
     for (const cell of row) {
-      const m = String(cell || "").match(/\b(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\b/);
+      const m = String(cell || "").match(/\b(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})\b/);
       if (m) {
         const dd = +m[1], mm = +m[2], yy = +m[3];
-        if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
-          const year = yy < 100 ? 2000 + yy : yy;
-          return `${String(dd).padStart(2, "0")}.${String(mm).padStart(2, "0")}.${year}`;
+        const dt = new Date(yy, mm - 1, dd);
+        if (dt.getFullYear() === yy && dt.getMonth() === mm - 1 && dt.getDate() === dd) {
+          return `${String(dd).padStart(2, "0")}.${String(mm).padStart(2, "0")}.${yy}`;
         }
       }
     }
   }
-  // 2. «26 июня», «26 июня 2025»
+  // 1b. Тот же формат, но 2-значный год (01.06.26 → 2026)
+  for (const row of rows) {
+    for (const cell of row) {
+      const m = String(cell || "").match(/\b(\d{1,2})[./\-](\d{1,2})[./\-](\d{2})\b/);
+      if (m) {
+        const dd = +m[1], mm = +m[2], yy = 2000 + +m[3];
+        const dt = new Date(yy, mm - 1, dd);
+        if (dt.getFullYear() === yy && dt.getMonth() === mm - 1 && dt.getDate() === dd) {
+          return `${String(dd).padStart(2, "0")}.${String(mm).padStart(2, "0")}.${yy}`;
+        }
+      }
+    }
+  }
+  // 2. «26 июня», «26 июня 2025» — месяц прописью
   for (const cell of rows.flat()) {
     const m = String(cell || "").match(/\b(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?\b/i);
     if (m) {
@@ -145,7 +172,10 @@ function findDate(rows, fallback) {
       const month = MONTHS[monthName];
       if (month) {
         const year = m[3] ? +m[3] : new Date().getFullYear();
-        return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
+        const dt = new Date(year, month - 1, day);
+        if (dt.getFullYear() === year && dt.getMonth() === month - 1 && dt.getDate() === day) {
+          return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
+        }
       }
     }
   }
@@ -210,10 +240,9 @@ export function parseRows(rows, sheetNameFallback = "") {
     let hasAny = false;
     for (const { name: br, col } of branches) {
       const v = parseNum(row[col]);
-      if (v > 0) {
-        amounts[br] = v;
-        hasAny = true;
-      }
+      if (v === 0) continue; // сохраняем знак для возвратов/корректировок
+      amounts[br] = v;
+      hasAny = true;
     }
     if (!hasAny) continue;
     items.push({ name, amounts });
@@ -351,6 +380,12 @@ export async function readFileRows(file) {
 }
 
 // PDF → rows[][]. Достаём текст со всех страниц и превращаем в таблицу.
+//
+// Стратегия:
+//   1. Группируем токены по Y (±2px) — это строки.
+//   2. Внутри строки сортируем по X, мерджим близкие токены в одну ячейку.
+//   3. Для определения колонок берём все X-позиции из первых 5 строк
+//      и кластеризуем по gaps (>= 30px — новая колонка).
 export async function extractPdfRows(file) {
   const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs");
   const workerUrl = (await import("pdfjs-dist/build/pdf.worker.mjs?url")).default;
@@ -360,16 +395,21 @@ export async function extractPdfRows(file) {
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
 
   const allRows = [];
+  const COL_GAP = 30; // px между колонками
+  const TOLERANCE_Y = 2; // px для мерджа токенов в одну строку
+  const MAX_HEADER_SCAN = 8; // сколько первых строк использовать для детекции колонок
+
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const tc = await page.getTextContent();
 
+    // 1. Группировка токенов по Y.
     const lines = [];
     let currentY = null;
     let currentLine = [];
     for (const item of tc.items) {
       const y = Math.round(item.transform[5]);
-      if (currentY === null || Math.abs(y - currentY) <= 2) {
+      if (currentY === null || Math.abs(y - currentY) <= TOLERANCE_Y) {
         currentY = y;
         currentLine.push(item);
       } else {
@@ -380,16 +420,32 @@ export async function extractPdfRows(file) {
     }
     if (currentLine.length) lines.push(currentLine);
 
+    // 2. Детектим колоночные X-позиции по первым строкам.
+    const colPositions = detectColumnPositions(
+      lines.slice(0, MAX_HEADER_SCAN).map(line => {
+        return line
+          .map(it => ({ x: it.transform[4], text: it.str, end: it.transform[4] + (it.width || 0) }))
+          .sort((a, b) => a.x - b.x);
+      }),
+      COL_GAP
+    );
+
+    // 3. Каждую строку раскладываем по колонкам.
     for (const line of lines) {
-      line.sort((a, b) => a.transform[4] - b.transform[4]);
-      const row = [];
-      let prevEnd = -1;
-      for (const it of line) {
-        const text = it.str;
-        const x = Math.round(it.transform[4]);
-        if (prevEnd >= 0 && x - prevEnd > 15) row.push(null);
-        row.push(text);
-        prevEnd = x + Math.round(it.width || 0);
+      const sorted = line
+        .map(it => ({ x: Math.round(it.transform[4]), text: it.str, end: Math.round(it.transform[4] + (it.width || 0)) }))
+        .sort((a, b) => a.x - b.x);
+
+      const row = new Array(colPositions.length).fill(null);
+      for (const tok of sorted) {
+        const colIdx = nearestColumn(tok.x, colPositions);
+        if (colIdx === -1) continue;
+        const cur = row[colIdx] || "";
+        row[colIdx] = cur ? cur + " " + tok.text : tok.text;
+      }
+      // Trim каждой ячейки
+      for (let i = 0; i < row.length; i++) {
+        if (row[i]) row[i] = row[i].trim();
       }
       allRows.push(row);
     }
@@ -397,6 +453,43 @@ export async function extractPdfRows(file) {
 
   return allRows.filter(r => r.some(c => c !== null && String(c).trim() !== ""));
 }
+
+// Определяем X-позиции колонок по первым строкам.
+// Берём все X-координаты (с округлением), кластеризуем по gaps.
+function detectColumnPositions(lines, gap) {
+  const xs = [];
+  for (const line of lines) {
+    for (const t of line) xs.push(t.x);
+  }
+  if (!xs.length) return [0];
+  xs.sort((a, b) => a - b);
+  const cols = [xs[0]];
+  for (const x of xs.slice(1)) {
+    if (x - cols[cols.length - 1] >= gap) {
+      cols.push(x);
+    }
+  }
+  return cols;
+}
+
+// К какой колонке относится токен с данной X-координатой.
+function nearestColumn(x, cols) {
+  let best = -1;
+  let bestDist = Infinity;
+  for (let i = 0; i < cols.length; i++) {
+    const d = Math.abs(x - cols[i]);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  // Слишком далеко от любой колонки — не относим.
+  if (bestDist > gap()) return -1;
+  return best;
+}
+
+// Для читаемости — отдельная функция, чтобы не дублировать gap.
+function gap() { return 30; }
 
 // Превью суммы по листу (для списка листов в Excel).
 export function quickSum(rows) {

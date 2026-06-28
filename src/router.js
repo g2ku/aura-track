@@ -56,10 +56,13 @@ export function useHashRoute() {
 // Восстановление последнего открытого раздела — UX-плюшка.
 const LAST_ROUTE_KEY = "supply-track-last-route";
 
-export function useRememberRoute(path) {
+// Сохраняет window.location.hash (например "#/branches/Абай") один раз при маунте.
+// Не реагируем на каждое изменение пути — нам нужен только последний валидный hash
+// для reload/возврата, а не промежуточные состояния.
+export function useRememberRoute() {
   useEffect(() => {
-    try { sessionStorage.setItem(LAST_ROUTE_KEY, path); } catch (_) {}
-  }, [path]);
+    try { sessionStorage.setItem(LAST_ROUTE_KEY, window.location.hash || "#/"); } catch (_) {}
+  }, []);
 }
 
 export function getLastRoute() {

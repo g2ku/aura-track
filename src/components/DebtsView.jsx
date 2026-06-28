@@ -3,8 +3,9 @@
 
 import { useMemo, useState } from "react";
 import {
-  aggregateDocs, fmt, pct, tagStyle,
+  aggregateDocs, fmt, pct,
   dateInputToRu, dateInRange, reportAgeDays,
+  paidForBranch,
   downloadCsv,
 } from "../utils";
 
@@ -31,7 +32,7 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
       .map((d) => {
         const total = Object.values(d.totals || {}).reduce((s, v) => s + (+v || 0), 0);
         const paid = Object.entries(d.payments || {}).reduce(
-          (s, [b, p]) => s + ((p?.history || []).reduce((ss, h) => ss + (+h.amount || 0), 0)) + (+(p?.globalAlloc || 0)),
+          (s, [b, p]) => s + paidForBranch(d.payments, b),
           0
         );
         const debt = Math.max(0, total - paid);
@@ -59,7 +60,7 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
       const age = reportAgeDays(dateStr);
       const total = Object.values(d.totals || {}).reduce((s, v) => s + (+v || 0), 0);
       const paidAmt = Object.entries(d.payments || {}).reduce(
-        (s, [b, p]) => s + ((p?.history || []).reduce((ss, h) => ss + (+h.amount || 0), 0)) + (+(p?.globalAlloc || 0)),
+        (s, [b, p]) => s + paidForBranch(d.payments, b),
         0
       );
       const debt = Math.max(0, total - paidAmt);
@@ -133,7 +134,7 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
             <i className="ti ti-alert-triangle" aria-hidden="true" /> Долги
           </h1>
           <div className="view-sub">
-            Общий долг: <b style={{ color: "var(--text-danger)" }}>{fmt(agg.global.debt)}</b> · {agg.branches.length} филиалов
+            Общий долг: <b className="text-danger">{fmt(agg.global.debt)}</b> · {agg.branches.length} филиалов
           </div>
         </div>
         <button className="btn btn-out" onClick={exportTab}>
@@ -158,41 +159,44 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ textAlign: "left" }}>Филиал</th>
-                <th style={{ textAlign: "right" }}>Отчётов</th>
-                <th style={{ textAlign: "right" }}>Поставка</th>
-                <th style={{ textAlign: "right" }}>Оплачено</th>
-                <th style={{ textAlign: "right" }}>Долг</th>
+                <th className="text-left">Филиал</th>
+                <th className="text-right">Отчётов</th>
+                <th className="text-right">Поставка</th>
+                <th className="text-right">Оплачено</th>
+                <th className="text-right">Долг</th>
                 <th>Прогресс</th>
-                <th style={{ textAlign: "right" }}>Действие</th>
+                <th className="text-right">Действие</th>
               </tr>
             </thead>
             <tbody>
-              {agg.branches.map((b, i) => {
+              {agg.branches.map((b) => {
                 const x = agg.byBranch[b];
                 const pc = pct(x.paid, x.total);
                 return (
-                  <tr key={b} className="rh clickable-row" style={{ borderBottom: i < agg.branches.length - 1 ? "1px solid var(--border)" : "none" }}
-                      onClick={() => onOpenBranch(b)}>
-                    <td>{b}</td>
-                    <td style={{ textAlign: "right" }}>{x.reports}</td>
-                    <td style={{ textAlign: "right" }}>{fmt(x.total)}</td>
-                    <td style={{ textAlign: "right", color: "var(--text-success)" }}>{fmt(x.paid)}</td>
-                    <td style={{ textAlign: "right", fontWeight: 500, color: x.debt > 0 ? "var(--text-danger)" : "var(--text-success)" }}>
+                  <tr key={b} className="rh clickable-row" onClick={() => onOpenBranch(b)}>
+                    <td>
+                      <span className="branch-name-cell">
+                        <i className="ti ti-building-store" aria-hidden="true" />
+                        {b}
+                      </span>
+                    </td>
+                    <td className="text-right">{x.reports}</td>
+                    <td className="text-right">{fmt(x.total)}</td>
+                    <td className="text-right text-success">{fmt(x.paid)}</td>
+                    <td className={`text-right fw-600 ${x.debt > 0 ? "text-danger" : "text-success"}`}>
                       {x.debt > 0 ? fmt(x.debt) : "—"}
                     </td>
                     <td>
                       <div className="progress-row">
-                        <div className="progress progress-thin">
-                          <div className="progress-bar"
-                            style={{ width: `${pc}%`, background: pc >= 100 ? "var(--text-success)" : pc >= 50 ? "var(--text-warning)" : "var(--text-accent)" }} />
+                        <div className={`progress progress-thin ${pc >= 100 ? "success" : pc >= 50 ? "warn" : ""}`}>
+                          <div className="progress-bar" style={{ width: `${Math.min(100, pc)}%` }} />
                         </div>
                         <span className="progress-text">{pc.toFixed(0)}%</span>
                       </div>
                     </td>
-                    <td style={{ textAlign: "right" }}>
+                    <td className="text-right">
                       {canEdit && x.debt > 0 && (
-                        <button className="btn btn-sm btn-out" onClick={(e) => { e.stopPropagation(); onPayBranch(b); }}>
+                        <button className="btn btn-sm btn-pri" onClick={(e) => { e.stopPropagation(); onPayBranch(b); }}>
                           <i className="ti ti-plus" aria-hidden="true" /> Оплата
                         </button>
                       )}
@@ -208,10 +212,10 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
       {tab === "period" && (
         <>
           <div className="toolbar">
-            <div className="date-range">
+            <div className="date-range" style={{ alignItems: "center" }}>
               <span className="form-label" style={{ marginRight: 8 }}>Период:</span>
               <input type="date" className="form-input" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
-              <span className="date-range-sep">—</span>
+              <span className="period-range-sep">—</span>
               <input type="date" className="form-input" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
             </div>
           </div>
@@ -219,36 +223,36 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left" }}>Дата</th>
-                  <th style={{ textAlign: "left" }}>Файл</th>
-                  <th style={{ textAlign: "right" }}>Поставка</th>
-                  <th style={{ textAlign: "right" }}>Оплачено</th>
-                  <th style={{ textAlign: "right" }}>Долг</th>
+                  <th className="text-left">Дата</th>
+                  <th className="text-left">Файл</th>
+                  <th className="text-right">Поставка</th>
+                  <th className="text-right">Оплачено</th>
+                  <th className="text-right">Долг</th>
                 </tr>
               </thead>
               <tbody>
-                {periodRows.map((r, i) => (
-                  <tr key={r.id} className="rh" style={{ borderBottom: i < periodRows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                    <td style={{ fontWeight: 500 }}>{r.date}</td>
-                    <td style={{ color: "var(--text-secondary)" }}>{r.fileName}</td>
-                    <td style={{ textAlign: "right" }}>{fmt(r.total)}</td>
-                    <td style={{ textAlign: "right", color: "var(--text-success)" }}>{fmt(r.paid)}</td>
-                    <td style={{ textAlign: "right", fontWeight: 500, color: r.debt > 0 ? "var(--text-danger)" : "var(--text-success)" }}>
+                {periodRows.map((r) => (
+                  <tr key={r.id} className="rh">
+                    <td className="fw-600">{r.date}</td>
+                    <td className="secondary">{r.fileName}</td>
+                    <td className="text-right">{fmt(r.total)}</td>
+                    <td className="text-right text-success">{fmt(r.paid)}</td>
+                    <td className={`text-right fw-600 ${r.debt > 0 ? "text-danger" : "text-success"}`}>
                       {r.debt > 0 ? fmt(r.debt) : "—"}
                     </td>
                   </tr>
                 ))}
                 {periodRows.length === 0 && (
-                  <tr><td colSpan={5} style={{ textAlign: "center", padding: 24, color: "var(--text-muted)" }}>Нет отчётов за выбранный период</td></tr>
+                  <tr><td colSpan={5} className="text-center text-muted" style={{ padding: 24 }}>Нет отчётов за выбранный период</td></tr>
                 )}
               </tbody>
               {periodRows.length > 1 && (
                 <tfoot>
                   <tr className="tfoot-row">
-                    <td colSpan={2} style={{ fontWeight: 500 }}>Итого</td>
-                    <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)" }}>{fmt(periodRows.reduce((s, r) => s + r.total, 0))}</td>
-                    <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-success)" }}>{fmt(periodRows.reduce((s, r) => s + r.paid, 0))}</td>
-                    <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-danger)" }}>{fmt(periodRows.reduce((s, r) => s + r.debt, 0))}</td>
+                    <td colSpan={2} className="fw-600">Итого</td>
+                    <td className="text-right fw-600 text-accent">{fmt(periodRows.reduce((s, r) => s + r.total, 0))}</td>
+                    <td className="text-right fw-600 text-success">{fmt(periodRows.reduce((s, r) => s + r.paid, 0))}</td>
+                    <td className="text-right fw-600 text-danger">{fmt(periodRows.reduce((s, r) => s + r.debt, 0))}</td>
                   </tr>
                 </tfoot>
               )}
@@ -260,7 +264,7 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
       {tab === "status" && (
         <>
           <div className="toolbar">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div className="toolbar-search" style={{ flex: "0 0 auto", minWidth: 0 }}>
               <span className="form-label">Считать просроченным после:</span>
               <input
                 type="number"
@@ -270,7 +274,7 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
                 value={overdueDays}
                 onChange={(e) => setOverdueDays(+e.target.value || 1)}
               />
-              <span style={{ color: "var(--text-muted)" }}>дней</span>
+              <span className="text-muted" style={{ fontSize: "var(--fs-13)" }}>дней</span>
             </div>
           </div>
 
@@ -287,10 +291,12 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
           {top.map((b, i) => {
             const x = agg.byBranch[b];
             return (
-              <div key={b} className="card top-row clickable-row" onClick={() => onOpenBranch(b)}>
-                <div className="top-rank" style={{ color: i === 0 ? "var(--text-danger)" : "var(--text-muted)" }}>
-                  #{i + 1}
-                </div>
+              <div
+                key={b}
+                className={`card top-row clickable-row surface-hover ${i === 0 ? "top-row-first" : ""}`}
+                onClick={() => onOpenBranch(b)}
+              >
+                <div className={`top-rank ${i === 0 ? "top-rank-first" : ""}`}>#{i + 1}</div>
                 <div className="top-info">
                   <div className="top-name">
                     <i className="ti ti-building-store" aria-hidden="true" /> {b}
@@ -300,7 +306,7 @@ export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) 
                   </div>
                 </div>
                 <div className="top-debt">
-                  <div className="top-debt-amt" style={{ color: "var(--text-danger)" }}>{fmt(x.debt)}</div>
+                  <div className="top-debt-amt">{fmt(x.debt)}</div>
                   <div className="top-debt-sub">из {fmt(x.total)}</div>
                 </div>
                 <div className="top-arrow">
@@ -322,16 +328,16 @@ function StatusBlock({ title, tone, rows, icon }) {
   const totalDebt = rows.reduce((s, r) => s + r.debt, 0);
   const totalAll = rows.reduce((s, r) => s + r.total, 0);
   return (
-    <div className="card status-block">
-      <div className="status-block-head" style={{ borderLeft: `3px solid var(--text-${tone})` }}>
-        <i className={`ti ${icon}`} style={{ color: `var(--text-${tone})` }} aria-hidden="true" />
+    <div className={`card status-block status-block-${tone}`}>
+      <div className="status-block-head">
+        <i className={`ti ${icon}`} aria-hidden="true" />
         <span>{title}</span>
         <span className="status-block-count">{rows.length}</span>
       </div>
       <div className="status-block-summary">
         <div>
           <div className="status-block-label">Долг</div>
-          <div className="status-block-val" style={{ color: `var(--text-${tone})` }}>{fmt(totalDebt)}</div>
+          <div className={`status-block-val text-${tone}`}>{fmt(totalDebt)}</div>
         </div>
         <div>
           <div className="status-block-label">Поставки</div>
@@ -343,8 +349,8 @@ function StatusBlock({ title, tone, rows, icon }) {
           {rows.slice(0, 5).map((r) => (
             <div key={r.d.id} className="status-block-row">
               <span className="status-block-date">{r.dateStr}</span>
-              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.age !== Infinity ? `${r.age} дн.` : "—"}</span>
-              <span style={{ color: "var(--text-danger)", fontWeight: 500 }}>{fmt(r.debt)}</span>
+              <span className="status-block-age">{r.age !== Infinity ? `${r.age} дн.` : "—"}</span>
+              <span className={`status-block-debt ${r.debt > 0 ? "text-danger" : "text-success"}`}>{fmt(r.debt)}</span>
             </div>
           ))}
           {rows.length > 5 && <div className="status-block-more">+{rows.length - 5} ещё…</div>}

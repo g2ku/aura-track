@@ -23,12 +23,23 @@ export function getRole() {
 export function login(role) {
   if (role !== "admin" && role !== "user") return null;
   const payload = { role, ts: Date.now() };
-  sessionStorage.setItem(KEY, JSON.stringify(payload));
+  try {
+    sessionStorage.setItem(KEY, JSON.stringify(payload));
+    // Пишем в localStorage, чтобы другие вкладки получили storage event.
+    localStorage.setItem("supply-track-auth-mirror", String(payload.ts));
+  } catch (_) {
+    // sessionStorage недоступен (приватный режим Safari, квоты) —
+    // пользователь сможет работать до перезагрузки вкладки, но роль не сохранится.
+    return role;
+  }
   return role;
 }
 
 export function logout() {
-  sessionStorage.removeItem(KEY);
+  try {
+    sessionStorage.removeItem(KEY);
+    localStorage.setItem("supply-track-auth-mirror", String(Date.now()));
+  } catch (_) {}
 }
 
 export function isAdmin() {
@@ -36,15 +47,25 @@ export function isAdmin() {
 }
 
 // React-хук для реактивного чтения роли.
+// Слушаем кастомное событие `auth-change` (диспатчится из login() и из других вкладок
+// через localStorage + storage event). Чистый storage event не работает
+// для sessionStorage между вкладками, поэтому для sync из других вкладок
+// используем канал localStorage → storage.
 export function useAuth() {
   const [role, setRole] = useState(() => getRole());
   useEffect(() => {
     const handler = () => setRole(getRole());
-    window.addEventListener("storage", handler);
+    // auth-change диспатчится в той же вкладке из login().
     window.addEventListener("auth-change", handler);
+    // storage event работает только для localStorage; используем его как сигнал
+    // что другая вкладка обновила роль (мы пишем в localStorage mirror).
+    const storageHandler = (e) => {
+      if (e.key === "supply-track-auth-mirror") handler();
+    };
+    window.addEventListener("storage", storageHandler);
     return () => {
-      window.removeEventListener("storage", handler);
       window.removeEventListener("auth-change", handler);
+      window.removeEventListener("storage", storageHandler);
     };
   }, []);
   return role;

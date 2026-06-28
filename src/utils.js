@@ -3,7 +3,10 @@
 export const fmt = (n) =>
   new Intl.NumberFormat("ru-RU").format(Math.round(n || 0)) + " ₸";
 
-export const pct = (a, b) => (b > 0 ? Math.min(100, (a / b) * 100) : 0);
+export const pct = (a, b) => {
+  if (!b) return 0;
+  return Math.min(100, Math.max(0, (a / b) * 100));
+};
 
 export const tagStyle = (t) => {
   const base = {
@@ -79,6 +82,11 @@ export function aggregateDocs(docs) {
 
     // Подсчёт оплат по филиалам (ручные + распределённые глобально)
     const payments = d.payments || {};
+    // Сначала убедимся, что byBranch содержит записи для всех филиалов
+    // с платежами (даже если их нет в d.branches[] — случай удалённой ветки).
+    for (const b of Object.keys(payments)) {
+      byBranch[b] = byBranch[b] || { total: 0, paid: 0, debt: 0, reports: 0, dates: [] };
+    }
     for (const b of Object.keys(payments)) {
       const hist = payments[b]?.history || [];
       const manualPaid = hist.reduce((s, h) => s + (+h.amount || 0), 0);
@@ -107,8 +115,9 @@ export function aggregateDocs(docs) {
     (a, b) => byBranch[b].total - byBranch[a].total
   );
 
-  // Сортировка дат по возрастанию (dd.mm.yyyy → сравнение как строк работает корректно)
-  const dates = Array.from(dateSet).sort();
+  // Сортировка дат по возрастанию через timestamp — устойчиво к любому
+  // формату, который прошёл через dateKeyToTs.
+  const dates = Array.from(dateSet).sort((a, b) => dateKeyToTs(a) - dateKeyToTs(b));
 
   const reportCount = (docs || []).length;
   const branchCount = branches.length;
@@ -134,13 +143,18 @@ export function getCssVar(name) {
 }
 
 // ─── Хелпер: безопасный парсинг даты для сортировки ──────────────────
-// dd.mm.yyyy → Date. Если не парсится — фолбэк на epoch 0.
+// dd.mm.yyyy → Date. Если не парсится или невалидно (32.13.2025) — 0.
 export function dateKeyToTs(s) {
   if (!s) return 0;
   const m = String(s).match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
   if (!m) return 0;
-  const dd = +m[1], mm = +m[2], yy = m[3].length === 2 ? 2000 + +m[3] : +m[3];
-  return new Date(yy, mm - 1, dd).getTime();
+  const dd = +m[1], mm = +m[2];
+  const yy = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  const dt = new Date(yy, mm - 1, dd);
+  // Валидация: Date constructor молча «перематывает» невалидные даты
+  // (32.13.2025 → 01.02.2026). Проверяем обратно.
+  if (dt.getFullYear() !== yy || dt.getMonth() !== mm - 1 || dt.getDate() !== dd) return 0;
+  return dt.getTime();
 }
 
 // ─── Хелперы для UI-инпутов дат ────────────────────────────────────────
@@ -242,36 +256,61 @@ export function filterDocsByPeriod(docs, period) {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const oneDay = 86400000;
 
+  // Документы без валидной d.date пропускаются в любом фильтре кроме "all".
   if (period.preset === "today") {
     return (docs || []).filter((d) => {
       const ts = docTs(d);
+      if (ts === null) return false;
       return ts >= todayStart && ts < todayStart + oneDay;
     });
   }
   if (period.preset === "7d") {
-    return (docs || []).filter((d) => docTs(d) >= todayStart - 6 * oneDay);
+    return (docs || []).filter((d) => {
+      const ts = docTs(d);
+      if (ts === null) return false;
+      return ts >= todayStart - 6 * oneDay;
+    });
   }
   if (period.preset === "30d") {
-    return (docs || []).filter((d) => docTs(d) >= todayStart - 29 * oneDay);
+    return (docs || []).filter((d) => {
+      const ts = docTs(d);
+      if (ts === null) return false;
+      return ts >= todayStart - 29 * oneDay;
+    });
   }
   if (period.preset === "custom") {
     const from = period.fromTs || 0;
     const to = (period.toTs || 0) + oneDay - 1; // включаем весь «to» день
     return (docs || []).filter((d) => {
       const ts = docTs(d);
+      if (ts === null) return false;
       return ts >= from && ts <= to;
     });
   }
   return docs || [];
 }
 
-// timestamp документа: приоритет — дата из файла (d.date), fallback на uploadedAt.
+// timestamp документа: приоритет — дата из файла (d.date).
+// Возвращает null если валидной даты нет (фильтры по дате тогда пропускают
+// документ только в режиме "all" — без uploadedAt-fallback, иначе возникает
+// путаница в "сегодня/30д").
 function docTs(d) {
   if (d.date) {
     const ts = dateKeyToTs(d.date);
     if (ts) return ts;
   }
-  return d.uploadedAt || 0;
+  return null;
+}
+
+// ─── Хелпер: сколько всего оплачено по филиалу ──────────────────────
+// Учитывает и ручные платежи (history), и распределённые (globalAlloc),
+// и standalone-платежи. Используется в Tracking.jsx, PaymentModal.jsx и др.
+export function paidForBranch(payments, branch) {
+  const p = payments?.[branch];
+  if (!p) return 0;
+  const manual = (p.history || []).reduce((s, h) => s + (+h.amount || 0), 0);
+  const global = +(p.globalAlloc || 0);
+  return manual + global;
 }
 
 // ─── Преобразование input date (yyyy-mm-dd) в timestamp начала дня ──────

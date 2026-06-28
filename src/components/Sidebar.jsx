@@ -38,6 +38,15 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // Блокируем скролл body, пока drawer открыт (на мобильных иначе страница
+  // продолжает скроллиться "под" drawer, что выглядит как баг).
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
   function handleLogout() {
     logout();
     window.dispatchEvent(new Event("auth-change"));

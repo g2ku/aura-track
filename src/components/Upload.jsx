@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { parseRows, extractPdfRows, quickSum, readFileRows } from "../parser";
 
-export default function Upload({ onParsed, onMultipleSheets }) {
+export default function Upload({ onParsed, onMultipleSheets, onCancel }) {
   const [drag, setDrag] = useState(false);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -89,7 +89,15 @@ export default function Upload({ onParsed, onMultipleSheets }) {
         onDrop={e => {
           e.preventDefault();
           setDrag(false);
-          handleFile(e.dataTransfer.files[0]);
+          const files = Array.from(e.dataTransfer.files || []);
+          if (!files.length) return;
+          // Обрабатываем все файлы последовательно, чтобы не смешивать ошибки.
+          (async () => {
+            for (const f of files) {
+              // eslint-disable-next-line no-await-in-loop
+              await handleFile(f);
+            }
+          })();
         }}
         onDragOver={e => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
@@ -104,13 +112,30 @@ export default function Upload({ onParsed, onMultipleSheets }) {
         type="file"
         accept=".pdf,.xlsx,.xls,.csv"
         style={{ display: "none" }}
-        onChange={e => handleFile(e.target.files[0])}
+        multiple
+        onChange={e => {
+          const files = Array.from(e.target.files || []);
+          if (!files.length) return;
+          (async () => {
+            for (const f of files) {
+              // eslint-disable-next-line no-await-in-loop
+              await handleFile(f);
+            }
+            e.target.value = ""; // разрешаем загрузить тот же файл повторно
+          })();
+        }}
       />
 
       {err && (
         <div className="err-box">
           <i className="ti ti-alert-circle" aria-hidden="true" /> {err}
         </div>
+      )}
+
+      {onCancel && (
+        <button type="button" className="btn btn-out" style={{ marginTop: 12 }} onClick={onCancel}>
+          <i className="ti ti-x" aria-hidden="true" /> Отмена
+        </button>
       )}
 
       <div className="feature-tags">

@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { fmt, pct, tagStyle } from "../utils";
+import { fmt, pct, tagStyle, paidForBranch } from "../utils";
 import PaymentModal from "./PaymentModal";
+import ConfirmModal from "./ConfirmModal";
 
 export default function Tracking({ report, payments, onAddPayment, onDeletePayment, canEdit }) {
   const [expanded, setExpanded] = useState(null);
   const [activeTab, setActiveTab] = useState("branches");
   const [modalBranch, setModalBranch] = useState(null);
+  const [deletingIdx, setDeletingIdx] = useState(null);
 
   const branches = report?.branches || [];
   const bTotal = (b) => report.totals?.[b] != null
     ? +report.totals[b] || 0
     : (report.items || []).reduce((s, i) => s + (+i.amounts?.[b] || 0), 0);
-  const bPaid = (b) => (payments[b]?.history || []).reduce((s, h) => s + +h.amount, 0);
+  const bPaid = (b) => paidForBranch(payments, b);
   const bDebt = (b) => bTotal(b) - bPaid(b);
   const gTotal = branches.reduce((s, b) => s + bTotal(b), 0);
   const gPaid = branches.reduce((s, b) => s + bPaid(b), 0);
@@ -123,16 +125,22 @@ export default function Tracking({ report, payments, onAddPayment, onDeletePayme
                         <div className="exp-section">
                           <div className="exp-label">История оплат</div>
                           {hist.map((h, idx) => (
-                            <div key={idx} className="exp-row exp-payment">
+                            <div key={h.id || idx} className="exp-row exp-payment">
                               <div className="exp-pay-info">
                                 <div className="exp-pay-amt">+{fmt(h.amount)}</div>
                                 {h.items?.length > 0 && <div className="exp-pay-items">{h.items.join(", ")}</div>}
                                 {h.note && <div className="exp-pay-note">{h.note}</div>}
                                 <div className="exp-pay-date">{h.date}</div>
                               </div>
-                              <button className="icon-btn icon-danger" onClick={() => onDeletePayment(b, idx)} aria-label="Удалить">
-                                <i className="ti ti-x" aria-hidden="true" />
-                              </button>
+                              {h.id && (
+                                <button
+                                  className="icon-btn icon-danger"
+                                  onClick={() => setDeletingIdx({ branch: b, id: h.id })}
+                                  aria-label="Удалить"
+                                >
+                                  <i className="ti ti-x" aria-hidden="true" />
+                                </button>
+                              )}
                             </div>
                           ))}
                           <div className="exp-total-row">
@@ -241,6 +249,22 @@ export default function Tracking({ report, payments, onAddPayment, onDeletePayme
           onConfirm={(payload) => { onAddPayment(modalBranch, payload); setModalBranch(null); }}
         />
       )}
+
+      <ConfirmModal
+        open={!!deletingIdx}
+        title="Удалить платёж?"
+        message="Действие необратимо — запись исчезнет из истории оплат и увеличит долг филиала."
+        confirmText="Удалить"
+        cancelText="Отмена"
+        danger
+        onConfirm={async () => {
+          if (deletingIdx && onDeletePayment) {
+            await onDeletePayment(deletingIdx.branch, deletingIdx.id);
+          }
+          setDeletingIdx(null);
+        }}
+        onCancel={() => setDeletingIdx(null)}
+      />
     </div>
   );
 }

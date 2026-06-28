@@ -1,6 +1,5 @@
 // Dashboard — главный экран сразу после входа.
-// Шапка с кнопкой «Добавить отчёт» и «Общая оплата», общая сводка,
-// 3 графика, список филиалов с кнопками оплаты, экспорт CSV.
+// Hero + 3 KPI с цветовыми страйпами + 2 графика + тренд + топ товаров + список филиалов.
 
 import { useMemo, useState, useEffect, Suspense, lazy } from "react";
 import { fmt, pct, tagStyle, downloadCsv } from "../utils";
@@ -19,11 +18,22 @@ function ChartFallback() {
   );
 }
 
+function greeting(now = new Date()) {
+  const h = now.getHours();
+  if (h < 6) return "Доброй ночи";
+  if (h < 12) return "Доброе утро";
+  if (h < 18) return "Добрый день";
+  return "Добрый вечер";
+}
+
 export default function Dashboard({
   docs, agg: aggProp, canEdit,
   onAddReport, onSelectBranch, onPayBranch, onOpenGlobalPayment,
 }) {
-  const agg = useMemo(() => aggProp || { global: { total: 0, paid: 0, debt: 0, reportCount: 0, branchCount: 0, averagePerReport: 0, averageDebtPerBranch: 0 }, byBranch: {}, byDate: {}, byProduct: {}, dates: [], branches: [] }, [aggProp]);
+  const agg = useMemo(
+    () => aggProp || { global: { total: 0, paid: 0, debt: 0, reportCount: 0, branchCount: 0, averagePerReport: 0, averageDebtPerBranch: 0 }, byBranch: {}, byDate: {}, byProduct: {}, dates: [], branches: [] },
+    [aggProp]
+  );
   const [chartsReady, setChartsReady] = useState(false);
 
   useEffect(() => {
@@ -37,19 +47,11 @@ export default function Dashboard({
   const today = useMemo(() => {
     const now = new Date();
     const todayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    let newReports = 0, newPayments = 0;
+    let newReports = 0;
     for (const d of docs || []) {
       if (d.uploadedAt && d.uploadedAt >= todayTs) newReports++;
-      const payments = d.payments || {};
-      for (const b of Object.keys(payments)) {
-        const hist = payments[b]?.history || [];
-        for (const h of hist) {
-          // history.date — это строка dd.mm.yyyy hh:mm; проще сравнивать через ts из upload
-          if (d.uploadedAt && d.uploadedAt >= todayTs) newPayments++;
-        }
-      }
     }
-    return { newReports, newPayments };
+    return { newReports };
   }, [docs]);
 
   function doExport() {
@@ -70,17 +72,22 @@ export default function Dashboard({
 
   return (
     <div className="dashboard-wrap">
-      <div className="dashboard-header">
-        <div>
-          <h1 className="dashboard-title">
-            <i className="ti ti-chart-bar" aria-hidden="true" /> Общая статистика
-          </h1>
-          <div className="dashboard-sub">
-            {agg.global.reportCount} {agg.global.reportCount === 1 ? "отчёт" : "отчётов"} · {agg.global.branchCount} {agg.global.branchCount === 1 ? "филиал" : "филиалов"}
+      <div className="dashboard-hero">
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div className="dashboard-greeting">{greeting()}</div>
+          <div className="dashboard-title">
+            Общая статистика
             {today.newReports > 0 && (
               <span className="fresh-tag-mini">
-                <i className="ti ti-sparkles" aria-hidden="true" /> сегодня +{today.newReports} отчётов
+                <i className="ti ti-sparkles" aria-hidden="true" /> +{today.newReports} сегодня
               </span>
+            )}
+          </div>
+          <div className="dashboard-sub">
+            <b>{agg.global.reportCount}</b> {ru(agg.global.reportCount, "отчёт", "отчёта", "отчётов")} ·
+            <b> {agg.global.branchCount}</b> {ru(agg.global.branchCount, "филиал", "филиала", "филиалов")} ·
+            {agg.global.total > 0 && (
+              <> оплачено <b className="text-success">{pct(agg.global.paid, agg.global.total).toFixed(0)}%</b></>
             )}
           </div>
         </div>
@@ -117,44 +124,42 @@ export default function Dashboard({
       ) : (
         <>
           <div className="summary-grid fade-in-stagger">
-            {[
-              {
-                label: "Всего поставок",
-                val: agg.global.total,
-                icon: "ti-package",
-                col: "var(--text-primary)",
-                sub: `Среднее: ${fmt(agg.global.averagePerReport)} / отчёт`,
-              },
-              {
-                label: "Оплачено",
-                val: agg.global.paid,
-                icon: "ti-circle-check",
-                col: "var(--text-success)",
-                sub: agg.global.total > 0
-                  ? `${pct(agg.global.paid, agg.global.total).toFixed(0)}% от поставок`
-                  : "—",
-              },
-              {
-                label: "Общий долг",
-                val: agg.global.debt,
-                icon: "ti-alert-triangle",
-                col: agg.global.debt > 0 ? "var(--text-danger)" : "var(--text-success)",
-                sub: `Средний долг: ${fmt(agg.global.averageDebtPerBranch)} / филиал`,
-              },
-            ].map((s) => (
-              <div key={s.label} className="card sum-card">
-                <div className="sum-head">
-                  <i className={`ti ${s.icon}`} style={{ color: s.col }} aria-hidden="true" />
-                  <span className="sum-label">{s.label}</span>
-                </div>
-                <div className="sum-val" style={{ color: s.col }}>{fmt(s.val)}</div>
-                <div className="sum-sub">{s.sub}</div>
+            <div className="kpi-card kpi-accent">
+              <div className="kpi-stripe" />
+              <div className="kpi-row">
+                <div className="kpi-label"><i className="ti ti-package" aria-hidden="true" /> Поставки</div>
               </div>
-            ))}
+              <div className="kpi-value accent">{fmt(agg.global.total)}</div>
+              <div className="kpi-sub">Среднее: {fmt(agg.global.averagePerReport)} / отчёт</div>
+            </div>
+
+            <div className="kpi-card kpi-paid">
+              <div className="kpi-stripe" />
+              <div className="kpi-row">
+                <div className="kpi-label"><i className="ti ti-circle-check" aria-hidden="true" /> Оплачено</div>
+              </div>
+              <div className="kpi-value success">{fmt(agg.global.paid)}</div>
+              <div className="kpi-sub">
+                {agg.global.total > 0
+                  ? `${pct(agg.global.paid, agg.global.total).toFixed(0)}% от поставок`
+                  : "—"}
+              </div>
+            </div>
+
+            <div className={`kpi-card ${agg.global.debt > 0 ? "kpi-danger" : "kpi-paid"}`}>
+              <div className="kpi-stripe" />
+              <div className="kpi-row">
+                <div className="kpi-label"><i className="ti ti-alert-triangle" aria-hidden="true" /> Долг</div>
+              </div>
+              <div className={`kpi-value kpi-lg ${agg.global.debt > 0 ? "danger" : "success"}`}>
+                {fmt(agg.global.debt)}
+              </div>
+              <div className="kpi-sub">Средний долг: {fmt(agg.global.averageDebtPerBranch)} / филиал</div>
+            </div>
           </div>
 
           <div className="charts-row">
-            <div className="card chart-card chart-card-sm">
+            <div className="chart-card">
               <div className="chart-head">
                 <i className="ti ti-chart-pie" aria-hidden="true" /> Структура оплат
               </div>
@@ -164,7 +169,7 @@ export default function Dashboard({
                 </Suspense>
               </div>
             </div>
-            <div className="card chart-card chart-card-lg">
+            <div className="chart-card">
               <div className="chart-head">
                 <i className="ti ti-chart-bar" aria-hidden="true" /> По филиалам
               </div>
@@ -177,7 +182,7 @@ export default function Dashboard({
           </div>
 
           {agg.dates.length > 1 && (
-            <div className="card chart-card chart-card-wide">
+            <div className="chart-card">
               <div className="chart-head">
                 <i className="ti ti-trending-up" aria-hidden="true" /> Динамика по датам
               </div>
@@ -204,10 +209,13 @@ export default function Dashboard({
               const d = agg.byBranch[b].debt;
               const pc = pct(p, t);
               const isPaid = d <= 0 && t > 0;
+              const cardClass =
+                "branch-card clickable surface-hover" +
+                (isPaid ? " kpi-paid" : d > 0 ? " kpi-danger" : " kpi-warn");
               return (
                 <div
                   key={b}
-                  className={`card branch-card clickable${isPaid ? " paid" : ""}`}
+                  className={cardClass}
                   onClick={() => onSelectBranch(b)}
                   role="button"
                   tabIndex={0}
@@ -219,46 +227,40 @@ export default function Dashboard({
                         <i className="ti ti-building-store" aria-hidden="true" /> {b}
                       </div>
                       <div className="branch-meta">
-                        {agg.byBranch[b].reports} {agg.byBranch[b].reports === 1 ? "отчёт" : "отчётов"}
+                        {agg.byBranch[b].reports} {ru(agg.byBranch[b].reports, "отчёт", "отчёта", "отчётов")}
                       </div>
                     </div>
-                    <span style={tagStyle(isPaid ? "paid" : pc >= 50 ? "warn" : "danger")}>
+                    <span className={`pill ${isPaid ? "pill-paid" : pc >= 50 ? "pill-warn" : "pill-danger"}`}>
                       {isPaid ? "✓ Оплачено" : `−${fmt(d)}`}
                     </span>
                   </div>
 
-                  <div className="progress">
-                    <div
-                      className="progress-bar"
-                      style={{
-                        width: `${pc}%`,
-                        background: pc >= 100
-                          ? "var(--text-success)"
-                          : pc >= 50
-                          ? "var(--text-warning)"
-                          : "var(--text-accent)",
-                      }}
-                    />
+                  <div className={`progress ${pc >= 100 ? "success" : pc >= 50 ? "warn" : ""}`}>
+                    <div className="progress-bar" style={{ width: `${Math.min(100, pc)}%` }} />
                   </div>
 
                   <div className="branch-stats">
-                    {[
-                      ["Поставка", fmt(t), null],
-                      ["Оплачено", fmt(p), "var(--text-success)"],
-                      ["Остаток", fmt(Math.max(0, d)), d > 0 ? "var(--text-danger)" : "var(--text-success)"],
-                    ].map(([l, v, c]) => (
-                      <div key={l}>
-                        <div className="branch-stat-label">{l}</div>
-                        <div className="branch-stat-val" style={{ color: c || "inherit" }}>{v}</div>
+                    <div>
+                      <div className="branch-stat-label">Поставка</div>
+                      <div className="branch-stat-val">{fmt(t)}</div>
+                    </div>
+                    <div>
+                      <div className="branch-stat-label">Оплачено</div>
+                      <div className="branch-stat-val text-success">{fmt(p)}</div>
+                    </div>
+                    <div>
+                      <div className="branch-stat-label">Остаток</div>
+                      <div className={`branch-stat-val ${d > 0 ? "text-danger" : "text-success"}`}>
+                        {fmt(Math.max(0, d))}
                       </div>
-                    ))}
+                    </div>
                   </div>
 
                   <div className="branch-foot">
                     {canEdit && d > 0 ? (
                       <div className="branch-foot-row">
                         <button
-                          className="btn btn-sm btn-out"
+                          className="btn btn-sm btn-pri"
                           onClick={(e) => { e.stopPropagation(); onPayBranch?.(b); }}
                         >
                           <i className="ti ti-plus" aria-hidden="true" /> Оплата
@@ -278,6 +280,12 @@ export default function Dashboard({
             })}
           </div>
         </>
+      )}
+
+      {canEdit && !empty && (
+        <button className="fab" onClick={onAddReport}>
+          <i className="ti ti-plus" aria-hidden="true" /> Добавить отчёт
+        </button>
       )}
     </div>
   );
@@ -306,12 +314,12 @@ function TopProducts({ agg }) {
       {items.map((it, i) => {
         const w = maxTotal > 0 ? (it.total / maxTotal) * 100 : 0;
         return (
-          <div key={it.name} className="card product-card-mini">
+          <div key={it.name} className="card product-card-mini surface-hover">
             <div className="prod-rank">#{i + 1}</div>
             <div className="prod-name" title={it.name}>{it.name}</div>
             <div className="prod-total">{fmt(it.total)}</div>
             <div className="progress" style={{ marginTop: 8, marginBottom: 6 }}>
-              <div className="progress-bar" style={{ width: `${w}%`, background: "var(--text-accent)" }} />
+              <div className="progress-bar" style={{ width: `${w}%` }} />
             </div>
             <div className="prod-meta">
               <span title="Сколько раз заказывали"><i className="ti ti-shopping-cart" aria-hidden="true" /> {it.count}×</span>
@@ -325,4 +333,14 @@ function TopProducts({ agg }) {
       })}
     </div>
   );
+}
+
+// ─── Склонение существительных после числительных ────────────────────
+function ru(n, one, few, many) {
+  const a = Math.abs(n) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  if (b === 1) return one;
+  return many;
 }

@@ -12,7 +12,7 @@ export default function PaymentModal({ branch, items, branchTotal, branchPaid, o
     .filter(i => i.amounts?.[branch] && selItems[i.name])
     .reduce((s, i) => s + (+i.amounts[branch] || 0), 0);
   const effAmt = useCustom
-    ? parseFloat(String(customAmt).replace(/[^\d.]/g, "")) || 0
+    ? parseFloat(String(customAmt).replace(/\s/g, "").replace(",", ".").replace(/[^\d.\-]/g, "")) || 0
     : selSum;
 
   function toggle(name) {
@@ -135,7 +135,9 @@ export default function PaymentModal({ branch, items, branchTotal, branchPaid, o
           {debt > 0 && canEdit && (
             <div className="quick-amts">
               {[
-                { label: "50%", val: Math.round(branchTotal * 0.5) },
+                // 50% от поставки (как оригинал — для случаев, когда известна
+                // только половина стоимости), и "Весь долг" для типовой оплаты.
+                { label: "50% поставки", val: Math.round(branchTotal * 0.5) },
                 { label: "Весь долг", val: Math.round(debt) },
               ].map(q => (
                 <button

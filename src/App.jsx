@@ -1,14 +1,14 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
-  isFirebaseConfigured, saveReport, setBranchPayments, subscribeReports,
-  subscribeGlobalPayments, deleteReports, addGlobalPayment, addBranchStandalonePayment,
+  saveReport, setBranchPayments,
+  deleteReports, addGlobalPayment, addBranchStandalonePayment,
+  deleteBranchPayment,
   docId as makeDocId,
 } from "./firebase";
 import { LoginGate, useAuth, isAdmin } from "./auth.jsx";
-import {
-  aggregateDocs, filterDocsByPeriod, dateInputToTsStart,
-} from "./utils";
+import { aggregateDocs, filterDocsByPeriod } from "./utils";
 import { useHashRoute, useRememberRoute } from "./router";
+import { useAppStore, periodToFilter } from "./store/useAppStore";
 
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
@@ -33,101 +33,28 @@ export default function App() {
   );
 }
 
-const PERIOD_STORAGE_KEY = "supply-track-period";
-const THEME_STORAGE_KEY = "supply-track-theme";
-
-function loadPeriod() {
-  try {
-    const raw = sessionStorage.getItem(PERIOD_STORAGE_KEY);
-    if (!raw) return { preset: "all" };
-    const p = JSON.parse(raw);
-    if (!p || !p.preset) return { preset: "all" };
-    return p;
-  } catch (_) {
-    return { preset: "all" };
-  }
-}
-
-function loadTheme() {
-  try {
-    const t = localStorage.getItem(THEME_STORAGE_KEY);
-    return t === "light" ? "light" : "dark";
-  } catch (_) {
-    return "dark";
-  }
-}
-
-function periodToFilter(p) {
-  if (!p) return { preset: "all" };
-  if (p.preset === "custom" && (p.fromInput || p.toInput)) {
-    return {
-      preset: "custom",
-      fromTs: dateInputToTsStart(p.fromInput),
-      toTs: dateInputToTsStart(p.toInput),
-    };
-  }
-  return { preset: p.preset };
-}
-
 function MainApp() {
   const route = useHashRoute();
   const role = useAuth();
   const canEdit = isAdmin();
 
-  useRememberRoute(route.path);
+  // Стор: данные и UI state.
+  const docs = useAppStore((s) => s.docs);
+  const globalPayments = useAppStore((s) => s.globalPayments);
+  const fbError = useAppStore((s) => s.fbError);
+  const theme = useAppStore((s) => s.theme);
+  const period = useAppStore((s) => s.period);
+  const modal = useAppStore((s) => s.modal);
+  const initStore = useAppStore((s) => s._init);
+  const toggleTheme = useAppStore((s) => s.toggleTheme);
+  const setPeriod = useAppStore((s) => s.setPeriod);
+  const openModal = useAppStore((s) => s.openModal);
+  const closeModal = useAppStore((s) => s.closeModal);
 
-  const [docs, setDocs] = useState([]);
-  const [globalPayments, setGlobalPayments] = useState([]);
-  const [fbError, setFbError] = useState(null);
-  const [period, setPeriod] = useState(loadPeriod);
-  const [theme, setTheme] = useState(loadTheme);
+  useRememberRoute();
 
-  // Применяем тему к <html> + сохраняем в localStorage.
-  useEffect(() => {
-    try {
-      document.documentElement.dataset.theme = theme;
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch (_) {}
-  }, [theme]);
-
-  // Сохраняем выбор периода в sessionStorage.
-  useEffect(() => {
-    try { sessionStorage.setItem(PERIOD_STORAGE_KEY, JSON.stringify(period)); } catch (_) {}
-  }, [period]);
-
-  // Модалки
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [globalPayOpen, setGlobalPayOpen] = useState(false);
-  const [branchPayOpen, setBranchPayOpen] = useState(null);
-  const [err, setErr] = useState(null);
-
-  // Конфликт дубля при загрузке.
-  // pending: [{ payload, existing }] — что нужно сохранить после подтверждения.
-  const [dupConflict, setDupConflict] = useState(null);
-
-  // Подписка на Firestore
-  useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      setFbError(
-        "Firebase не настроен. Скопируйте .env.example в .env.local и заполните VITE_FIREBASE_* переменные."
-      );
-      return;
-    }
-    let unsub1, unsub2;
-    try {
-      unsub1 = subscribeReports(
-        (list) => setDocs(list),
-        (e) => setFbError("Firebase: " + e.message)
-      );
-      unsub2 = subscribeGlobalPayments(
-        (list) => setGlobalPayments(list),
-        (e) => console.warn("global payments sub error:", e)
-      );
-    } catch (e) {
-      setFbError(e.message);
-    }
-    return () => { if (unsub1) unsub1(); if (unsub2) unsub2(); };
-  }, []);
+  // Подписки на Firestore один раз.
+  useEffect(() => { initStore(); }, [initStore]);
 
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
   const filteredDocs = useMemo(
@@ -136,27 +63,27 @@ function MainApp() {
   );
   const filteredAgg = useMemo(() => aggregateDocs(filteredDocs), [filteredDocs]);
 
-  // ─── Вспомогательное: сохранить отчёт с проверкой дубля ───────────────
+  // ─── Хелперы ──────────────────────────────────────────────────────
   function findExisting(payload) {
-    const id = makeDocId(payload.fileName, payload.sheetName);
-    return docs.find((d) => d.id === id) || null;
+    return docs.find((d) => d.id === makeDocId(payload.fileName, payload.sheetName)) || null;
   }
 
-  async function doSaveReport(payload) {
-    await saveReport(payload);
-    setUploadOpen(false);
-    setDupConflict(null);
+  async function saveAll(prepared) {
+    for (const p of prepared) {
+      await saveReport(p);
+    }
+    closeModal();
     route.navigate("/reports");
   }
 
-  // ─── Обработчики загрузки ──────────────────────────────────────────
+  // ─── Загрузка отчётов ─────────────────────────────────────────────
   async function handleParsed(parsed, fileName) {
     if (!canEdit) return;
-    setErr(null);
     try {
       const payload = {
         fileName,
-        sheetName: parsed.date || "Без даты",
+        // Уникальное имя листа, чтобы два листа одной даты не дали docId-коллизию.
+        sheetName: parsed.sheetName || parsed.date || fileName,
         date: parsed.date,
         branches: parsed.branches,
         items: parsed.items,
@@ -165,18 +92,17 @@ function MainApp() {
       };
       const existing = findExisting(payload);
       if (existing) {
-        setDupConflict({ payload, existing });
+        openModal("confirmDup", { payload, existing });
         return;
       }
-      await doSaveReport(payload);
+      await saveAll([payload]);
     } catch (e) {
-      setErr(e.message);
+      openModal("error", { message: e.message });
     }
   }
 
   async function handleMultipleSheets(wb, sheets, fileName) {
     if (!canEdit) return;
-    setErr(null);
     try {
       const XLSX = await import("xlsx");
       const { parseRows } = await import("./parser");
@@ -189,7 +115,7 @@ function MainApp() {
           const parsed = parseRows(rows, sh.name);
           prepared.push({
             fileName,
-            sheetName: parsed.date || sh.name,
+            sheetName: sh.name,
             date: parsed.date,
             branches: parsed.branches,
             items: parsed.items,
@@ -200,53 +126,42 @@ function MainApp() {
           console.warn(`Не удалось разобрать лист "${sh.name}":`, e.message);
         }
       }
-      // Проверяем дубли среди всех подготовленных payload'ов.
+      if (!prepared.length) {
+        openModal("error", { message: "Ни один из листов не удалось разобрать." });
+        return;
+      }
       const firstExisting = prepared
         .map((p) => ({ payload: p, existing: findExisting(p) }))
         .find((x) => x.existing);
       if (firstExisting) {
-        setDupConflict({ payload: firstExisting.payload, existing: firstExisting.existing });
+        openModal("confirmDupAll", { all: prepared, existing: firstExisting.existing, payload: firstExisting.payload });
         return;
       }
-      // Никаких дублей — сохраняем все подряд.
-      for (const payload of prepared) {
-        await saveReport(payload);
-      }
-      setUploadOpen(false);
-      route.navigate("/reports");
+      await saveAll(prepared);
     } catch (e) {
-      setErr(e.message);
+      openModal("error", { message: e.message });
     }
   }
 
-  async function confirmReplaceDup() {
-    if (!dupConflict) return;
-    try {
-      await doSaveReport(dupConflict.payload);
-    } catch (e) {
-      setErr(e.message);
-    }
-  }
-
-  // ─── Оплаты ────────────────────────────────────────────────────────
+  // ─── Оплаты ───────────────────────────────────────────────────────
   async function handleAddGlobalPayment({ amount, note, mode, perBranch }) {
     if (!canEdit) return;
-    setErr(null);
     try {
       await addGlobalPayment({ amount, note, mode, perBranch, by: role });
-      setGlobalPayOpen(false);
+      closeModal();
     } catch (e) {
-      setErr(e.message);
+      openModal("error", { message: e.message });
     }
   }
 
   async function handleAddBranchPayment(payload) {
     if (!canEdit) return;
-    setErr(null);
+    const branch = modal?.payload?.branch;
+    if (!branch) return;
     try {
       if (payload.mode === "standalone") {
         await addBranchStandalonePayment({
-          branch: branchPayOpen,
+          branch,
           amount: payload.amount,
           note: payload.note,
           by: role,
@@ -254,51 +169,61 @@ function MainApp() {
       } else if (payload.mode === "report" && payload.docId) {
         const doc = docs.find((d) => d.id === payload.docId);
         if (!doc) throw new Error("Отчёт не найден");
-        const history = (doc.payments?.[branchPayOpen]?.history || []);
+        const history = (doc.payments?.[branch]?.history || []);
+        const ts = Date.now();
         const newHistory = [
           ...history,
           {
+            id: `pay-${ts}-${Math.random().toString(36).slice(2, 8)}`,
             amount: payload.amount,
             note: payload.note,
             items: payload.items || [],
-            date: new Date().toLocaleString("ru-RU", {
+            ts,
+            date: new Date(ts).toLocaleString("ru-RU", {
               day: "2-digit", month: "2-digit", year: "numeric",
               hour: "2-digit", minute: "2-digit",
             }),
             by: role,
           },
         ];
-        await setBranchPayments(doc.fileName, doc.sheetName, branchPayOpen, { history: newHistory });
+        await setBranchPayments(doc.fileName, doc.sheetName, branch, newHistory);
       }
-      setBranchPayOpen(null);
+      closeModal();
     } catch (e) {
-      setErr(e.message);
+      openModal("error", { message: e.message });
     }
   }
 
   // ─── Удаление отчётов ─────────────────────────────────────────────
   async function handleDeleteReports(ids) {
-    if (!canEdit || !ids?.length) return;
-    setErr(null);
+    if (!canEdit) return;
+    if (!ids || ids.length === 0) return;
     try {
-      await deleteReports(ids);
+      const { failed } = await deleteReports(ids);
+      if (failed && failed.length) {
+        const msg = failed
+          .map((f) => `${f.id}: ${f.error}`)
+          .join("\n");
+        openModal("error", { message: `Не все отчёты удалось удалить:\n${msg}` });
+      }
     } catch (e) {
-      setErr(e.message);
+      openModal("error", { message: e.message });
     }
   }
 
   // ─── Рендер по маршруту ───────────────────────────────────────────
-  let content;
+  let content = null;
+
   if (route.path === "/" || !route.path) {
     content = (
       <Dashboard
         docs={filteredDocs}
         agg={filteredAgg}
         canEdit={canEdit}
-        onAddReport={() => setUploadOpen(true)}
+        onAddReport={() => openModal("upload")}
         onSelectBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
-        onPayBranch={(b) => setBranchPayOpen(b)}
-        onOpenGlobalPayment={() => setGlobalPayOpen(true)}
+        onPayBranch={(b) => openModal("branchPay", { branch: b })}
+        onOpenGlobalPayment={() => openModal("globalPay")}
       />
     );
   } else if (route.path === "/branches") {
@@ -307,19 +232,24 @@ function MainApp() {
         docs={filteredDocs}
         canEdit={canEdit}
         onOpen={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
-        onPayBranch={(b) => setBranchPayOpen(b)}
+        onPayBranch={(b) => openModal("branchPay", { branch: b })}
       />
     );
   } else if (route.path === "/branches/:name") {
-    content = (
-      <BranchDetail
-        branch={route.params.name}
-        docs={filteredDocs}
-        canEdit={canEdit}
-        onBack={() => route.navigate("/branches")}
-        onPay={(b) => setBranchPayOpen(b)}
-      />
-    );
+    const name = route.params.name;
+    if (agg.byBranch[name] || filteredAgg.byBranch[name]) {
+      content = (
+        <BranchDetail
+          branch={name}
+          docs={filteredDocs}
+          canEdit={canEdit}
+          onBack={() => route.navigate("/branches")}
+          onPay={(b) => openModal("branchPay", { branch: b })}
+        />
+      );
+    } else {
+      content = <UnknownBranchFallback name={name} onBack={() => route.navigate("/branches")} />;
+    }
   } else if (route.path === "/reports") {
     content = (
       <ReportsView
@@ -327,7 +257,7 @@ function MainApp() {
         agg={filteredAgg}
         canEdit={canEdit}
         onOpen={(id) => route.navigate(`/reports/${encodeURIComponent(id)}`)}
-        onUpload={() => setUploadOpen(true)}
+        onUpload={() => openModal("upload")}
         onDelete={handleDeleteReports}
       />
     );
@@ -336,27 +266,12 @@ function MainApp() {
     const d = filteredDocs.find((x) => x.id === docId);
     if (d) {
       content = (
-        <div>
-          <div style={{ marginBottom: 12 }}>
-            <button className="btn btn-out" onClick={() => route.navigate("/reports")}>
-              <i className="ti ti-arrow-left" aria-hidden="true" /> Назад к отчётам
-            </button>
-          </div>
-          <Tracking
-            report={{ date: d.date, branches: d.branches, items: d.items, totals: d.totals }}
-            payments={d.payments || {}}
-            onAddPayment={async (branch, payload) => {
-              const history = (d.payments?.[branch]?.history || []);
-              const newHistory = [
-                ...history,
-                { ...payload, date: new Date().toLocaleString("ru-RU"), by: role },
-              ];
-              await setBranchPayments(d.fileName, d.sheetName, branch, { history: newHistory });
-            }}
-            onDeletePayment={async () => {}}
-            canEdit={canEdit}
-          />
-        </div>
+        <ReportDetailView
+          report={d}
+          canEdit={canEdit}
+          role={role}
+          onBack={() => route.navigate("/reports")}
+        />
       );
     } else {
       content = (
@@ -373,20 +288,25 @@ function MainApp() {
       <DebtsView
         docs={filteredDocs}
         canEdit={canEdit}
-        onPayBranch={(b) => setBranchPayOpen(b)}
+        onPayBranch={(b) => openModal("branchPay", { branch: b })}
         onOpenBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
       />
     );
   } else if (route.path === "/products") {
     content = <ProductsView docs={filteredDocs} agg={filteredAgg} />;
   } else {
-    setTimeout(() => route.navigate("/"), 0);
-    content = null;
+    content = <UnknownRouteFallback navigate={route.navigate} />;
   }
 
   return (
     <div className="layout-with-sidebar">
-      <Sidebar route={route} role={role} theme={theme} onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")} onNavigate={route.navigate} />
+      <Sidebar
+        route={route}
+        role={role}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onNavigate={route.navigate}
+      />
 
       <div className="main-area">
         <PeriodBar value={period} onChange={setPeriod} />
@@ -397,48 +317,41 @@ function MainApp() {
           </div>
         )}
 
-        <div className="content">
-          {content}
-          {err && (
-            <div className="err-box">
-              <i className="ti ti-alert-circle" aria-hidden="true" /> {err}
-            </div>
-          )}
-        </div>
+        <div className="content">{content}</div>
       </div>
 
       <UploadModal
-        open={uploadOpen}
+        open={modal?.kind === "upload"}
         onParsed={handleParsed}
         onMultipleSheets={handleMultipleSheets}
-        onClose={() => setUploadOpen(false)}
+        onClose={closeModal}
       />
 
       <GlobalPaymentModal
-        open={globalPayOpen}
+        open={modal?.kind === "globalPay"}
         agg={agg}
-        onClose={() => setGlobalPayOpen(false)}
+        onClose={closeModal}
         onConfirm={handleAddGlobalPayment}
       />
 
       <BranchPaymentModal
-        open={!!branchPayOpen}
-        branch={branchPayOpen}
+        open={modal?.kind === "branchPay"}
+        branch={modal?.payload?.branch}
         docs={docs}
-        onClose={() => setBranchPayOpen(null)}
+        onClose={closeModal}
         onConfirm={handleAddBranchPayment}
       />
 
       <ConfirmModal
-        open={!!dupConflict}
+        open={modal?.kind === "confirmDup"}
         title="Такой отчёт уже загружен"
         message={
-          dupConflict ? (
+          modal?.payload ? (
             <div>
-              Отчёт <b>{dupConflict.payload.fileName}</b> ·{" "}
-              <b>{dupConflict.payload.date || dupConflict.payload.sheetName}</b> уже есть в базе
-              {dupConflict.existing?.uploadedBy && (
-                <> (загружен: <b>{dupConflict.existing.uploadedBy}</b>)</>
+              Отчёт <b>{modal.payload.payload.fileName}</b> ·{" "}
+              <b>{modal.payload.payload.date || modal.payload.payload.sheetName}</b> уже есть в базе
+              {modal.payload.existing?.uploadedBy && (
+                <> (загружен: <b>{modal.payload.existing.uploadedBy}</b>)</>
               )}.
               <div style={{ marginTop: 8, color: "var(--text-secondary)" }}>
                 Замена перезапишет данные и удалит историю оплат по этому отчёту.
@@ -448,9 +361,140 @@ function MainApp() {
         }
         confirmText="Заменить"
         danger
-        onConfirm={confirmReplaceDup}
-        onCancel={() => setDupConflict(null)}
+        onConfirm={async () => {
+          try {
+            await saveReport(modal.payload.payload);
+            closeModal();
+            route.navigate("/reports");
+          } catch (e) {
+            openModal("error", { message: e.message });
+          }
+        }}
+        onCancel={closeModal}
+      />
+
+      <ConfirmModal
+        open={modal?.kind === "confirmDupAll"}
+        title="Есть дубли среди листов"
+        message={
+          modal?.payload ? (
+            <div>
+              Среди {modal.payload.all.length} подготовленных листов один уже есть в базе
+              ({modal.payload.existing?.fileName} · {modal.payload.payload.date || modal.payload.payload.sheetName}).
+              <div style={{ marginTop: 8, color: "var(--text-secondary)" }}>
+                Замена затрёт данные и историю оплат только для дубля; остальные будут добавлены.
+              </div>
+            </div>
+          ) : ""
+        }
+        confirmText="Заменить и загрузить"
+        danger
+        onConfirm={async () => {
+          try {
+            await saveAll(modal.payload.all);
+          } catch (e) {
+            openModal("error", { message: e.message });
+          }
+        }}
+        onCancel={closeModal}
+      />
+
+      <ConfirmModal
+        open={modal?.kind === "error"}
+        title="Ошибка"
+        message={modal?.payload?.message || ""}
+        confirmText="OK"
+        cancelText=""
+        onConfirm={closeModal}
+        onCancel={closeModal}
       />
     </div>
   );
+}
+
+// ─── Детали отчёта: Tracking + кнопки оплаты/удаления ───────────────
+function ReportDetailView({ report, canEdit, role, onBack }) {
+  const docs = useAppStore((s) => s.docs);
+  const openModal = useAppStore((s) => s.openModal);
+  const closeModal = useAppStore((s) => s.closeModal);
+
+  async function onAddPayment(branch, payload) {
+    if (!canEdit) return;
+    const history = (report.payments?.[branch]?.history || []);
+    const ts = Date.now();
+    const newHistory = [
+      ...history,
+      {
+        id: `pay-${ts}-${Math.random().toString(36).slice(2, 8)}`,
+        amount: payload.amount,
+        note: payload.note,
+        items: payload.items || [],
+        ts,
+        date: new Date(ts).toLocaleString("ru-RU", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        }),
+        by: role,
+      },
+    ];
+    try {
+      await setBranchPayments(report.fileName, report.sheetName, branch, newHistory);
+    } catch (e) {
+      openModal("error", { message: e.message });
+    }
+  }
+
+  async function onDeletePayment(branch, entryId) {
+    if (!canEdit) return;
+    try {
+      await deleteBranchPayment(report.id, branch, entryId);
+    } catch (e) {
+      openModal("error", { message: e.message });
+    }
+  }
+
+  // docs нужен, чтобы убедиться что report не удалён
+  const live = docs.find((d) => d.id === report.id) || report;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12 }}>
+        <button className="btn btn-out" onClick={onBack}>
+          <i className="ti ti-arrow-left" aria-hidden="true" /> Назад к отчётам
+        </button>
+      </div>
+      <Tracking
+        report={{ date: live.date, branches: live.branches, items: live.items, totals: live.totals }}
+        payments={live.payments || {}}
+        onAddPayment={onAddPayment}
+        onDeletePayment={onDeletePayment}
+        canEdit={canEdit}
+      />
+    </div>
+  );
+}
+
+// ─── Фоллбэки для неизвестных маршрутов ──────────────────────────────
+// Раньше был setTimeout(...) прямо во время рендера — теперь через useEffect,
+// а cleanup гарантирует, что навигация не сработает после unmount.
+function UnknownBranchFallback({ name, onBack }) {
+  const navigate = useHashRoute().navigate;
+  useEffect(() => {
+    const t = setTimeout(() => navigate("/branches"), 0);
+    return () => clearTimeout(t);
+  }, [navigate]);
+  return (
+    <div className="card empty-state">
+      <div className="empty-state-title">Филиал «{name}» не найден</div>
+      <button className="btn btn-out" onClick={onBack}>К списку филиалов</button>
+    </div>
+  );
+}
+
+function UnknownRouteFallback({ navigate }) {
+  useEffect(() => {
+    const t = setTimeout(() => navigate("/"), 0);
+    return () => clearTimeout(t);
+  }, [navigate]);
+  return null;
 }
