@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /tmp/index.html -w \"%{http_code}\\\\n\" http://localhost:4173/)",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $5}')",
+      "Bash(taskkill //PID 14552 //F)",
+      "Bash(curl -s -o /dev/null -w \"INDEX=%{http_code}\\\\n\" http://localhost:4173/)",
+      "Bash(curl -s -o /dev/null -w \"JS=%{http_code}\\\\n\" http://localhost:4173/assets/index-Fy651ZZ0.js)",
+      "Bash(curl -s -o /dev/null -w \"CSS=%{http_code}\\\\n\" http://localhost:4173/assets/index-BZqqkeZH.css)",
+      "Bash(taskkill //PID 3080 //F)",
+      "Bash(node test-parser.mjs)",
+      "Bash(node test-debug.mjs)",
+      "Bash(npm install *)",
+      "Bash(npm ls *)",
+      "Bash(curl -s -o /dev/null -w \"INDEX=%{http_code} size=%{size_download}\\\\n\" http://localhost:4174/)",
+      "Bash(curl -s -o /dev/null -w \"JS=%{http_code}\\\\n\" http://localhost:4174/assets/index-K262eUjA.js)",
+      "Bash(taskkill //PID 7332 //F)",
+      "Bash(npm uninstall *)",
+      "Bash(curl -s -o /dev/null -w \"INDEX=%{http_code} size=%{size_download}\\\\n\" http://localhost:4175/)",
+      "Bash(curl -s -o /dev/null -w \"JS=%{http_code} size=%{size_download}\\\\n\" http://localhost:4175/assets/index-3z_0RuNK.js)",
+      "Bash(curl -s -o /dev/null -w \"CSS=%{http_code} size=%{size_download}\\\\n\" http://localhost:4175/assets/index-BZqqkeZH.css)",
+      "Bash(taskkill //PID 1952 //F)",
+      "Bash(rm test-parser.mjs)",
+      "Bash(rm -rf dist)",
+      "Bash(curl -s -o /tmp/page.html http://localhost:4176/)",
+      "Bash(taskkill //PID 5972 //F)",
+      "Bash(curl -s http://localhost:4177/)",
+      "Bash(taskkill //PID 12372 //F)",
+      "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -sS http://localhost:5173/src/App.jsx)"
+    ]
+  }
+}

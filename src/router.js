@@ -1,0 +1,67 @@
+// Простой hash-роутер без зависимостей.
+//
+// Использование:
+//   const route = useHashRoute();
+//   route.path === '/', '/branches', '/branches/Абай', '/reports', ...
+//   route.params === { name?: string }
+//
+//   navigate('/branches');
+//   navigate(`/branches/${encodeURIComponent('Абай')}`);
+
+import { useEffect, useState, useCallback } from "react";
+
+function parseHash(hash) {
+  // По умолчанию — корень.
+  let raw = (hash || "").replace(/^#/, "");
+  if (!raw || raw === "/") return { path: "/", params: {} };
+  // Убираем trailing slash кроме корня.
+  if (raw.endsWith("/") && raw !== "/") raw = raw.slice(0, -1);
+  const parts = raw.split("/").filter(Boolean);
+
+  if (parts.length === 1 && parts[0] === "branches") {
+    return { path: "/branches", params: {} };
+  }
+  if (parts.length === 2 && parts[0] === "branches") {
+    return { path: "/branches/:name", params: { name: decodeURIComponent(parts[1]) } };
+  }
+  if (parts.length === 1 && ["reports", "payments", "debts", "products"].includes(parts[0])) {
+    return { path: "/" + parts[0], params: {} };
+  }
+  return { path: "/", params: {} };
+}
+
+export function navigate(path) {
+  const target = path.startsWith("#") ? path : "#" + path;
+  if (window.location.hash !== target) {
+    window.location.hash = target;
+  } else {
+    // Если уже там — форсируем обновление через кастомное событие.
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }
+}
+
+export function useHashRoute() {
+  const [route, setRoute] = useState(() => parseHash(window.location.hash));
+
+  useEffect(() => {
+    const handler = () => setRoute(parseHash(window.location.hash));
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+
+  const go = useCallback((p) => navigate(p), []);
+  return { ...route, navigate: go };
+}
+
+// Восстановление последнего открытого раздела — UX-плюшка.
+const LAST_ROUTE_KEY = "supply-track-last-route";
+
+export function useRememberRoute(path) {
+  useEffect(() => {
+    try { sessionStorage.setItem(LAST_ROUTE_KEY, path); } catch (_) {}
+  }, [path]);
+}
+
+export function getLastRoute() {
+  try { return sessionStorage.getItem(LAST_ROUTE_KEY) || "/"; } catch (_) { return "/"; }
+}
