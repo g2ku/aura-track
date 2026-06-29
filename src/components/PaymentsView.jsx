@@ -31,7 +31,7 @@ export default function PaymentsView({ docs, globalPayments = [], branchesList =
       });
     }
 
-    // Ручные оплаты по филиалам внутри отчётов
+    // Ручные оплаты по филиалам внутри отчётов.
     for (const d of docs || []) {
       const payments = d.payments || {};
       for (const b of Object.keys(payments)) {
@@ -40,8 +40,13 @@ export default function PaymentsView({ docs, globalPayments = [], branchesList =
           rows.push({
             kind: "manual",
             id: h.id || `${d.id}-${b}-${h.date}-${h.amount}`,
+            // Фикс: дата в формате dd.mm.yyyy HH:mm — берём из `date` (там уже
+            // локализованная строка). ts=0 сортировал ручные платежи вниз списка.
+            // Парсим `date` обратно в timestamp через `dateInputToTsStart`
+            // (в формате dd.mm.yyyy HH:mm) — но проще положиться на h.ts,
+            // если он есть (новые записи), иначе fallback на h.date как строку.
             date: h.date || "",
-            ts: 0,
+            ts: h.ts || 0,
             branch: b,
             amount: +h.amount || 0,
             note: h.note || "",
@@ -52,7 +57,9 @@ export default function PaymentsView({ docs, globalPayments = [], branchesList =
         }
       }
     }
-    return rows.sort((a, b) => b.ts - a.ts || (a.date < b.date ? 1 : -1));
+    // Фикс: сортировка по timestamp числу, потом по строке даты (dd.mm.yyyy
+    // лексикографически совпадает с хронологией).
+    return rows.sort((a, b) => b.ts - a.ts || (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   }, [docs, globalPayments]);
 
   // Применяем фильтры

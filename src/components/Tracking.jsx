@@ -1,7 +1,20 @@
 import { useState } from "react";
-import { fmt, pct, tagStyle, paidForBranch } from "../utils";
+import { fmt, pct, tagStyle } from "../utils";
 import PaymentModal from "./PaymentModal";
 import ConfirmModal from "./ConfirmModal";
+
+// Фикс: считаем paid только по payments[branch].history в текущем отчёте,
+// потому что globalAlloc распределяется по ВСЕМ отчётам филиала и не
+// относится к долгу конкретной накладной. Если бы мы его включили —
+// долг одной накладной уменьшался бы за счёт оплат, сделанных по другим
+// датам, и это вводило бы admin'а в заблуждение.
+function reportPaidForBranch(payments, branch) {
+  const p = payments?.[branch];
+  if (!p) return 0;
+  const manual = (p.history || []).reduce((s, h) => s + (+h.amount || 0), 0);
+  const standalone = (p.standaloneHistory || []).reduce((s, h) => s + (+h.amount || 0), 0);
+  return manual + standalone;
+}
 
 export default function Tracking({ report, payments, onAddPayment, onDeletePayment, canEdit }) {
   const [expanded, setExpanded] = useState(null);
@@ -13,7 +26,7 @@ export default function Tracking({ report, payments, onAddPayment, onDeletePayme
   const bTotal = (b) => report.totals?.[b] != null
     ? +report.totals[b] || 0
     : (report.items || []).reduce((s, i) => s + (+i.amounts?.[b] || 0), 0);
-  const bPaid = (b) => paidForBranch(payments, b);
+  const bPaid = (b) => reportPaidForBranch(payments, b);
   const bDebt = (b) => bTotal(b) - bPaid(b);
   const gTotal = branches.reduce((s, b) => s + bTotal(b), 0);
   const gPaid = branches.reduce((s, b) => s + bPaid(b), 0);

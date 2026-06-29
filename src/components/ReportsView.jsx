@@ -61,7 +61,9 @@ export default function ReportsView({ docs, agg, canEdit, onOpen, onUpload, onDe
       branches: (d.branches || []).join("; "),
       items: (d.items || []).length,
       total: Object.values(d.totals || {}).reduce((s, v) => s + (+v || 0), 0),
-      uploadedAt: d.uploadedAt ? new Date(d.uploadedAt).toLocaleString("ru-RU") : "",
+      // Фикс: единый формат dd.mm.yyyy HH:mm через formatUploadedAt,
+      // чтобы CSV выглядел консистентно в любом Excel/локалі.
+      uploadedAt: d.uploadedAt ? formatUploadedAt(d.uploadedAt) : "",
     }));
     const stamp = new Date().toISOString().slice(0, 10);
     downloadCsv(`supplytrack-reports-${stamp}`, headers, rows);

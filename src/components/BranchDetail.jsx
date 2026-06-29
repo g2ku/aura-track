@@ -9,6 +9,7 @@ import {
   dateInRange, dateInputToRu,
   paidForBranch,
 } from "../utils";
+import { Button, Pill } from "../ui";
 
 const BranchLine = lazy(() => import("./charts/BranchLine"));
 
@@ -101,22 +102,22 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
   return (
     <div className="branch-detail-wrap">
       <div className="branch-detail-head">
-        <button className="btn btn-out" onClick={onBack}>
-          <i className="ti ti-arrow-left" aria-hidden="true" /> Назад к филиалам
-        </button>
+        <Button variant="outline" icon="ti-arrow-left" onClick={onBack}>
+          Назад к филиалам
+        </Button>
         {canEdit && d > 0 && (
-          <button className="btn btn-pri" onClick={() => onPay?.(branch)}>
-            <i className="ti ti-plus" aria-hidden="true" /> Добавить оплату
-          </button>
+          <Button variant="primary" icon="ti-plus" onClick={() => onPay?.(branch)}>
+            Добавить оплату
+          </Button>
         )}
       </div>
 
       <div className="branch-detail-title">
         <i className="ti ti-building-store" aria-hidden="true" />
         <h1>{branch}</h1>
-        <span className={`pill ${isPaid ? "pill-paid" : pc >= 50 ? "pill-warn" : "pill-danger"}`}>
+        <Pill tone={isPaid ? "paid" : pc >= 50 ? "warn" : "danger"}>
           {isPaid ? "✓ Оплачено" : `Долг: ${fmt(d)}`}
-        </span>
+        </Pill>
       </div>
 
       {/* Сводка по филиалу */}

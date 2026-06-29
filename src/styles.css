@@ -2143,3 +2143,284 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .data-table thead th, .data-table tbody td { padding: 8px; font-size: var(--fs-12); }
   .branch-stats { grid-template-columns: 1fr; }
 }
+
+/* ─── 33. ErrorBoundary ───────────────────────────────────────────────────── */
+.error-boundary {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  padding: var(--sp-10) var(--sp-5);
+  font-family: var(--font-sans);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.error-boundary-card {
+  max-width: 720px;
+  width: 100%;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-8);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.error-boundary-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--bg-danger);
+  color: var(--text-danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--sp-4);
+  font-size: 28px;
+}
+.error-boundary-title {
+  font-size: var(--fs-24);
+  font-weight: 700;
+  color: var(--text-danger);
+  margin-bottom: var(--sp-3);
+}
+.error-boundary-message {
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-5);
+  font-size: var(--fs-14);
+  line-height: 1.6;
+}
+.error-boundary-stack {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-4);
+  overflow: auto;
+  font-size: var(--fs-12);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+  max-height: 300px;
+  margin-bottom: var(--sp-5);
+  font-family: var(--font-mono);
+}
+
+/* ─── BranchesView: summary-strip + cards + bulk-actions ────────────── */
+
+/* Верхняя stat-полоска с 4 KPI филиалов */
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+}
+@media (max-width: 720px) {
+  .summary-strip { grid-template-columns: repeat(2, 1fr); }
+}
+.strip-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.strip-item > i {
+  font-size: 22px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.strip-label {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+.strip-val {
+  font-size: var(--fs-18);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Горизонтальная лента карточек филиалов */
+.branches-cards-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+}
+.branch-card-mini {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.branch-card-mini:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+}
+.branch-mini-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+.branch-mini-name {
+  font-weight: 600;
+  font-size: var(--fs-14);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.branch-mini-name i {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.branch-mini-meta {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+.branch-mini-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: auto;
+  padding-top: var(--sp-2);
+}
+.branch-mini-detail {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.branch-card-mini.kpi-paid .branch-mini-detail { color: var(--brand-emerald-300, var(--text-success)); }
+.branch-card-mini.kpi-danger .branch-mini-detail { color: var(--brand-terracotta-300, var(--text-danger)); }
+
+/* Checkbox в таблице (выделение строк) */
+.report-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  padding: 0;
+}
+.report-check:hover { border-color: var(--text-accent); }
+.report-check.checked {
+  background: var(--brand-emerald-500, var(--text-accent));
+  border-color: var(--brand-emerald-500, var(--text-accent));
+  color: #fff;
+}
+.report-check i { font-size: 12px; }
+
+/* Выделенная строка */
+.data-table tbody tr.row-selected {
+  background: var(--bg-accent);
+}
+.data-table tbody tr.row-selected td {
+  border-bottom-color: var(--border-accent);
+}
+
+/* Sticky bulk-actions bar */
+.bulk-actions-bar {
+  position: sticky;
+  bottom: var(--sp-3);
+  margin-top: var(--sp-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border-accent, var(--border-strong));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg, 0 4px 12px rgba(0,0,0,0.15));
+  z-index: 5;
+  animation: bulk-slide-in 0.16s ease-out;
+}
+@keyframes bulk-slide-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.bulk-actions-info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-13);
+  color: var(--text-secondary);
+}
+.bulk-actions-info i {
+  color: var(--text-accent);
+  font-size: 18px;
+}
+.bulk-actions-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Прогресс-бар в строке таблицы */
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.progress-row .progress {
+  flex: 1;
+  min-width: 60px;
+}
+.progress-text {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* Подсветка ячейки имени филиала (status stripe) */
+.branch-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border-left: 3px solid var(--border);
+  font-weight: 500;
+}
+.branch-name-cell.row-paid {
+  border-left-color: var(--brand-emerald-400, var(--text-success));
+  background: var(--status-paid-bg, rgba(15, 138, 90, 0.10));
+}
+.branch-name-cell.row-warn {
+  border-left-color: var(--status-warn, #c98a30);
+  background: var(--status-warn-bg, rgba(201, 138, 48, 0.10));
+}
+.branch-name-cell.row-danger {
+  border-left-color: var(--brand-terracotta-400, var(--text-danger));
+  background: var(--status-danger-bg, rgba(211, 90, 28, 0.10));
+}
+
+/* Tfoot для итогов */
+.data-table tfoot tr.tfoot-row td {
+  background: var(--bg-hover);
+  border-top: 2px solid var(--border-strong);
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+
+/* Утилита: tabular numbers */
+.fw-600 { font-weight: 600; }

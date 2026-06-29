@@ -1,5 +1,5 @@
-// Боковое меню с 5 разделами. На десктопе фиксировано слева,
-// на мобильных — drawer, открывается гамбургером.
+// Боковое меню с 6 разделами + кнопка командной палитры (⌘K).
+// На десктопе фиксировано слева, на мобильных — drawer (гамбургер).
 
 import { useState, useEffect } from "react";
 import { logout } from "../auth.jsx";
@@ -27,10 +27,8 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
 
-  // Закрываем drawer при смене маршрута
   useEffect(() => { setOpen(false); }, [route.path]);
 
-  // Esc закрывает drawer
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === "Escape" && setOpen(false);
@@ -38,8 +36,6 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Блокируем скролл body, пока drawer открыт (на мобильных иначе страница
-  // продолжает скроллиться "под" drawer, что выглядит как баг).
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -50,6 +46,14 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
   function handleLogout() {
     logout();
     window.dispatchEvent(new Event("auth-change"));
+  }
+
+  // Глобальный хоткей для открытия командной палитры (вынесен в CommandPalette).
+  // Здесь только визуальная кнопка-индикатор, которая диспатчит событие.
+  function openPalette() {
+    // Имитируем ⌘K — нативно его уже слушает CommandPalette.
+    const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true });
+    window.dispatchEvent(ev);
   }
 
   return (
@@ -79,6 +83,17 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
           </button>
         </div>
 
+        <button
+          className="sidebar-palette"
+          onClick={openPalette}
+          title="Поиск (⌘K)"
+          aria-label="Открыть командную палитру"
+        >
+          <i className="ti ti-search" aria-hidden="true" />
+          <span>Поиск</span>
+          <kbd>⌘K</kbd>
+        </button>
+
         <nav className="sidebar-nav">
           {NAV.map((item) => (
             <button
@@ -101,11 +116,26 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
             <button
               className="sidebar-theme-toggle"
               onClick={onToggleTheme}
-              title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}
+              title={
+                theme === "dark" ? "Светлая тема" :
+                theme === "light" ? "Изумруд" :
+                theme === "emerald" ? "Изумруд (светлая)" : "Тёмная"
+              }
               aria-label="Переключить тему"
             >
-              <i className={`ti ${theme === "dark" ? "ti-sun" : "ti-moon"}`} aria-hidden="true" />
-              <span>{theme === "dark" ? "Светлая тема" : "Тёмная тема"}</span>
+              <i
+                className={`ti ${
+                  theme === "dark" ? "ti-sun" :
+                  theme === "light" ? "ti-palette" :
+                  theme === "emerald" ? "ti-sun-high" : "ti-moon"
+                }`}
+                aria-hidden="true"
+              />
+              <span>
+                {theme === "dark" ? "Светлая" :
+                 theme === "light" ? "Изумруд" :
+                 theme === "emerald" ? "Emerald Light" : "Тёмная"}
+              </span>
             </button>
           )}
           <button className="btn btn-ghost btn-full" onClick={handleLogout}>

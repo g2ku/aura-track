@@ -1,0 +1,519 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   SupplyTrack — Изумрудно-терракотовая тема (v3).
+   Подключается через <html data-theme="emerald"> или data-theme="emerald-light".
+   Не ломает существующую dark/light тему — добавляет новые варианты.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Бренд-токены (одинаковые для обеих тем) ──────────────────────────── */
+:root,
+:root[data-theme="emerald"],
+:root[data-theme="emerald-light"] {
+  /* Палитра бренда */
+  --brand-emerald-50:  #e8f5f1;
+  --brand-emerald-100: #c4e7d8;
+  --brand-emerald-200: #8ed4b3;
+  --brand-emerald-300: #5bbf91;
+  --brand-emerald-400: #2fa874;
+  --brand-emerald-500: #0f8a5a;
+  --brand-emerald-600: #0c6e48;
+  --brand-emerald-700: #0a5638;
+  --brand-emerald-800: #074129;
+  --brand-emerald-900: #04291a;
+
+  --brand-terracotta-50:  #fdf2eb;
+  --brand-terracotta-100: #f9d8c1;
+  --brand-terracotta-200: #f3b794;
+  --brand-terracotta-300: #ec9461;
+  --brand-terracotta-400: #e2733a;
+  --brand-terracotta-500: #d35a1c;
+  --brand-terracotta-600: #b14814;
+  --brand-terracotta-700: #8a370f;
+  --brand-terracotta-800: #5e260a;
+  --brand-terracotta-900: #3a1706;
+
+  /* Глубокий изумрудно-синий (как в Linear / Notion) для hero */
+  --brand-deep-500: #0f4c5c;
+  --brand-deep-600: #0a3a47;
+  --brand-deep-700: #062a35;
+
+  /* Семантические (status) */
+  --status-success: var(--brand-emerald-500);
+  --status-success-bg: rgba(15, 138, 90, 0.12);
+  --status-warn: #c98a30;
+  --status-warn-bg: rgba(201, 138, 48, 0.12);
+  --status-danger: var(--brand-terracotta-500);
+  --status-danger-bg: rgba(211, 90, 28, 0.12);
+  --status-info: #2b7da6;
+  --status-info-bg: rgba(43, 125, 166, 0.10);
+}
+
+/* ─── DARK: «Изумруд + Терракот» (по умолчанию для v3) ─────────────────── */
+:root[data-theme="emerald"] {
+  --bg: #0a1410;
+  --surface-1: #0f1a16;
+  --surface-2: #142420;
+  --surface-3: #1a2d27;
+  --surface-hover: #182620;
+  --bg-elev: #16241e;
+  --bg-hover: rgba(255, 255, 255, 0.04);
+
+  --border: #1d302a;
+  --border-strong: #284038;
+  --border-stronger: #355049;
+  --border-accent: rgba(15, 138, 90, 0.55);
+  --border-success: rgba(15, 138, 90, 0.55);
+  --border-danger: rgba(211, 90, 28, 0.55);
+  --border-warn: rgba(201, 138, 48, 0.50);
+
+  --text: #e8f0ec;
+  --text-secondary: #9aafa6;
+  --text-muted: #6a7d75;
+  --text-accent: var(--brand-emerald-400);
+  --text-success: var(--brand-emerald-300);
+  --text-warning: #e8b265;
+  --text-danger: var(--brand-terracotta-300);
+
+  --bg-accent: rgba(15, 138, 90, 0.10);
+  --bg-success: rgba(15, 138, 90, 0.12);
+  --bg-warning: rgba(201, 138, 48, 0.10);
+  --bg-danger: rgba(211, 90, 28, 0.10);
+
+  --shadow-focus: 0 0 0 3px rgba(47, 168, 116, 0.30);
+
+  --status-paid-fg: var(--brand-emerald-300);
+  --status-paid-bg: rgba(15, 138, 90, 0.14);
+  --status-paid-bd: rgba(15, 138, 90, 0.32);
+  --status-warn-fg: #e8b265;
+  --status-warn-bg: rgba(201, 138, 48, 0.12);
+  --status-warn-bd: rgba(201, 138, 48, 0.30);
+  --status-danger-fg: var(--brand-terracotta-300);
+  --status-danger-bg: rgba(211, 90, 28, 0.12);
+  --status-danger-bd: rgba(211, 90, 28, 0.30);
+  --status-neutral-fg: #9aafa6;
+  --status-neutral-bg: rgba(154, 175, 166, 0.10);
+  --status-neutral-bd: rgba(154, 175, 166, 0.25);
+
+  /* Градиент для hero на dashboard */
+  --hero-gradient: linear-gradient(135deg,
+    #0a3a47 0%,
+    #0c5640 40%,
+    #0f8a5a 100%);
+  --hero-gradient-subtle: linear-gradient(135deg,
+    rgba(15, 76, 92, 0.30) 0%,
+    rgba(15, 138, 90, 0.20) 100%);
+}
+
+/* ─── LIGHT: «Изумруд + Терракот» (светлая) ─────────────────────────────── */
+:root[data-theme="emerald-light"] {
+  --bg: #f7f9f6;
+  --surface-1: #ffffff;
+  --surface-2: #f0f4ee;
+  --surface-3: #ffffff;
+  --surface-hover: #eef3ec;
+  --bg-elev: #eef3ec;
+  --bg-hover: rgba(0, 0, 0, 0.03);
+
+  --border: #dde5d8;
+  --border-strong: #c5d1bf;
+  --border-stronger: #a8b8a1;
+  --border-accent: rgba(15, 138, 90, 0.45);
+  --border-success: rgba(15, 138, 90, 0.50);
+  --border-danger: rgba(211, 90, 28, 0.50);
+  --border-warn: rgba(201, 138, 48, 0.50);
+
+  --text: #142420;
+  --text-secondary: #4a5d56;
+  --text-muted: #7a8c84;
+  --text-accent: var(--brand-emerald-600);
+  --text-success: var(--brand-emerald-700);
+  --text-warning: #a87420;
+  --text-danger: var(--brand-terracotta-600);
+
+  --bg-accent: rgba(15, 138, 90, 0.08);
+  --bg-success: rgba(15, 138, 90, 0.10);
+  --bg-warning: rgba(201, 138, 48, 0.10);
+  --bg-danger: rgba(211, 90, 28, 0.08);
+
+  --shadow-focus: 0 0 0 3px rgba(15, 138, 90, 0.20);
+
+  --status-paid-fg: var(--brand-emerald-700);
+  --status-paid-bg: rgba(15, 138, 90, 0.10);
+  --status-paid-bd: rgba(15, 138, 90, 0.32);
+  --status-warn-fg: #a87420;
+  --status-warn-bg: rgba(201, 138, 48, 0.10);
+  --status-warn-bd: rgba(201, 138, 48, 0.30);
+  --status-danger-fg: var(--brand-terracotta-600);
+  --status-danger-bg: rgba(211, 90, 28, 0.08);
+  --status-danger-bd: rgba(211, 90, 28, 0.30);
+
+  --hero-gradient: linear-gradient(135deg,
+    #e8f5f1 0%,
+    #d5ebe0 40%,
+    #b8ddc8 100%);
+  --hero-gradient-subtle: linear-gradient(135deg,
+    rgba(232, 245, 241, 0.80) 0%,
+    rgba(184, 221, 200, 0.60) 100%);
+}
+
+/* ─── Hero-блок для dashboard (использует --hero-gradient) ─────────────── */
+.dashboard-hero {
+  background: var(--hero-gradient, linear-gradient(135deg, var(--surface-2), var(--surface-1)));
+  color: var(--text);
+  position: relative;
+  overflow: hidden;
+}
+
+/* ─── Bento-сетка для dashboard ────────────────────────────────────────── */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: minmax(120px, auto);
+  gap: var(--sp-4);
+}
+.bento-cell { min-width: 0; }
+@media (max-width: 900px) {
+  .bento-grid { grid-template-columns: repeat(6, 1fr); }
+}
+@media (max-width: 600px) {
+  .bento-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─── KPI с акцентной полосой (изумруд/терракот) ───────────────────────── */
+.kpi-card.kpi-accent { border-top: 2px solid var(--brand-emerald-400); }
+.kpi-card.kpi-accent .kpi-stripe { background: var(--brand-emerald-400); }
+.kpi-card.kpi-danger { border-top: 2px solid var(--brand-terracotta-400); }
+.kpi-card.kpi-danger .kpi-stripe { background: var(--brand-terracotta-400); }
+.kpi-card.kpi-paid { border-top: 2px solid var(--brand-emerald-300); }
+.kpi-card.kpi-paid .kpi-stripe { background: var(--brand-emerald-300); }
+.kpi-card.kpi-warn { border-top: 2px solid var(--status-warn); }
+.kpi-card.kpi-warn .kpi-stripe { background: var(--status-warn); }
+
+.kpi-value.accent { color: var(--brand-emerald-400); }
+.kpi-value.danger { color: var(--brand-terracotta-400); }
+.kpi-value.success { color: var(--brand-emerald-300); }
+
+/* ─── Branch-card: цветная полоса статуса слева ────────────────────────── */
+.branch-card {
+  position: relative;
+  border-left: 3px solid var(--border);
+  transition: border-color 0.15s ease;
+}
+.branch-card.kpi-paid { border-left-color: var(--brand-emerald-400); }
+.branch-card.kpi-danger { border-left-color: var(--brand-terracotta-400); }
+.branch-card.kpi-warn { border-left-color: var(--status-warn); }
+
+/* ─── Pill: переиспользуем с новой палитрой ────────────────────────────── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.pill-paid {
+  background: var(--status-paid-bg);
+  color: var(--status-paid-fg);
+  border-color: var(--status-paid-bd);
+}
+.pill-warn {
+  background: var(--status-warn-bg);
+  color: var(--status-warn-fg);
+  border-color: var(--status-warn-bd);
+}
+.pill-danger {
+  background: var(--status-danger-bg);
+  color: var(--status-danger-fg);
+  border-color: var(--status-danger-bd);
+}
+.pill-accent {
+  background: var(--bg-accent);
+  color: var(--text-accent);
+  border-color: var(--border-accent);
+}
+
+/* ─── Progress bar: изумрудная заливка ─────────────────────────────────── */
+.progress-bar {
+  background: linear-gradient(90deg, var(--brand-emerald-500), var(--brand-emerald-300));
+  border-radius: inherit;
+  transition: width 0.4s ease;
+}
+.progress.warn .progress-bar {
+  background: linear-gradient(90deg, #c98a30, #e8b265);
+}
+.progress.danger .progress-bar {
+  background: linear-gradient(90deg, var(--brand-terracotta-600), var(--brand-terracotta-300));
+}
+
+/* ─── Brand-индикатор (маленький значок) ──────────────────────────────── */
+.brand-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--brand-emerald-400);
+  box-shadow: 0 0 0 3px var(--bg-accent);
+}
+.brand-dot.danger { background: var(--brand-terracotta-400); box-shadow: 0 0 0 3px var(--bg-danger); }
+.brand-dot.warn { background: var(--status-warn); box-shadow: 0 0 0 3px var(--bg-warning); }
+
+/* ─── UI-KIT: переиспользуемые примитивы ─────────────────────────────── */
+.btn-icon { padding: 0; width: 32px; height: 32px; }
+.btn-block { flex: 1 1 0; min-width: 0; justify-content: center; }
+.btn-sm { padding: 5px 10px; font-size: var(--fs-12); }
+.btn-lg { padding: 12px 20px; font-size: var(--fs-15); }
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
+
+.btn-success {
+  background: var(--brand-emerald-500);
+  color: #fff;
+  border-color: var(--brand-emerald-500);
+}
+.btn-success:hover { background: var(--brand-emerald-400); border-color: var(--brand-emerald-400); }
+
+/* ─── Tabs: счётчик в табе ───────────────────────────────────────────── */
+.tab-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: var(--fs-11);
+  background: var(--bg-accent);
+  color: var(--text-accent);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Modal sizes ─────────────────────────────────────────────────────── */
+.modal-sm { max-width: 420px; }
+.modal-lg { max-width: 760px; }
+.modal-xl { max-width: 1080px; }
+
+/* ─── Toast viewport ─────────────────────────────────────────────────── */
+.toast-viewport {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 280px;
+  max-width: 380px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  animation: toast-in 0.18s ease-out;
+}
+@keyframes toast-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.toast-title { font-weight: 600; font-size: var(--fs-13); }
+.toast-message { color: var(--text-secondary); font-size: var(--fs-12); margin-top: 2px; }
+.toast-body { flex: 1; min-width: 0; }
+.toast-success { border-left: 3px solid var(--brand-emerald-400); }
+.toast-success i { color: var(--brand-emerald-400); }
+.toast-danger  { border-left: 3px solid var(--brand-terracotta-400); }
+.toast-danger i { color: var(--brand-terracotta-400); }
+.toast-warn    { border-left: 3px solid var(--status-warn); }
+.toast-warn i { color: var(--status-warn); }
+.toast-info    { border-left: 3px solid var(--text-accent); }
+.toast-info i { color: var(--text-accent); }
+
+/* ─── Command palette (⌘K) ──────────────────────────────────────────── */
+.command-palette {
+  width: 100%;
+  max-width: 640px;
+  max-height: 70vh;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 8vh auto 0;
+  position: relative;
+  z-index: 100;
+}
+.command-palette-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+}
+.command-palette-input i { color: var(--text-muted); font-size: 18px; }
+.command-palette-input input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: var(--fs-15);
+  color: var(--text);
+}
+.command-palette-input kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+.command-palette-body {
+  overflow-y: auto;
+  padding: 6px 0;
+  max-height: 60vh;
+}
+.command-palette-section { padding: 4px 0; }
+.command-palette-section-title {
+  padding: 6px 16px 4px;
+  font-size: var(--fs-11);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  color: var(--text);
+  font-size: var(--fs-13);
+  cursor: pointer;
+}
+.command-palette-item:hover,
+.command-palette-item.active {
+  background: var(--bg-accent);
+}
+.command-palette-item i { font-size: 18px; color: var(--text-secondary); }
+.command-palette-item-body { flex: 1; min-width: 0; }
+.command-palette-item-label {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.command-palette-item-sub {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  margin-top: 1px;
+}
+.command-palette-item kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  padding: 1px 5px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+.command-palette-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-13);
+}
+
+/* ─── Sparkline ─────────────────────────────────────────────────────── */
+.sparkline { display: block; }
+.sparkline-empty {
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+
+/* ─── Sidebar palette (поиск) ───────────────────────────────────────── */
+.sidebar-palette {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  margin: 4px 8px 8px;
+  padding: 8px 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: var(--fs-13);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.sidebar-palette:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.sidebar-palette i { font-size: 16px; }
+.sidebar-palette span { flex: 1; text-align: left; }
+.sidebar-palette kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  padding: 1px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+/* ─── KPI-карточка: расположение sparkline и delta ─────────────────── */
+.kpi-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.kpi-sub .sparkline { margin-left: auto; }
+.kpi-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: var(--fs-11);
+  font-weight: 500;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.kpi-delta.delta-up {
+  color: var(--brand-emerald-300);
+  background: var(--bg-success);
+}
+.kpi-delta.delta-down {
+  color: var(--brand-terracotta-300);
+  background: var(--bg-danger);
+}
+
+/* ─── Bento KPI: 3 ячейки в один ряд на десктопе ─────────────────── */
+.bento-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+@media (max-width: 720px) {
+  .bento-kpi-row { grid-template-columns: 1fr; }
+}

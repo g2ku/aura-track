@@ -1,8 +1,11 @@
 // Dashboard — главный экран сразу после входа.
-// Hero + 3 KPI с цветовыми страйпами + 2 графика + тренд + топ товаров + список филиалов.
+// Bento-сетка KPI + 2 графика + тренд + топ товаров + плотный список филиалов.
+// Использует «Изумрудно-терракотовую» палитру через design tokens.
 
 import { useMemo, useState, useEffect, Suspense, lazy } from "react";
-import { fmt, pct, tagStyle, downloadCsv } from "../utils";
+import { fmt, pct, downloadCsv } from "../utils";
+import { KpiCard, Pill, Button } from "../ui";
+import Sparkline, { trendFromAgg, deltaPercent } from "./Sparkline";
 
 // Ленивая загрузка chart.js.
 const DonutOverall = lazy(() => import("./charts/DonutOverall"));
@@ -24,6 +27,16 @@ function greeting(now = new Date()) {
   if (h < 12) return "Доброе утро";
   if (h < 18) return "Добрый день";
   return "Добрый вечер";
+}
+
+// Склонение существительных после числительных
+function ru(n, one, few, many) {
+  const a = Math.abs(n) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  if (b === 1) return one;
+  return many;
 }
 
 export default function Dashboard({
@@ -54,6 +67,10 @@ export default function Dashboard({
     return { newReports };
   }, [docs]);
 
+  // Тренды за 7 дней (sparkline)
+  const trendTotal = useMemo(() => trendFromAgg(agg, 7), [agg]);
+  const dTotal = deltaPercent(trendTotal);
+
   function doExport() {
     const headers = [
       { key: "branch", label: "Филиал" },
@@ -74,36 +91,34 @@ export default function Dashboard({
     <div className="dashboard-wrap">
       <div className="dashboard-hero">
         <div style={{ position: "relative", zIndex: 1 }}>
-          <div className="dashboard-greeting">{greeting()}</div>
-          <div className="dashboard-title">
-            Общая статистика
+          <div className="dashboard-greeting">
+            {greeting()}, <span className="role-badge">{canEdit ? "admin" : "user"}</span>
             {today.newReports > 0 && (
               <span className="fresh-tag-mini">
                 <i className="ti ti-sparkles" aria-hidden="true" /> +{today.newReports} сегодня
               </span>
             )}
           </div>
+          <div className="dashboard-title">Общая статистика</div>
           <div className="dashboard-sub">
             <b>{agg.global.reportCount}</b> {ru(agg.global.reportCount, "отчёт", "отчёта", "отчётов")} ·
-            <b> {agg.global.branchCount}</b> {ru(agg.global.branchCount, "филиал", "филиала", "филиалов")} ·
+            <b> {agg.global.branchCount}</b> {ru(agg.global.branchCount, "филиал", "филиала", "филиалов")}
             {agg.global.total > 0 && (
-              <> оплачено <b className="text-success">{pct(agg.global.paid, agg.global.total).toFixed(0)}%</b></>
+              <> · оплачено <b className="text-success">{pct(agg.global.paid, agg.global.total).toFixed(0)}%</b></>
             )}
           </div>
         </div>
         <div className="dashboard-actions">
-          <button className="btn btn-out" onClick={doExport}>
-            <i className="ti ti-download" aria-hidden="true" /> Экспорт
-          </button>
+          <Button variant="outline" icon="ti-download" onClick={doExport}>Экспорт</Button>
           {canEdit && (
-            <button className="btn btn-out" onClick={onOpenGlobalPayment}>
-              <i className="ti ti-cash" aria-hidden="true" /> Общая оплата
-            </button>
+            <Button variant="outline" icon="ti-cash" onClick={onOpenGlobalPayment}>
+              Общая оплата
+            </Button>
           )}
           {canEdit && (
-            <button className="btn btn-pri" onClick={onAddReport}>
-              <i className="ti ti-plus" aria-hidden="true" /> Добавить отчёт
-            </button>
+            <Button variant="primary" icon="ti-plus" onClick={onAddReport}>
+              Добавить отчёт
+            </Button>
           )}
         </div>
       </div>
@@ -116,48 +131,47 @@ export default function Dashboard({
             Загрузите первую накладную — здесь появится статистика по филиалам, графики и тренды.
           </div>
           {canEdit && (
-            <button className="btn btn-pri" onClick={onAddReport}>
-              <i className="ti ti-upload" aria-hidden="true" /> Загрузить файл
-            </button>
+            <Button variant="primary" icon="ti-upload" onClick={onAddReport}>
+              Загрузить файл
+            </Button>
           )}
         </div>
       ) : (
         <>
-          <div className="summary-grid fade-in-stagger">
-            <div className="kpi-card kpi-accent">
-              <div className="kpi-stripe" />
-              <div className="kpi-row">
-                <div className="kpi-label"><i className="ti ti-package" aria-hidden="true" /> Поставки</div>
-              </div>
-              <div className="kpi-value accent">{fmt(agg.global.total)}</div>
-              <div className="kpi-sub">Среднее: {fmt(agg.global.averagePerReport)} / отчёт</div>
-            </div>
-
-            <div className="kpi-card kpi-paid">
-              <div className="kpi-stripe" />
-              <div className="kpi-row">
-                <div className="kpi-label"><i className="ti ti-circle-check" aria-hidden="true" /> Оплачено</div>
-              </div>
-              <div className="kpi-value success">{fmt(agg.global.paid)}</div>
-              <div className="kpi-sub">
-                {agg.global.total > 0
-                  ? `${pct(agg.global.paid, agg.global.total).toFixed(0)}% от поставок`
-                  : "—"}
-              </div>
-            </div>
-
-            <div className={`kpi-card ${agg.global.debt > 0 ? "kpi-danger" : "kpi-paid"}`}>
-              <div className="kpi-stripe" />
-              <div className="kpi-row">
-                <div className="kpi-label"><i className="ti ti-alert-triangle" aria-hidden="true" /> Долг</div>
-              </div>
-              <div className={`kpi-value kpi-lg ${agg.global.debt > 0 ? "danger" : "success"}`}>
-                {fmt(agg.global.debt)}
-              </div>
-              <div className="kpi-sub">Средний долг: {fmt(agg.global.averageDebtPerBranch)} / филиал</div>
-            </div>
+          {/* ─── Bento KPI (3 ячейки) ──────────────────────────────── */}
+          <div className="bento-kpi-row fade-in-stagger">
+            <KpiCard
+              tone="accent"
+              icon="ti-package"
+              label="Поставки"
+              value={fmt(agg.global.total)}
+              sub={
+                <>
+                  Среднее: {fmt(agg.global.averagePerReport)} / отчёт
+                  <Sparkline values={trendTotal} width={70} height={20} tone="accent" />
+                  <span className={`kpi-delta ${dTotal > 0 ? "delta-up" : dTotal < 0 ? "delta-down" : ""}`}>
+                    {dTotal > 0 ? "↗" : dTotal < 0 ? "↘" : "·"} {Math.abs(dTotal)}% за неделю
+                  </span>
+                </>
+              }
+            />
+            <KpiCard
+              tone="paid"
+              icon="ti-circle-check"
+              label="Оплачено"
+              value={fmt(agg.global.paid)}
+              sub={agg.global.total > 0 ? `${pct(agg.global.paid, agg.global.total).toFixed(0)}% от поставок` : "—"}
+            />
+            <KpiCard
+              tone={agg.global.debt > 0 ? "danger" : "paid"}
+              icon="ti-alert-triangle"
+              label="Долг"
+              value={fmt(agg.global.debt)}
+              sub={`Средний долг: ${fmt(agg.global.averageDebtPerBranch)} / филиал`}
+            />
           </div>
 
+          {/* ─── Графики (2 колонки) ───────────────────────────────── */}
           <div className="charts-row">
             <div className="chart-card">
               <div className="chart-head">
@@ -230,9 +244,9 @@ export default function Dashboard({
                         {agg.byBranch[b].reports} {ru(agg.byBranch[b].reports, "отчёт", "отчёта", "отчётов")}
                       </div>
                     </div>
-                    <span className={`pill ${isPaid ? "pill-paid" : pc >= 50 ? "pill-warn" : "pill-danger"}`}>
+                    <Pill tone={isPaid ? "paid" : pc >= 50 ? "warn" : "danger"}>
                       {isPaid ? "✓ Оплачено" : `−${fmt(d)}`}
-                    </span>
+                    </Pill>
                   </div>
 
                   <div className={`progress ${pc >= 100 ? "success" : pc >= 50 ? "warn" : ""}`}>
@@ -259,12 +273,14 @@ export default function Dashboard({
                   <div className="branch-foot">
                     {canEdit && d > 0 ? (
                       <div className="branch-foot-row">
-                        <button
-                          className="btn btn-sm btn-pri"
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon="ti-plus"
                           onClick={(e) => { e.stopPropagation(); onPayBranch?.(b); }}
                         >
-                          <i className="ti ti-plus" aria-hidden="true" /> Оплата
-                        </button>
+                          Оплата
+                        </Button>
                         <span className="branch-open">
                           Подробнее <i className="ti ti-arrow-right" aria-hidden="true" />
                         </span>
@@ -333,14 +349,4 @@ function TopProducts({ agg }) {
       })}
     </div>
   );
-}
-
-// ─── Склонение существительных после числительных ────────────────────
-function ru(n, one, few, many) {
-  const a = Math.abs(n) % 100;
-  const b = a % 10;
-  if (a > 10 && a < 20) return many;
-  if (b > 1 && b < 5) return few;
-  if (b === 1) return one;
-  return many;
 }

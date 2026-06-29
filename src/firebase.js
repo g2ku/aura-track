@@ -91,17 +91,24 @@ export async function setBranchPayments(fileName, sheetName, branch, history) {
 // Удалить один ручной платёж из истории филиала в отчёте.
 // `entryId` — id записи в history (если нет id — ищем по индексу).
 // Не трогает globalAlloc/standaloneHistory.
+//
+// Фикс: транзакция обязана либо сделать write, либо явно вернуть значение,
+// иначе Firestore SDK бросает "transaction has no writes". Также теперь
+// безопасно фильтруем записи без id (раньше — никогда не удаляли по id).
 export async function deleteBranchPayment(docIdStr, branch, entryId) {
   const ref = doc(getDb(), "documents", docIdStr);
   await runTransaction(getDb(), async (tx) => {
     const s = await tx.get(ref);
-    if (!s.exists()) return;
+    if (!s.exists()) return; // явный return — транзакция завершается без write
     const history = s.data().payments?.[branch]?.history || [];
     const next = history.filter(h => {
-      // Если у записи есть id — сравниваем по нему; иначе — никогда не удаляем по id.
+      // Запись с id: удаляем если совпадает. Без id: оставляем (нельзя
+      // надёжно идентифицировать).
       if (!h.id) return true;
       return h.id !== entryId;
     });
+    // Если ничего не изменилось — return без write, иначе update.
+    if (next.length === history.length) return;
     tx.update(ref, { [`payments.${branch}.history`]: next });
   });
 }
@@ -175,7 +182,9 @@ export async function addGlobalPayment({ amount, note, mode, perBranch, by }) {
 
   // Если это распределение — раскидываем по всем отчётам текущих данных.
   if (mode !== "single" && perBranch) {
-    const docsQ = query(collection(getDb(), "documents"));
+    const db = getDb();
+    // Получаем свежий снапшот перед распределением (уменьшает окно гонки).
+    const docsQ = query(collection(db, "documents"));
     const docsSnap = await getDocs(docsQ).catch(() => null);
     if (!docsSnap) return entry;
 
@@ -189,42 +198,45 @@ export async function addGlobalPayment({ amount, note, mode, perBranch, by }) {
       }
     });
 
-    // Собираем список обновлений — каждое выполняем в транзакции
-    // (на случай, если параллельно идёт ещё одна правка).
-    // Внутри транзакции перечитываем prevAlloc — это устраняет race condition.
-    const db = getDb();
+    // Фикс: для каждого филиала обрезаем распределение по его реальному долгу,
+    // чтобы не получить отрицательные значения. Раньше при mode="even" или
+    // "proportional" сумма больше долга записывалась в globalAlloc полностью
+    // → долг уходил в минус.
     const txPromises = [];
-    docsSnap.docs.forEach(d => {
-      const data = d.data();
-      const updateObj = {};
-      for (const b of data.branches || []) {
-        const totalForBranch = +perBranch[b] || 0;
-        const list = reportsByBranch[b] || [];
-        if (totalForBranch > 0 && list.length > 0) {
-          const perReport = totalForBranch / list.length;
-          updateObj[`payments.${b}.globalAlloc`] = perReport;
-        }
-      }
-      if (Object.keys(updateObj).length) {
-        const ref = doc(db, "documents", d.id);
+    for (const branch of Object.keys(perBranch)) {
+      const totalForBranch = +perBranch[branch] || 0;
+      if (totalForBranch <= 0) continue;
+      const reportIds = reportsByBranch[branch] || [];
+      if (reportIds.length === 0) continue;
+
+      for (const reportId of reportIds) {
+        const ref = doc(db, "documents", reportId);
         txPromises.push(
           runTransaction(db, async (tx) => {
             const s = await tx.get(ref);
             if (!s.exists()) return;
-            // Перечитываем prevAlloc уже внутри транзакции и пишем инкремент.
-            const txUpdate = {};
-            for (const [field, delta] of Object.entries(updateObj)) {
-              const branch = field.split(".")[1];
-              const cur = +(s.data().payments?.[branch]?.globalAlloc || 0);
-              txUpdate[field] = cur + delta;
-            }
-            tx.update(ref, txUpdate);
+            const data = s.data();
+            const total = +(data.totals?.[branch] || 0);
+            const curGlobal = +(data.payments?.[branch]?.globalAlloc || 0);
+            const curManual = (data.payments?.[branch]?.history || []).reduce(
+              (sum, h) => sum + (+h.amount || 0), 0
+            );
+            const curStandalone = (data.payments?.[branch]?.standaloneHistory || []).reduce(
+              (sum, h) => sum + (+h.amount || 0), 0
+            );
+            // Доля этого отчёта = totalForBranch / reportIds.length, но
+            // не больше оставшегося долга по отчёту.
+            const perReport = totalForBranch / reportIds.length;
+            const reportDebt = Math.max(0, total - curGlobal - curManual - curStandalone);
+            const inc = Math.min(perReport, reportDebt);
+            if (inc <= 0) return; // нет долга — не пишем
+            tx.update(ref, { [`payments.${branch}.globalAlloc`]: curGlobal + inc });
           }).catch((e) => {
             console.warn("globalAlloc partial:", e);
           })
         );
       }
-    });
+    }
     await Promise.all(txPromises);
   }
 

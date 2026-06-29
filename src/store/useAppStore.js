@@ -26,7 +26,12 @@ function loadPeriod() {
 
 function loadTheme() {
   try {
-    return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light") return "light";
+    if (stored === "emerald") return "emerald";
+    if (stored === "emerald-light") return "emerald-light";
+    if (stored === "dark") return "dark";
+    return "dark";
   } catch (_) {
     return "dark";
   }
@@ -70,7 +75,9 @@ export const useAppStore = create((set, get) => ({
     }
     const unsub1 = subscribeReports(
       (list) => set({ docs: list, loading: false }),
-      (e) => set({ fbError: "Firebase: " + e.message })
+      // Фикс: используем setFbError вместо прямого set() — теперь баннер
+      // можно сбросить, и подписка не залипнет на старом сообщении.
+      (e) => get().setFbError("Firebase: " + e.message)
     );
     const unsub2 = subscribeGlobalPayments(
       (list) => set({ globalPayments: list }),
@@ -90,7 +97,16 @@ export const useAppStore = create((set, get) => ({
     } catch (_) {}
     set({ theme: t });
   },
+  // Цикл: dark → light → emerald → emerald-light → dark
+  cycleTheme() {
+    const order = ["dark", "light", "emerald", "emerald-light"];
+    const cur = get().theme;
+    const idx = order.indexOf(cur);
+    get().setTheme(order[(idx + 1) % order.length]);
+  },
   toggleTheme() {
+    // Сохраняем старое поведение для обратной совместимости (dark↔light).
+    // Для цикла по 4 темам — используй cycleTheme().
     get().setTheme(get().theme === "dark" ? "light" : "dark");
   },
 
@@ -104,5 +120,17 @@ export const useAppStore = create((set, get) => ({
   },
   closeModal() {
     set({ modal: null });
+  },
+
+  // ─── Фикс: явный метод для очистки/установки fbError ─────────────
+  // Раньше подписки писали в fbError напрямую через set(), и если ошибка
+  // случилась один раз — банер висел вечно. Теперь UI может сбросить
+  // (например, при dismiss), а подписки обновляют только если сообщение новое.
+  setFbError(msg) {
+    if (msg === get().fbError) return;
+    set({ fbError: msg });
+  },
+  clearFbError() {
+    set({ fbError: null });
   },
 }));

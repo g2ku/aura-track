@@ -4,20 +4,45 @@
 // Логины: "admin" (полный доступ), "user" (только просмотр).
 // В README помечено, что это MVP-решение; для продакшна нужно закрыть
 // правилами Firestore через custom claims или Cloud Function.
+//
+// Фикс кросс-вкладочной синхронизации:
+//   - sessionStorage НЕ шарится между вкладками (по спеке).
+//   - storage event срабатывает только для localStorage.
+//   - Используем localStorage "supply-track-auth-mirror" как сигнал,
+//     а реальную роль читаем из самого значения этого ключа (в нём храним
+//     и role, чтобы новая вкладка могла её подхватить без задержки).
+//   - Также подхватываем role при mount из того же ключа, чтобы избежать
+//     "редиректа на логин" в новой вкладке.
 
 import { useEffect, useState } from "react";
 
 const KEY = "supply-track-auth";
+const MIRROR_KEY = "supply-track-auth-mirror";
+
+function readFromMirror() {
+  try {
+    const raw = localStorage.getItem(MIRROR_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || (parsed.role !== "admin" && parsed.role !== "user")) return null;
+    return parsed.role;
+  } catch {
+    return null;
+  }
+}
 
 export function getRole() {
   try {
     const raw = sessionStorage.getItem(KEY);
-    if (!raw) return null;
-    const r = JSON.parse(raw);
-    return r && (r.role === "admin" || r.role === "user") ? r.role : null;
+    if (raw) {
+      const r = JSON.parse(raw);
+      if (r && (r.role === "admin" || r.role === "user")) return r.role;
+    }
   } catch {
-    return null;
+    /* sessionStorage может быть недоступен */
   }
+  // Фикс: fallback на mirror в localStorage (для кросс-вкладочных сценариев).
+  return readFromMirror();
 }
 
 export function login(role) {
@@ -25,20 +50,20 @@ export function login(role) {
   const payload = { role, ts: Date.now() };
   try {
     sessionStorage.setItem(KEY, JSON.stringify(payload));
-    // Пишем в localStorage, чтобы другие вкладки получили storage event.
-    localStorage.setItem("supply-track-auth-mirror", String(payload.ts));
   } catch (_) {
-    // sessionStorage недоступен (приватный режим Safari, квоты) —
-    // пользователь сможет работать до перезагрузки вкладки, но роль не сохранится.
-    return role;
+    // sessionStorage недоступен — пишем только в mirror.
   }
+  // В localStorage кладём JSON с role, чтобы новые вкладки сразу видели роль.
+  try {
+    localStorage.setItem(MIRROR_KEY, JSON.stringify(payload));
+  } catch (_) {}
   return role;
 }
 
 export function logout() {
   try {
     sessionStorage.removeItem(KEY);
-    localStorage.setItem("supply-track-auth-mirror", String(Date.now()));
+    localStorage.removeItem(MIRROR_KEY);
   } catch (_) {}
 }
 
@@ -47,20 +72,16 @@ export function isAdmin() {
 }
 
 // React-хук для реактивного чтения роли.
-// Слушаем кастомное событие `auth-change` (диспатчится из login() и из других вкладок
-// через localStorage + storage event). Чистый storage event не работает
-// для sessionStorage между вкладками, поэтому для sync из других вкладок
-// используем канал localStorage → storage.
+// Фикс: при mount и при storage event читаем из mirror, если sessionStorage
+// пуст. Это решает «редирект на логин» в новой вкладке и обновление роли
+// из других вкладок.
 export function useAuth() {
   const [role, setRole] = useState(() => getRole());
   useEffect(() => {
     const handler = () => setRole(getRole());
-    // auth-change диспатчится в той же вкладке из login().
     window.addEventListener("auth-change", handler);
-    // storage event работает только для localStorage; используем его как сигнал
-    // что другая вкладка обновила роль (мы пишем в localStorage mirror).
     const storageHandler = (e) => {
-      if (e.key === "supply-track-auth-mirror") handler();
+      if (e.key === MIRROR_KEY) handler();
     };
     window.addEventListener("storage", storageHandler);
     return () => {

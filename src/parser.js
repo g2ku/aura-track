@@ -54,11 +54,20 @@ function isTotalRow(row) {
 // Если в строке только точки (нет запятых) — трактуем как разделитель тысяч:
 // "1.234" → 1234. Если точка одна и после неё 3 цифры — это тысячи;
 // иначе (1.5, 12.34) — десятичный разделитель.
+// Поддерживает отрицательные числа (возвраты/корректировки).
+//
+// Фикс: явно возвращаем тип { value, isReturn }, чтобы потребители знали,
+// что значение является возвратом и его нужно учесть отдельно в totals.
 function parseNum(v) {
   if (v === null || v === undefined || v === "") return 0;
   if (typeof v === "number") return v;
   let s = String(v).trim();
   if (!s) return 0;
+
+  // Запоминаем знак
+  const isNegative = s.startsWith("-") || s.startsWith("−") || s.startsWith("–");
+  if (isNegative) s = s.replace(/^[-−–]/, "");
+
   const hasDot = s.includes(".");
   const hasComma = s.includes(",");
   if (hasDot && hasComma) {
@@ -83,7 +92,7 @@ function parseNum(v) {
   // Убираем всё, кроме цифр, знака минуса и точки
   s = s.replace(/[^\d.\-]/g, "");
   const n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
+  return isNaN(n) ? 0 : (isNegative ? -n : n);
 }
 
 // Ищем лучшую строку-заголовок: максимум идущих подряд текстовых ячеек ≥2.
@@ -163,6 +172,19 @@ function findDate(rows, fallback) {
       }
     }
   }
+  // 1c. Формат yyyy-mm-dd (ISO)
+  for (const row of rows) {
+    for (const cell of row) {
+      const m = String(cell || "").match(/\b(\d{4})[./\-](\d{1,2})[./\-](\d{1,2})\b/);
+      if (m) {
+        const yy = +m[1], mm = +m[2], dd = +m[3];
+        const dt = new Date(yy, mm - 1, dd);
+        if (dt.getFullYear() === yy && dt.getMonth() === mm - 1 && dt.getDate() === dd) {
+          return `${String(dd).padStart(2, "0")}.${String(mm).padStart(2, "0")}.${yy}`;
+        }
+      }
+    }
+  }
   // 2. «26 июня», «26 июня 2025» — месяц прописью
   for (const cell of rows.flat()) {
     const m = String(cell || "").match(/\b(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?\b/i);
@@ -172,6 +194,38 @@ function findDate(rows, fallback) {
       const month = MONTHS[monthName];
       if (month) {
         const year = m[3] ? +m[3] : new Date().getFullYear();
+        const dt = new Date(year, month - 1, day);
+        if (dt.getFullYear() === year && dt.getMonth() === month - 1 && dt.getDate() === day) {
+          return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
+        }
+      }
+    }
+  }
+  // 3. Попытка распарсить sheetNameFallback как дату
+  if (fallback) {
+    const m1 = fallback.match(/^(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})$/);
+    if (m1) {
+      const dd = +m1[1], mm = +m1[2], yy = +m1[3];
+      const dt = new Date(yy, mm - 1, dd);
+      if (dt.getFullYear() === yy && dt.getMonth() === mm - 1 && dt.getDate() === dd) {
+        return `${String(dd).padStart(2, "0")}.${String(mm).padStart(2, "0")}.${yy}`;
+      }
+    }
+    const m2 = fallback.match(/^(\d{4})[./\-](\d{1,2})[./\-](\d{1,2})$/);
+    if (m2) {
+      const yy = +m2[1], mm = +m2[2], dd = +m2[3];
+      const dt = new Date(yy, mm - 1, dd);
+      if (dt.getFullYear() === yy && dt.getMonth() === mm - 1 && dt.getDate() === dd) {
+        return `${String(dd).padStart(2, "0")}.${String(mm).padStart(2, "0")}.${yy}`;
+      }
+    }
+    const m3 = fallback.match(/\b(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?\b/i);
+    if (m3) {
+      const day = +m3[1];
+      const monthName = m3[2].toLowerCase();
+      const month = MONTHS[monthName];
+      if (month) {
+        const year = m3[3] ? +m3[3] : new Date().getFullYear();
         const dt = new Date(year, month - 1, day);
         if (dt.getFullYear() === year && dt.getMonth() === month - 1 && dt.getDate() === day) {
           return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
@@ -229,6 +283,9 @@ export function parseRows(rows, sheetNameFallback = "") {
   }
 
   // Сбор позиций.
+  // Фикс: сохраняем отрицательные суммы (возвраты) в amounts, чтобы totals
+  // по филиалу учитывал их корректно. Но hasAny ставим в true даже если
+  // единственная ненулевая сумма — отрицательная, иначе строка пропадёт.
   const items = [];
   for (let i = headerIdx + 1; i < clean.length; i++) {
     const row = clean[i];
@@ -240,7 +297,8 @@ export function parseRows(rows, sheetNameFallback = "") {
     let hasAny = false;
     for (const { name: br, col } of branches) {
       const v = parseNum(row[col]);
-      if (v === 0) continue; // сохраняем знак для возвратов/корректировок
+      // Записываем все ненулевые значения (включая отрицательные — возвраты).
+      if (v === 0) continue;
       amounts[br] = v;
       hasAny = true;
     }
@@ -438,7 +496,7 @@ export async function extractPdfRows(file) {
 
       const row = new Array(colPositions.length).fill(null);
       for (const tok of sorted) {
-        const colIdx = nearestColumn(tok.x, colPositions);
+        const colIdx = nearestColumn(tok.x, colPositions, COL_GAP);
         if (colIdx === -1) continue;
         const cur = row[colIdx] || "";
         row[colIdx] = cur ? cur + " " + tok.text : tok.text;
@@ -473,7 +531,8 @@ function detectColumnPositions(lines, gap) {
 }
 
 // К какой колонке относится токен с данной X-координатой.
-function nearestColumn(x, cols) {
+// Фикс: gap передаётся параметром, а не вытягивается через hoisted function.
+function nearestColumn(x, cols, gap) {
   let best = -1;
   let bestDist = Infinity;
   for (let i = 0; i < cols.length; i++) {
@@ -483,13 +542,9 @@ function nearestColumn(x, cols) {
       best = i;
     }
   }
-  // Слишком далеко от любой колонки — не относим.
-  if (bestDist > gap()) return -1;
+  if (bestDist > gap) return -1;
   return best;
 }
-
-// Для читаемости — отдельная функция, чтобы не дублировать gap.
-function gap() { return 30; }
 
 // Превью суммы по листу (для списка листов в Excel).
 export function quickSum(rows) {
@@ -498,9 +553,9 @@ export function quickSum(rows) {
       let s = 0;
       for (let i = 1; i < row.length; i++) {
         const v = parseNum(row[i]);
-        if (v > 0) s += v;
+        if (v !== 0) s += v; // учитываем и отрицательные (возвраты)
       }
-      if (s > 0) return s;
+      return s;
     }
   }
   return 0;

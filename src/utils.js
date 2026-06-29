@@ -60,19 +60,23 @@ export function aggregateDocs(docs) {
 
     // Подсчёт товаров: каждый item с суммой по каждому филиалу — в общий total товара.
     // Если в строке есть суммы по нескольким филиалам — учитываем все.
+    // Фикс: учитываем и отрицательные суммы (возвраты) в itemTotal, но
+    // помечаем такой товар как «есть возвраты» в счётчике count > 0.
     for (const it of d.items || []) {
       const name = it.name || "Без названия";
       const amounts = it.amounts || {};
       let itemTotal = 0;
       const itemBranches = new Set();
+      let hasPositive = false;
       for (const b of Object.keys(amounts)) {
         const v = +amounts[b] || 0;
-        if (v > 0) {
-          itemTotal += v;
-          itemBranches.add(b);
-        }
+        itemTotal += v;
+        if (v !== 0) itemBranches.add(b);
+        if (v > 0) hasPositive = true;
       }
-      if (itemTotal <= 0) continue;
+      // Считаем только позиции, у которых есть хотя бы одна положительная сумма.
+      // Полностью-отрицательные позиции (только возвраты) — пропускаем как артефакт.
+      if (!hasPositive) continue;
       byProduct[name] = byProduct[name] || { total: 0, count: 0, dates: new Set(), branches: new Set() };
       byProduct[name].total += itemTotal;
       byProduct[name].count += 1;
@@ -256,7 +260,7 @@ export function filterDocsByPeriod(docs, period) {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const oneDay = 86400000;
 
-  // Документы без валидной d.date пропускаются в любом фильтре кроме "all".
+  // Документы без валидной d.date используют uploadedAt как fallback
   if (period.preset === "today") {
     return (docs || []).filter((d) => {
       const ts = docTs(d);
@@ -291,13 +295,15 @@ export function filterDocsByPeriod(docs, period) {
 }
 
 // timestamp документа: приоритет — дата из файла (d.date).
-// Возвращает null если валидной даты нет (фильтры по дате тогда пропускают
-// документ только в режиме "all" — без uploadedAt-fallback, иначе возникает
-// путаница в "сегодня/30д").
+// Fallback — uploadedAt. Возвращает null если валидной даты нет вообще.
 function docTs(d) {
   if (d.date) {
     const ts = dateKeyToTs(d.date);
     if (ts) return ts;
+  }
+  // Fallback to uploadedAt if available
+  if (d.uploadedAt && typeof d.uploadedAt === "number" && d.uploadedAt > 0) {
+    return d.uploadedAt;
   }
   return null;
 }
@@ -310,7 +316,8 @@ export function paidForBranch(payments, branch) {
   if (!p) return 0;
   const manual = (p.history || []).reduce((s, h) => s + (+h.amount || 0), 0);
   const global = +(p.globalAlloc || 0);
-  return manual + global;
+  const standalone = (p.standaloneHistory || []).reduce((s, h) => s + (+h.amount || 0), 0);
+  return manual + global + standalone;
 }
 
 // ─── Преобразование input date (yyyy-mm-dd) в timestamp начала дня ──────

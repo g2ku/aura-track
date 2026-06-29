@@ -24,6 +24,17 @@ import GlobalPaymentModal from "./components/GlobalPaymentModal";
 import BranchPaymentModal from "./components/BranchPaymentModal";
 import ConfirmModal from "./components/ConfirmModal";
 import PeriodBar from "./components/PeriodBar";
+import CommandPalette from "./components/CommandPalette";
+import { ToastViewport } from "./ui";
+
+// Фикс: безопасная генерация ID с монотонным счётчиком в комбинации с
+// Date.now() + Math.random(). Раньше при двух кликах в одну миллисекунду
+// была теоретическая коллизия. Теперь счётчик гарантирует уникальность.
+let _idCounter = 0;
+function makePaymentId() {
+  _idCounter = (_idCounter + 1) & 0xffff;
+  return `pay-${Date.now()}-${_idCounter.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export default function App() {
   return (
@@ -55,6 +66,18 @@ function MainApp() {
 
   // Подписки на Firestore один раз.
   useEffect(() => { initStore(); }, [initStore]);
+
+  // Слушаем кастомные события от CommandPalette (открыть upload / globalPay).
+  useEffect(() => {
+    const handler = (e) => {
+      const kind = e?.detail?.kind;
+      if (kind === "upload" || kind === "globalPay") {
+        if (isAdmin()) openModal(kind);
+      }
+    };
+    window.addEventListener("supply-track:open-modal", handler);
+    return () => window.removeEventListener("supply-track:open-modal", handler);
+  }, [openModal]);
 
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
   const filteredDocs = useMemo(
@@ -174,7 +197,7 @@ function MainApp() {
         const newHistory = [
           ...history,
           {
-            id: `pay-${ts}-${Math.random().toString(36).slice(2, 8)}`,
+            id: makePaymentId(),
             amount: payload.amount,
             note: payload.note,
             items: payload.items || [],
@@ -237,6 +260,9 @@ function MainApp() {
     );
   } else if (route.path === "/branches/:name") {
     const name = route.params.name;
+    // Фикс: проверяем филиал в ОБОИХ agg (полный и фильтрованный). Если
+    // он есть хотя бы в одном — показываем BranchDetail. UnknownBranchFallback
+    // срабатывает только если филиала нет ни в одном agg (был удалён / опечатка).
     if (agg.byBranch[name] || filteredAgg.byBranch[name]) {
       content = (
         <BranchDetail
@@ -408,6 +434,9 @@ function MainApp() {
         onConfirm={closeModal}
         onCancel={closeModal}
       />
+
+      <ToastViewport />
+      <CommandPalette />
     </div>
   );
 }
@@ -425,7 +454,7 @@ function ReportDetailView({ report, canEdit, role, onBack }) {
     const newHistory = [
       ...history,
       {
-        id: `pay-${ts}-${Math.random().toString(36).slice(2, 8)}`,
+        id: makePaymentId(),
         amount: payload.amount,
         note: payload.note,
         items: payload.items || [],

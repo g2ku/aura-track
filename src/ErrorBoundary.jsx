@@ -1,4 +1,5 @@
 import React from "react";
+import "./styles.css";
 
 // ErrorBoundary — ловит любые ошибки рендера и показывает их на экране.
 // Без него — белый/чёрный экран без объяснений.
@@ -23,47 +24,23 @@ export class ErrorBoundary extends React.Component {
   render() {
     if (this.state.error) {
       return (
-        <div style={{
-          minHeight: "100vh",
-          background: "#0f1115",
-          color: "#e7ebf3",
-          padding: "40px 20px",
-          fontFamily: "system-ui, sans-serif",
-        }}>
-          <div style={{ maxWidth: 720, margin: "0 auto" }}>
-            <h1 style={{ color: "#e84c4c", marginBottom: 12 }}>
-              Что-то сломалось
-            </h1>
-            <p style={{ color: "#9ba3b5", marginBottom: 16 }}>
+        <div className="error-boundary">
+          <div className="error-boundary-card">
+            <div className="error-boundary-icon">
+              <i className="ti ti-alert-triangle" aria-hidden="true" />
+            </div>
+            <h1 className="error-boundary-title">Что-то сломалось</h1>
+            <p className="error-boundary-message">
               Приложение поймало ошибку. Скопируй текст ниже и пришли разработчику.
             </p>
-            <pre style={{
-              background: "#161922",
-              border: "1px solid #262b3a",
-              borderRadius: 8,
-              padding: 16,
-              overflow: "auto",
-              fontSize: 12,
-              color: "#e7ebf3",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}>
+            <pre className="error-boundary-stack">
 {String(this.state.error?.stack || this.state.error?.message || this.state.error)}
             </pre>
             <button
+              className="btn btn-pri"
               onClick={() => { sessionStorage.clear(); window.location.reload(); }}
-              style={{
-                marginTop: 16,
-                padding: "10px 18px",
-                background: "#4f8cff",
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontSize: 14,
-              }}
             >
-              Очистить и перезагрузить
+              <i className="ti ti-refresh" aria-hidden="true" /> Очистить и перезагрузить
             </button>
           </div>
         </div>
