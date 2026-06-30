@@ -18,6 +18,8 @@ import ReportsView from "./components/ReportsView";
 import PaymentsView from "./components/PaymentsView";
 import DebtsView from "./components/DebtsView";
 import ProductsView from "./components/ProductsView";
+import PosterView from "./components/PosterView";
+import PosterCompareView from "./components/PosterCompareView";
 import Tracking from "./components/Tracking";
 import UploadModal from "./components/UploadModal";
 import GlobalPaymentModal from "./components/GlobalPaymentModal";
@@ -320,6 +322,10 @@ function MainApp() {
     );
   } else if (route.path === "/products") {
     content = <ProductsView docs={filteredDocs} agg={filteredAgg} />;
+  } else if (route.path === "/poster") {
+    content = <PosterView />;
+  } else if (route.path === "/poster/compare") {
+    content = <PosterCompareView />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }

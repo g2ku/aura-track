@@ -11,6 +11,7 @@ const NAV = [
   { id: "products", path: "/products", icon: "ti-box", label: "Товары" },
   { id: "payments", path: "/payments", icon: "ti-cash", label: "Оплаты" },
   { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
+  { id: "poster", path: "/poster", icon: "ti-cloud", label: "Poster API" },
 ];
 
 function currentNavId(path) {
@@ -20,12 +21,14 @@ function currentNavId(path) {
   if (path.startsWith("/products")) return "products";
   if (path.startsWith("/payments")) return "payments";
   if (path.startsWith("/debts")) return "debts";
+  if (path.startsWith("/poster")) return "poster";
   return "dashboard";
 }
 
 export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate }) {
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
+  const isCompareRoute = route.path === "/poster/compare";
 
   useEffect(() => { setOpen(false); }, [route.path]);
 
@@ -112,6 +115,18 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
           <div className="sidebar-role">
             <span className="role-badge">{role}</span>
           </div>
+          
+          {activeId === "poster" && (
+            <button
+              className="btn btn-out btn-full"
+              style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}
+              onClick={() => onNavigate(isCompareRoute ? "/poster" : "/poster/compare")}
+            >
+              <i className={`ti ${isCompareRoute ? "ti-cloud" : "ti-compare"}`} aria-hidden="true" />
+              <span>{isCompareRoute ? "Poster API" : "Сравнить периоды"}</span>
+            </button>
+          )}
+
           {onToggleTheme && (
             <button
               className="sidebar-theme-toggle"
