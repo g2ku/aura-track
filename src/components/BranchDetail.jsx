@@ -87,7 +87,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
     return () => { cancelled = true; };
   }, [branch, resolvedBranch]);
 
-  const spotName = formatBranchName(branch);
+  const displayName = formatBranchName(branch);
   const grandCash = useMemo(() => cashDays.reduce((s, r) => s + r.total, 0), [cashDays]);
   const grandTx = useMemo(() => cashDays.reduce((s, r) => s + r.txCount, 0), [cashDays]);
   const avgPerDay = cashDays.length > 0 ? Math.round(grandCash / cashDays.length) : 0;
@@ -167,7 +167,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
 
       <div className="branch-detail-title">
         <i className="ti ti-building-store" aria-hidden="true" />
-        <h1>{spotName}</h1>
+        <h1>{displayName}</h1>
         {hasDocs && (
           <Pill tone={isPaid ? "paid" : pc >= 50 ? "warn" : "danger"}>
             {isPaid ? "✓ Оплачено" : `Долг: ${fmt(d)}`}
