@@ -21,6 +21,7 @@ import {
 } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
+import { useUserBranch } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -86,6 +87,7 @@ export default function PosterView() {
   const [view, setView] = useState("branches"); // branches | matrix | top
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(() => new Set()); // spotId'ы, РАЗВЁРНУТЫЕ вручную
+  const userBranch = useUserBranch();
 
   async function load(e) {
     e?.preventDefault?.();
@@ -145,13 +147,15 @@ export default function PosterView() {
     });
   }
 
-  // Сгруппируем строки по филиалам + отфильтруем по поиску.
+  // Сгруппируем строки по филиалам + отфильтруем по поиску + по филиалу пользователя.
   const grouped = useMemo(() => {
     if (!data) return [];
     const q = query.trim().toLowerCase();
     const map = new Map();
     for (const r of data.rows) {
       if (q && !r.productName.toLowerCase().includes(q)) continue;
+      // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+      if (userBranch && r.spotName !== userBranch && !r.spotName?.includes(userBranch.replace("Aura02_", ""))) continue;
       if (!map.has(r.spotId)) map.set(r.spotId, { spotId: r.spotId, spotName: r.spotName, items: [], totalSum: 0, totalQty: 0 });
       const g = map.get(r.spotId);
       g.items.push(r);
@@ -162,7 +166,7 @@ export default function PosterView() {
     arr.sort((a, b) => b.totalSum - a.totalSum);
     for (const g of arr) g.items.sort((a, b) => b.sum - a.sum);
     return arr;
-  }, [data, query]);
+  }, [data, query, userBranch]);
 
   // Топ товаров (с суммой по всем филиалам).
   const topProducts = useMemo(() => {

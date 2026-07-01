@@ -2,7 +2,7 @@
 // На десктопе фиксировано слева, на мобильных — drawer (гамбургер).
 
 import { useState, useEffect } from "react";
-import { logout } from "../auth.jsx";
+import { logout, getUserSpotName, isAdmin } from "../auth.jsx";
 
 const NAV = [
   { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
@@ -30,6 +30,8 @@ function currentNavId(path) {
 export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate }) {
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
+  const spotName = getUserSpotName();
+  const isBranch = role === "branch";
 
   useEffect(() => { setOpen(false); }, [route.path]);
 
@@ -99,7 +101,11 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
         </button>
 
         <nav className="sidebar-nav">
-          {NAV.map((item) => (
+          {NAV.filter(item => {
+            // Branch users don't see Poster API and Inventory (admin only)
+            if (isBranch && (item.id === "poster" || item.id === "inventory")) return false;
+            return true;
+          }).map((item) => (
             <button
               key={item.id}
               className={`sidebar-link${activeId === item.id ? " active" : ""}`}
@@ -114,7 +120,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
 
         <div className="sidebar-foot">
           <div className="sidebar-role">
-            <span className="role-badge">{role}</span>
+            <span className="role-badge">{isBranch ? spotName || role : role}</span>
           </div>
 
           {onToggleTheme && (

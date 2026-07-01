@@ -5,7 +5,7 @@ import {
   deleteBranchPayment,
   docId as makeDocId,
 } from "./firebase";
-import { LoginGate, useAuth, isAdmin } from "./auth.jsx";
+import { LoginGate, useAuth, useUserBranch, isAdmin } from "./auth.jsx";
 import { aggregateDocs, filterDocsByPeriod } from "./utils";
 import { useHashRoute, useRememberRoute } from "./router";
 import { useAppStore, periodToFilter } from "./store/useAppStore";
@@ -51,6 +51,7 @@ export default function App() {
 function MainApp() {
   const route = useHashRoute();
   const role = useAuth();
+  const userBranch = useUserBranch();
   const canEdit = isAdmin();
 
   // Стор: данные и UI state.
@@ -86,10 +87,16 @@ function MainApp() {
     return () => window.removeEventListener("supply-track:open-modal", handler);
   }, [openModal]);
 
-  const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+  const branchDocs = useMemo(() => {
+    if (!userBranch) return docs;
+    return docs.filter(d => (d.branches || []).includes(userBranch));
+  }, [docs, userBranch]);
+
+  const agg = useMemo(() => aggregateDocs(branchDocs), [branchDocs]);
   const filteredDocs = useMemo(
-    () => filterDocsByPeriod(docs, periodToFilter(period)),
-    [docs, period]
+    () => filterDocsByPeriod(branchDocs, periodToFilter(period)),
+    [branchDocs, period]
   );
   const filteredAgg = useMemo(() => aggregateDocs(filteredDocs), [filteredDocs]);
 
@@ -255,6 +262,7 @@ function MainApp() {
         docs={filteredDocs}
         agg={filteredAgg}
         canEdit={canEdit}
+        userBranch={userBranch}
         onAddReport={() => openModal("upload")}
         onSelectBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
         onPayBranch={(b) => openModal("branchPay", { branch: b })}

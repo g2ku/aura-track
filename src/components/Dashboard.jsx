@@ -36,7 +36,7 @@ function daysAgoStr(n) {
 }
 
 export default function Dashboard({
-  docs, agg: aggProp, canEdit,
+  docs, agg: aggProp, canEdit, userBranch,
   onAddReport, onSelectBranch, onPayBranch, onOpenGlobalPayment,
 }) {
   const agg = useMemo(
@@ -78,6 +78,23 @@ export default function Dashboard({
 
   const empty = docs.length === 0;
 
+  // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+  const displayCashBySpot = useMemo(() => {
+    if (!userBranch) return cashBySpot;
+    return cashBySpot.filter(c => c.spotName === userBranch || c.spotName?.includes(userBranch.replace("Aura02_", "")));
+  }, [cashBySpot, userBranch]);
+
+  const displaySupplyStatus = useMemo(() => {
+    if (!userBranch) return supplyStatus;
+    const filtered = {};
+    for (const [id, s] of Object.entries(supplyStatus)) {
+      if (s.spotName === userBranch || s.spotName?.includes(userBranch.replace("Aura02_", ""))) {
+        filtered[id] = s;
+      }
+    }
+    return filtered;
+  }, [supplyStatus, userBranch]);
+
   const today = useMemo(() => {
     const now = new Date();
     const todayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -90,17 +107,17 @@ export default function Dashboard({
 
   const supplyWarnings = useMemo(() => {
     const warnings = [];
-    for (const [spotId, s] of Object.entries(supplyStatus)) {
+    for (const [spotId, s] of Object.entries(displaySupplyStatus)) {
       if (s.daysSinceLastSupply !== null && s.daysSinceLastSupply >= 2) {
         warnings.push(s);
       }
     }
     return warnings.sort((a, b) => (b.daysSinceLastSupply || 0) - (a.daysSinceLastSupply || 0));
-  }, [supplyStatus]);
+  }, [displaySupplyStatus]);
 
-  const totalCash = useMemo(() => cashBySpot.reduce((s, c) => s + c.total, 0), [cashBySpot]);
-  const totalTx = useMemo(() => cashBySpot.reduce((s, c) => s + c.txCount, 0), [cashBySpot]);
-  const avgCashPerSpot = cashBySpot.length > 0 ? Math.round(totalCash / cashBySpot.length) : 0;
+  const totalCash = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.total, 0), [displayCashBySpot]);
+  const totalTx = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.txCount, 0), [displayCashBySpot]);
+  const avgCashPerSpot = displayCashBySpot.length > 0 ? Math.round(totalCash / displayCashBySpot.length) : 0;
   const avgCheck = totalTx > 0 ? Math.round(totalCash / totalTx) : 0;
 
   const totalSupply = agg.global.total || 0;
@@ -115,7 +132,7 @@ export default function Dashboard({
       { key: "supply", label: "Поставка" },
       { key: "reports", label: "Отчётов" },
     ];
-    const rows = cashBySpot.map(c => {
+    const rows = displayCashBySpot.map(c => {
       const branchAgg = agg.byBranch[c.spotName] || {};
       return {
         name: c.spotName,
@@ -146,7 +163,7 @@ export default function Dashboard({
           <div className="dashboard-title">Общая статистика</div>
           <div className="dashboard-sub">
             <b>{agg.global.reportCount}</b> {ru(agg.global.reportCount, "отчёт", "отчёта", "отчётов")} ·
-            <b> {cashBySpot.length || agg.global.branchCount}</b> {ru(cashBySpot.length || agg.global.branchCount, "точка", "точки", "точек")}
+            <b> {displayCashBySpot.length || agg.global.branchCount}</b> {ru(displayCashBySpot.length || agg.global.branchCount, "точка", "точки", "точек")}
             {posterLoading && <span style={{ marginLeft: 8, color: "var(--text-muted)" }}><i className="ti ti-loader-2 spin" /> Загрузка Poster…</span>}
           </div>
         </div>
@@ -226,7 +243,7 @@ export default function Dashboard({
           </div>
 
           {/* ─── Таблица заведений ──────────────────────────────── */}
-          {cashBySpot.length > 0 ? (
+          {displayCashBySpot.length > 0 ? (
             <div className="card table-card" style={{ overflow: "auto" }}>
               <table className="data-table">
                 <thead>
@@ -239,7 +256,7 @@ export default function Dashboard({
                   </tr>
                 </thead>
                 <tbody>
-                  {cashBySpot.map(c => (
+                  {displayCashBySpot.map(c => (
                     <tr
                       key={c.spotId}
                       className="clickable-row"
@@ -262,7 +279,7 @@ export default function Dashboard({
                     <td className="text-right fw-600">{fmt(totalCash)} ₸</td>
                     <td className="text-right fw-600">{totalTx.toLocaleString("ru-RU")}</td>
                     <td className="text-right fw-600 text-accent">{fmt(avgCheck)} ₸</td>
-                    <td className="text-right fw-600 text-muted">{fmt(cashBySpot.length > 0 ? Math.round(totalCash / 30) : 0)} ₸</td>
+                    <td className="text-right fw-600 text-muted">{fmt(displayCashBySpot.length > 0 ? Math.round(totalCash / 30) : 0)} ₸</td>
                   </tr>
                 </tfoot>
               </table>

@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { aggregateDocs, fmt, pct } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, getSpots } from "../poster";
+import { useUserBranch } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -29,6 +30,7 @@ const SORT_OPTIONS = [
 
 export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  const userBranch = useUserBranch();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("total");
   const [cashBySpot, setCashBySpot] = useState([]);
@@ -60,6 +62,10 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
         cashDays: cash?.daysCount || 0,
       };
     });
+    // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+    if (userBranch) {
+      list = list.filter((x) => x.name === userBranch || x.name.includes(userBranch.replace("Aura02_", "")));
+    }
     if (q) {
       const needle = q.toLowerCase();
       list = list.filter((x) => x.name.toLowerCase().includes(needle));
@@ -69,7 +75,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
       return (b[sort] || 0) - (a[sort] || 0);
     });
     return list;
-  }, [agg, q, sort, cashByName]);
+  }, [agg, q, sort, cashByName, userBranch]);
 
   return (
     <div className="view-wrap branches-view-wrap">
