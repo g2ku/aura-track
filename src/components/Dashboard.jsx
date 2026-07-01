@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, getSpots, clearPosterCache } from "../poster";
+import { getSpotNameForBranch } from "../auth.jsx";
 
 function greeting(now = new Date()) {
   const h = now.getHours();
@@ -80,21 +81,26 @@ export default function Dashboard({
   const empty = docs.length === 0;
 
   // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+  const spotName = getSpotNameForBranch(userBranch);
   const displayCashBySpot = useMemo(() => {
     if (!userBranch) return cashBySpot;
-    return cashBySpot.filter(c => c.spotName === userBranch || c.spotName?.includes(userBranch.replace("Aura02_", "")));
-  }, [cashBySpot, userBranch]);
+    return cashBySpot.filter(c => {
+      if (!c.spotName) return false;
+      if (spotName && c.spotName === spotName) return true;
+      return c.spotName === userBranch || c.spotName?.includes(userBranch.replace("Aura02_", ""));
+    });
+  }, [cashBySpot, userBranch, spotName]);
 
   const displaySupplyStatus = useMemo(() => {
     if (!userBranch) return supplyStatus;
     const filtered = {};
     for (const [id, s] of Object.entries(supplyStatus)) {
-      if (s.spotName === userBranch || s.spotName?.includes(userBranch.replace("Aura02_", ""))) {
-        filtered[id] = s;
-      }
+      if (!s.spotName) continue;
+      const match = spotName ? s.spotName === spotName : (s.spotName === userBranch || s.spotName?.includes(userBranch.replace("Aura02_", "")));
+      if (match) filtered[id] = s;
     }
     return filtered;
-  }, [supplyStatus, userBranch]);
+  }, [supplyStatus, userBranch, spotName]);
 
   const today = useMemo(() => {
     const now = new Date();

@@ -5,7 +5,7 @@ import {
   deleteBranchPayment,
   docId as makeDocId,
 } from "./firebase";
-import { LoginGate, useAuth, useUserBranch, isAdmin } from "./auth.jsx";
+import { LoginGate, useAuth, useUserBranch, isAdmin, matchBranchInDocs } from "./auth.jsx";
 import { aggregateDocs, filterDocsByPeriod } from "./utils";
 import { useHashRoute, useRememberRoute } from "./router";
 import { useAppStore, periodToFilter } from "./store/useAppStore";
@@ -92,14 +92,11 @@ function MainApp() {
   }, [openModal]);
 
   // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+  const branchFilter = useMemo(() => userBranch ? matchBranchInDocs(userBranch) : null, [userBranch]);
   const branchDocs = useMemo(() => {
-    if (!userBranch) return docs;
-    const shortName = userBranch.replace("Aura02_", "");
-    return docs.filter(d => {
-      const branches = d.branches || [];
-      return branches.includes(userBranch) || branches.some(b => b === shortName || b.includes(shortName));
-    });
-  }, [docs, userBranch]);
+    if (!branchFilter) return docs;
+    return docs.filter(d => branchFilter(d.branches || []));
+  }, [docs, branchFilter]);
 
   const agg = useMemo(() => aggregateDocs(branchDocs), [branchDocs]);
   const filteredDocs = useMemo(

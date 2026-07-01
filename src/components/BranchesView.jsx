@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { aggregateDocs, fmt, pct } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, getSpots } from "../poster";
-import { useUserBranch, formatBranchName } from "../auth.jsx";
+import { useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -50,6 +50,18 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
     return m;
   }, [cashBySpot]);
 
+  const spotName = getSpotNameForBranch(userBranch);
+  const branchMatch = useMemo(() => {
+    if (!userBranch) return null;
+    return (name) => {
+      if (!name) return false;
+      if (spotName && name.toLowerCase() === spotName.toLowerCase()) return true;
+      if (name === userBranch) return true;
+      if (name.toLowerCase().includes(userBranch.replace("Aura02_", "").toLowerCase())) return true;
+      return false;
+    };
+  }, [userBranch, spotName]);
+
   const filtered = useMemo(() => {
     let list = agg.branches.map((b) => {
       const x = agg.byBranch[b];
@@ -63,13 +75,12 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
         cashDays: cash?.daysCount || 0,
       };
     });
-    // Для branch-пользователя: всегда показываем его филиал, даже без отчётов
-    if (userBranch) {
-      const exists = list.some((x) => x.name === userBranch || x.name.includes(userBranch.replace("Aura02_", "")));
+    if (branchMatch) {
+      const exists = list.some((x) => branchMatch(x.name));
       if (!exists) {
-        const cash = cashByName[userBranch];
+        const cash = cashByName[spotName] || cashByName[userBranch];
         list.push({
-          name: userBranch,
+          name: spotName || userBranch,
           total: 0, paid: 0, debt: 0, reports: 0, dates: [],
           avgPerReport: 0,
           cash: cash?.total || 0,
@@ -77,7 +88,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
           cashDays: cash?.daysCount || 0,
         });
       }
-      list = list.filter((x) => x.name === userBranch || x.name.includes(userBranch.replace("Aura02_", "")));
+      list = list.filter((x) => branchMatch(x.name));
     }
     if (q) {
       const needle = q.toLowerCase();
@@ -88,7 +99,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
       return (b[sort] || 0) - (a[sort] || 0);
     });
     return list;
-  }, [agg, q, sort, cashByName, userBranch]);
+  }, [agg, q, sort, cashByName, branchMatch]);
 
   return (
     <div className="view-wrap branches-view-wrap">

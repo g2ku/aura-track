@@ -47,14 +47,35 @@ export function getUserSpotName() {
 }
 
 const BRANCH_TO_NAME = {};
+const NAME_TO_BRANCH = {};
 for (const [login, cfg] of Object.entries(USERS)) {
-  if (cfg.branch) BRANCH_TO_NAME[cfg.branch] = cfg.spotName;
+  if (cfg.branch) {
+    BRANCH_TO_NAME[cfg.branch] = cfg.spotName;
+    if (cfg.spotName) NAME_TO_BRANCH[cfg.spotName.toLowerCase()] = cfg.branch;
+  }
 }
 BRANCH_TO_NAME["Aura02_Bauma"] = "Баума";
+NAME_TO_BRANCH["баума"] = "Aura02_Bauma";
 
 export function formatBranchName(branch) {
   if (!branch) return branch;
   return BRANCH_TO_NAME[branch] || branch.replace(/^Aura02[_-]?/i, "");
+}
+
+export function getSpotNameForBranch(branch) {
+  return BRANCH_TO_NAME[branch] || null;
+}
+
+export function matchBranchInDocs(userBranch) {
+  const spotName = getSpotNameForBranch(userBranch);
+  return (docBranches) => {
+    if (!docBranches || docBranches.length === 0) return false;
+    if (docBranches.includes(userBranch)) return true;
+    if (spotName && docBranches.some(b => b.toLowerCase() === spotName.toLowerCase())) return true;
+    const shortId = userBranch.replace("Aura02_", "");
+    if (docBranches.some(b => b.toLowerCase() === shortId.toLowerCase())) return true;
+    return false;
+  };
 }
 
 // ─── Хранение ──────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import {
   paidForBranch,
 } from "../utils";
 import { Button, Pill } from "../ui";
-import { formatBranchName } from "../auth.jsx";
+import { formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 import { fetchCashPerDay } from "../poster";
 
 const BranchLine = lazy(() => import("./charts/BranchLine"));
@@ -41,11 +41,12 @@ function todayStr() {
 
 export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  const spotName = getSpotNameForBranch(branch);
   const resolvedBranch = useMemo(() => {
     if (agg.byBranch[branch]) return branch;
-    const shortName = branch.replace("Aura02_", "");
-    return agg.branches.find(b => b === shortName || b.includes(shortName)) || branch;
-  }, [agg, branch]);
+    if (spotName && agg.byBranch[spotName]) return spotName;
+    return agg.branches.find(b => b.toLowerCase() === (spotName || "").toLowerCase() || b.toLowerCase() === branch.replace("Aura02_", "").toLowerCase()) || branch;
+  }, [agg, branch, spotName]);
   const branchAgg = agg.byBranch[resolvedBranch] || null;
 
   const [from, setFrom] = useState("");
@@ -73,7 +74,8 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
           setCashDays(allDays.filter(r =>
             r.spotName === branch ||
             r.spotName === resolvedBranch ||
-            r.spotName?.includes(branch.replace("Aura02_", ""))
+            (spotName && r.spotName === spotName) ||
+            (spotName && r.spotName?.toLowerCase().includes(spotName.toLowerCase()))
           ));
         }
       } catch (e) {

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { fmt, downloadCsv, dateInRange, dateInputToRu } from "../utils";
-import { formatBranchName } from "../auth.jsx";
+import { formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 
 const COLS = [
   { key: "name", label: "Товар", align: "left" },
@@ -13,6 +13,11 @@ const COLS = [
 ];
 
 export default function ProductsView({ docs, agg, userBranch }) {
+  const userSpotName = getSpotNameForBranch(userBranch);
+  const matchBranch = (b) => {
+    if (!userBranch) return true;
+    return b === userBranch || (userSpotName && b.toLowerCase() === userSpotName.toLowerCase());
+  };
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState("total");
   const [sortDir, setSortDir] = useState("desc");
@@ -39,7 +44,7 @@ export default function ProductsView({ docs, agg, userBranch }) {
         const itemBranches = new Set();
         let hasPositive = false;
         for (const [b, v] of Object.entries(amounts)) {
-          if (userBranch && b !== userBranch) continue;
+          if (userBranch && !matchBranch(b)) continue;
           const amt = +v || 0;
           itemTotal += amt;
           if (amt !== 0) itemBranches.add(b);
@@ -94,7 +99,7 @@ export default function ProductsView({ docs, agg, userBranch }) {
         if ((it.name || "Без названия") !== selectedProduct) continue;
         const amounts = it.amounts || {};
         for (const [b, v] of Object.entries(amounts)) {
-          if (userBranch && b !== userBranch) continue;
+          if (userBranch && !matchBranch(b)) continue;
           const amt = +v || 0;
           if (amt <= 0) continue;
           if (!byBranch[b]) byBranch[b] = { branch: b, total: 0, count: 0, dates: new Set() };

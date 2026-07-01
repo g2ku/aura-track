@@ -21,7 +21,7 @@ import {
 } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { useUserBranch } from "../auth.jsx";
+import { useUserBranch, getSpotNameForBranch } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -88,6 +88,7 @@ export default function PosterView() {
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(() => new Set()); // spotId'ы, РАЗВЁРНУТЫЕ вручную
   const userBranch = useUserBranch();
+  const userSpotName = getSpotNameForBranch(userBranch);
 
   async function load(e) {
     e?.preventDefault?.();
@@ -155,7 +156,7 @@ export default function PosterView() {
     for (const r of data.rows) {
       if (q && !r.productName.toLowerCase().includes(q)) continue;
       // Фильтрация по филиалу: branch-пользователь видит только свой филиал
-      if (userBranch && r.spotName !== userBranch && !r.spotName?.includes(userBranch.replace("Aura02_", ""))) continue;
+      if (userBranch && r.spotName !== userBranch && r.spotName !== userSpotName && !r.spotName?.includes(userBranch.replace("Aura02_", ""))) continue;
       if (!map.has(r.spotId)) map.set(r.spotId, { spotId: r.spotId, spotName: r.spotName, items: [], totalSum: 0, totalQty: 0 });
       const g = map.get(r.spotId);
       g.items.push(r);
