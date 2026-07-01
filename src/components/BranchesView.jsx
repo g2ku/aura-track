@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { aggregateDocs, fmt, pct } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, getSpots } from "../poster";
-import { useUserBranch } from "../auth.jsx";
+import { useUserBranch, formatBranchName } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -97,8 +97,12 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
             <i className="ti ti-building-store" aria-hidden="true" /> Филиалы
           </h1>
           <div className="view-sub">
-            Всего: <b>{agg.branches.length}</b> ·
-            Поставка: <b className="text-accent">{fmt(agg.global.total)}</b>
+            {userBranch ? (
+              <>{formatBranchName(userBranch)}</>
+            ) : (
+              <>Всего: <b>{filtered.length}</b> ·
+              Поставка: <b className="text-accent">{fmt(agg.global.total)}</b></>
+            )}
           </div>
         </div>
       </div>
@@ -107,17 +111,17 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
         <div className="strip-item">
           <i className="ti ti-building-store" aria-hidden="true" />
           <span className="strip-label">Филиалов</span>
-          <span className="strip-val">{agg.branches.length}</span>
+          <span className="strip-val">{filtered.length}</span>
         </div>
         <div className="strip-item">
           <i className="ti ti-package" aria-hidden="true" />
           <span className="strip-label">Поставка</span>
-          <span className="strip-val">{fmt(agg.global.total)}</span>
+          <span className="strip-val">{filtered.reduce((s, b) => s + (b.total || 0), 0) ? fmt(filtered.reduce((s, b) => s + (b.total || 0), 0)) : fmt(0)}</span>
         </div>
         <div className="strip-item">
           <i className="ti ti-report" aria-hidden="true" />
           <span className="strip-label">Отчётов</span>
-          <span className="strip-val">{agg.global.reportCount}</span>
+          <span className="strip-val">{filtered.reduce((s, b) => s + (b.reports || 0), 0)}</span>
         </div>
       </div>
 
@@ -157,7 +161,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
             <div className="branch-head">
               <div className="branch-head-left">
                 <div className="branch-name">
-                  <i className="ti ti-building-store" aria-hidden="true" /> {b.name}
+                  <i className="ti ti-building-store" aria-hidden="true" /> {formatBranchName(b.name)}
                 </div>
                 <div className="branch-meta">
                   {b.reports} {b.reports === 1 ? "отчёт" : "отчётов"}

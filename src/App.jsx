@@ -342,9 +342,7 @@ function MainApp() {
       />
     );
   } else if (route.path === "/products") {
-    const allDocsFiltered = filterDocsByPeriod(docs, periodToFilter(period));
-    const allAggFiltered = aggregateDocs(allDocsFiltered);
-    content = <ProductsView docs={allDocsFiltered} agg={allAggFiltered} />;
+    content = <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
   } else if (route.path === "/poster") {
     content = <PosterView />;
   } else if (route.path === "/poster/compare") {

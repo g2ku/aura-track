@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { fmt, downloadCsv, dateInRange, dateInputToRu } from "../utils";
+import { formatBranchName } from "../auth.jsx";
 
 const COLS = [
   { key: "name", label: "Товар", align: "left" },
@@ -11,7 +12,7 @@ const COLS = [
   { key: "lastDate", label: "Последняя дата", align: "left" },
 ];
 
-export default function ProductsView({ docs, agg }) {
+export default function ProductsView({ docs, agg, userBranch }) {
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState("total");
   const [sortDir, setSortDir] = useState("desc");
@@ -29,7 +30,6 @@ export default function ProductsView({ docs, agg }) {
 
   // Пересчитываем byProduct для отфильтрованных docs
   const filteredAgg = useMemo(() => {
-    if (!dateFrom && !dateTo) return agg;
     const byProduct = {};
     for (const d of filteredDocs) {
       for (const it of d.items || []) {
@@ -39,6 +39,7 @@ export default function ProductsView({ docs, agg }) {
         const itemBranches = new Set();
         let hasPositive = false;
         for (const [b, v] of Object.entries(amounts)) {
+          if (userBranch && b !== userBranch) continue;
           const amt = +v || 0;
           itemTotal += amt;
           if (amt !== 0) itemBranches.add(b);
@@ -53,7 +54,7 @@ export default function ProductsView({ docs, agg }) {
       }
     }
     return { byProduct };
-  }, [filteredDocs, agg, dateFrom, dateTo]);
+  }, [filteredDocs, userBranch]);
 
   const items = useMemo(() => {
     const source = filteredAgg?.byProduct || {};
@@ -79,7 +80,7 @@ export default function ProductsView({ docs, agg }) {
       return sortDir === "desc" ? -cmp : cmp;
     });
     return list;
-  }, [filteredAgg, q, sortKey, sortDir]);
+  }, [filteredAgg, q, sortKey, sortDir, userBranch]);
 
   const grandTotal = useMemo(() => items.reduce((s, x) => s + x.total, 0), [items]);
   const grandCount = useMemo(() => items.reduce((s, x) => s + x.count, 0), [items]);
@@ -93,6 +94,7 @@ export default function ProductsView({ docs, agg }) {
         if ((it.name || "Без названия") !== selectedProduct) continue;
         const amounts = it.amounts || {};
         for (const [b, v] of Object.entries(amounts)) {
+          if (userBranch && b !== userBranch) continue;
           const amt = +v || 0;
           if (amt <= 0) continue;
           if (!byBranch[b]) byBranch[b] = { branch: b, total: 0, count: 0, dates: new Set() };
@@ -105,7 +107,7 @@ export default function ProductsView({ docs, agg }) {
     return Object.values(byBranch)
       .map((b) => ({ ...b, lastDate: Array.from(b.dates).sort().slice(-1)[0] || "" }))
       .sort((a, b) => b.total - a.total);
-  }, [selectedProduct, filteredDocs]);
+  }, [selectedProduct, filteredDocs, userBranch]);
 
   function toggleSort(k) {
     if (sortKey === k) {
@@ -183,7 +185,7 @@ export default function ProductsView({ docs, agg }) {
             <tbody>
               {productDetail.map((b) => (
                 <tr key={b.branch} className="rh">
-                  <td><span className="branch-name-cell"><i className="ti ti-building-store" /> {b.branch}</span></td>
+                  <td><span className="branch-name-cell"><i className="ti ti-building-store" /> {formatBranchName(b.branch)}</span></td>
                   <td className="text-right">{b.count}</td>
                   <td className="text-right fw-600 text-accent">{fmt(b.total)}</td>
                   <td>{b.lastDate}</td>

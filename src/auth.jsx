@@ -46,6 +46,17 @@ export function getUserSpotName() {
   return USERS[auth.login]?.spotName || null;
 }
 
+const BRANCH_TO_NAME = {};
+for (const [login, cfg] of Object.entries(USERS)) {
+  if (cfg.branch) BRANCH_TO_NAME[cfg.branch] = cfg.spotName;
+}
+BRANCH_TO_NAME["Aura02_Bauma"] = "Баума";
+
+export function formatBranchName(branch) {
+  if (!branch) return branch;
+  return BRANCH_TO_NAME[branch] || branch.replace(/^Aura02[_-]?/i, "");
+}
+
 // ─── Хранение ──────────────────────────────────────────────────────────
 
 function readAuth() {
