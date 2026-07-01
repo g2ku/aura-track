@@ -104,8 +104,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
 
         <nav className="sidebar-nav">
           {NAV.filter(item => {
-            if (isBranch && (item.id === "poster" || item.id === "inventory" || item.id === "payments" || item.id === "debts")) return false;
-            if (!isBranch && item.id === "tickets") return false;
+            if (isBranch && (item.id === "poster" || item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
             return true;
           }).map((item) => (
             <button

@@ -283,10 +283,9 @@ function MainApp() {
     );
   } else if (route.path === "/branches/:name") {
     const name = route.params.name;
-    // Фикс: проверяем филиал в ОБОИХ agg (полный и фильтрованный). Если
-    // он есть хотя бы в одном — показываем BranchDetail. UnknownBranchFallback
-    // срабатывает только если филиала нет ни в одном agg (был удалён / опечатка).
-    if (agg.byBranch[name] || filteredAgg.byBranch[name]) {
+    // Branch-пользователь всегда видит свой филиал (даже без отчётов)
+    const isOwnBranch = userBranch && (name === userBranch || name.includes(userBranch.replace("Aura02_", "")));
+    if (isOwnBranch || agg.byBranch[name] || filteredAgg.byBranch[name]) {
       content = (
         <BranchDetail
           branch={name}
