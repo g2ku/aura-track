@@ -342,7 +342,9 @@ function MainApp() {
       />
     );
   } else if (route.path === "/products") {
-    content = <ProductsView docs={filteredDocs} agg={filteredAgg} />;
+    const allDocsFiltered = filterDocsByPeriod(docs, periodToFilter(period));
+    const allAggFiltered = aggregateDocs(allDocsFiltered);
+    content = <ProductsView docs={allDocsFiltered} agg={allAggFiltered} />;
   } else if (route.path === "/poster") {
     content = <PosterView />;
   } else if (route.path === "/poster/compare") {
