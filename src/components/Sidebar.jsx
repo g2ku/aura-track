@@ -11,6 +11,8 @@ const NAV = [
   { id: "products", path: "/products", icon: "ti-box", label: "Товары" },
   { id: "payments", path: "/payments", icon: "ti-cash", label: "Оплаты" },
   { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
+  { id: "poster", path: "/poster", icon: "ti-cloud", label: "Poster API" },
+  { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
 ];
 
 function currentNavId(path) {
@@ -20,6 +22,8 @@ function currentNavId(path) {
   if (path.startsWith("/products")) return "products";
   if (path.startsWith("/payments")) return "payments";
   if (path.startsWith("/debts")) return "debts";
+  if (path.startsWith("/poster")) return "poster";
+  if (path.startsWith("/inventory")) return "inventory";
   return "dashboard";
 }
 
@@ -112,6 +116,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
           <div className="sidebar-role">
             <span className="role-badge">{role}</span>
           </div>
+
           {onToggleTheme && (
             <button
               className="sidebar-theme-toggle"

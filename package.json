@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server.js",
+    "serve": "vite build && node server.js"
   },
   "dependencies": {
     "chart.js": "^4.4.4",

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { aggregateDocs, fmt, dateInRange, dateKeyToTs, dateInputToRu, ruToDateInput, downloadCsv } from "../utils";
 
-export default function PaymentsView({ docs, globalPayments = [], branchesList = [] }) {
+export default function PaymentsView({ docs, globalPayments = [], branchesList = [], onOpenGlobalPayment }) {
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("all"); // all | manual | global
@@ -124,9 +124,16 @@ export default function PaymentsView({ docs, globalPayments = [], branchesList =
             Всего: <b>{fmt(totals.all)}</b> · ручных <b style={{ color: "var(--text-success)" }}>{fmt(totals.manual)}</b> · общих <b style={{ color: "var(--text-accent)" }}>{fmt(totals.global)}</b>
           </div>
         </div>
-        <button className="btn btn-out" onClick={doExport} disabled={filtered.length === 0}>
-          <i className="ti ti-download" aria-hidden="true" /> Экспорт CSV
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {onOpenGlobalPayment && (
+            <button className="btn btn-out" onClick={onOpenGlobalPayment}>
+              <i className="ti ti-cash" aria-hidden="true" /> Общая оплата
+            </button>
+          )}
+          <button className="btn btn-out" onClick={doExport} disabled={filtered.length === 0}>
+            <i className="ti ti-download" aria-hidden="true" /> Экспорт CSV
+          </button>
+        </div>
       </div>
 
       <div className="toolbar toolbar-multi">

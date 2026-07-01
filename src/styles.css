@@ -532,7 +532,7 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .data-table .text-right { text-align: right; }
 .data-table .text-center { text-align: center; }
 
-.table-card { padding: 0; }
+.table-card { padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-scroll { overflow-x: auto; }
 
 /* Row status stripe (для branches / debts) */
@@ -835,6 +835,32 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   letter-spacing: 0.08em;
   color: var(--text-muted);
   margin: var(--sp-4) 0 var(--sp-2);
+}
+
+/* ─── Stats row ──────────────────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.stat-label {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.stat-value {
+  font-size: var(--fs-20);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ─── 16. Toolbar ──────────────────────────────────────────────────────── */
@@ -1245,6 +1271,34 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   flex-direction: column;
   gap: var(--sp-5);
 }
+
+/* ─── Supply Warnings ────────────────────────────────────────────────── */
+.supply-warnings { margin-bottom: 8px; }
+.warnings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.warning-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--brand-terracotta-400, #e74c3c);
+  background: var(--bg-elev, rgba(255,255,255,0.02));
+}
+.warning-icon {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(231, 76, 60, 0.1);
+  color: var(--brand-terracotta-400, #e74c3c);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.warning-body { flex: 1; min-width: 0; }
+.warning-title { font-weight: 600; font-size: var(--fs-14); }
+.warning-sub { font-size: var(--fs-12); color: var(--text-muted); margin-top: 2px; }
 .dashboard-hero {
   display: flex;
   align-items: center;
@@ -1936,8 +1990,23 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .login-logo > i { font-size: 28px; }
 .login-title { font-size: var(--fs-24); font-weight: 700; text-align: center; letter-spacing: -0.01em; }
 .login-sub { font-size: var(--fs-13); color: var(--text-muted); text-align: center; margin-bottom: var(--sp-3); }
-.login-input { text-align: center; font-size: var(--fs-14); }
-.login-btn { padding: 10px; font-size: var(--fs-14); }
+.login-input {
+  font-size: var(--fs-14);
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.login-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.login-input::placeholder { color: var(--text-muted); }
+.login-btn { padding: 12px; font-size: var(--fs-14); font-weight: 600; }
 .login-hint {
   background: var(--bg-elev);
   padding: var(--sp-3);
@@ -2119,10 +2188,24 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .period-custom { margin-left: 0; width: 100%; flex-wrap: wrap; }
   .period-date { flex: 1; min-width: 0; }
 
-  .dashboard-hero { flex-direction: column; align-items: stretch; }
+  .dashboard-hero { flex-direction: column; align-items: stretch; padding: var(--sp-3); }
   .dashboard-title { font-size: var(--fs-24); }
   .dashboard-actions { justify-content: stretch; }
   .dashboard-actions .btn { flex: 1; }
+
+  /* Stats row: 2 колонки на планшетах */
+  .stats-row { grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); }
+  .stat-card { padding: 10px 12px; }
+  .stat-value { font-size: 16px; }
+
+  /* Дата-пикер: перенос */
+  .dash-date-row { flex-wrap: wrap; gap: 8px; }
+  .dash-date-row input[type="date"] { flex: 1 1 40%; min-width: 120px; }
+  .dash-date-presets { width: 100%; display: flex; gap: 4px; flex-wrap: wrap; }
+
+  /* Таблица: горизонтальный скролл */
+  .table-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 500px; }
 
   .modal-overlay { padding: 0; }
   .modal-card { max-width: 100%; max-height: 100vh; border-radius: 0; }
@@ -2136,12 +2219,26 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .toolbar-search { min-width: 0; }
 
   .branch-stats { grid-template-columns: 1fr 1fr; }
+
+  /* Предупреждения: в одну колонку */
+  .warnings-grid { grid-template-columns: 1fr; }
+
+  /* FAB кнопка */
+  .fab { bottom: 16px; right: 16px; }
 }
 
 @media (max-width: 480px) {
   .kpi-value, .kpi-value.kpi-lg, .sum-val { font-size: var(--fs-24); }
-  .data-table thead th, .data-table tbody td { padding: 8px; font-size: var(--fs-12); }
+  .data-table thead th, .data-table tbody td { padding: 6px 8px; font-size: var(--fs-11); }
+  .data-table { min-width: 420px; }
   .branch-stats { grid-template-columns: 1fr; }
+
+  /* Статы: на маленьком экране 1 колонка */
+  .stats-row { grid-template-columns: 1fr; }
+  .stat-value { font-size: 18px; }
+
+  /* Дата-пикер: каждое поле на новой строке */
+  .dash-date-row input[type="date"] { flex: 1 1 100%; }
 }
 
 /* ─── 33. ErrorBoundary ───────────────────────────────────────────────────── */

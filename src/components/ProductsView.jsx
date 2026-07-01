@@ -1,14 +1,13 @@
-// ProductsView — таблица всех товаров: сколько раз заказывали,
-// на какую сумму, в скольких филиалах, последняя дата.
+// ProductsView — таблица товаров с фильтрацией по датам и детализацией по филиалам.
 
 import { useMemo, useState } from "react";
-import { fmt, downloadCsv } from "../utils";
+import { fmt, downloadCsv, dateInRange, dateInputToRu } from "../utils";
 
 const COLS = [
   { key: "name", label: "Товар", align: "left" },
   { key: "count", label: "Заказов", align: "right" },
   { key: "total", label: "Сумма", align: "right" },
-  { key: "branches", label: "Филиалов", align: "right" },
+  { key: "branchCount", label: "Филиалов", align: "right" },
   { key: "lastDate", label: "Последняя дата", align: "left" },
 ];
 
@@ -16,14 +15,54 @@ export default function ProductsView({ docs, agg }) {
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState("total");
   const [sortDir, setSortDir] = useState("desc");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState(null);
+
+  // Фильтруем docs по датам
+  const filteredDocs = useMemo(() => {
+    const fromRu = dateInputToRu(dateFrom);
+    const toRu = dateInputToRu(dateTo);
+    if (!fromRu && !toRu) return docs;
+    return (docs || []).filter((d) => dateInRange(d.date || d.sheetName, fromRu, toRu));
+  }, [docs, dateFrom, dateTo]);
+
+  // Пересчитываем byProduct для отфильтрованных docs
+  const filteredAgg = useMemo(() => {
+    if (!dateFrom && !dateTo) return agg;
+    const byProduct = {};
+    for (const d of filteredDocs) {
+      for (const it of d.items || []) {
+        const name = it.name || "Без названия";
+        const amounts = it.amounts || {};
+        let itemTotal = 0;
+        const itemBranches = new Set();
+        let hasPositive = false;
+        for (const [b, v] of Object.entries(amounts)) {
+          const amt = +v || 0;
+          itemTotal += amt;
+          if (amt !== 0) itemBranches.add(b);
+          if (amt > 0) hasPositive = true;
+        }
+        if (!hasPositive) continue;
+        if (!byProduct[name]) byProduct[name] = { total: 0, count: 0, dates: new Set(), branches: new Set() };
+        byProduct[name].total += itemTotal;
+        byProduct[name].count += 1;
+        byProduct[name].dates.add(d.date || d.sheetName);
+        for (const b of itemBranches) byProduct[name].branches.add(b);
+      }
+    }
+    return { byProduct };
+  }, [filteredDocs, agg, dateFrom, dateTo]);
 
   const items = useMemo(() => {
-    const source = agg?.byProduct || {};
+    const source = filteredAgg?.byProduct || {};
     let list = Object.entries(source).map(([name, v]) => ({
       name,
       total: v.total,
       count: v.count,
-      branches: v.branches.size,
+      branchCount: v.branches.size,
+      branches: v.branches,
       lastDate: Array.from(v.dates).sort().slice(-1)[0] || "",
       avgPerOrder: v.count > 0 ? v.total / v.count : 0,
     }));
@@ -40,10 +79,33 @@ export default function ProductsView({ docs, agg }) {
       return sortDir === "desc" ? -cmp : cmp;
     });
     return list;
-  }, [agg, q, sortKey, sortDir]);
+  }, [filteredAgg, q, sortKey, sortDir]);
 
   const grandTotal = useMemo(() => items.reduce((s, x) => s + x.total, 0), [items]);
   const grandCount = useMemo(() => items.reduce((s, x) => s + x.count, 0), [items]);
+
+  // Детализация выбранного товара по филиалам
+  const productDetail = useMemo(() => {
+    if (!selectedProduct) return null;
+    const byBranch = {};
+    for (const d of filteredDocs) {
+      for (const it of d.items || []) {
+        if ((it.name || "Без названия") !== selectedProduct) continue;
+        const amounts = it.amounts || {};
+        for (const [b, v] of Object.entries(amounts)) {
+          const amt = +v || 0;
+          if (amt <= 0) continue;
+          if (!byBranch[b]) byBranch[b] = { branch: b, total: 0, count: 0, dates: new Set() };
+          byBranch[b].total += amt;
+          byBranch[b].count++;
+          byBranch[b].dates.add(d.date || d.sheetName);
+        }
+      }
+    }
+    return Object.values(byBranch)
+      .map((b) => ({ ...b, lastDate: Array.from(b.dates).sort().slice(-1)[0] || "" }))
+      .sort((a, b) => b.total - a.total);
+  }, [selectedProduct, filteredDocs]);
 
   function toggleSort(k) {
     if (sortKey === k) {
@@ -80,7 +142,7 @@ export default function ProductsView({ docs, agg }) {
         </div>
       </div>
 
-      <div className="toolbar">
+      <div className="toolbar toolbar-multi">
         <div className="toolbar-search">
           <i className="ti ti-search" aria-hidden="true" />
           <input
@@ -90,7 +152,57 @@ export default function ProductsView({ docs, agg }) {
             placeholder="Поиск по названию товара…"
           />
         </div>
+        <div className="date-range" style={{ alignItems: "center", display: "flex", gap: 8 }}>
+          <span className="form-label" style={{ whiteSpace: "nowrap" }}>Период:</span>
+          <input type="date" className="form-input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ width: 140 }} />
+          <span className="period-range-sep">—</span>
+          <input type="date" className="form-input" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ width: 140 }} />
+        </div>
       </div>
+
+      {/* Детализация товара */}
+      {selectedProduct && productDetail && (
+        <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 16 }}>
+              <i className="ti ti-box" style={{ color: "var(--text-accent)" }} /> {selectedProduct}
+            </div>
+            <button className="btn btn-out btn-sm" onClick={() => setSelectedProduct(null)}>
+              <i className="ti ti-x" /> Закрыть
+            </button>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th className="text-left">Филиал</th>
+                <th className="text-right">Заказов</th>
+                <th className="text-right">Сумма</th>
+                <th className="text-left">Последняя дата</th>
+              </tr>
+            </thead>
+            <tbody>
+              {productDetail.map((b) => (
+                <tr key={b.branch} className="rh">
+                  <td><span className="branch-name-cell"><i className="ti ti-building-store" /> {b.branch}</span></td>
+                  <td className="text-right">{b.count}</td>
+                  <td className="text-right fw-600 text-accent">{fmt(b.total)}</td>
+                  <td>{b.lastDate}</td>
+                </tr>
+              ))}
+            </tbody>
+            {productDetail.length > 1 && (
+              <tfoot>
+                <tr className="tfoot-row">
+                  <td className="fw-600">Итого</td>
+                  <td className="text-right fw-600">{productDetail.reduce((s, b) => s + b.count, 0)}</td>
+                  <td className="text-right fw-600 text-accent">{fmt(productDetail.reduce((s, b) => s + b.total, 0))}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
 
       <div className="card table-card">
         {items.length === 0 ? (
@@ -125,15 +237,16 @@ export default function ProductsView({ docs, agg }) {
               {items.map((it, i) => (
                 <tr
                   key={it.name}
-                  className="rh"
+                  className="rh clickable-row"
                   style={{ borderBottom: i < items.length - 1 ? "1px solid var(--border)" : "none" }}
+                  onClick={() => setSelectedProduct(selectedProduct === it.name ? null : it.name)}
                 >
                   <td style={{ textAlign: "left", fontWeight: 500 }}>{it.name}</td>
                   <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{it.count}</td>
                   <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums" }}>
                     {fmt(it.total)}
                   </td>
-                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{it.branches}</td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{it.branchCount}</td>
                   <td style={{ textAlign: "left", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
                     {it.lastDate || <span style={{ color: "var(--text-muted)" }}>—</span>}
                   </td>

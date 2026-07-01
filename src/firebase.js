@@ -63,19 +63,42 @@ export function docId(fileName, sheetName) {
 }
 
 // Создать или полностью перезаписать документ-отчёт.
-export async function saveReport({ fileName, sheetName, date, branches, items, totals, uploadedBy }) {
+// `initialPayments` — необязательный: { [branch]: [{ amount, items, note }] }
+// создаёт начальные записи в payments.{branch}.history сразу при сохранении.
+export async function saveReport({ fileName, sheetName, date, branches, items, totals, uploadedBy, initialPayments }) {
   const id = docId(fileName, sheetName);
   const ref = doc(getDb(), "documents", id);
+  const payments = {};
+  const ts = Date.now();
+
+  if (initialPayments) {
+    for (const [branch, entries] of Object.entries(initialPayments)) {
+      if (!entries?.length) continue;
+      const totalPaid = entries.reduce((s, e) => s + (+e.amount || 0), 0);
+      if (totalPaid <= 0) continue;
+      payments[branch] = {
+        history: [{
+          id: `init-${ts}-${Math.random().toString(36).slice(2, 8)}`,
+          amount: totalPaid,
+          ts,
+          by: uploadedBy || "admin",
+          note: entries.length === 1 && entries[0].note ? entries[0].note : "Оплачено при загрузке",
+          items: entries.flatMap(e => e.items || []),
+        }],
+      };
+    }
+  }
+
   await setDoc(ref, {
     fileName,
     sheetName,
     date,
-    uploadedAt: Date.now(),
+    uploadedAt: ts,
     uploadedBy,
     branches,
     items,
     totals,
-    payments: {}, // пустая структура платежей при первой загрузке
+    payments,
   });
 }
 
@@ -315,4 +338,78 @@ export async function addBranchStandalonePayment({ branch, amount, note, by }) {
   });
   await Promise.all(updates);
   return { perReport, reportsCount: targets.length };
+}
+
+// ─── Рецепты (мета) ──────────────────────────────────────────────
+// Один документ `meta/recipes`, целиком перезаписывается на save.
+// Структура:
+//   { ingredients: [{id, name, unit}],
+//     products:   { [productName]: [{ingredientId, qty}] },
+//     modifiers:  [{id, name, items: [{ingredientId, qty}]}],
+//     updatedAt, updatedBy }
+export async function saveRecipes({ ingredients, products, modifiers, by }) {
+  const ref = doc(getDb(), "meta", "recipes");
+  await setDoc(ref, {
+    ingredients: ingredients || [],
+    products: products || {},
+    modifiers: modifiers || [],
+    updatedAt: Date.now(),
+    updatedBy: by || "admin",
+  });
+}
+
+export function subscribeRecipes(onChange, onError) {
+  return onSnapshot(
+    doc(getDb(), "meta", "recipes"),
+    (snap) => onChange(snap.exists() ? snap.data() : { ingredients: [], products: {}, modifiers: [] }),
+    (err) => onError && onError(err)
+  );
+}
+
+// ─── История инвентаризаций (мета) ───────────────────────────────
+// Один документ `meta/inventories` с полем history: [...]. Append
+// через arrayUnion — тот же паттерн, что и в addGlobalPayment.
+export async function saveInventorySession({ spotId, spotName, from, to, items, grandTotals, note, by }) {
+  const ref = doc(getDb(), "meta", "inventories");
+  const ts = Date.now();
+  const entry = {
+    id: `inv-${ts}-${Math.random().toString(36).slice(2, 8)}`,
+    spotId: String(spotId),
+    spotName: spotName || "",
+    from,
+    to,
+    date: ts,
+    note: note || "",
+    items: items || [],
+    grandTotals: grandTotals || null,
+    by: by || "admin",
+  };
+  await updateDoc(ref, { history: arrayUnion(entry) }).catch(async (e) => {
+    if (e.code === "not-found" || /No document to update/i.test(e.message)) {
+      await setDoc(ref, { history: [entry] });
+      return;
+    }
+    throw e;
+  });
+  return entry;
+}
+
+export function subscribeInventoryHistory(onChange, onError) {
+  return onSnapshot(
+    doc(getDb(), "meta", "inventories"),
+    (snap) => onChange(snap.exists() ? (snap.data().history || []) : []),
+    (err) => onError && onError(err)
+  );
+}
+
+export async function deleteInventorySession(sessionId) {
+  const ref = doc(getDb(), "meta", "inventories");
+  await runTransaction(getDb(), async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists()) return;
+    const history = s.data().history || [];
+    const next = history.filter(h => h.id !== sessionId);
+    if (next.length === history.length) return;
+    tx.update(ref, { history: next });
+  });
 }

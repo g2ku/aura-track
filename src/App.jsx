@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   saveReport, setBranchPayments,
   deleteReports, addGlobalPayment, addBranchStandalonePayment,
@@ -18,12 +18,16 @@ import ReportsView from "./components/ReportsView";
 import PaymentsView from "./components/PaymentsView";
 import DebtsView from "./components/DebtsView";
 import ProductsView from "./components/ProductsView";
+import PosterView from "./components/PosterView";
+import PosterCompareView from "./components/PosterCompareView";
+import InventoryView from "./components/InventoryView";
+import InventorySession from "./components/InventorySession";
 import Tracking from "./components/Tracking";
 import UploadModal from "./components/UploadModal";
 import GlobalPaymentModal from "./components/GlobalPaymentModal";
 import BranchPaymentModal from "./components/BranchPaymentModal";
 import ConfirmModal from "./components/ConfirmModal";
-import PeriodBar from "./components/PeriodBar";
+import PostUploadModal from "./components/PostUploadModal";
 import CommandPalette from "./components/CommandPalette";
 import { ToastViewport } from "./ui";
 
@@ -62,6 +66,9 @@ function MainApp() {
   const openModal = useAppStore((s) => s.openModal);
   const closeModal = useAppStore((s) => s.closeModal);
 
+  // Pending upload: data waiting for post-upload "mark as paid" confirmation.
+  const [pendingUpload, setPendingUpload] = useState(null);
+
   useRememberRoute();
 
   // Подписки на Firestore один раз.
@@ -91,9 +98,9 @@ function MainApp() {
     return docs.find((d) => d.id === makeDocId(payload.fileName, payload.sheetName)) || null;
   }
 
-  async function saveAll(prepared) {
+  async function saveAll(prepared, initialPayments) {
     for (const p of prepared) {
-      await saveReport(p);
+      await saveReport({ ...p, initialPayments });
     }
     closeModal();
     route.navigate("/reports");
@@ -118,7 +125,7 @@ function MainApp() {
         openModal("confirmDup", { payload, existing });
         return;
       }
-      await saveAll([payload]);
+      setPendingUpload({ payload, parsed, fileName });
     } catch (e) {
       openModal("error", { message: e.message });
     }
@@ -130,13 +137,14 @@ function MainApp() {
       const XLSX = await import("xlsx");
       const { parseRows } = await import("./parser");
       const prepared = [];
+      const parsedMap = {};
       for (const sh of sheets) {
         const ws = wb.Sheets[sh.name];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false })
           .filter((r) => r && r.some((c) => c !== null && c !== undefined && String(c).trim() !== ""));
         try {
           const parsed = parseRows(rows, sh.name);
-          prepared.push({
+          const payload = {
             fileName,
             sheetName: sh.name,
             date: parsed.date,
@@ -144,7 +152,9 @@ function MainApp() {
             items: parsed.items,
             totals: parsed.totals,
             uploadedBy: role,
-          });
+          };
+          prepared.push(payload);
+          parsedMap[sh.name] = parsed;
         } catch (e) {
           console.warn(`Не удалось разобрать лист "${sh.name}":`, e.message);
         }
@@ -160,7 +170,9 @@ function MainApp() {
         openModal("confirmDupAll", { all: prepared, existing: firstExisting.existing, payload: firstExisting.payload });
         return;
       }
-      await saveAll(prepared);
+      // For multiple sheets, use first sheet's parsed data for the modal
+      const firstParsed = parsedMap[sheets[0]?.name] || prepared[0];
+      setPendingUpload({ payload: null, allPrepared: prepared, parsed: firstParsed, fileName });
     } catch (e) {
       openModal("error", { message: e.message });
     }
@@ -308,7 +320,7 @@ function MainApp() {
       );
     }
   } else if (route.path === "/payments") {
-    content = <PaymentsView docs={filteredDocs} globalPayments={globalPayments} branchesList={filteredAgg.branches} />;
+        content = <PaymentsView docs={filteredDocs} globalPayments={globalPayments} branchesList={filteredAgg.branches} onOpenGlobalPayment={() => openModal("globalPay")} />;
   } else if (route.path === "/debts") {
     content = (
       <DebtsView
@@ -320,6 +332,27 @@ function MainApp() {
     );
   } else if (route.path === "/products") {
     content = <ProductsView docs={filteredDocs} agg={filteredAgg} />;
+  } else if (route.path === "/poster") {
+    content = <PosterView />;
+  } else if (route.path === "/poster/compare") {
+    content = <PosterCompareView />;
+  } else if (route.path === "/inventory") {
+    content = (
+      <InventoryView
+        canEdit={canEdit}
+        role={role}
+        onOpenSession={(spotId) => route.navigate(`/inventory/${encodeURIComponent(spotId)}`)}
+      />
+    );
+  } else if (route.path === "/inventory/:spotId") {
+    content = (
+      <InventorySession
+        spotId={route.params.spotId}
+        canEdit={canEdit}
+        role={role}
+        onBack={() => route.navigate("/inventory")}
+      />
+    );
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }
@@ -335,8 +368,6 @@ function MainApp() {
       />
 
       <div className="main-area">
-        <PeriodBar value={period} onChange={setPeriod} />
-
         {fbError && (
           <div className="err-box err-banner">
             <i className="ti ti-alert-circle" aria-hidden="true" /> {fbError}
@@ -433,6 +464,36 @@ function MainApp() {
         cancelText=""
         onConfirm={closeModal}
         onCancel={closeModal}
+      />
+
+      <PostUploadModal
+        open={!!pendingUpload}
+        parsed={pendingUpload?.parsed}
+        fileName={pendingUpload?.fileName}
+        onConfirm={(payMap) => {
+          try {
+            if (pendingUpload?.allPrepared) {
+              saveAll(pendingUpload.allPrepared, payMap);
+            } else if (pendingUpload?.payload) {
+              saveAll([pendingUpload.payload], payMap);
+            }
+            setPendingUpload(null);
+          } catch (e) {
+            openModal("error", { message: e.message });
+          }
+        }}
+        onCancel={() => {
+          try {
+            if (pendingUpload?.allPrepared) {
+              saveAll(pendingUpload.allPrepared);
+            } else if (pendingUpload?.payload) {
+              saveAll([pendingUpload.payload]);
+            }
+            setPendingUpload(null);
+          } catch (e) {
+            openModal("error", { message: e.message });
+          }
+        }}
       />
 
       <ToastViewport />

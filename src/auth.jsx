@@ -122,16 +122,12 @@ export function LoginGate({ children }) {
         <input
           className="login-input"
           autoFocus
-          placeholder="admin или user"
+          placeholder="Введите логин"
           value={input}
           onChange={e => { setInput(e.target.value); setErr(""); }}
         />
         {err && <div className="login-err">{err}</div>}
         <button type="submit" className="login-btn">Войти</button>
-        <div className="login-hint">
-          <div><b>admin</b> — загрузка накладных и оплаты</div>
-          <div><b>user</b> — только просмотр долгов</div>
-        </div>
       </form>
     </div>
   );
