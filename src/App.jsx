@@ -94,7 +94,11 @@ function MainApp() {
   // Фильтрация по филиалу: branch-пользователь видит только свой филиал
   const branchDocs = useMemo(() => {
     if (!userBranch) return docs;
-    return docs.filter(d => (d.branches || []).includes(userBranch));
+    const shortName = userBranch.replace("Aura02_", "");
+    return docs.filter(d => {
+      const branches = d.branches || [];
+      return branches.includes(userBranch) || branches.some(b => b === shortName || b.includes(shortName));
+    });
   }, [docs, userBranch]);
 
   const agg = useMemo(() => aggregateDocs(branchDocs), [branchDocs]);
