@@ -14,6 +14,7 @@ const NAV = [
   { id: "poster", path: "/poster", icon: "ti-cloud", label: "Poster API" },
   { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
   { id: "tickets", path: "/tickets", icon: "ti-message-circle", label: "Запросы" },
+  { id: "my-tickets", path: "/my-tickets", icon: "ti-message-circle", label: "Мои обращения" },
 ];
 
 function currentNavId(path) {
@@ -26,6 +27,7 @@ function currentNavId(path) {
   if (path.startsWith("/poster")) return "poster";
   if (path.startsWith("/inventory")) return "inventory";
   if (path.startsWith("/tickets")) return "tickets";
+  if (path.startsWith("/my-tickets")) return "my-tickets";
   return "dashboard";
 }
 
@@ -105,6 +107,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
         <nav className="sidebar-nav">
           {NAV.filter(item => {
             if (isBranch && (item.id === "poster" || item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
+            if (!isBranch && item.id === "my-tickets") return false;
             return true;
           }).map((item) => (
             <button

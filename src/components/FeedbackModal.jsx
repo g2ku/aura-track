@@ -40,32 +40,65 @@ export default function FeedbackModal({ open, onClose }) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={handleClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
-        <div className="modal-head">
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
+      }}
+      onClick={handleClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: "var(--bg-card)", borderRadius: 12, width: "100%", maxWidth: 480,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.4)", margin: 16,
+        }}
+      >
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "16px 20px", borderBottom: "1px solid var(--border)",
+        }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>
             <i className="ti ti-bulb" /> Предложить идею
           </h2>
-          <button className="icon-btn" onClick={handleClose} aria-label="Закрыть">
+          <button
+            className="icon-btn"
+            onClick={handleClose}
+            aria-label="Закрыть"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 20 }}
+          >
             <i className="ti ti-x" />
           </button>
         </div>
 
         {sent ? (
-          <div style={{ padding: 24, textAlign: "center" }}>
-            <i className="ti ti-check-circle" style={{ fontSize: 48, color: "var(--text-success)" }} />
-            <div style={{ marginTop: 12, fontSize: 16, fontWeight: 600 }}>Спасибо!</div>
-            <div style={{ color: "var(--text-muted)", marginTop: 4 }}>
-              Ваше обращение отправлено. Админ рассмотрит его в ближайшее время.
+          <div style={{ padding: 32, textAlign: "center" }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: "50%",
+              background: "var(--text-success)15", display: "flex",
+              alignItems: "center", justifyContent: "center", margin: "0 auto 16px",
+            }}>
+              <i className="ti ti-check" style={{ fontSize: 32, color: "var(--text-success)" }} />
             </div>
-            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={handleClose}>
+            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Спасибо!</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 14 }}>
+              Ваше обращение отправлено.<br />Админ рассмотрит его в ближайшее время.
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ marginTop: 20, minWidth: 120 }}
+              onClick={handleClose}
+            >
               Закрыть
             </button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} style={{ padding: "16px 20px 20px" }}>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Тема</label>
+          <form onSubmit={handleSubmit} style={{ padding: "20px" }}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "var(--text)" }}>
+                Тема *
+              </label>
               <input
                 className="form-input"
                 placeholder="Кратко опишите идею или проблему"
@@ -73,23 +106,32 @@ export default function FeedbackModal({ open, onClose }) {
                 onChange={e => setTitle(e.target.value)}
                 autoFocus
                 required
+                style={{ width: "100%", boxSizing: "border-box" }}
               />
             </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Описание</label>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "var(--text)" }}>
+                Описание
+              </label>
               <textarea
                 className="form-input"
                 rows={4}
                 placeholder="Подробно опишите что хотите добавить или что не работает..."
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                style={{ resize: "vertical" }}
+                style={{ resize: "vertical", width: "100%", boxSizing: "border-box" }}
               />
             </div>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button type="button" className="btn btn-out" onClick={handleClose}>Отмена</button>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-out" onClick={handleClose}>
+                Отмена
+              </button>
               <button type="submit" className="btn btn-primary" disabled={sending || !title.trim()}>
-                {sending ? <><i className="ti ti-loader-2 spin" /> Отправка...</> : <><i className="ti ti-send" /> Отправить</>}
+                {sending ? (
+                  <><i className="ti ti-loader-2 spin" /> Отправка...</>
+                ) : (
+                  <><i className="ti ti-send" /> Отправить</>
+                )}
               </button>
             </div>
           </form>

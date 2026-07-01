@@ -23,6 +23,7 @@ import PosterCompareView from "./components/PosterCompareView";
 import InventoryView from "./components/InventoryView";
 import InventorySession from "./components/InventorySession";
 import TicketsView from "./components/TicketsView";
+import MyTicketsView from "./components/MyTicketsView";
 import FeedbackModal from "./components/FeedbackModal";
 import Tracking from "./components/Tracking";
 import UploadModal from "./components/UploadModal";
@@ -365,6 +366,8 @@ function MainApp() {
     );
   } else if (route.path === "/tickets" && isAdmin()) {
     content = <TicketsView />;
+  } else if (route.path === "/my-tickets") {
+    content = <MyTicketsView />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }
