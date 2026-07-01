@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     const body = await proxyRes.text();
     res.status(proxyRes.status);
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
+    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=300");
     res.send(body);
   } catch (e) {
     console.error("Poster proxy error:", e.message);
