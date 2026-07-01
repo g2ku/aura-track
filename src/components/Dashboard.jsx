@@ -301,8 +301,8 @@ export default function Dashboard({
         </div>
       )}
 
-      {/* ─── Поставки (из отчётов, только если есть данные) ─────── */}
-      {!empty && (
+      {/* ─── Поставки (из отчётов, только для админа) ─────── */}
+      {!empty && !userBranch && (
         <>
           <div className="section-label" style={{ marginTop: 24 }}>
             <i className="ti ti-truck" /> Поставки (из отчётов)
@@ -345,7 +345,7 @@ export default function Dashboard({
             </div>
           )}
 
-          {agg.branches.length > 0 && (
+          {!userBranch && agg.branches.length > 0 && (
             <div className="card table-card" style={{ overflow: "auto", marginTop: 16 }}>
               <table className="data-table">
                 <thead>
