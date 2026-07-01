@@ -100,6 +100,47 @@ export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
   return Object.values(bySpot).sort((a, b) => b.total - a.total);
 }
 
+// ─── Касса по дням для конкретного филиала ─────────────────────────────
+export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) return [];
+  const days = enumerateDays(fromP, toP);
+  const [spots] = await Promise.all([getSpots(opts)]);
+
+  const dayResults = await mapWithProgress(
+    days,
+    DAY_CONCURRENCY,
+    async (yyyymmdd) => {
+      const r = await fetchOneDay(yyyymmdd, opts);
+      return { yyyymmdd, ...r };
+    },
+    ({ done, total }) => opts.onProgress?.({ done, total }),
+  );
+
+  const perDay = [];
+  for (const r of dayResults) {
+    for (const [spotId, productMap] of Object.entries(r.rowsBySpot || {})) {
+      let total = 0;
+      let txCount = 0;
+      for (const v of Object.values(productMap)) {
+        total += v.sum || 0;
+        txCount += v.qty || 0;
+      }
+      if (total > 0) {
+        perDay.push({
+          date: r.yyyymmdd,
+          spotId,
+          spotName: spots[spotId]?.name || spotId,
+          total,
+          txCount,
+        });
+      }
+    }
+  }
+  return perDay;
+}
+
 // ─── Поставки из Poster (Склад > Поставки) ──────────────────────────────
 
 const SUPPLIES_CACHE_KEY = "supply-track.poster.supplies.v1";
@@ -360,7 +401,7 @@ export async function getMenuCategories(opts = {}) {
 
 // ─── Загрузка одного дня через transactions.getTransactions ───────────
 
-async function fetchOneDay(yyyymmdd, opts = {}) {
+export async function fetchOneDay(yyyymmdd, opts = {}) {
   const cached = getCachedDay(yyyymmdd);
   if (cached) return { ...cached, fromCache: true };
 
