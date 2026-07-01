@@ -37,11 +37,12 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
 
   useEffect(() => {
     let abort = new AbortController();
-    fetchCashBySpot(daysAgoStr(29), todayStr(), { signal: abort.signal })
+    const period = userBranch ? 6 : 29;
+    fetchCashBySpot(daysAgoStr(period), todayStr(), { signal: abort.signal })
       .then((data) => { if (!abort.signal.aborted) setCashBySpot(data); })
       .catch(() => {});
     return () => abort.abort();
-  }, []);
+  }, [userBranch]);
 
   const cashByName = useMemo(() => {
     const m = {};

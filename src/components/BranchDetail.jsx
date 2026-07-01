@@ -10,6 +10,7 @@ import {
   paidForBranch,
 } from "../utils";
 import { Button, Pill } from "../ui";
+import { formatBranchName } from "../auth.jsx";
 
 const BranchLine = lazy(() => import("./charts/BranchLine"));
 
@@ -24,7 +25,13 @@ function ChartFallback() {
 
 export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
-  const branchAgg = agg.byBranch[branch];
+  const branchAgg = useMemo(() => {
+    if (agg.byBranch[branch]) return agg.byBranch[branch];
+    const shortName = branch.replace("Aura02_", "");
+    return agg.branches.find(b => b === shortName || b.includes(shortName))
+      ? agg.byBranch[agg.branches.find(b => b === shortName || b.includes(shortName))]
+      : null;
+  }, [agg, branch]);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -40,19 +47,26 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
     return branchAgg.dates.slice().sort();
   }, [branchAgg]);
 
+  // Resolve the actual branch key in totals (may be short name like "Абая" instead of "Aura02_Abaya")
+  const resolvedBranch = useMemo(() => {
+    if (agg.byBranch[branch]) return branch;
+    const shortName = branch.replace("Aura02_", "");
+    return agg.branches.find(b => b === shortName || b.includes(shortName)) || branch;
+  }, [agg, branch]);
+
   const rows = useMemo(() => {
     if (!branchAgg) return [];
     const out = [];
     for (const d of docs || []) {
       const dateKey = d.date || d.sheetName || "Без даты";
-      const t = +(d.totals?.[branch] || 0);
-      const paid = paidForBranch(d.payments, branch);
+      const t = +(d.totals?.[resolvedBranch] || 0);
+      const paid = paidForBranch(d.payments, resolvedBranch);
       if (t > 0 || paid > 0) {
         out.push({ date: dateKey, total: t, paid, debt: Math.max(0, t - paid), doc: d });
       }
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
-  }, [docs, branch]);
+  }, [docs, resolvedBranch, branchAgg]);
 
   // Применяем фильтр диапазона
   const dateFilteredRows = useMemo(() => {
@@ -114,7 +128,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
 
       <div className="branch-detail-title">
         <i className="ti ti-building-store" aria-hidden="true" />
-        <h1>{branch}</h1>
+        <h1>{formatBranchName(branch)}</h1>
         <Pill tone={isPaid ? "paid" : pc >= 50 ? "warn" : "danger"}>
           {isPaid ? "✓ Оплачено" : `Долг: ${fmt(d)}`}
         </Pill>
