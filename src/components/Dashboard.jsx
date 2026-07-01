@@ -183,46 +183,40 @@ export default function Dashboard({
         </div>
       )}
 
-      {empty ? (
-        <div className="card empty-state">
-          <i className="ti ti-inbox" aria-hidden="true" />
-          <div className="empty-state-title">Пока нет загруженных отчётов</div>
-          <div className="empty-state-sub">
-            Загрузите первую накладную — здесь появится статистика по филиалам.
-          </div>
-          {canEdit && (
-            <Button variant="primary" icon="ti-upload" onClick={onAddReport}>
-              Загрузить файл
-            </Button>
-          )}
+      {/* ─── Сводка: Кассы (всегда) ──────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <div className="section-label" style={{ margin: 0 }}>
+          <i className="ti ti-building-store" /> Кассы точек (Poster)
         </div>
-      ) : (
-        <>
-          {/* ─── Сводка: Кассы ──────────────────────────────────── */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-            <div className="section-label" style={{ margin: 0 }}>
-              <i className="ti ti-building-store" /> Кассы точек (Poster)
-            </div>
-            <div className="dash-date-row" style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
-              <span style={{ color: "var(--text-muted)" }}>—</span>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
-              <div className="dash-date-presets" style={{ display: "flex", gap: 4 }}>
-                {[
-                  { label: "Сегодня", from: todayStr(), to: todayStr() },
-                  { label: "7 дн.", from: daysAgoStr(6), to: todayStr() },
-                  { label: "30 дн.", from: daysAgoStr(29), to: todayStr() },
-                ].map(p => (
-                  <button key={p.label} className="btn btn-out" style={{ padding: "4px 10px", fontSize: 12 }}
-                    onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+        <div className="dash-date-row" style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
+          <span style={{ color: "var(--text-muted)" }}>—</span>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
+          <div className="dash-date-presets" style={{ display: "flex", gap: 4 }}>
+            {[
+              { label: "Сегодня", from: todayStr(), to: todayStr() },
+              { label: "7 дн.", from: daysAgoStr(6), to: todayStr() },
+              { label: "30 дн.", from: daysAgoStr(29), to: todayStr() },
+            ].map(p => (
+              <button key={p.label} className="btn btn-out" style={{ padding: "4px 10px", fontSize: 12 }}
+                onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}>
+                {p.label}
+              </button>
+            ))}
           </div>
+        </div>
+      </div>
+
+      {posterLoading && (
+        <div className="card" style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
+          <i className="ti ti-loader-2 spin" /> Загрузка данных Poster...
+        </div>
+      )}
+
+      {!posterLoading && displayCashBySpot.length > 0 && (
+        <>
           <div className="stats-row">
             <div className="stat-card">
               <div className="stat-label">Общая касса</div>
@@ -242,57 +236,62 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* ─── Таблица заведений ──────────────────────────────── */}
-          {displayCashBySpot.length > 0 ? (
-            <div className="card table-card" style={{ overflow: "auto" }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th className="text-left" style={{ minWidth: 180 }}>Заведение</th>
-                    <th className="text-right" style={{ minWidth: 120 }}>Оплачено</th>
-                    <th className="text-right" style={{ minWidth: 80 }}>Чеки</th>
-                    <th className="text-right" style={{ minWidth: 120 }}>Средний чек</th>
-                    <th className="text-right" style={{ minWidth: 120 }}>Средняя/день</th>
+          <div className="card table-card" style={{ overflow: "auto" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th className="text-left" style={{ minWidth: 180 }}>Заведение</th>
+                  <th className="text-right" style={{ minWidth: 120 }}>Оплачено</th>
+                  <th className="text-right" style={{ minWidth: 80 }}>Чеки</th>
+                  <th className="text-right" style={{ minWidth: 120 }}>Средний чек</th>
+                  <th className="text-right" style={{ minWidth: 120 }}>Средняя/день</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayCashBySpot.map(c => (
+                  <tr
+                    key={c.spotId}
+                    className="clickable-row"
+                    onClick={() => onSelectBranch(c.spotName)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelectBranch(c.spotName)}
+                  >
+                    <td className="text-left fw-600">{c.spotName}</td>
+                    <td className="text-right fw-600">{fmt(c.total)} ₸</td>
+                    <td className="text-right">{c.txCount.toLocaleString("ru-RU")}</td>
+                    <td className="text-right text-accent">{fmt(c.avgCheck)} ₸</td>
+                    <td className="text-right text-muted">{fmt(c.avgPerDay)} ₸</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {displayCashBySpot.map(c => (
-                    <tr
-                      key={c.spotId}
-                      className="clickable-row"
-                      onClick={() => onSelectBranch(c.spotName)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelectBranch(c.spotName)}
-                    >
-                      <td className="text-left fw-600">{c.spotName}</td>
-                      <td className="text-right fw-600">{fmt(c.total)} ₸</td>
-                      <td className="text-right">{c.txCount.toLocaleString("ru-RU")}</td>
-                      <td className="text-right text-accent">{fmt(c.avgCheck)} ₸</td>
-                      <td className="text-right text-muted">{fmt(c.avgPerDay)} ₸</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="tfoot-row">
-                    <td className="fw-600">Итого</td>
-                    <td className="text-right fw-600">{fmt(totalCash)} ₸</td>
-                    <td className="text-right fw-600">{totalTx.toLocaleString("ru-RU")}</td>
-                    <td className="text-right fw-600 text-accent">{fmt(avgCheck)} ₸</td>
-                    <td className="text-right fw-600 text-muted">{fmt(displayCashBySpot.length > 0 ? Math.round(totalCash / 30) : 0)} ₸</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          ) : (
-            !posterLoading && (
-              <div className="card" style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
-                Данные Poster API недоступны
-              </div>
-            )
-          )}
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="tfoot-row">
+                  <td className="fw-600">Итого</td>
+                  <td className="text-right fw-600">{fmt(totalCash)} ₸</td>
+                  <td className="text-right fw-600">{totalTx.toLocaleString("ru-RU")}</td>
+                  <td className="text-right fw-600 text-accent">{fmt(avgCheck)} ₸</td>
+                  <td className="text-right fw-600 text-muted">{fmt(Math.round(totalCash / 30))} ₸</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
 
-          {/* ─── Поставки ──────────────────────────────────────── */}
+      {!posterLoading && displayCashBySpot.length === 0 && (
+        <div className="card empty-state">
+          <i className="ti ti-cloud" aria-hidden="true" />
+          <div className="empty-state-title">Нет данных за выбранный период</div>
+          <div className="empty-state-sub">
+            Измените период или проверьте подключение к Poster API.
+          </div>
+        </div>
+      )}
+
+      {/* ─── Поставки (из отчётов, только если есть данные) ─────── */}
+      {!empty && (
+        <>
           <div className="section-label" style={{ marginTop: 24 }}>
             <i className="ti ti-truck" /> Поставки (из отчётов)
           </div>
@@ -311,7 +310,6 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* ─── Предупреждения о поставках ─────────────────────── */}
           {supplyWarnings.length > 0 && (
             <div className="supply-warnings" style={{ marginTop: 16 }}>
               <div className="section-label">
@@ -335,7 +333,6 @@ export default function Dashboard({
             </div>
           )}
 
-          {/* ─── Поставки по филиалам (таблица) ─────────────────── */}
           {agg.branches.length > 0 && (
             <div className="card table-card" style={{ overflow: "auto", marginTop: 16 }}>
               <table className="data-table">

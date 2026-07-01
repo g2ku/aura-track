@@ -150,7 +150,7 @@ export function useUserBranch() {
 // ─── Экран логина ──────────────────────────────────────────────────────
 
 export function LoginGate({ children }) {
-  const auth = getAuthPayload();
+  const auth = useAuth();
   const [input, setInput] = useState("");
   const [err, setErr] = useState("");
 

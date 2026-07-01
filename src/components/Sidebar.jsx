@@ -102,8 +102,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
 
         <nav className="sidebar-nav">
           {NAV.filter(item => {
-            // Branch users don't see Poster API and Inventory (admin only)
-            if (isBranch && (item.id === "poster" || item.id === "inventory")) return false;
+            if (isBranch && (item.id === "poster" || item.id === "inventory" || item.id === "payments" || item.id === "debts")) return false;
             return true;
           }).map((item) => (
             <button
