@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, getSpots } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, getSpots, clearPosterCache } from "../poster";
 
 function greeting(now = new Date()) {
   const h = now.getHours();
@@ -50,6 +50,7 @@ export default function Dashboard({
   const [posterError, setPosterError] = useState("");
   const [dateFrom, setDateFrom] = useState(daysAgoStr(6));
   const [dateTo, setDateTo] = useState(todayStr());
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +75,7 @@ export default function Dashboard({
     }
     load();
     return () => { cancelled = true; };
-  }, [dateFrom, dateTo]);
+  }, [dateFrom, dateTo, refreshKey]);
 
   const empty = docs.length === 0;
 
@@ -205,6 +206,11 @@ export default function Dashboard({
                 {p.label}
               </button>
             ))}
+            <button className="btn btn-out" style={{ padding: "4px 10px", fontSize: 12 }}
+              onClick={() => { clearPosterCache(); setRefreshKey(k => k + 1); }}
+              title="Обновить данные Poster">
+              <i className="ti ti-refresh" /> Обновить
+            </button>
           </div>
         </div>
       </div>

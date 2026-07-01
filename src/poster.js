@@ -31,7 +31,7 @@ const TOKEN = import.meta.env.VITE_POSTER_TOKEN || "";
 const UA = "Poster (http://joinposter.com)";
 
 const CACHE_KEY = "supply-track.poster.salesByDay.v3";
-const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_MS = 0; // всегда свежие данные — кэш не используется
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
 const DAY_CONCURRENCY = 4;    // параллельных дней за раз
@@ -103,7 +103,7 @@ export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
 // ─── Поставки из Poster (Склад > Поставки) ──────────────────────────────
 
 const SUPPLIES_CACHE_KEY = "supply-track.poster.supplies.v1";
-const SUPPLIES_CACHE_TTL = 60 * 60 * 1000; // 1 час
+const SUPPLIES_CACHE_TTL = 0; // всегда свежие данные
 
 export async function fetchSupplies(opts = {}) {
   // Проверяем кэш
