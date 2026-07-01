@@ -170,11 +170,14 @@ export function LoginGate({ children }) {
   return (
     <div className="login-wrap">
       <form onSubmit={submit} className="login-card">
-        <div className="login-logo">
-          <i className="ti ti-package" aria-hidden="true" />
+        <div className="login-logo pulse-glow">
+          <i className="ti ti-coffee" aria-hidden="true" />
         </div>
-        <h1 className="login-title">SupplyTrack</h1>
-        <p className="login-sub">Введите логин для доступа</p>
+        <h1 className="login-title">
+          <span className="title-gradient">Aura 02</span>
+          <span className="title-sub">Poster Pro</span>
+        </h1>
+        <p className="login-sub">Управление поставками и кассами</p>
         <input
           className="login-input"
           autoFocus

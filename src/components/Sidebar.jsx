@@ -81,8 +81,8 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-head">
           <div className="sidebar-logo">
-            <i className="ti ti-package" aria-hidden="true" />
-            <span>SupplyTrack</span>
+            <i className="ti ti-coffee" aria-hidden="true" />
+            <span>Aura 02 Poster Pro</span>
           </div>
           <button
             className="icon-btn sidebar-close"

@@ -1978,18 +1978,75 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   flex-direction: column;
   gap: var(--sp-3);
   box-shadow: var(--shadow-lg);
+  animation: cardFadeIn 0.5s ease-out;
+}
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .login-logo {
-  width: 56px; height: 56px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-accent);
-  color: var(--text-accent);
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover, var(--accent)));
+  color: #fff;
   display: flex; align-items: center; justify-content: center;
-  margin: 0 auto var(--sp-2);
+  margin: 0 auto var(--sp-3);
+  animation: logoPop 0.6s ease-out 0.2s both;
 }
-.login-logo > i { font-size: 28px; }
-.login-title { font-size: var(--fs-24); font-weight: 700; text-align: center; letter-spacing: -0.01em; }
-.login-sub { font-size: var(--fs-13); color: var(--text-muted); text-align: center; margin-bottom: var(--sp-3); }
+@keyframes logoPop {
+  from { opacity: 0; transform: scale(0.5); }
+  60% { transform: scale(1.1); }
+  to { opacity: 1; transform: scale(1); }
+}
+.login-logo > i { font-size: 30px; }
+.pulse-glow {
+  box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent);
+  animation: logoPop 0.6s ease-out 0.2s both, pulseGlow 2s ease-in-out infinite 0.8s;
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent); }
+  50% { box-shadow: 0 0 30px var(--accent), 0 0 60px var(--accent); }
+}
+.login-title {
+  text-align: center;
+  margin: 0;
+  line-height: 1.2;
+}
+.title-gradient {
+  display: block;
+  font-size: 28px;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent), #a78bfa, var(--accent));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 3s ease-in-out infinite, titleFadeIn 0.6s ease-out 0.3s both;
+}
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes titleFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.title-sub {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  animation: titleFadeIn 0.6s ease-out 0.4s both;
+}
+.login-sub {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: var(--sp-3);
+  animation: titleFadeIn 0.6s ease-out 0.5s both;
+}
 .login-input {
   font-size: var(--fs-14);
   padding: 12px 16px;
@@ -2521,3 +2578,80 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 
 /* Утилита: tabular numbers */
 .fw-600 { font-weight: 600; }
+
+/* ─── Анимации ──────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.content { animation: fadeIn 0.25s ease-out; }
+.view-wrap { animation: slideUp 0.3s ease-out; }
+.card { animation: scaleIn 0.2s ease-out; }
+
+.sidebar-link {
+  transition: all 0.15s ease;
+}
+.sidebar-link:hover {
+  transform: translateX(4px);
+}
+.sidebar-link.active {
+  transition: all 0.15s ease;
+}
+
+.clickable-row {
+  transition: background 0.12s ease;
+}
+.clickable-row:hover {
+  background: var(--bg-hover);
+}
+
+.stat-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.btn {
+  transition: all 0.15s ease;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+
+.modal-backdrop {
+  animation: fadeIn 0.15s ease-out;
+}
+.modal-card {
+  animation: scaleIn 0.2s ease-out;
+}
+
+.branch-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.branch-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+}
+
+.sidebar-logo i {
+  animation: logoSpin 20s linear infinite;
+}
+@keyframes logoSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
