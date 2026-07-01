@@ -413,3 +413,43 @@ export async function deleteInventorySession(sessionId) {
     tx.update(ref, { history: next });
   });
 }
+
+// ─── Обращения / Предложить идею ──────────────────────────────────────
+
+export async function submitTicket({ title, description, author, authorBranch }) {
+  const id = `ticket-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const ref = doc(getDb(), "tickets", id);
+  await setDoc(ref, {
+    id,
+    title,
+    description,
+    author,
+    authorBranch: authorBranch || null,
+    status: "open", // open | approved | rejected
+    response: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  return id;
+}
+
+export function subscribeTickets(onChange, onError) {
+  const q = query(collection(getDb(), "tickets"), orderBy("createdAt", "desc"));
+  return onSnapshot(q,
+    (snap) => {
+      const items = [];
+      snap.forEach((d) => items.push(d.data()));
+      onChange(items);
+    },
+    (err) => onError && onError(err)
+  );
+}
+
+export async function respondToTicket(ticketId, { status, response }) {
+  const ref = doc(getDb(), "tickets", ticketId);
+  await updateDoc(ref, {
+    status,
+    response: response || null,
+    updatedAt: Date.now(),
+  });
+}

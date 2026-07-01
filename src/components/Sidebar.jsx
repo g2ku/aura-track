@@ -13,6 +13,7 @@ const NAV = [
   { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
   { id: "poster", path: "/poster", icon: "ti-cloud", label: "Poster API" },
   { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
+  { id: "tickets", path: "/tickets", icon: "ti-message-circle", label: "Запросы" },
 ];
 
 function currentNavId(path) {
@@ -24,10 +25,11 @@ function currentNavId(path) {
   if (path.startsWith("/debts")) return "debts";
   if (path.startsWith("/poster")) return "poster";
   if (path.startsWith("/inventory")) return "inventory";
+  if (path.startsWith("/tickets")) return "tickets";
   return "dashboard";
 }
 
-export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate }) {
+export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback }) {
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
   const spotName = getUserSpotName();
@@ -103,6 +105,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
         <nav className="sidebar-nav">
           {NAV.filter(item => {
             if (isBranch && (item.id === "poster" || item.id === "inventory" || item.id === "payments" || item.id === "debts")) return false;
+            if (!isBranch && item.id === "tickets") return false;
             return true;
           }).map((item) => (
             <button
@@ -146,6 +149,11 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
                  theme === "light" ? "Изумруд" :
                  theme === "emerald" ? "Emerald Light" : "Тёмная"}
               </span>
+            </button>
+          )}
+          {isBranch && onOpenFeedback && (
+            <button className="btn btn-ghost btn-full" style={{ marginBottom: 8, color: "var(--text-accent)" }} onClick={onOpenFeedback}>
+              <i className="ti ti-bulb" aria-hidden="true" /> Предложить идею
             </button>
           )}
           <button className="btn btn-ghost btn-full" onClick={handleLogout}>

@@ -62,8 +62,20 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
         cashDays: cash?.daysCount || 0,
       };
     });
-    // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+    // Для branch-пользователя: всегда показываем его филиал, даже без отчётов
     if (userBranch) {
+      const exists = list.some((x) => x.name === userBranch || x.name.includes(userBranch.replace("Aura02_", "")));
+      if (!exists) {
+        const cash = cashByName[userBranch];
+        list.push({
+          name: userBranch,
+          total: 0, paid: 0, debt: 0, reports: 0, dates: [],
+          avgPerReport: 0,
+          cash: cash?.total || 0,
+          avgCash: cash?.avgPerDay || 0,
+          cashDays: cash?.daysCount || 0,
+        });
+      }
       list = list.filter((x) => x.name === userBranch || x.name.includes(userBranch.replace("Aura02_", "")));
     }
     if (q) {

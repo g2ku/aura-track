@@ -22,6 +22,8 @@ import PosterView from "./components/PosterView";
 import PosterCompareView from "./components/PosterCompareView";
 import InventoryView from "./components/InventoryView";
 import InventorySession from "./components/InventorySession";
+import TicketsView from "./components/TicketsView";
+import FeedbackModal from "./components/FeedbackModal";
 import Tracking from "./components/Tracking";
 import UploadModal from "./components/UploadModal";
 import GlobalPaymentModal from "./components/GlobalPaymentModal";
@@ -69,6 +71,7 @@ function MainApp() {
 
   // Pending upload: data waiting for post-upload "mark as paid" confirmation.
   const [pendingUpload, setPendingUpload] = useState(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useRememberRoute();
 
@@ -361,6 +364,8 @@ function MainApp() {
         onBack={() => route.navigate("/inventory")}
       />
     );
+  } else if (route.path === "/tickets" && isAdmin()) {
+    content = <TicketsView />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }
@@ -373,6 +378,7 @@ function MainApp() {
         theme={theme}
         onToggleTheme={toggleTheme}
         onNavigate={route.navigate}
+        onOpenFeedback={() => setFeedbackOpen(true)}
       />
 
       <div className="main-area">
@@ -506,6 +512,7 @@ function MainApp() {
 
       <ToastViewport />
       <CommandPalette />
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </div>
   );
 }
