@@ -11,6 +11,7 @@
     "serve": "vite build && node server.js"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "chart.js": "^4.4.4",
     "firebase": "^10.14.1",
     "pdfjs-dist": "^4.5.136",
