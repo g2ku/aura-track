@@ -124,7 +124,13 @@ export default function Dashboard({
 
   const totalCash = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.total, 0), [displayCashBySpot]);
   const totalTx = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.txCount, 0), [displayCashBySpot]);
-  const avgCashPerSpot = displayCashBySpot.length > 0 ? Math.round(totalCash / displayCashBySpot.length) : 0;
+  const daysInPeriod = useMemo(() => {
+    if (!dateFrom || !dateTo) return 1;
+    const a = new Date(dateFrom), b = new Date(dateTo);
+    const diff = Math.round((b - a) / 86400000) + 1;
+    return diff > 0 ? diff : 1;
+  }, [dateFrom, dateTo]);
+  const avgCashPerDay = displayCashBySpot.length > 0 ? Math.round(totalCash / daysInPeriod) : 0;
   const avgCheck = totalTx > 0 ? Math.round(totalCash / totalTx) : 0;
 
   const totalSupply = agg.global.total || 0;
@@ -197,10 +203,10 @@ export default function Dashboard({
         </div>
         <div className="dash-date-row" style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
+            style={{ padding: "4px 8px", background: "var(--surface-1)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
           <span style={{ color: "var(--text-muted)" }}>—</span>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
+            style={{ padding: "4px 8px", background: "var(--surface-1)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />
           <div className="dash-date-presets" style={{ display: "flex", gap: 4 }}>
             {[
               { label: "Сегодня", from: todayStr(), to: todayStr() },
@@ -240,8 +246,8 @@ export default function Dashboard({
             <div className="kpi-card kpi-indigo">
               <div className="kpi-icon"><i className="ti ti-chart-bar" /></div>
               <div className="kpi-info">
-                <div className="kpi-label">Средняя касса</div>
-                <div className="kpi-value">{fmt(avgCashPerSpot)} ₸</div>
+                <div className="kpi-label">Средняя касса/день</div>
+                <div className="kpi-value">{fmt(avgCashPerDay)} ₸</div>
               </div>
             </div>
             <div className="kpi-card kpi-emerald">
@@ -295,7 +301,7 @@ export default function Dashboard({
                   <td className="text-right fw-600">{fmt(totalCash)} ₸</td>
                   <td className="text-right fw-600">{totalTx.toLocaleString("ru-RU")}</td>
                   <td className="text-right fw-600 text-accent">{fmt(avgCheck)} ₸</td>
-                  <td className="text-right fw-600 text-muted">{fmt(Math.round(totalCash / 30))} ₸</td>
+                  <td className="text-right fw-600 text-muted">{fmt(avgCashPerDay)} ₸</td>
                 </tr>
               </tfoot>
             </table>

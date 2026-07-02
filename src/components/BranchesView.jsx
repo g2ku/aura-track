@@ -44,6 +44,17 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
     return () => abort.abort();
   }, [userBranch]);
 
+  // Fetch all Poster spots for admin (so all 8 branches show even without reports)
+  const [allSpots, setAllSpots] = useState({});
+  useEffect(() => {
+    if (userBranch) return;
+    let abort = new AbortController();
+    getSpots({ signal: abort.signal })
+      .then((spots) => { if (!abort.signal.aborted) setAllSpots(spots); })
+      .catch(() => {});
+    return () => abort.abort();
+  }, [userBranch]);
+
   const cashByName = useMemo(() => {
     const m = {};
     for (const c of cashBySpot) m[c.spotName] = c;
@@ -75,6 +86,25 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
         cashDays: cash?.daysCount || 0,
       };
     });
+    // Inject all Poster spots that don't have reports (admin only)
+    if (!userBranch && allSpots && Object.keys(allSpots).length > 0) {
+      for (const [spotId, spot] of Object.entries(allSpots)) {
+        const spotName = spot.spot_name || spot.name || "";
+        if (!spotName) continue;
+        const exists = list.some(x => x.name === spotName);
+        if (!exists) {
+          const cash = cashByName[spotName];
+          list.push({
+            name: spotName,
+            total: 0, paid: 0, debt: 0, reports: 0, dates: [],
+            avgPerReport: 0,
+            cash: cash?.total || 0,
+            avgCash: cash?.avgPerDay || 0,
+            cashDays: cash?.daysCount || 0,
+          });
+        }
+      }
+    }
     if (branchMatch) {
       const exists = list.some((x) => branchMatch(x.name));
       if (!exists) {
@@ -99,7 +129,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
       return (b[sort] || 0) - (a[sort] || 0);
     });
     return list;
-  }, [agg, q, sort, cashByName, branchMatch]);
+  }, [agg, q, sort, cashByName, branchMatch, allSpots, userBranch]);
 
   return (
     <div className="view-wrap branches-view-wrap">

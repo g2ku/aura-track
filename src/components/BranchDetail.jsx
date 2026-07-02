@@ -88,9 +88,9 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
   }, [branch, resolvedBranch]);
 
   const displayName = formatBranchName(branch);
-  const grandCash = useMemo(() => cashDays.reduce((s, r) => s + r.total, 0), [cashDays]);
-  const grandTx = useMemo(() => cashDays.reduce((s, r) => s + r.txCount, 0), [cashDays]);
-  const avgPerDay = cashDays.length > 0 ? Math.round(grandCash / cashDays.length) : 0;
+  const filteredCashTotal = useMemo(() => filteredCash.reduce((s, r) => s + r.total, 0), [filteredCash]);
+  const filteredCashTx = useMemo(() => filteredCash.reduce((s, r) => s + r.txCount, 0), [filteredCash]);
+  const avgPerDay = filteredCash.length > 0 ? Math.round(filteredCashTotal / filteredCash.length) : 0;
 
   const rows = useMemo(() => {
     const out = [];
@@ -132,13 +132,17 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
   const d = branchAgg?.debt || 0;
   const pc = pct(p, t);
   const isPaid = d <= 0 && t > 0;
-  const avgSupply = branchAgg?.reports > 0 ? t / branchAgg.reports : 0;
   const hasDocs = rows.length > 0;
+
+  const filteredSupplyTotal = useMemo(() => dateFilteredRows.reduce((s, r) => s + r.total, 0), [dateFilteredRows]);
+  const filteredAvgSupply = dateFilteredRows.length > 0 ? Math.round(filteredSupplyTotal / dateFilteredRows.length) : 0;
 
   // Filtered cash days
   const filteredCash = useMemo(() => {
     if (!from && !to) return cashDays;
-    return cashDays.filter(r => dateInRange(r.date, from, to));
+    const fromRu = dateInputToRu(from);
+    const toRu = dateInputToRu(to);
+    return cashDays.filter(r => dateInRange(r.date, fromRu, toRu));
   }, [cashDays, from, to]);
 
   const cashTotalsByDate = useMemo(() => {
@@ -180,10 +184,10 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
         <div className="kpi-card kpi-accent">
           <div className="kpi-stripe" />
           <div className="kpi-row">
-            <div className="kpi-label"><i className="ti ti-cash" aria-hidden="true" /> Касса (30 дн.)</div>
+            <div className="kpi-label"><i className="ti ti-cash" aria-hidden="true" /> Касса</div>
           </div>
-          <div className="kpi-value accent">{fmt(grandCash)}</div>
-          <div className="kpi-sub">{grandTx} чеков · {cashLoading ? "загрузка…" : `${cashDays.length} дн.`}</div>
+          <div className="kpi-value accent">{fmt(filteredCashTotal)}</div>
+          <div className="kpi-sub">{filteredCashTx} чеков · {filteredCash.length} дн.</div>
         </div>
 
         <div className="kpi-card kpi-paid">
@@ -200,19 +204,10 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
             <div className="kpi-card kpi-accent">
               <div className="kpi-stripe" />
               <div className="kpi-row">
-                <div className="kpi-label"><i className="ti ti-package" aria-hidden="true" /> Поставка</div>
+                <div className="kpi-label"><i className="ti ti-package" aria-hidden="true" /> Средняя поставка</div>
               </div>
-              <div className="kpi-value accent">{fmt(t)}</div>
-              <div className="kpi-sub">{branchAgg.reports} {branchAgg.reports === 1 ? "отчёт" : "отчётов"}</div>
-            </div>
-
-            <div className={`kpi-card ${d > 0 ? "kpi-danger" : "kpi-paid"}`}>
-              <div className="kpi-stripe" />
-              <div className="kpi-row">
-                <div className="kpi-label"><i className="ti ti-alert-triangle" aria-hidden="true" /> Долг</div>
-              </div>
-              <div className={`kpi-value ${d > 0 ? "danger" : "success"}`}>{fmt(d)}</div>
-              <div className="kpi-sub">{d > 0 ? "Требует оплаты" : "Всё закрыто"}</div>
+              <div className="kpi-value accent">{fmt(filteredAvgSupply)}</div>
+              <div className="kpi-sub">{dateFilteredRows.length} {dateFilteredRows.length === 1 ? "отчёт" : "отчётов"} за период</div>
             </div>
           </>
         )}
@@ -270,8 +265,40 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
         )}
       </div>
 
-      {/* Поставки (если есть) */}
-      {hasDocs && (
+      {/* Фильтр дат */}
+      <div className="branch-detail-filter">
+        <div className="section-label">Период</div>
+        <div className="branch-detail-datepick">
+          <div className="date-range">
+            <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} title="Дата от" />
+            <span className="period-range-sep">—</span>
+            <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} title="Дата до" />
+          </div>
+        </div>
+      </div>
+
+      {/* Динамика кассы (для branch users) */}
+      {!canEdit && filteredCash.length > 1 && (
+        <div className="chart-card">
+          <div className="chart-head">
+            <i className="ti ti-trending-up" aria-hidden="true" /> Динамика кассы
+          </div>
+          <div className="chart-body">
+            <Suspense fallback={<ChartFallback />}>
+              {chartsReady && (
+                <BranchLine
+                  dates={filteredCash.map(r => r.date).sort()}
+                  totalsByDate={cashTotalsByDate}
+                  paidByDate={{}}
+                />
+              )}
+            </Suspense>
+          </div>
+        </div>
+      )}
+
+      {/* Поставки (только для админа) */}
+      {canEdit && hasDocs && (
         <>
           {dateFilteredRows.length > 1 && (
             <div className="chart-card">
@@ -292,16 +319,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
             </div>
           )}
 
-          <div className="branch-detail-filter">
-            <div className="section-label">История поставок</div>
-            <div className="branch-detail-datepick">
-              <div className="date-range">
-                <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} title="Дата от" />
-                <span className="period-range-sep">—</span>
-                <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} title="Дата до" />
-              </div>
-            </div>
-          </div>
+          <div className="section-label">История поставок</div>
 
           <div className="card table-card">
             <table className="data-table">
