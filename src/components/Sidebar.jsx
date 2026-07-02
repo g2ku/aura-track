@@ -2,7 +2,7 @@
 // На десктопе фиксировано слева, на мобильных — drawer (гамбургер).
 
 import { useState, useEffect } from "react";
-import { logout } from "../auth.jsx";
+import { logout, getUserSpotName, isAdmin } from "../auth.jsx";
 
 const NAV = [
   { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
@@ -12,6 +12,9 @@ const NAV = [
   { id: "payments", path: "/payments", icon: "ti-cash", label: "Оплаты" },
   { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
   { id: "poster", path: "/poster", icon: "ti-cloud", label: "Poster API" },
+  { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
+  { id: "tickets", path: "/tickets", icon: "ti-message-circle", label: "Запросы" },
+  { id: "my-tickets", path: "/my-tickets", icon: "ti-message-circle", label: "Мои обращения" },
 ];
 
 function currentNavId(path) {
@@ -22,13 +25,17 @@ function currentNavId(path) {
   if (path.startsWith("/payments")) return "payments";
   if (path.startsWith("/debts")) return "debts";
   if (path.startsWith("/poster")) return "poster";
+  if (path.startsWith("/inventory")) return "inventory";
+  if (path.startsWith("/tickets")) return "tickets";
+  if (path.startsWith("/my-tickets")) return "my-tickets";
   return "dashboard";
 }
 
-export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate }) {
+export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback }) {
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
-  const isCompareRoute = route.path === "/poster/compare";
+  const spotName = getUserSpotName();
+  const isBranch = role === "branch";
 
   useEffect(() => { setOpen(false); }, [route.path]);
 
@@ -74,8 +81,8 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-head">
           <div className="sidebar-logo">
-            <i className="ti ti-package" aria-hidden="true" />
-            <span>SupplyTrack</span>
+            <i className="ti ti-coffee" aria-hidden="true" />
+            <span>Aura 02 Poster Pro</span>
           </div>
           <button
             className="icon-btn sidebar-close"
@@ -98,7 +105,11 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
         </button>
 
         <nav className="sidebar-nav">
-          {NAV.map((item) => (
+          {NAV.filter(item => {
+            if (isBranch && (item.id === "poster" || item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
+            if (!isBranch && item.id === "my-tickets") return false;
+            return true;
+          }).map((item) => (
             <button
               key={item.id}
               className={`sidebar-link${activeId === item.id ? " active" : ""}`}
@@ -113,19 +124,8 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
 
         <div className="sidebar-foot">
           <div className="sidebar-role">
-            <span className="role-badge">{role}</span>
+            <span className="role-badge">{isBranch ? spotName || role : role}</span>
           </div>
-          
-          {activeId === "poster" && (
-            <button
-              className="btn btn-out btn-full"
-              style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}
-              onClick={() => onNavigate(isCompareRoute ? "/poster" : "/poster/compare")}
-            >
-              <i className={`ti ${isCompareRoute ? "ti-cloud" : "ti-compare"}`} aria-hidden="true" />
-              <span>{isCompareRoute ? "Poster API" : "Сравнить периоды"}</span>
-            </button>
-          )}
 
           {onToggleTheme && (
             <button
@@ -151,6 +151,11 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate 
                  theme === "light" ? "Изумруд" :
                  theme === "emerald" ? "Emerald Light" : "Тёмная"}
               </span>
+            </button>
+          )}
+          {isBranch && onOpenFeedback && (
+            <button className="btn btn-ghost btn-full" style={{ marginBottom: 8, color: "var(--text-accent)" }} onClick={onOpenFeedback}>
+              <i className="ti ti-bulb" aria-hidden="true" /> Предложить идею
             </button>
           )}
           <button className="btn btn-ghost btn-full" onClick={handleLogout}>

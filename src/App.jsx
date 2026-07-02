@@ -1,11 +1,11 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   saveReport, setBranchPayments,
   deleteReports, addGlobalPayment, addBranchStandalonePayment,
   deleteBranchPayment,
   docId as makeDocId,
 } from "./firebase";
-import { LoginGate, useAuth, isAdmin } from "./auth.jsx";
+import { LoginGate, useAuth, useUserBranch, isAdmin, matchBranchInDocs } from "./auth.jsx";
 import { aggregateDocs, filterDocsByPeriod } from "./utils";
 import { useHashRoute, useRememberRoute } from "./router";
 import { useAppStore, periodToFilter } from "./store/useAppStore";
@@ -20,12 +20,17 @@ import DebtsView from "./components/DebtsView";
 import ProductsView from "./components/ProductsView";
 import PosterView from "./components/PosterView";
 import PosterCompareView from "./components/PosterCompareView";
+import InventoryView from "./components/InventoryView";
+import InventorySession from "./components/InventorySession";
+import TicketsView from "./components/TicketsView";
+import MyTicketsView from "./components/MyTicketsView";
+import FeedbackModal from "./components/FeedbackModal";
 import Tracking from "./components/Tracking";
 import UploadModal from "./components/UploadModal";
 import GlobalPaymentModal from "./components/GlobalPaymentModal";
 import BranchPaymentModal from "./components/BranchPaymentModal";
 import ConfirmModal from "./components/ConfirmModal";
-import PeriodBar from "./components/PeriodBar";
+import PostUploadModal from "./components/PostUploadModal";
 import CommandPalette from "./components/CommandPalette";
 import { ToastViewport } from "./ui";
 
@@ -49,6 +54,7 @@ export default function App() {
 function MainApp() {
   const route = useHashRoute();
   const role = useAuth();
+  const userBranch = useUserBranch();
   const canEdit = isAdmin();
 
   // Стор: данные и UI state.
@@ -63,6 +69,10 @@ function MainApp() {
   const setPeriod = useAppStore((s) => s.setPeriod);
   const openModal = useAppStore((s) => s.openModal);
   const closeModal = useAppStore((s) => s.closeModal);
+
+  // Pending upload: data waiting for post-upload "mark as paid" confirmation.
+  const [pendingUpload, setPendingUpload] = useState(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useRememberRoute();
 
@@ -81,10 +91,17 @@ function MainApp() {
     return () => window.removeEventListener("supply-track:open-modal", handler);
   }, [openModal]);
 
-  const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  // Фильтрация по филиалу: branch-пользователь видит только свой филиал
+  const branchFilter = useMemo(() => userBranch ? matchBranchInDocs(userBranch) : null, [userBranch]);
+  const branchDocs = useMemo(() => {
+    if (!branchFilter) return docs;
+    return docs.filter(d => branchFilter(d.branches || []));
+  }, [docs, branchFilter]);
+
+  const agg = useMemo(() => aggregateDocs(branchDocs), [branchDocs]);
   const filteredDocs = useMemo(
-    () => filterDocsByPeriod(docs, periodToFilter(period)),
-    [docs, period]
+    () => filterDocsByPeriod(branchDocs, periodToFilter(period)),
+    [branchDocs, period]
   );
   const filteredAgg = useMemo(() => aggregateDocs(filteredDocs), [filteredDocs]);
 
@@ -93,9 +110,9 @@ function MainApp() {
     return docs.find((d) => d.id === makeDocId(payload.fileName, payload.sheetName)) || null;
   }
 
-  async function saveAll(prepared) {
+  async function saveAll(prepared, initialPayments) {
     for (const p of prepared) {
-      await saveReport(p);
+      await saveReport({ ...p, initialPayments });
     }
     closeModal();
     route.navigate("/reports");
@@ -120,7 +137,7 @@ function MainApp() {
         openModal("confirmDup", { payload, existing });
         return;
       }
-      await saveAll([payload]);
+      setPendingUpload({ payload, parsed, fileName });
     } catch (e) {
       openModal("error", { message: e.message });
     }
@@ -132,13 +149,14 @@ function MainApp() {
       const XLSX = await import("xlsx");
       const { parseRows } = await import("./parser");
       const prepared = [];
+      const parsedMap = {};
       for (const sh of sheets) {
         const ws = wb.Sheets[sh.name];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false })
           .filter((r) => r && r.some((c) => c !== null && c !== undefined && String(c).trim() !== ""));
         try {
           const parsed = parseRows(rows, sh.name);
-          prepared.push({
+          const payload = {
             fileName,
             sheetName: sh.name,
             date: parsed.date,
@@ -146,7 +164,9 @@ function MainApp() {
             items: parsed.items,
             totals: parsed.totals,
             uploadedBy: role,
-          });
+          };
+          prepared.push(payload);
+          parsedMap[sh.name] = parsed;
         } catch (e) {
           console.warn(`Не удалось разобрать лист "${sh.name}":`, e.message);
         }
@@ -162,7 +182,9 @@ function MainApp() {
         openModal("confirmDupAll", { all: prepared, existing: firstExisting.existing, payload: firstExisting.payload });
         return;
       }
-      await saveAll(prepared);
+      // For multiple sheets, use first sheet's parsed data for the modal
+      const firstParsed = parsedMap[sheets[0]?.name] || prepared[0];
+      setPendingUpload({ payload: null, allPrepared: prepared, parsed: firstParsed, fileName });
     } catch (e) {
       openModal("error", { message: e.message });
     }
@@ -245,6 +267,7 @@ function MainApp() {
         docs={filteredDocs}
         agg={filteredAgg}
         canEdit={canEdit}
+        userBranch={userBranch}
         onAddReport={() => openModal("upload")}
         onSelectBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
         onPayBranch={(b) => openModal("branchPay", { branch: b })}
@@ -262,10 +285,9 @@ function MainApp() {
     );
   } else if (route.path === "/branches/:name") {
     const name = route.params.name;
-    // Фикс: проверяем филиал в ОБОИХ agg (полный и фильтрованный). Если
-    // он есть хотя бы в одном — показываем BranchDetail. UnknownBranchFallback
-    // срабатывает только если филиала нет ни в одном agg (был удалён / опечатка).
-    if (agg.byBranch[name] || filteredAgg.byBranch[name]) {
+    // Branch-пользователь всегда видит свой филиал (даже без отчётов)
+    const isOwnBranch = userBranch && (name === userBranch || name.includes(userBranch.replace("Aura02_", "")));
+    if (isOwnBranch || agg.byBranch[name] || filteredAgg.byBranch[name]) {
       content = (
         <BranchDetail
           branch={name}
@@ -310,7 +332,7 @@ function MainApp() {
       );
     }
   } else if (route.path === "/payments") {
-    content = <PaymentsView docs={filteredDocs} globalPayments={globalPayments} branchesList={filteredAgg.branches} />;
+        content = <PaymentsView docs={filteredDocs} globalPayments={globalPayments} branchesList={filteredAgg.branches} onOpenGlobalPayment={() => openModal("globalPay")} />;
   } else if (route.path === "/debts") {
     content = (
       <DebtsView
@@ -321,11 +343,32 @@ function MainApp() {
       />
     );
   } else if (route.path === "/products") {
-    content = <ProductsView docs={filteredDocs} agg={filteredAgg} />;
+    content = <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
   } else if (route.path === "/poster") {
     content = <PosterView />;
   } else if (route.path === "/poster/compare") {
     content = <PosterCompareView />;
+  } else if (route.path === "/inventory") {
+    content = (
+      <InventoryView
+        canEdit={canEdit}
+        role={role}
+        onOpenSession={(spotId) => route.navigate(`/inventory/${encodeURIComponent(spotId)}`)}
+      />
+    );
+  } else if (route.path === "/inventory/:spotId") {
+    content = (
+      <InventorySession
+        spotId={route.params.spotId}
+        canEdit={canEdit}
+        role={role}
+        onBack={() => route.navigate("/inventory")}
+      />
+    );
+  } else if (route.path === "/tickets" && isAdmin()) {
+    content = <TicketsView />;
+  } else if (route.path === "/my-tickets") {
+    content = <MyTicketsView />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }
@@ -338,11 +381,10 @@ function MainApp() {
         theme={theme}
         onToggleTheme={toggleTheme}
         onNavigate={route.navigate}
+        onOpenFeedback={() => setFeedbackOpen(true)}
       />
 
       <div className="main-area">
-        <PeriodBar value={period} onChange={setPeriod} />
-
         {fbError && (
           <div className="err-box err-banner">
             <i className="ti ti-alert-circle" aria-hidden="true" /> {fbError}
@@ -441,8 +483,39 @@ function MainApp() {
         onCancel={closeModal}
       />
 
+      <PostUploadModal
+        open={!!pendingUpload}
+        parsed={pendingUpload?.parsed}
+        fileName={pendingUpload?.fileName}
+        onConfirm={(payMap) => {
+          try {
+            if (pendingUpload?.allPrepared) {
+              saveAll(pendingUpload.allPrepared, payMap);
+            } else if (pendingUpload?.payload) {
+              saveAll([pendingUpload.payload], payMap);
+            }
+            setPendingUpload(null);
+          } catch (e) {
+            openModal("error", { message: e.message });
+          }
+        }}
+        onCancel={() => {
+          try {
+            if (pendingUpload?.allPrepared) {
+              saveAll(pendingUpload.allPrepared);
+            } else if (pendingUpload?.payload) {
+              saveAll([pendingUpload.payload]);
+            }
+            setPendingUpload(null);
+          } catch (e) {
+            openModal("error", { message: e.message });
+          }
+        }}
+      />
+
       <ToastViewport />
       <CommandPalette />
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </div>
   );
 }

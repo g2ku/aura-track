@@ -224,6 +224,9 @@ export default function PosterCompareView() {
             Токен: <code style={{ color: "var(--text-accent)" }}>{getPosterTokenMasked()}</code>
           </div>
         </div>
+        <button className="btn btn-out" onClick={() => { window.location.hash = "#/poster"; }}>
+          <i className="ti ti-cloud" aria-hidden="true" /> Продажи Poster
+        </button>
       </div>
 
       {/* Форма выбора периодов */}

@@ -156,6 +156,13 @@ export default function CommandPalette() {
           sub: "Сводка по долгам системы",
           action: () => go("/debts"),
         },
+        {
+          key: "action-inventory",
+          icon: "ti-clipboard-list",
+          label: "Инвентаризация",
+          sub: "Сверка остатков по филиалам",
+          action: () => go("/inventory"),
+        },
       ],
     });
 
