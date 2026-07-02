@@ -2224,17 +2224,19 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 
 @media (max-width: 768px) {
   .main-area { padding-left: 0; }
-  .content { padding: var(--sp-3); padding-top: 70px; }
+  .content { padding: var(--sp-3); padding-top: 70px; padding-bottom: 80px; }
 
   .sidebar {
     transform: translateX(-100%);
     transition: transform 0.2s;
     box-shadow: var(--shadow-lg);
+    z-index: 200;
   }
   .sidebar.open { transform: translateX(0); }
   .sidebar-close { display: flex; }
   .sidebar-burger,
-  .hamburger { display: flex; }
+  .hamburger { display: flex; z-index: 200; }
+  .sidebar-backdrop { z-index: 150; }
   .sidebar-backdrop.open { display: block; }
 
   .period-bar {
@@ -2254,6 +2256,13 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .stats-row { grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); }
   .stat-card { padding: 10px 12px; }
   .stat-value { font-size: 16px; }
+
+  /* KPI grid на мобильном: 2 колонки */
+  .kpi-grid { grid-template-columns: 1fr 1fr; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+
+  /* Таблица: горизонтальный скролл */
+  .table-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 500px; }
 
   /* Дата-пикер: перенос */
   .dash-date-row { flex-wrap: wrap; gap: 8px; }
@@ -2432,7 +2441,6 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 
 @media (max-width: 768px) {
   .bottom-nav { display: grid; grid-template-columns: repeat(5, 1fr); }
-  .main-area { padding-bottom: 70px; }
 }
 
 /* ─── 33. ErrorBoundary ───────────────────────────────────────────────────── */
