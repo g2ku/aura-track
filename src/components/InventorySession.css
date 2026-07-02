@@ -1,0 +1,58 @@
+.inventory-session { padding: 16px; max-width: 1400px; margin: 0 auto; }
+
+.session-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.session-title { flex: 1; }
+.session-title h2 { margin: 0; font-size: 20px; }
+.session-date { font-size: 13px; color: var(--text-muted); }
+.btn-back { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 14px; padding: 4px 8px; }
+.btn-back:hover { text-decoration: underline; }
+
+.session-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 16px; padding: 12px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border); }
+.period-picker { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.period-picker label { font-weight: 600; }
+.period-picker input[type="date"] { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; }
+.period-picker button { padding: 6px 10px; }
+.session-actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+.btn-primary, .btn-secondary { padding: 8px 14px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; font-size: 13px; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-secondary { background: var(--card-bg); border: 1px solid var(--border); color: var(--text); }
+.btn-secondary:hover:not(:disabled) { background: var(--hover-bg); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.alert { padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; }
+.alert.error { background: #fee; color: #c00; border: 1px solid #fcc; }
+.alert.success { background: #efe; color: #060; border: 1px solid #cfc; }
+.alert.warn { background: #ffefc6; color: #860; border: 1px solid #fad96c; }
+.alert.info { background: #e8f4fd; color: #0369a1; border: 1px solid #93c5fd; }
+
+/* Таблица инвентаризации */
+.inv-table { font-size: 13px; }
+.inv-table th { background: var(--bg-elevated, rgba(255,255,255,0.03)); font-weight: 600; position: sticky; top: 0; z-index: 1; }
+.inv-table td { padding: 6px 8px; }
+.inv-input {
+  width: 80px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg);
+  color: var(--text);
+}
+.inv-input:focus { outline: none; border-color: var(--primary); }
+.inv-input:disabled { opacity: 0.6; background: var(--bg-elevated); }
+
+/* Loading */
+.inventory-session.loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; gap: 12px; color: var(--text-muted); }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 768px) {
+  .session-header { flex-direction: column; align-items: flex-start; }
+  .session-actions { margin-left: 0; }
+  .inv-table { font-size: 12px; }
+  .inv-input { width: 60px; }
+}
