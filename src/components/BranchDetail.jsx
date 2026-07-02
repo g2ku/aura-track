@@ -71,12 +71,14 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
       try {
         const allDays = await fetchCashPerDay(daysAgoStr(29), todayStr());
         if (!cancelled) {
-          setCashDays(allDays.filter(r =>
-            r.spotName === branch ||
-            r.spotName === resolvedBranch ||
-            (spotName && r.spotName === spotName) ||
-            (spotName && r.spotName?.toLowerCase().includes(spotName.toLowerCase()))
-          ));
+          setCashDays(allDays.filter(r => {
+            if (!r.spotName) return false;
+            const name = r.spotName.toLowerCase();
+            if (spotName && name === spotName.toLowerCase()) return true;
+            if (resolvedBranch && name === resolvedBranch.toLowerCase()) return true;
+            if (branch && name.includes(branch.replace("Aura02_", "").toLowerCase())) return true;
+            return false;
+          }));
         }
       } catch (e) {
         console.error("[BranchDetail] cash load error:", e);
@@ -85,7 +87,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [branch, resolvedBranch]);
+  }, [branch, resolvedBranch, spotName]);
 
   // Filtered cash days — must be defined before KPI computations
   const filteredCash = useMemo(() => {
@@ -172,7 +174,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
       <div className="branch-detail-title">
         <i className="ti ti-building-store" aria-hidden="true" />
         <h1>{displayName}</h1>
-        {hasDocs && (
+        {canEdit && hasDocs && (
           <Pill tone={isPaid ? "paid" : pc >= 50 ? "warn" : "danger"}>
             {isPaid ? "✓ Оплачено" : `Долг: ${fmt(d)}`}
           </Pill>
