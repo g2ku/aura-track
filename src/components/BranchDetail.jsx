@@ -87,6 +87,14 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
     return () => { cancelled = true; };
   }, [branch, resolvedBranch]);
 
+  // Filtered cash days — must be defined before KPI computations
+  const filteredCash = useMemo(() => {
+    if (!from && !to) return cashDays;
+    const fromRu = dateInputToRu(from);
+    const toRu = dateInputToRu(to);
+    return cashDays.filter(r => dateInRange(r.date, fromRu, toRu));
+  }, [cashDays, from, to]);
+
   const displayName = formatBranchName(branch);
   const filteredCashTotal = useMemo(() => filteredCash.reduce((s, r) => s + r.total, 0), [filteredCash]);
   const filteredCashTx = useMemo(() => filteredCash.reduce((s, r) => s + r.txCount, 0), [filteredCash]);
@@ -136,14 +144,6 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
 
   const filteredSupplyTotal = useMemo(() => dateFilteredRows.reduce((s, r) => s + r.total, 0), [dateFilteredRows]);
   const filteredAvgSupply = dateFilteredRows.length > 0 ? Math.round(filteredSupplyTotal / dateFilteredRows.length) : 0;
-
-  // Filtered cash days
-  const filteredCash = useMemo(() => {
-    if (!from && !to) return cashDays;
-    const fromRu = dateInputToRu(from);
-    const toRu = dateInputToRu(to);
-    return cashDays.filter(r => dateInRange(r.date, fromRu, toRu));
-  }, [cashDays, from, to]);
 
   const cashTotalsByDate = useMemo(() => {
     const m = {};
