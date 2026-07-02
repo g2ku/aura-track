@@ -79,15 +79,14 @@ const ENTRIES = [
   },
 ];
 
-export default function ChangelogModal({ open: openProp, onClose }) {
-  const [autoOpen, setAutoOpen] = useState(false);
+export default function ChangelogModal() {
+  const [open, setOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   const [entries, setEntries] = useState([]);
 
-  const isControlled = openProp !== undefined;
-  const isOpen = isControlled ? openProp : autoOpen;
-
+  // Auto-show on version change
   useEffect(() => {
-    if (isControlled) return;
+    if (manualOpen) return;
     try {
       const lastSeen = localStorage.getItem(STORAGE_KEY);
       if (lastSeen === CURRENT_VERSION) return;
@@ -96,23 +95,28 @@ export default function ChangelogModal({ open: openProp, onClose }) {
         : ENTRIES;
       if (newEntries.length === 0) return;
       setEntries(newEntries);
-      setAutoOpen(true);
+      setOpen(true);
     } catch {}
-  }, [isControlled]);
+  }, [manualOpen]);
 
+  // Listen for manual open from sidebar
   useEffect(() => {
-    if (isControlled && openProp) {
+    function onOpen() {
       setEntries(ENTRIES);
+      setManualOpen(true);
+      setOpen(true);
     }
-  }, [isControlled, openProp]);
+    window.addEventListener("aura-changelog:open", onOpen);
+    return () => window.removeEventListener("aura-changelog:open", onOpen);
+  }, []);
 
   const dismiss = useCallback(() => {
     try { localStorage.setItem(STORAGE_KEY, CURRENT_VERSION); } catch {}
-    setAutoOpen(false);
-    onClose?.();
-  }, [onClose]);
+    setOpen(false);
+    setManualOpen(false);
+  }, []);
 
-  if (!isOpen || entries.length === 0) return null;
+  if (!open || entries.length === 0) return null;
 
   return (
     <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={dismiss}>
@@ -124,7 +128,7 @@ export default function ChangelogModal({ open: openProp, onClose }) {
             </div>
             <div>
               <div className="modal-title">Что нового</div>
-              <div className="modal-sub" style={{ fontSize: 12 }}>Aura 02 Poster Pro {isControlled ? "" : `v${CURRENT_VERSION}`}</div>
+              <div className="modal-sub" style={{ fontSize: 12 }}>Aura 02 Poster Pro v{CURRENT_VERSION}</div>
             </div>
           </div>
         </div>
@@ -147,7 +151,7 @@ export default function ChangelogModal({ open: openProp, onClose }) {
         </div>
         <div className="modal-foot">
           <button className="btn btn-primary login-btn" onClick={dismiss} style={{ width: "100%" }}>
-            {isControlled ? "Закрыть" : "Понятно"}
+            {manualOpen ? "Закрыть" : "Понятно"}
           </button>
         </div>
       </div>

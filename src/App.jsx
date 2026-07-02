@@ -47,7 +47,6 @@ function MainApp() {
   const closeModal = useAppStore((s) => s.closeModal);
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [changelogOpen, setChangelogOpen] = useState(false);
 
   useRememberRoute();
   useEffect(() => { initStore(); }, [initStore]);
@@ -90,7 +89,6 @@ function MainApp() {
         onToggleTheme={toggleTheme}
         onNavigate={route.navigate}
         onOpenFeedback={() => setFeedbackOpen(true)}
-        onShowChangelog={() => setChangelogOpen(true)}
       />
 
       <div className="main-area">
@@ -188,7 +186,7 @@ function MainApp() {
       <ToastViewport />
       <CommandPalette />
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-      <ChangelogModal open={changelogOpen} onClose={() => setChangelogOpen(false)} />
+      <ChangelogModal />
       <BottomNav />
     </div>
   );

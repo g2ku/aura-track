@@ -31,7 +31,7 @@ function currentNavId(path) {
   return "dashboard";
 }
 
-export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback, onShowChangelog }) {
+export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback }) {
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
   const spotName = getUserSpotName();
@@ -106,7 +106,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
 
         <nav className="sidebar-nav">
           {NAV.filter(item => {
-            if (isBranch && (item.id === "poster" || item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
+            if (isBranch && (item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
             if (!isBranch && item.id === "my-tickets") return false;
             return true;
           }).map((item) => (
@@ -158,11 +158,9 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
               <i className="ti ti-bulb" aria-hidden="true" /> Предложить идею
             </button>
           )}
-          {onShowChangelog && (
-            <button className="btn btn-ghost btn-full" style={{ marginBottom: 8, color: "var(--text-secondary)" }} onClick={onShowChangelog}>
-              <i className="ti ti-history" aria-hidden="true" /> История обновлений
-            </button>
-          )}
+          <button className="btn btn-ghost btn-full" style={{ marginBottom: 8, color: "var(--text-secondary)" }} onClick={() => window.dispatchEvent(new Event("aura-changelog:open"))}>
+            <i className="ti ti-history" aria-hidden="true" /> История обновлений
+          </button>
           <button className="btn btn-ghost btn-full" onClick={handleLogout}>
             <i className="ti ti-logout" aria-hidden="true" /> Выйти
           </button>
