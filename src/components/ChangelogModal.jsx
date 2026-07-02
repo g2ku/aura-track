@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 const CURRENT_VERSION = "1.5.0";
-const STORAGE_KEY = "aura-track:last-seen-version";
+const STORAGE_KEY = "aura-track:last-seen-v2";
 
 const ENTRIES = [
   {
@@ -100,7 +100,10 @@ export default function ChangelogModal() {
     try {
       const lastSeen = localStorage.getItem(STORAGE_KEY);
       if (lastSeen === CURRENT_VERSION) return;
-      const newEntries = ENTRIES.filter(e => !lastSeen || e.version > lastSeen);
+      // Показываем все версии которые новее чем lastSeen
+      const newEntries = lastSeen
+        ? ENTRIES.filter(e => e.version > lastSeen)
+        : ENTRIES;
       if (newEntries.length === 0) return;
       setEntries(newEntries);
       setOpen(true);
