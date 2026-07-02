@@ -31,7 +31,7 @@ function currentNavId(path) {
   return "dashboard";
 }
 
-export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback }) {
+export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback, onShowChangelog }) {
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
   const spotName = getUserSpotName();
@@ -156,6 +156,11 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
           {isBranch && onOpenFeedback && (
             <button className="btn btn-ghost btn-full" style={{ marginBottom: 8, color: "var(--text-accent)" }} onClick={onOpenFeedback}>
               <i className="ti ti-bulb" aria-hidden="true" /> Предложить идею
+            </button>
+          )}
+          {onShowChangelog && (
+            <button className="btn btn-ghost btn-full" style={{ marginBottom: 8, color: "var(--text-secondary)" }} onClick={onShowChangelog}>
+              <i className="ti ti-history" aria-hidden="true" /> История обновлений
             </button>
           )}
           <button className="btn btn-ghost btn-full" onClick={handleLogout}>

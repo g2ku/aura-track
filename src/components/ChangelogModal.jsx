@@ -1,9 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
-const CURRENT_VERSION = "1.5.0";
+const CURRENT_VERSION = "1.6.0";
 const STORAGE_KEY = "aura-track:last-seen-v2";
 
 const ENTRIES = [
+  {
+    version: "1.6.0",
+    date: "2026-07-03",
+    items: [
+      "Касса по фильтру дат (а не за 30 дней)",
+      "Средняя поставка вместо Долга в карточке филиала",
+      "Branch user: динамика кассы вместо поставок",
+      "Все 8 филиалов видны даже без отчётов",
+      "Средняя касса/день считается по фильтру",
+      "Тёмная тема для date picker",
+      "Исправлена ошибка ReferenceError (TDZ)",
+    ],
+  },
   {
     version: "1.5.0",
     date: "2026-07-03",
@@ -92,34 +105,44 @@ const ENTRIES = [
   },
 ];
 
-export default function ChangelogModal() {
-  const [open, setOpen] = useState(false);
+export default function ChangelogModal({ open: openProp, onClose }) {
+  const [autoOpen, setAutoOpen] = useState(false);
   const [entries, setEntries] = useState([]);
 
+  const isControlled = openProp !== undefined;
+  const isOpen = isControlled ? openProp : autoOpen;
+
   useEffect(() => {
+    if (isControlled) return;
     try {
       const lastSeen = localStorage.getItem(STORAGE_KEY);
       if (lastSeen === CURRENT_VERSION) return;
-      // Показываем все версии которые новее чем lastSeen
       const newEntries = lastSeen
         ? ENTRIES.filter(e => e.version > lastSeen)
         : ENTRIES;
       if (newEntries.length === 0) return;
       setEntries(newEntries);
-      setOpen(true);
+      setAutoOpen(true);
     } catch {}
-  }, []);
+  }, [isControlled]);
 
-  function dismiss() {
+  useEffect(() => {
+    if (isControlled && openProp) {
+      setEntries(ENTRIES);
+    }
+  }, [isControlled, openProp]);
+
+  const dismiss = useCallback(() => {
     try { localStorage.setItem(STORAGE_KEY, CURRENT_VERSION); } catch {}
-    setOpen(false);
-  }
+    setAutoOpen(false);
+    onClose?.();
+  }, [onClose]);
 
-  if (!open || entries.length === 0) return null;
+  if (!isOpen || entries.length === 0) return null;
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 9999 }}>
-      <div className="modal-card" style={{ maxWidth: 440, maxHeight: "80vh", overflow: "auto" }}>
+    <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={dismiss}>
+      <div className="modal-card" style={{ maxWidth: 440, maxHeight: "80vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
         <div className="modal-head">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="modal-icon" style={{ background: "var(--bg-accent)", color: "var(--text-accent)" }}>
@@ -127,7 +150,7 @@ export default function ChangelogModal() {
             </div>
             <div>
               <div className="modal-title">Что нового</div>
-              <div className="modal-sub" style={{ fontSize: 12 }}>Aura Track {CURRENT_VERSION}</div>
+              <div className="modal-sub" style={{ fontSize: 12 }}>Aura 02 Poster Pro {isControlled ? "" : `v${CURRENT_VERSION}`}</div>
             </div>
           </div>
         </div>
@@ -150,7 +173,7 @@ export default function ChangelogModal() {
         </div>
         <div className="modal-foot">
           <button className="btn btn-primary login-btn" onClick={dismiss} style={{ width: "100%" }}>
-            Понятно
+            {isControlled ? "Закрыть" : "Понятно"}
           </button>
         </div>
       </div>
