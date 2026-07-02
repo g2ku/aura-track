@@ -19,7 +19,7 @@ const USERS = {
   zharokova:{ branch: "Aura02_Zharokova", spotName: "Жароково" },
   obi:      { branch: "Aura02_OBI", spotName: "OBI" },
   abaya:    { branch: "Aura02_Abaya", spotName: "Абая" },
-  koktem:   { branch: "Aura02_Koktem", spotName: "Коктём" },
+  koktem:   { branch: "Aura02_Koktem", spotName: "Коктем" },
   dubai:    { branch: "Aura02_Dubai", spotName: "Дубай" },
   atakent:  { branch: "Aura02_Atakent", spotName: "Атакент" },
   rams:     { branch: "Aura02_Rams", spotName: "Рамс" },

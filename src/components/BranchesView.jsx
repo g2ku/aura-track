@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { aggregateDocs, fmt, pct } from "../utils";
 import { Button } from "../ui";
-import { fetchCashBySpot, getSpots } from "../poster";
+import { fetchCashBySpot } from "../poster";
 import { useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 
 function todayStr() {
@@ -44,29 +44,16 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
     return () => abort.abort();
   }, [userBranch]);
 
-  // Fetch all Poster spots for admin (so all 8 branches show even without reports)
-  const [allSpots, setAllSpots] = useState({});
-  useEffect(() => {
-    if (userBranch) return;
-    let abort = new AbortController();
-    getSpots({ signal: abort.signal })
-      .then((spots) => { if (!abort.signal.aborted) setAllSpots(spots); })
-      .catch(() => {});
-    return () => abort.abort();
-  }, [userBranch]);
-
   const cashByName = useMemo(() => {
     const m = {};
     for (const c of cashBySpot) {
       m[c.spotName] = c;
-      // Also map normalized lowercased name for fuzzy lookup
       const key = c.spotName?.toLowerCase();
       if (key && !m[key]) m[key] = c;
     }
     return m;
   }, [cashBySpot]);
 
-  // Fuzzy cash lookup: try exact, then lowercase, then includes
   const findCash = useCallback((branchName) => {
     if (cashByName[branchName]) return cashByName[branchName];
     const lower = branchName?.toLowerCase();
@@ -104,32 +91,21 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
         cashDays: cash?.daysCount || 0,
       };
     });
-    // Inject all Poster spots that don't have reports (admin only)
-    if (!userBranch && allSpots && Object.keys(allSpots).length > 0) {
-      for (const [spotId, spot] of Object.entries(allSpots)) {
-        const spotName = spot.spot_name || spot.name || "";
-        if (!spotName) continue;
-        const exists = list.some(x => {
-          if (x.name === spotName) return true;
-          const a = x.name.toLowerCase();
-          const b = spotName.toLowerCase();
-          if (a === b) return true;
-          if (a.includes(b) || b.includes(a)) return true;
-          return false;
-        });
-        if (!exists) {
-          const cash = findCash(spotName);
-          list.push({
-            name: spotName,
-            total: 0, paid: 0, debt: 0, reports: 0, dates: [],
-            avgPerReport: 0,
-            cash: cash?.total || 0,
-            avgCash: cash?.avgPerDay || 0,
-            cashDays: cash?.daysCount || 0,
-          });
+    // Deduplicate: merge entries with similar names (case-insensitive)
+    const seen = new Map();
+    for (const item of list) {
+      const key = item.name.toLowerCase();
+      const existing = seen.get(key);
+      if (existing) {
+        // Merge: keep the one with more data
+        if (item.reports > existing.reports || item.cash > existing.cash) {
+          seen.set(key, item);
         }
+      } else {
+        seen.set(key, item);
       }
     }
+    list = Array.from(seen.values());
     if (branchMatch) {
       const exists = list.some((x) => branchMatch(x.name));
       if (!exists) {
@@ -154,7 +130,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
       return (b[sort] || 0) - (a[sort] || 0);
     });
     return list;
-  }, [agg, q, sort, cashByName, branchMatch, allSpots, userBranch]);
+  }, [agg, q, sort, findCash, branchMatch, userBranch]);
 
   return (
     <div className="view-wrap branches-view-wrap">
