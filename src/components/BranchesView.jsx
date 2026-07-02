@@ -1,6 +1,6 @@
 // BranchesView — карточки филиалов с кассами (Poster API) и углублённой информацией.
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { aggregateDocs, fmt, pct } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, getSpots } from "../poster";
@@ -57,9 +57,27 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
 
   const cashByName = useMemo(() => {
     const m = {};
-    for (const c of cashBySpot) m[c.spotName] = c;
+    for (const c of cashBySpot) {
+      m[c.spotName] = c;
+      // Also map normalized lowercased name for fuzzy lookup
+      const key = c.spotName?.toLowerCase();
+      if (key && !m[key]) m[key] = c;
+    }
     return m;
   }, [cashBySpot]);
+
+  // Fuzzy cash lookup: try exact, then lowercase, then includes
+  const findCash = useCallback((branchName) => {
+    if (cashByName[branchName]) return cashByName[branchName];
+    const lower = branchName?.toLowerCase();
+    if (lower && cashByName[lower]) return cashByName[lower];
+    for (const [key, val] of Object.entries(cashByName)) {
+      if (typeof key === "string" && key.length > 2) {
+        if (key.includes(lower) || lower?.includes(key)) return val;
+      }
+    }
+    return null;
+  }, [cashByName]);
 
   const spotName = getSpotNameForBranch(userBranch);
   const branchMatch = useMemo(() => {
@@ -76,7 +94,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
   const filtered = useMemo(() => {
     let list = agg.branches.map((b) => {
       const x = agg.byBranch[b];
-      const cash = cashByName[b];
+      const cash = findCash(b);
       return {
         name: b,
         ...x,
@@ -91,9 +109,16 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
       for (const [spotId, spot] of Object.entries(allSpots)) {
         const spotName = spot.spot_name || spot.name || "";
         if (!spotName) continue;
-        const exists = list.some(x => x.name === spotName);
+        const exists = list.some(x => {
+          if (x.name === spotName) return true;
+          const a = x.name.toLowerCase();
+          const b = spotName.toLowerCase();
+          if (a === b) return true;
+          if (a.includes(b) || b.includes(a)) return true;
+          return false;
+        });
         if (!exists) {
-          const cash = cashByName[spotName];
+          const cash = findCash(spotName);
           list.push({
             name: spotName,
             total: 0, paid: 0, debt: 0, reports: 0, dates: [],
@@ -108,7 +133,7 @@ export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
     if (branchMatch) {
       const exists = list.some((x) => branchMatch(x.name));
       if (!exists) {
-        const cash = cashByName[spotName] || cashByName[userBranch];
+        const cash = findCash(spotName) || findCash(userBranch);
         list.push({
           name: spotName || userBranch,
           total: 0, paid: 0, debt: 0, reports: 0, dates: [],
