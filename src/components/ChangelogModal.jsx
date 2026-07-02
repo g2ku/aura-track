@@ -1,9 +1,18 @@
 import { useEffect, useState, useCallback } from "react";
 
-const CURRENT_VERSION = "1.15.7";
+const CURRENT_VERSION = "1.15.8";
 const STORAGE_KEY = "aura-track:last-seen-v2";
 
 const ENTRIES = [
+  {
+    version: "1.15.8",
+    date: "2026-07-03",
+    items: [
+      "Poster API доступен для branch users в сайдбаре",
+      "Предложить идею в нижней навигации для branch users",
+      "Исправлен авто-показ changelog при обновлении",
+    ],
+  },
   {
     version: "1.15.7",
     date: "2026-07-03",

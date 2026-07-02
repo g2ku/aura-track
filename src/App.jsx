@@ -62,6 +62,12 @@ function MainApp() {
     return () => window.removeEventListener("supply-track:open-modal", handler);
   }, [openModal]);
 
+  useEffect(() => {
+    const handler = () => setFeedbackOpen(true);
+    window.addEventListener("supply-track:open-feedback", handler);
+    return () => window.removeEventListener("supply-track:open-feedback", handler);
+  }, []);
+
   const { agg, filteredDocs, filteredAgg } = useAppData({ docs, userBranch, period });
 
   const { handleDeleteReports } = useReports({ canEdit, openModal });
