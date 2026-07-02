@@ -1,16 +1,21 @@
 import { useEffect, useState } from "react";
 
-const CURRENT_VERSION = "1.4.9";
+const CURRENT_VERSION = "1.5.0";
 const STORAGE_KEY = "aura-track:last-seen-version";
 
 const ENTRIES = [
   {
-    version: "1.4.9",
-    date: "2026-07-02",
+    version: "1.5.0",
+    date: "2026-07-03",
     items: [
-      "Исправлены z-index на мобильном — сайдбар больше не налезает на контент",
-      "Отступ снизу для нижней навигации",
-      "KPI-карточки: белый текст, gradient фоны",
+      "Микросервисная структура: App.jsx разбит на хуки и компоненты",
+      "useUpload — логика загрузки отчётов",
+      "usePayments — обработка оплат",
+      "useReports — удаление отчётов",
+      "useAppData — агрегация и фильтрация данных",
+      "useRouteContent — маршрутизация",
+      "ReportDetailView вынесен в отдельный компонент",
+      "Fallbacks для неизвестных маршрутов",
     ],
   },
   {
