@@ -33,6 +33,8 @@ import ConfirmModal from "./components/ConfirmModal";
 import PostUploadModal from "./components/PostUploadModal";
 import CommandPalette from "./components/CommandPalette";
 import { ToastViewport } from "./ui";
+import ChangelogModal from "./components/ChangelogModal";
+import BottomNav from "./components/BottomNav";
 
 // Фикс: безопасная генерация ID с монотонным счётчиком в комбинации с
 // Date.now() + Math.random(). Раньше при двух кликах в одну миллисекунду
@@ -516,6 +518,8 @@ function MainApp() {
       <ToastViewport />
       <CommandPalette />
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+      <ChangelogModal />
+      <BottomNav />
     </div>
   );
 }

@@ -31,7 +31,7 @@ const TOKEN = import.meta.env.VITE_POSTER_TOKEN || "";
 const UA = "Poster (http://joinposter.com)";
 
 const CACHE_KEY = "supply-track.poster.salesByDay.v3";
-const CACHE_TTL_MS = 0; // всегда свежие данные — кэш не используется
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
 const DAY_CONCURRENCY = 4;    // параллельных дней за раз

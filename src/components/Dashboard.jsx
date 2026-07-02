@@ -229,22 +229,34 @@ export default function Dashboard({
 
       {!posterLoading && displayCashBySpot.length > 0 && (
         <>
-          <div className="stats-row">
-            <div className="stat-card">
-              <div className="stat-label">Общая касса</div>
-              <div className="stat-value">{fmt(totalCash)} ₸</div>
+          <div className="kpi-grid">
+            <div className="kpi-card kpi-blue">
+              <div className="kpi-icon"><i className="ti ti-cash" /></div>
+              <div className="kpi-info">
+                <div className="kpi-label">Общая касса</div>
+                <div className="kpi-value">{fmt(totalCash)} ₸</div>
+              </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-label">Средняя касса</div>
-              <div className="stat-value text-accent">{fmt(avgCashPerSpot)} ₸</div>
+            <div className="kpi-card kpi-indigo">
+              <div className="kpi-icon"><i className="ti ti-chart-bar" /></div>
+              <div className="kpi-info">
+                <div className="kpi-label">Средняя касса</div>
+                <div className="kpi-value">{fmt(avgCashPerSpot)} ₸</div>
+              </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-label">Всего чеков</div>
-              <div className="stat-value">{totalTx.toLocaleString("ru-RU")}</div>
+            <div className="kpi-card kpi-emerald">
+              <div className="kpi-icon"><i className="ti ti-receipt" /></div>
+              <div className="kpi-info">
+                <div className="kpi-label">Всего чеков</div>
+                <div className="kpi-value">{totalTx.toLocaleString("ru-RU")}</div>
+              </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-label">Средний чек</div>
-              <div className="stat-value text-accent">{fmt(avgCheck)} ₸</div>
+            <div className="kpi-card kpi-amber">
+              <div className="kpi-icon"><i className="ti ti-chart-dots" /></div>
+              <div className="kpi-info">
+                <div className="kpi-label">Средний чек</div>
+                <div className="kpi-value">{fmt(avgCheck)} ₸</div>
+              </div>
             </div>
           </div>
 
