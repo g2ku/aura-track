@@ -176,6 +176,7 @@ export default function PosterView() {
     const map = new Map();
     for (const r of data.rows) {
       if (q && !r.productName.toLowerCase().includes(q)) continue;
+      if (userBranch && r.spotName !== userBranch && r.spotName !== userSpotName && !r.spotName?.includes(userBranch.replace("Aura02_", ""))) continue;
       if (!map.has(r.productName)) map.set(r.productName, { productName: r.productName, qty: 0, sum: 0, spots: new Set() });
       const p = map.get(r.productName);
       p.qty += r.qty;
@@ -185,20 +186,25 @@ export default function PosterView() {
     const arr = Array.from(map.values()).map((p) => ({ ...p, spotsCount: p.spots.size }));
     arr.sort((a, b) => b.sum - a.sum);
     return arr;
-  }, [data, query]);
+  }, [data, query, userBranch]);
 
   // Сводная таблица: строки = товары, колонки = филиалы.
   const matrix = useMemo(() => {
     if (!data) return null;
     const q = query.trim().toLowerCase();
-    const spotIds = Array.from(new Set(data.rows.map((r) => r.spotId)))
+    // Фильтруем строки по филиалу пользователя
+    const filteredRows = data.rows.filter(r => {
+      if (userBranch && r.spotName !== userBranch && r.spotName !== userSpotName && !r.spotName?.includes(userBranch.replace("Aura02_", ""))) return false;
+      return true;
+    });
+    const spotIds = Array.from(new Set(filteredRows.map((r) => r.spotId)))
       .sort((a, b) => {
-        const sa = data.rows.find((r) => r.spotId === a)?.spotName || a;
-        const sb = data.rows.find((r) => r.spotId === b)?.spotName || b;
+        const sa = filteredRows.find((r) => r.spotId === a)?.spotName || a;
+        const sb = filteredRows.find((r) => r.spotId === b)?.spotName || b;
         return sa.localeCompare(sb, "ru");
       });
     const productMap = new Map(); // name -> { name, total, bySpot: { spotId -> { qty, sum } } }
-    for (const r of data.rows) {
+    for (const r of filteredRows) {
       if (q && !r.productName.toLowerCase().includes(q)) continue;
       if (!productMap.has(r.productName)) {
         const bySpot = {};
@@ -222,7 +228,7 @@ export default function PosterView() {
       });
     }
     return { spotIds, products, colTotals };
-  }, [data, query]);
+  }, [data, query, userBranch]);
 
   const grandTotal = useMemo(() => {
     if (!data) return { sum: 0, qty: 0 };
