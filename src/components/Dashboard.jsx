@@ -267,8 +267,6 @@ export default function Dashboard({
             </div>
           </div>
 
-          <DrinkRating dateFrom={dateFrom} dateTo={dateTo} />
-
           <div className="card table-card" style={{ overflow: "auto" }}>
             <table className="data-table">
               <thead>
@@ -309,6 +307,8 @@ export default function Dashboard({
               </tfoot>
             </table>
           </div>
+
+          <DrinkRating dateFrom={dateFrom} dateTo={dateTo} />
         </>
       )}
 
