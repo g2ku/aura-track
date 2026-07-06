@@ -1,53 +1,29 @@
 import { useEffect, useState, useCallback } from "react";
 
-const CURRENT_VERSION = "1.15.8";
-const STORAGE_KEY = "aura-track:last-seen-v2";
+const CURRENT_VERSION = "1.5.0";
+const STORAGE_KEY = "aura-track:last-seen-v3";
 
 const ENTRIES = [
   {
-    version: "1.15.8",
-    date: "2026-07-03",
+    version: "1.5.0",
+    date: "2026-07-06",
     items: [
-      "Poster API доступен для branch users в сайдбаре",
-      "Предложить идею в нижней навигации для branch users",
-      "Исправлен авто-показ changelog при обновлении",
+      "Рейтинг напитков по филиалам — топ-5 с %",
+      "Кнопка «Показать все» для полного списка",
+      "Количество шт. рядом с каждым напитком",
     ],
   },
   {
-    version: "1.15.7",
-    date: "2026-07-03",
+    version: "1.4.9",
+    date: "2026-07-02",
     items: [
-      "Исправлена ошибка ReferenceError (TDZ) в BranchDetail",
-      "История обновлений доступна из сайдбара",
+      "Исправлен z-index сайдбара на мобильном",
+      "Отступ снизу для нижней навигации",
+      "Белый текст на KPI-карточках",
     ],
   },
   {
-    version: "1.15.6",
-    date: "2026-07-03",
-    items: [
-      "Тёмная тема для date picker",
-      "Все 8 филиалов видны даже без отчётов",
-    ],
-  },
-  {
-    version: "1.15.5",
-    date: "2026-07-03",
-    items: [
-      "Средняя касса/день считается по фильтру, а не за 30 дней",
-      "Branch user: динамика кассы вместо поставок",
-    ],
-  },
-  {
-    version: "1.15.4",
-    date: "2026-07-03",
-    items: [
-      "Касса по фильтру дат (а не за 30 дней)",
-      "Средняя поставка вместо Долга в карточке филиала",
-      "Скрытие Долга и поставок для branch users",
-    ],
-  },
-  {
-    version: "1.15.3",
+    version: "1.4.8",
     date: "2026-07-02",
     items: [
       "Нижняя навигация для мобильных",
@@ -56,51 +32,51 @@ const ENTRIES = [
     ],
   },
   {
-    version: "1.15.2",
+    version: "1.4.7",
     date: "2026-07-01",
     items: [
-      "Топ товаров Poster — предпросмотр топ-5 с раскрытием",
-      "Карточки филиалов вместо аккордеона",
-    ],
-  },
-  {
-    version: "1.15.1",
-    date: "2026-06-30",
-    items: [
       "Кэширование Poster API (TTL 12ч)",
-      "Сравнение периодов Poster API — avg/день и Δ%",
-      ".env.example шаблон для токена",
+      ".env.example шаблон",
     ],
   },
   {
-    version: "1.15.0",
-    date: "2026-07-03",
+    version: "1.4.0",
+    date: "2026-06-20",
     items: [
-      "Микросервисная структура: App.jsx разбит на хуки и компоненты",
-      "useUpload — логика загрузки отчётов",
-      "usePayments — обработка оплат",
-      "useReports — удаление отчётов",
-      "useAppData — агрегация и фильтрация данных",
-      "useRouteContent — маршрутизация",
-      "ReportDetailView вынесен в отдельный компонент",
-      "Fallbacks для неизвестных маршрутов",
+      "Poster API: кассы, поставки, топ блюд",
+      "Экспорт в CSV",
+      "Тёмная тема",
+      "Командная палитра (Ctrl+K)",
     ],
   },
 ];
+
+function parseVersion(v) {
+  return v.split(".").map(Number);
+}
+
+function isNewer(a, b) {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return true;
+    if ((pa[i] || 0) < (pb[i] || 0)) return false;
+  }
+  return false;
+}
 
 export default function ChangelogModal() {
   const [open, setOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [entries, setEntries] = useState([]);
 
-  // Auto-show on version change
   useEffect(() => {
     if (manualOpen) return;
     try {
       const lastSeen = localStorage.getItem(STORAGE_KEY);
       if (lastSeen === CURRENT_VERSION) return;
       const newEntries = lastSeen
-        ? ENTRIES.filter(e => e.version > lastSeen)
+        ? ENTRIES.filter(e => isNewer(e.version, lastSeen))
         : ENTRIES;
       if (newEntries.length === 0) return;
       setEntries(newEntries);
@@ -108,7 +84,6 @@ export default function ChangelogModal() {
     } catch {}
   }, [manualOpen]);
 
-  // Listen for manual open from sidebar
   useEffect(() => {
     function onOpen() {
       setEntries(ENTRIES);
@@ -137,7 +112,7 @@ export default function ChangelogModal() {
             </div>
             <div>
               <div className="modal-title">Что нового</div>
-              <div className="modal-sub" style={{ fontSize: 12 }}>Aura 02 Poster Pro v{CURRENT_VERSION}</div>
+              <div className="modal-sub" style={{ fontSize: 12 }}>Aura Track v{CURRENT_VERSION}</div>
             </div>
           </div>
         </div>

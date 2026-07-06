@@ -2490,13 +2490,26 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .drink-rating-row:nth-child(2) .drink-rating-rank { color: var(--text-secondary); }
 .drink-rating-row:nth-child(3) .drink-rating-rank { color: var(--text-warning); }
 .drink-rating-info { flex: 1; min-width: 0; }
+.drink-rating-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
 .drink-rating-name {
   font-size: var(--fs-12);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.drink-rating-qty {
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .drink-rating-bar-wrap {
   height: 4px;
@@ -2519,6 +2532,25 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   text-align: right;
   flex-shrink: 0;
 }
+.drink-rating-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text-accent);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.drink-rating-more:hover { background: var(--bg-hover); }
+.drink-rating-more i { font-size: 14px; }
 @media (max-width: 480px) {
   .drink-rating-grid { grid-template-columns: 1fr; }
 }
