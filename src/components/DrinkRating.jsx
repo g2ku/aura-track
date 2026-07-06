@@ -7,7 +7,7 @@ const PREVIEW_N = 5;
 export default function DrinkRating({ dateFrom, dateTo }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(() => new Set());
+  const [modalBranch, setModalBranch] = useState(null);
   const userBranch = useUserBranch();
   const spotName = getSpotNameForBranch(userBranch);
 
@@ -59,15 +59,6 @@ export default function DrinkRating({ dateFrom, dateTo }) {
     return result;
   }, [data, userBranch]);
 
-  function toggleBranch(spotId) {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(spotId)) next.delete(spotId);
-      else next.add(spotId);
-      return next;
-    });
-  }
-
   if (loading) {
     return (
       <div className="card" style={{ padding: 16, marginTop: 16 }}>
@@ -88,8 +79,7 @@ export default function DrinkRating({ dateFrom, dateTo }) {
       </div>
       <div className="drink-rating-grid">
         {rating.map((branch) => {
-          const isExpanded = expanded.has(branch.spotId);
-          const showItems = isExpanded ? branch.items : branch.items.slice(0, PREVIEW_N);
+          const preview = branch.items.slice(0, PREVIEW_N);
           const hasMore = branch.items.length > PREVIEW_N;
           return (
             <div key={branch.spotId} className="card drink-rating-card">
@@ -99,7 +89,7 @@ export default function DrinkRating({ dateFrom, dateTo }) {
                 <span className="drink-rating-total">{branch.totalQty} шт.</span>
               </div>
               <div className="drink-rating-list">
-                {showItems.map((item, idx) => (
+                {preview.map((item, idx) => (
                   <div key={item.name} className="drink-rating-row">
                     <div className="drink-rating-rank">{idx + 1}</div>
                     <div className="drink-rating-info">
@@ -119,19 +109,54 @@ export default function DrinkRating({ dateFrom, dateTo }) {
                 <button
                   type="button"
                   className="drink-rating-more"
-                  onClick={() => toggleBranch(branch.spotId)}
+                  onClick={() => setModalBranch(branch)}
                 >
-                  {isExpanded ? (
-                    <><i className="ti ti-chevron-up" /> Свернуть</>
-                  ) : (
-                    <><i className="ti ti-chevron-down" /> Показать все ({branch.items.length})</>
-                  )}
+                  <i className="ti ti-chevron-down" /> Показать все ({branch.items.length})
                 </button>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* Модалка полного списка */}
+      {modalBranch && (
+        <div className="modal-overlay" style={{ zIndex: 9998 }} onClick={() => setModalBranch(null)}>
+          <div className="modal-card" style={{ maxWidth: 480, maxHeight: "80vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <i className="ti ti-building-store" style={{ color: "var(--text-accent)", fontSize: 20 }} />
+                <div>
+                  <div className="modal-title">{modalBranch.spotName.replace(/^Aura02[_-]?/i, "")}</div>
+                  <div className="modal-sub" style={{ fontSize: 12 }}>{modalBranch.totalQty} шт. · {modalBranch.items.length} позиций</div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-body" style={{ padding: 0 }}>
+              {modalBranch.items.map((item, idx) => (
+                <div key={item.name} className="drink-rating-row" style={{ padding: "8px 20px", borderBottom: "1px solid var(--border)" }}>
+                  <div className="drink-rating-rank">{idx + 1}</div>
+                  <div className="drink-rating-info">
+                    <div className="drink-rating-name-row">
+                      <span className="drink-rating-name">{item.name}</span>
+                      <span className="drink-rating-qty">{item.qty} шт.</span>
+                    </div>
+                    <div className="drink-rating-bar-wrap">
+                      <div className="drink-rating-bar" style={{ width: `${item.pct}%` }} />
+                    </div>
+                  </div>
+                  <div className="drink-rating-pct">{item.pct}%</div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-primary" onClick={() => setModalBranch(null)} style={{ width: "100%" }}>
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
