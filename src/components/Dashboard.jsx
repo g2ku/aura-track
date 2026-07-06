@@ -3,6 +3,7 @@ import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, getSpots, clearPosterCache } from "../poster";
 import { getSpotNameForBranch } from "../auth.jsx";
+import DrinkRating from "./DrinkRating";
 
 function greeting(now = new Date()) {
   const h = now.getHours();
@@ -265,6 +266,8 @@ export default function Dashboard({
               </div>
             </div>
           </div>
+
+          <DrinkRating dateFrom={dateFrom} dateTo={dateTo} />
 
           <div className="card table-card" style={{ overflow: "auto" }}>
             <table className="data-table">

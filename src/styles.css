@@ -2433,7 +2433,97 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .kpi-label { font-size: var(--fs-11); }
 }
 
-/* ─── 32.6. Bottom Navigation (mobile) ───────────────────────────────────── */
+/* ─── 32.6. Drink Rating ─────────────────────────────────────────────────── */
+.drink-rating-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.drink-rating-card {
+  padding: 0;
+  overflow: hidden;
+}
+.drink-rating-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+.drink-rating-head i { font-size: 14px; }
+.drink-rating-branch {
+  font-weight: 600;
+  font-size: var(--fs-13);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drink-rating-total {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.drink-rating-list {
+  padding: var(--sp-2) var(--sp-4) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.drink-rating-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.drink-rating-rank {
+  width: 18px;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  flex-shrink: 0;
+}
+.drink-rating-row:nth-child(1) .drink-rating-rank { color: var(--text-accent); }
+.drink-rating-row:nth-child(2) .drink-rating-rank { color: var(--text-secondary); }
+.drink-rating-row:nth-child(3) .drink-rating-rank { color: var(--text-warning); }
+.drink-rating-info { flex: 1; min-width: 0; }
+.drink-rating-name {
+  font-size: var(--fs-12);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+.drink-rating-bar-wrap {
+  height: 4px;
+  background: var(--bg-elev);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.drink-rating-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--text-accent), #a78bfa);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.drink-rating-pct {
+  font-size: var(--fs-11);
+  font-weight: 600;
+  color: var(--text-accent);
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+@media (max-width: 480px) {
+  .drink-rating-grid { grid-template-columns: 1fr; }
+}
+
+/* ─── 32.7. Bottom Navigation (mobile) ───────────────────────────────────── */
 .bottom-nav {
   display: none;
   position: fixed;
