@@ -232,8 +232,15 @@ export function LoginGate({ children }) {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [hash, setHash] = useState(window.location.hash);
 
-  const isRegisterPage = window.location.hash === "#/register";
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  const isRegisterPage = hash === "#/register";
 
   if (loading && !isRegisterPage) {
     return (
