@@ -16,7 +16,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
   fetchPosterSales,
-  getPosterTokenMasked,
   clearPosterCache,
 } from "../poster";
 import { fmt } from "../utils";
@@ -167,7 +166,7 @@ export default function PosterView() {
     arr.sort((a, b) => b.totalSum - a.totalSum);
     for (const g of arr) g.items.sort((a, b) => b.sum - a.sum);
     return arr;
-  }, [data, query, userBranch]);
+  }, [data, query, userBranch, userSpotName]);
 
   // Топ товаров (с суммой по всем филиалам).
   const topProducts = useMemo(() => {
@@ -186,7 +185,7 @@ export default function PosterView() {
     const arr = Array.from(map.values()).map((p) => ({ ...p, spotsCount: p.spots.size }));
     arr.sort((a, b) => b.sum - a.sum);
     return arr;
-  }, [data, query, userBranch]);
+  }, [data, query, userBranch, userSpotName]);
 
   // Сводная таблица: строки = товары, колонки = филиалы.
   const matrix = useMemo(() => {
@@ -228,12 +227,14 @@ export default function PosterView() {
       });
     }
     return { spotIds, products, colTotals };
-  }, [data, query, userBranch]);
+  }, [data, query, userBranch, userSpotName]);
 
   const grandTotal = useMemo(() => {
     if (!data) return { sum: 0, qty: 0 };
-    return data.rows.reduce((acc, r) => ({ sum: acc.sum + r.sum, qty: acc.qty + r.qty }), { sum: 0, qty: 0 });
-  }, [data]);
+    return data.rows
+      .filter((r) => !userBranch || r.spotName === userBranch || r.spotName === userSpotName || r.spotName?.includes(userBranch.replace("Aura02_", "")))
+      .reduce((acc, r) => ({ sum: acc.sum + r.sum, qty: acc.qty + r.qty }), { sum: 0, qty: 0 });
+  }, [data, userBranch, userSpotName]);
 
   const spotNameById = useMemo(() => {
     if (!data) return {};
@@ -254,7 +255,7 @@ export default function PosterView() {
             <i className="ti ti-cloud" aria-hidden="true" /> Продажи Poster
           </h1>
           <div className="view-sub">
-            Токен: <code style={{ color: "var(--text-accent)" }}>{getPosterTokenMasked()}</code>
+            Токен: <code style={{ color: "var(--text-accent)" }}>серверный</code>
           </div>
         </div>
         <button className="btn btn-out" onClick={() => { window.location.hash = "#/poster/compare"; }}>

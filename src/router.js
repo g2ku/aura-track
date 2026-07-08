@@ -24,7 +24,7 @@ function parseHash(hash) {
   if (parts.length === 2 && parts[0] === "branches") {
     return { path: "/branches/:name", params: { name: decodeURIComponent(parts[1]) } };
   }
-  if (parts.length === 1 && ["reports", "payments", "debts", "products", "tickets", "my-tickets"].includes(parts[0])) {
+  if (parts.length === 1 && ["reports", "payments", "debts", "products", "tickets", "my-tickets", "receipts"].includes(parts[0])) {
     return { path: "/" + parts[0], params: {} };
   }
   if (parts.length >= 1 && parts[0] === "poster") {
@@ -40,6 +40,12 @@ function parseHash(hash) {
   }
   if (parts.length === 2 && parts[0] === "inventory" && parts[1]) {
     return { path: "/inventory/:spotId", params: { spotId: decodeURIComponent(parts[1]) } };
+  }
+  if (parts.length === 1 && parts[0] === "register") {
+    return { path: "/register", params: {} };
+  }
+  if (parts.length >= 2 && parts[0] === "admin" && parts[1] === "users") {
+    return { path: "/admin/users", params: {} };
   }
   return { path: "/", params: {} };
 }

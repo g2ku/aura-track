@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoginGate, useAuth, useUserBranch, isAdmin } from "./auth.jsx";
+import { LoginGate, useAuth, useUserBranch, isAdmin, isAdminOrManager } from "./auth.jsx";
 import { useHashRoute, useRememberRoute } from "./router";
 import { useAppStore } from "./store/useAppStore";
 
@@ -31,9 +31,10 @@ export default function App() {
 
 function MainApp() {
   const route = useHashRoute();
-  const role = useAuth();
+  const { auth } = useAuth();
+  const role = auth?.role || null;
   const userBranch = useUserBranch();
-  const canEdit = isAdmin();
+  const canEdit = isAdminOrManager();
 
   const docs = useAppStore((s) => s.docs);
   const globalPayments = useAppStore((s) => s.globalPayments);

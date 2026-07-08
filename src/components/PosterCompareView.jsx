@@ -8,7 +8,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
   fetchPosterSalesMultiple,
-  getPosterTokenMasked,
   clearPosterCache,
 } from "../poster";
 import { fmt } from "../utils";
@@ -221,7 +220,7 @@ export default function PosterCompareView() {
             <i className="ti ti-compare" aria-hidden="true" /> Сравнение периодов Poster
           </h1>
           <div className="view-sub">
-            Токен: <code style={{ color: "var(--text-accent)" }}>{getPosterTokenMasked()}</code>
+            Токен: <code style={{ color: "var(--text-accent)" }}>серверный</code>
           </div>
         </div>
         <button className="btn btn-out" onClick={() => { window.location.hash = "#/poster"; }}>

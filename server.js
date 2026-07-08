@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFile, stat } from "node:fs/promises";
-import { join, extname } from "node:path";
+import { join, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { proxyRequest } from "./proxy.js";
 
@@ -28,7 +28,14 @@ async function serveStatic(req, res) {
   let urlPath = req.url.split("?")[0];
   if (urlPath === "/") urlPath = "/index.html";
 
-  const filePath = join(DIST, urlPath);
+  const filePath = resolve(DIST, "." + urlPath);
+  // Защита от path traversal: resolve нормализует ../.. и т.д.
+  if (!filePath.startsWith(DIST)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+
   try {
     const s = await stat(filePath);
     if (s.isFile()) {

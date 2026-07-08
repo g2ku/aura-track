@@ -6,7 +6,7 @@ const ADMIN_ITEMS = [
   { path: "/branches", icon: "ti-building", label: "Филиалы" },
   { path: "/reports", icon: "ti-file", label: "Отчёты" },
   { path: "/poster", icon: "ti-report-analytics", label: "Poster" },
-  { path: "/payments", icon: "ti-cash", label: "Оплаты" },
+  { path: "/receipts", icon: "ti-receipt", label: "Чеки" },
 ];
 
 const BRANCH_ITEMS = [

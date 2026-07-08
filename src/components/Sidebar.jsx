@@ -2,7 +2,7 @@
 // На десктопе фиксировано слева, на мобильных — drawer (гамбургер).
 
 import { useState, useEffect } from "react";
-import { logout, getUserSpotName, isAdmin } from "../auth.jsx";
+import { logout, getUserSpotName, isAdmin, isAdminOrManager } from "../auth.jsx";
 
 const NAV = [
   { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
@@ -12,9 +12,11 @@ const NAV = [
   { id: "payments", path: "/payments", icon: "ti-cash", label: "Оплаты" },
   { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
   { id: "poster", path: "/poster", icon: "ti-cloud", label: "Poster API" },
+  { id: "receipts", path: "/receipts", icon: "ti-receipt", label: "Чеки" },
   { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
   { id: "tickets", path: "/tickets", icon: "ti-message-circle", label: "Запросы" },
   { id: "my-tickets", path: "/my-tickets", icon: "ti-message-circle", label: "Мои обращения" },
+  { id: "admin-users", path: "/admin/users", icon: "ti-users", label: "Пользователи", adminOnly: true },
 ];
 
 function currentNavId(path) {
@@ -25,9 +27,11 @@ function currentNavId(path) {
   if (path.startsWith("/payments")) return "payments";
   if (path.startsWith("/debts")) return "debts";
   if (path.startsWith("/poster")) return "poster";
+  if (path.startsWith("/receipts")) return "receipts";
   if (path.startsWith("/inventory")) return "inventory";
   if (path.startsWith("/tickets")) return "tickets";
   if (path.startsWith("/my-tickets")) return "my-tickets";
+  if (path.startsWith("/admin/users")) return "admin-users";
   return "dashboard";
 }
 
@@ -35,7 +39,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   const [open, setOpen] = useState(false);
   const activeId = currentNavId(route.path);
   const spotName = getUserSpotName();
-  const isBranch = role === "branch";
+  const isBranch = role === "curator";
 
   useEffect(() => { setOpen(false); }, [route.path]);
 
@@ -106,8 +110,10 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
 
         <nav className="sidebar-nav">
           {NAV.filter(item => {
+            // Curator (куратор) — скрываем админ-разделы
             if (isBranch && (item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
-            if (!isBranch && item.id === "my-tickets") return false;
+            if (isBranch && item.id === "my-tickets") return true;
+            if (item.adminOnly && !isAdminOrManager()) return false;
             return true;
           }).map((item) => (
             <button

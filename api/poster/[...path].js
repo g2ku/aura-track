@@ -1,4 +1,5 @@
 const POSTER_HOST = "aura-02-coffee.joinposter.com";
+const POSTER_TOKEN = process.env.VITE_POSTER_TOKEN || process.env.POSTER_TOKEN || "";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -10,11 +11,16 @@ export default async function handler(req, res) {
     return;
   }
 
-  // req.query.path = ["spots", "getSpots"] from [...path]
-  // req.url = "/api/poster/spots.getSpots?format=json&token=xxx"
+  if (!POSTER_TOKEN) {
+    res.status(500).json({ error: { message: "POSTER_TOKEN not configured on server" } });
+    return;
+  }
+
   const url = new URL(req.url, `https://${req.headers.host}`);
-  // Everything after /api/poster/ is the Poster API path + query
   const fullPath = url.pathname.replace(/^\/api\/poster/, "/api");
+
+  // Подставляем токен серверно — клиент его не передаёт
+  url.searchParams.set("token", POSTER_TOKEN);
   const targetUrl = `https://${POSTER_HOST}${fullPath}${url.search}`;
 
   try {

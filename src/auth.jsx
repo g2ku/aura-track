@@ -1,61 +1,42 @@
-// Авторизация: admin (полный доступ) + 8 филиальных аккаунтов.
-// Каждый филиальный пользователь видит только свой филиал.
+// Авторизация через Firebase Auth + роли из Firestore.
 //
-// Логины филиалов: gagarina, zharokova, obi, abaya, koktem, dubai, atakent, rams
-// Админ: admin
+// Роли:
+//   admin    — главный админ (вы). Полный доступ.
+//   manager  — управляющий. Видит все филиалы (как admin, но admin главнее).
+//   curator  — куратор точки. Видит только свой филиал.
 //
-// Фикс кросс-вкладочной синхронизации через localStorage mirror.
+// Метаданные пользователя хранятся в Firestore: users/{uid}
+//   { uid, email, displayName, role, branch, spotName, createdAt }
 
 import { useEffect, useState } from "react";
+import {
+  onAuthChange,
+  loginUser,
+  logoutUser,
+  subscribeUserMeta,
+  isFirebaseConfigured,
+} from "./firebase.js";
 
-const KEY = "supply-track-auth";
-const MIRROR_KEY = "supply-track-auth-mirror";
-
-// ─── Конфиг пользователей ──────────────────────────────────────────────
-// login → { branch, spotName }
-const USERS = {
-  admin:    { branch: null, spotName: null },
-  gagarina: { branch: "Aura02_Gagarina", spotName: "Гагарина" },
-  zharokova:{ branch: "Aura02_Zharokova", spotName: "Жароково" },
-  obi:      { branch: "Aura02_OBI", spotName: "OBI" },
-  abaya:    { branch: "Aura02_Abaya", spotName: "Абая" },
-  koktem:   { branch: "Aura02_Koktem", spotName: "Коктем" },
-  dubai:    { branch: "Aura02_Dubai", spotName: "Дубай" },
-  atakent:  { branch: "Aura02_Atakent", spotName: "Атакент" },
-  rams:     { branch: "Aura02_Rams", spotName: "Рамс" },
+// ─── Справочник филиалов ─────────────────────────────────────────────
+// branchId → { spotName, spotId (Poster) }
+export const BRANCHES = {
+  Aura02_Gagarina:  { spotName: "Гагарина",  spotId: "1" },
+  Aura02_Zharokova: { spotName: "Жароково",  spotId: "2" },
+  Aura02_OBI:       { spotName: "OBI",       spotId: "3" },
+  Aura02_Abaya:     { spotName: "Абая",      spotId: "4" },
+  Aura02_Koktem:    { spotName: "Коктем",    spotId: "7" },
+  Aura02_Dubai:     { spotName: "Дубай",     spotId: "9" },
+  Aura02_Atakent:   { spotName: "Атакент",   spotId: "10" },
+  Aura02_Rams:      { spotName: "Рамс",      spotId: "11" },
 };
 
-export function isValidLogin(login) {
-  return login in USERS;
-}
-
-export function getUserBranch() {
-  const auth = readAuth();
-  if (!auth || auth.role !== "branch") return null;
-  return USERS[auth.login]?.branch || null;
-}
-
-export function getUserLogin() {
-  const auth = readAuth();
-  return auth?.login || null;
-}
-
-export function getUserSpotName() {
-  const auth = readAuth();
-  if (!auth) return null;
-  return USERS[auth.login]?.spotName || null;
-}
-
+// Обратные маппинги
 const BRANCH_TO_NAME = {};
 const NAME_TO_BRANCH = {};
-for (const [login, cfg] of Object.entries(USERS)) {
-  if (cfg.branch) {
-    BRANCH_TO_NAME[cfg.branch] = cfg.spotName;
-    if (cfg.spotName) NAME_TO_BRANCH[cfg.spotName.toLowerCase()] = cfg.branch;
-  }
+for (const [id, cfg] of Object.entries(BRANCHES)) {
+  BRANCH_TO_NAME[id] = cfg.spotName;
+  NAME_TO_BRANCH[cfg.spotName.toLowerCase()] = id;
 }
-BRANCH_TO_NAME["Aura02_Bauma"] = "Баума";
-NAME_TO_BRANCH["баума"] = "Aura02_Bauma";
 
 export function formatBranchName(branch) {
   if (!branch) return branch;
@@ -78,125 +59,224 @@ export function matchBranchInDocs(userBranch) {
   };
 }
 
-// ─── Хранение ──────────────────────────────────────────────────────────
+// ─── Хранение метаданных в localStorage (кэш Firestore) ──────────────
+const META_KEY = "supply-track-user-meta";
 
-function readAuth() {
+function cacheUserMeta(meta) {
   try {
-    const raw = sessionStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw);
+    if (meta) localStorage.setItem(META_KEY, JSON.stringify(meta));
+    else localStorage.removeItem(META_KEY);
   } catch {}
-  try {
-    const raw = localStorage.getItem(MIRROR_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
 }
 
-function readFromMirror() {
+function getCachedMeta() {
   try {
-    const raw = localStorage.getItem(MIRROR_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed) return null;
-    if (parsed.role !== "admin" && parsed.role !== "branch") return null;
-    return parsed;
+    const raw = localStorage.getItem(META_KEY);
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-export function getRole() {
-  const auth = readAuth();
-  if (auth && (auth.role === "admin" || auth.role === "branch")) return auth.role;
-  return null;
-}
+// ─── Хуки ────────────────────────────────────────────────────────────
 
-export function getAuthPayload() {
-  const auth = readAuth();
-  if (!auth) return null;
-  if (auth.role !== "admin" && auth.role !== "branch") return null;
-  return auth;
-}
-
-export function login(login) {
-  const entry = USERS[login];
-  if (!entry) return null;
-  const role = login === "admin" ? "admin" : "branch";
-  const payload = { role, login, branch: entry.branch, ts: Date.now() };
-  try {
-    sessionStorage.setItem(KEY, JSON.stringify(payload));
-  } catch (_) {}
-  try {
-    localStorage.setItem(MIRROR_KEY, JSON.stringify(payload));
-  } catch (_) {}
-  return role;
-}
-
-export function logout() {
-  try {
-    sessionStorage.removeItem(KEY);
-    localStorage.removeItem(MIRROR_KEY);
-  } catch (_) {}
-}
-
-export function isAdmin() {
-  return getRole() === "admin";
-}
-
-// React-хук для реактивного чтения роли.
+// Текущий Firebase Auth + метаданные из Firestore
 export function useAuth() {
-  const [auth, setAuth] = useState(() => getAuthPayload());
+  const [auth, setAuth] = useState(() => {
+    const cached = getCachedMeta();
+    return cached || null;
+  });
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    const handler = () => setAuth(getAuthPayload());
-    window.addEventListener("auth-change", handler);
-    const storageHandler = (e) => {
-      if (e.key === MIRROR_KEY) handler();
-    };
-    window.addEventListener("storage", storageHandler);
+    if (!isFirebaseConfigured()) {
+      setLoading(false);
+      return;
+    }
+
+    let unsubMeta = null;
+
+    const unsubAuth = onAuthChange(async (fbUser) => {
+      // Отписываемся от предыдущего подписчика
+      if (unsubMeta) { unsubMeta(); unsubMeta = null; }
+
+      if (!fbUser) {
+        setAuth(null);
+        cacheUserMeta(null);
+        setLoading(false);
+        return;
+      }
+
+      // Подписываемся на метаданные из Firestore
+      unsubMeta = subscribeUserMeta(
+        fbUser.uid,
+        (meta) => {
+          if (meta) {
+            const enriched = { ...meta, email: fbUser.email };
+            setAuth(enriched);
+            cacheUserMeta(enriched);
+          } else {
+            const fallback = {
+              uid: fbUser.uid,
+              email: fbUser.email,
+              displayName: fbUser.email?.split("@")[0] || "",
+              role: "curator",
+              branch: null,
+              spotName: null,
+              createdAt: Date.now(),
+            };
+            setAuth(fallback);
+            cacheUserMeta(fallback);
+          }
+          setLoading(false);
+        },
+        () => setLoading(false)
+      );
+    });
+
     return () => {
-      window.removeEventListener("auth-change", handler);
-      window.removeEventListener("storage", storageHandler);
+      if (unsubMeta) unsubMeta();
+      unsubAuth();
     };
   }, []);
+
+  return { auth, loading };
+}
+
+// Роль текущего пользователя
+export function useRole() {
+  const { auth } = useAuth();
   return auth?.role || null;
 }
 
-// Экспорт для фильтрации по филиалу
+// Филиал текущего пользователя (только для curator)
 export function useUserBranch() {
-  const [branch, setBranch] = useState(() => getUserBranch());
-  useEffect(() => {
-    const handler = () => setBranch(getUserBranch());
-    window.addEventListener("auth-change", handler);
-    const storageHandler = (e) => {
-      if (e.key === MIRROR_KEY) handler();
-    };
-    window.addEventListener("storage", storageHandler);
-    return () => {
-      window.removeEventListener("auth-change", handler);
-      window.removeEventListener("storage", storageHandler);
-    };
-  }, []);
-  return branch;
+  const { auth } = useAuth();
+  if (!auth) return null;
+  if (auth.role === "admin" || auth.role === "manager") return null; // видят всё
+  return auth.branch || null;
 }
 
-// ─── Экран логина ──────────────────────────────────────────────────────
+// ─── Утилиты (синхронные, из кэша) ──────────────────────────────────
+
+export function isAdmin() {
+  const meta = getCachedMeta();
+  return meta?.role === "admin";
+}
+
+export function isManager() {
+  const meta = getCachedMeta();
+  return meta?.role === "manager";
+}
+
+export function isAdminOrManager() {
+  const meta = getCachedMeta();
+  return meta?.role === "admin" || meta?.role === "manager";
+}
+
+export function getRole() {
+  const meta = getCachedMeta();
+  return meta?.role || null;
+}
+
+export function getUserBranch() {
+  const meta = getCachedMeta();
+  if (!meta) return null;
+  if (meta.role === "admin" || meta.role === "manager") return null;
+  return meta.branch || null;
+}
+
+export function getUserLogin() {
+  const meta = getCachedMeta();
+  return meta?.email || null;
+}
+
+export function getUserSpotName() {
+  const meta = getCachedMeta();
+  if (!meta) return null;
+  if (meta.role === "admin" || meta.role === "manager") return null;
+  return meta.spotName || null;
+}
+
+export function getAuthPayload() {
+  const meta = getCachedMeta();
+  if (!meta) return null;
+  // Обратная совместимость со старым форматом
+  return {
+    role: meta.role,
+    login: meta.email,
+    branch: meta.branch,
+  };
+}
+
+// ─── Логин/Выход ─────────────────────────────────────────────────────
+
+export async function login(email, password) {
+  const user = await loginUser(email, password);
+  return user;
+}
+
+export async function logout() {
+  await logoutUser();
+  cacheUserMeta(null);
+  window.dispatchEvent(new Event("auth-change"));
+}
+
+// ─── Экран логина ─────────────────────────────────────────────────────
 
 export function LoginGate({ children }) {
-  const auth = useAuth();
-  const [input, setInput] = useState("");
+  const { auth, loading } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const isRegisterPage = window.location.hash === "#/register";
+
+  if (loading && !isRegisterPage) {
+    return (
+      <div className="login-wrap">
+        <div className="login-card" style={{ textAlign: "center" }}>
+          <i className="ti ti-loader-2" style={{ fontSize: 28, animation: "spin 1s linear infinite" }} />
+          <div style={{ marginTop: 12, color: "var(--text-secondary)" }}>Загрузка…</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Страница регистрации доступна без авторизации
+  if (isRegisterPage) return children;
 
   if (auth) return children;
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    const v = input.trim();
-    if (!isValidLogin(v)) {
-      setErr("Неверный логин");
+    if (submitting) return;
+    setErr("");
+    const em = email.trim();
+    const pw = password.trim();
+    if (!em || !pw) {
+      setErr("Введите email и пароль");
       return;
     }
-    login(v);
-    window.dispatchEvent(new Event("auth-change"));
+    setSubmitting(true);
+    try {
+      await login(em, pw);
+      window.dispatchEvent(new Event("auth-change"));
+    } catch (e) {
+      const msg = e?.code === "auth/user-not-found"
+        ? "Пользователь не найден"
+        : e?.code === "auth/wrong-password"
+        ? "Неверный пароль"
+        : e?.code === "auth/invalid-email"
+        ? "Некорректный email"
+        : e?.code === "auth/too-many-requests"
+        ? "Слишком много попыток. Подождите"
+        : "Ошибка входа: " + (e.message || "неизвестная");
+      setErr(msg);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -213,12 +293,30 @@ export function LoginGate({ children }) {
         <input
           className="login-input"
           autoFocus
-          placeholder="Введите логин"
-          value={input}
-          onChange={e => { setInput(e.target.value); setErr(""); }}
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={e => { setEmail(e.target.value); setErr(""); }}
+        />
+        <input
+          className="login-input"
+          type="password"
+          placeholder="Пароль"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setErr(""); }}
         />
         {err && <div className="login-err">{err}</div>}
-        <button type="submit" className="login-btn">Войти</button>
+        <button type="submit" className="login-btn" disabled={submitting}>
+          {submitting ? "Вход…" : "Войти"}
+        </button>
+        <div style={{ textAlign: "center", marginTop: 12 }}>
+          <a
+            href="#/register"
+            style={{ color: "var(--text-accent)", fontSize: 13, textDecoration: "none" }}
+          >
+            Нет аккаунта? Зарегистрироваться
+          </a>
+        </div>
       </form>
     </div>
   );

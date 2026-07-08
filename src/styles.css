@@ -2037,6 +2037,10 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   0%, 100% { box-shadow: 0 0 20px var(--text-accent), 0 0 40px var(--text-accent); }
   50% { box-shadow: 0 0 30px var(--text-accent), 0 0 60px var(--text-accent); }
 }
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+}
 .login-title {
   text-align: center;
   margin: 0;

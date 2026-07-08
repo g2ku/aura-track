@@ -8,12 +8,15 @@ import DebtsView from "../components/DebtsView";
 import ProductsView from "../components/ProductsView";
 import PosterView from "../components/PosterView";
 import PosterCompareView from "../components/PosterCompareView";
+import ReceiptsView from "../components/ReceiptsView";
 import InventoryView from "../components/InventoryView";
 import InventorySession from "../components/InventorySession";
 import TicketsView from "../components/TicketsView";
 import MyTicketsView from "../components/MyTicketsView";
+import RegistrationPage from "../components/RegistrationPage";
+import AdminUsers from "../components/AdminUsers";
 import { UnknownBranchFallback, UnknownRouteFallback } from "../components/Fallbacks";
-import { isAdmin } from "../auth.jsx";
+import { isAdmin, isAdminOrManager } from "../auth.jsx";
 
 export function useRouteContent({
   route, filteredDocs, filteredAgg, agg, canEdit, userBranch, role, globalPayments,
@@ -126,6 +129,7 @@ export function useRouteContent({
 
   if (p === "/poster") return <PosterView />;
   if (p === "/poster/compare") return <PosterCompareView />;
+  if (p === "/receipts") return <ReceiptsView />;
 
   if (p === "/inventory") {
     return (
@@ -148,8 +152,10 @@ export function useRouteContent({
     );
   }
 
-  if (p === "/tickets" && isAdmin()) return <TicketsView />;
+  if (p === "/tickets" && isAdminOrManager()) return <TicketsView />;
   if (p === "/my-tickets") return <MyTicketsView />;
+  if (p === "/register") return <RegistrationPage />;
+  if (p === "/admin/users" && isAdmin()) return <AdminUsers />;
 
   return <UnknownRouteFallback navigate={route.navigate} />;
 }

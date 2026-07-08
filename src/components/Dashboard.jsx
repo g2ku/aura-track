@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, getSpots, clearPosterCache } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchReceipts, getSpots, clearPosterCache } from "../poster";
 import { getSpotNameForBranch } from "../auth.jsx";
 import DrinkRating from "./DrinkRating";
 
@@ -48,6 +48,8 @@ export default function Dashboard({
 
   const [cashBySpot, setCashBySpot] = useState([]);
   const [supplyStatus, setSupplyStatus] = useState({});
+  const [allReceipts, setAllReceipts] = useState([]);
+  const [recentReceipts, setRecentReceipts] = useState([]);
   const [posterLoading, setPosterLoading] = useState(false);
   const [posterError, setPosterError] = useState("");
   const [dateFrom, setDateFrom] = useState(daysAgoStr(6));
@@ -72,6 +74,15 @@ export default function Dashboard({
       } catch (e) {
         console.error("[Dashboard] fetchSupplyStatus error:", e);
         if (!cancelled) setPosterError(prev => prev ? prev + "; Поставки: " + (e.message || e) : "Поставки: " + (e.message || e));
+      }
+      try {
+        const receipts = await fetchReceipts(dateFrom, dateTo, { signal: undefined });
+        if (!cancelled) {
+          setAllReceipts(receipts.receipts);
+          setRecentReceipts(receipts.receipts.slice(0, 5));
+        }
+      } catch (e) {
+        console.error("[Dashboard] fetchReceipts error:", e);
       }
       if (!cancelled) setPosterLoading(false);
     }
@@ -122,6 +133,43 @@ export default function Dashboard({
     }
     return warnings.sort((a, b) => (b.daysSinceLastSupply || 0) - (a.daysSinceLastSupply || 0));
   }, [displaySupplyStatus]);
+
+  // ─── Предупреждения о чеках ──────────────────────────────────────────
+  const WARNING_THRESHOLD_MS = 20 * 60 * 1000; // 20 минут
+  const APPROACHING_THRESHOLD_MS = 15 * 60 * 1000; // 15 минут — «подходит к предупреждению»
+
+  const checkWarnings = useMemo(() => {
+    const now = Date.now();
+    const overdue = [];
+    const approaching = [];
+
+    for (const r of allReceipts) {
+      if (r.status !== "open") continue;
+      if (!r.products || r.products.length === 0) continue; // пустые чеки — не предупреждаем
+
+      // Парсим date_open
+      let openTs = 0;
+      if (typeof r.dateOpen === "number") {
+        openTs = r.dateOpen > 1e12 ? r.dateOpen : r.dateOpen * 1000;
+      } else if (r.dateOpen) {
+        openTs = new Date(r.dateOpen).getTime();
+      }
+      if (!openTs) continue;
+
+      const elapsed = now - openTs;
+      const item = { ...r, elapsed, openTs };
+
+      if (elapsed >= WARNING_THRESHOLD_MS) {
+        overdue.push(item);
+      } else if (elapsed >= APPROACHING_THRESHOLD_MS) {
+        approaching.push(item);
+      }
+    }
+
+    overdue.sort((a, b) => b.elapsed - a.elapsed);
+    approaching.sort((a, b) => b.elapsed - a.elapsed);
+    return { overdue, approaching };
+  }, [allReceipts]);
 
   const totalCash = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.total, 0), [displayCashBySpot]);
   const totalTx = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.txCount, 0), [displayCashBySpot]);
@@ -194,6 +242,136 @@ export default function Dashboard({
       {posterError && (
         <div className="alert error" style={{ marginBottom: 16 }}>
           <i className="ti ti-alert-circle" /> Poster API: {posterError}
+        </div>
+      )}
+
+      {/* ─── Предупреждения о чеках ──────────────────────────────── */}
+      {checkWarnings.overdue.length > 0 && (
+        <div style={{
+          marginBottom: 16,
+          border: "2px solid var(--danger)",
+          borderRadius: 12,
+          background: "var(--danger)08",
+          overflow: "hidden",
+        }}>
+          <div style={{
+            padding: "10px 16px",
+            background: "var(--danger)15",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontWeight: 600,
+            fontSize: 14,
+            color: "var(--danger)",
+          }}>
+            <div style={{
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: "var(--danger)",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 13,
+              fontWeight: 700,
+              flexShrink: 0,
+            }}>
+              {checkWarnings.overdue.length}
+            </div>
+            <i className="ti ti-alert-triangle" style={{ fontSize: 18 }} />
+            Чеки не закрыты более 20 минут!
+          </div>
+          <div style={{ padding: "8px 16px" }}>
+            {checkWarnings.overdue.map((r) => {
+              const mins = Math.floor(r.elapsed / 60000);
+              return (
+                <div key={r.id} style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "8px 0",
+                  borderBottom: "1px solid var(--border)",
+                  fontSize: 13,
+                }}>
+                  <span style={{
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    minWidth: 60,
+                  }}>#{r.id}</span>
+                  <span style={{ fontWeight: 500 }}>{r.waiter || "—"}</span>
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    {r.spotName?.replace(/^Aura02[_-]?/i, "") || r.spotId}
+                  </span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                    {r.products?.length || 0} тов.
+                  </span>
+                  <span style={{
+                    marginLeft: "auto",
+                    color: "var(--danger)",
+                    fontWeight: 600,
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                    {mins} мин.
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Иконка предупреждения — подходящие к порогу чеки */}
+      {checkWarnings.overdue.length === 0 && checkWarnings.approaching.length > 0 && (
+        <div style={{
+          marginBottom: 16,
+          border: "2px solid var(--danger)",
+          borderRadius: 12,
+          background: "var(--danger)08",
+          padding: "10px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+        }}>
+          <div style={{
+            width: 32,
+            height: 32,
+            borderRadius: "50%",
+            background: "var(--danger)",
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 16,
+            flexShrink: 0,
+            animation: "pulse 2s ease-in-out infinite",
+          }}>
+            <i className="ti ti-clock" />
+          </div>
+          <div style={{ flex: 1, fontSize: 13 }}>
+            <span style={{ color: "var(--danger)", fontWeight: 600 }}>
+              {checkWarnings.approaching.length} {ru(checkWarnings.approaching.length, "чек", "чека", "чеков")}
+            </span>{" "}
+              подходят к предупреждению (&gt;15 мин.)
+          </div>
+          {checkWarnings.approaching.slice(0, 3).map((r) => {
+            const mins = Math.floor(r.elapsed / 60000);
+            return (
+              <span key={r.id} style={{
+                fontSize: 12,
+                padding: "3px 8px",
+                borderRadius: 6,
+                background: "var(--danger)18",
+                color: "var(--danger)",
+                fontWeight: 500,
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+              }}>
+                #{r.id} {mins}м
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -309,6 +487,65 @@ export default function Dashboard({
           </div>
 
           <DrinkRating dateFrom={dateFrom} dateTo={dateTo} />
+
+          {/* Последние чеки */}
+          {recentReceipts.length > 0 && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div style={{ padding: "10px 16px", background: "var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 14 }}>
+                  <i className="ti ti-receipt" style={{ color: "var(--text-accent)" }} />
+                  Последние чеки
+                </div>
+                <a href="#/receipts" style={{ color: "var(--text-accent)", fontSize: 13, textDecoration: "none" }}>
+                  Все чеки →
+                </a>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table className="data-table" style={{ width: "100%", fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", width: 60 }}>#</th>
+                      <th style={{ textAlign: "left", width: 120 }}>Официант</th>
+                      <th style={{ textAlign: "left" }}>Филиал</th>
+                      <th style={{ textAlign: "left", width: 90 }}>Время</th>
+                      <th style={{ textAlign: "right", width: 110 }}>Сумма</th>
+                      <th style={{ textAlign: "center", width: 80 }}>Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentReceipts.map((r) => (
+                      <tr key={r.id} className="rh">
+                        <td style={{ fontVariantNumeric: "tabular-nums" }}>{r.id}</td>
+                        <td style={{ fontWeight: 500 }}>{r.waiter || "—"}</td>
+                        <td style={{ color: "var(--text-secondary)" }}>
+                          {r.spotName?.replace(/^Aura02[_-]?/i, "") || r.spotId}
+                        </td>
+                        <td style={{ fontVariantNumeric: "tabular-nums" }}>
+                          {r.dateOpen ? String(r.dateOpen).split(" ")[1]?.slice(0, 5) || "—" : "—"}
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums" }}>
+                          {fmt(r.sum)}
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <span style={{
+                            display: "inline-block",
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            background: r.status === "open" ? "var(--warning)18" : "var(--success)18",
+                            color: r.status === "open" ? "var(--warning)" : "var(--success)",
+                          }}>
+                            {r.status === "open" ? "Открыт" : "Закрыт"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
 

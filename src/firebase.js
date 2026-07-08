@@ -1,4 +1,4 @@
-// Firebase-инициализация и хелперы для Firestore.
+// Firebase-инициализация и хелперы для Firestore + Auth.
 //
 // Конфиг берётся из переменных окружения Vite (см. .env.example).
 // Если конфиг не задан, приложение упадёт в читаемую ошибку.
@@ -19,6 +19,13 @@ import {
   runTransaction,
   arrayUnion,
 } from "firebase/firestore";
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from "firebase/auth";
 
 const cfg = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -34,11 +41,13 @@ export function isFirebaseConfigured() {
 }
 
 let db = null;
+let auth = null;
 let initError = null;
 if (isFirebaseConfigured()) {
   try {
     const app = getApps().length ? getApps()[0] : initializeApp(cfg);
     db = getFirestore(app);
+    auth = getAuth(app);
   } catch (e) {
     initError = e.message;
   }
@@ -452,4 +461,89 @@ export async function respondToTicket(ticketId, { status, response }) {
     response: response || null,
     updatedAt: Date.now(),
   });
+}
+
+// ─── Firebase Auth ─────────────────────────────────────────────────────
+
+export function getFirebaseAuth() {
+  if (!auth) {
+    throw new Error(
+      initError ||
+        "Firebase не настроен. Скопируйте .env.example в .env.local и заполните переменные."
+    );
+  }
+  return auth;
+}
+
+// Регистрация: создаёт аккаунт в Firebase Auth + запись в Firestore users/{uid}
+export async function registerUser({ email, password, displayName, branch, spotName, role }) {
+  const a = getFirebaseAuth();
+  const cred = await createUserWithEmailAndPassword(a, email, password);
+  const uid = cred.user.uid;
+
+  // Сохраняем метаданные пользователя в Firestore
+  await setDoc(doc(getDb(), "users", uid), {
+    uid,
+    email,
+    displayName: displayName || email.split("@")[0],
+    branch: branch || null,
+    spotName: spotName || null,
+    role: role || "curator", // "admin" | "manager" | "curator"
+    createdAt: Date.now(),
+  });
+
+  return { uid, email };
+}
+
+// Вход по email + пароль
+export async function loginUser(email, password) {
+  const a = getFirebaseAuth();
+  const cred = await signInWithEmailAndPassword(a, email, password);
+  return cred.user;
+}
+
+// Выход
+export async function logoutUser() {
+  const a = getFirebaseAuth();
+  await signOut(a);
+}
+
+// Подписка на изменения Auth-состояния
+export function onAuthChange(callback) {
+  const a = getFirebaseAuth();
+  return onAuthStateChanged(a, callback);
+}
+
+// ─── User metadata (Firestore) ────────────────────────────────────────
+
+// Получить метаданные текущего пользователя из Firestore
+export async function getUserMeta(uid) {
+  const snap = await getDoc(doc(getDb(), "users", uid));
+  return snap.exists() ? snap.data() : null;
+}
+
+// Подписка на метаданные пользователя (реактивно)
+export function subscribeUserMeta(uid, onChange, onError) {
+  if (!uid) { onChange(null); return () => {}; }
+  return onSnapshot(
+    doc(getDb(), "users", uid),
+    (snap) => onChange(snap.exists() ? snap.data() : null),
+    (err) => onError && onError(err)
+  );
+}
+
+// Обновить метаданные пользователя (только admin)
+export async function updateUserMeta(uid, data) {
+  await updateDoc(doc(getDb(), "users", uid), data);
+}
+
+// Удалить пользователя (только admin)
+export async function deleteUserMeta(uid) {
+  await deleteDoc(doc(getDb(), "users", uid));
+}
+
+// Список всех пользователей (для админки)
+export async function listUsers() {
+  const snap = await getDocs(collection(getDb(), "users"));
+  return snap.docs.map(d => d.data());
 }

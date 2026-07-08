@@ -24,10 +24,9 @@
 
 const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 // В dev проксирует Vite (/api/poster/* -> joinposter.com/api/*).
-// В продакшене (node server.js) проксирует server.js.
-// Никогда не ходим напрямую — Poster блокирует CORS.
+// В продакшене (node server.js / Vercel) проксирует serverless proxy.
+// Токен НЕ хранится в клиентском коде — прокси подставляет его серверно.
 const BASE = "/api/poster";
-const TOKEN = import.meta.env.VITE_POSTER_TOKEN || "";
 const UA = "Poster (http://joinposter.com)";
 
 const CACHE_KEY = "supply-track.poster.salesByDay.v3";
@@ -36,32 +35,10 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const PER_PAGE = 200;          // max для transactions.getTransactions
 const DAY_CONCURRENCY = 4;    // параллельных дней за раз
 
-export function getPosterToken() {
-  return TOKEN;
-}
-
-export function getPosterTokenMasked() {
-  if (!TOKEN) return "(не задан)";
-  const colon = TOKEN.indexOf(":");
-  if (colon < 0) return TOKEN.length > 6 ? TOKEN.slice(0, 4) + "…" + TOKEN.slice(-3) : TOKEN;
-  const id = TOKEN.slice(0, colon);
-  const secret = TOKEN.slice(colon + 1);
-  const tail = secret.length > 4 ? secret.slice(-4) : secret;
-  return `${id}:…${tail}`;
-}
-
-function assertToken() {
-  if (!TOKEN) {
-    throw new Error(
-      "VITE_POSTER_TOKEN не задан. Добавьте токен в .env.local и перезапустите dev-сервер.",
-    );
-  }
-}
-
 function buildUrl(method, params = {}) {
   const qs = new URLSearchParams();
   qs.set("format", "json");
-  qs.set("token", TOKEN);
+  // Токен НЕ передаём — прокси подставляет его серверно
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === null || v === "") continue;
     qs.set(k, String(v));
@@ -464,6 +441,99 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
   return { ...payload, fromCache: false };
 }
 
+// ─── Чеки (полный список транзакций) ──────────────────────────────────
+
+export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) throw new Error("Укажите даты периода");
+  if (fromP > toP) throw new Error("Дата «с» должна быть не позже «по»");
+
+  const days = enumerateDays(fromP, toP);
+  const [spots, menu] = await Promise.all([getSpots(opts), getMenuIndex(opts)]);
+
+  const allReceipts = [];
+  let transactionsCount = 0;
+
+  await mapWithProgress(
+    days,
+    DAY_CONCURRENCY,
+    async (yyyymmdd) => {
+      const first = await call(
+        "transactions.getTransactions",
+        { date_from: yyyymmdd, date_to: yyyymmdd, per_page: PER_PAGE, page: 1 },
+        opts,
+      );
+      const r1 = first?.response || {};
+      const total = Number(r1.count || 0);
+      const allData = [...(r1.data || [])];
+
+      if (total > PER_PAGE) {
+        const totalPages = Math.ceil(total / PER_PAGE);
+        const otherPages = [];
+        for (let p = 2; p <= totalPages; p++) otherPages.push(p);
+        const results = await mapWithLimit(otherPages, 4, async (p) => {
+          const data = await call(
+            "transactions.getTransactions",
+            { date_from: yyyymmdd, date_to: yyyymmdd, per_page: PER_PAGE, page: p },
+            opts,
+          );
+          return data?.response?.data || [];
+        });
+        for (const arr of results) allData.push(...arr);
+      }
+
+      for (const tx of allData) {
+        transactionsCount++;
+        const spotId = String(tx.spot_id || "");
+        const spot = spots[spotId] || {};
+        const products = (tx.products || []).map((it) => {
+          const pid = String(it.product_id);
+          const mid = String(it.modification_id || 0);
+          return {
+            name: menu[`${pid}:${mid}`] || menu[pid] || `Товар #${pid}`,
+            qty: Number(it.num || 0),
+            sum: Number(it.payed_sum || it.product_sum || 0),
+          };
+        });
+        const totalSum = products.reduce((s, p) => s + p.sum, 0);
+        const discount = Number(tx.discount_sum || 0);
+        const profit = Number(tx.profit || 0);
+        const isOpen = tx.status === 0 || tx.status === "0";
+
+        allReceipts.push({
+          id: tx.id || tx.transaction_id,
+          spotId,
+          spotName: spot.name || spotId,
+          waiter: tx.waiter_name || tx.employee_name || "",
+          dateOpen: tx.date_open || "",
+          dateClose: tx.date_close || "",
+          sum: totalSum || Number(tx.sum || 0),
+          discount,
+          profit,
+          status: isOpen ? "open" : "closed",
+          fiscalization: tx.fiscalization || null,
+          products,
+          paymentTypes: tx.payment_types || tx.payments || [],
+        });
+      }
+    },
+    ({ done, total }) => opts.onProgress?.({ done, total }),
+  );
+
+  allReceipts.sort((a, b) => {
+    if (a.dateOpen > b.dateOpen) return -1;
+    if (a.dateOpen < b.dateOpen) return 1;
+    return 0;
+  });
+
+  return {
+    receipts: allReceipts,
+    transactionsCount,
+    daysCount: days.length,
+  };
+}
+
 // ─── Основная функция ─────────────────────────────────────────────────
 
 export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
@@ -667,7 +737,6 @@ async function mapWithProgress(items, limit, fn, onProgress) {
 }
 
 async function call(method, params = {}, opts = {}) {
-  assertToken();
   const url = buildUrl(method, params);
   let res;
   try {
