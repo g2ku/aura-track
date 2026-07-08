@@ -114,6 +114,15 @@ export default function Dashboard({
     return filtered;
   }, [supplyStatus, userBranch, spotName]);
 
+  const displayRecentReceipts = useMemo(() => {
+    if (!userBranch) return recentReceipts;
+    return recentReceipts.filter(r => {
+      if (!r.spotName) return false;
+      if (spotName && r.spotName === spotName) return true;
+      return r.spotName === userBranch || r.spotName?.includes(userBranch.replace("Aura02_", ""));
+    });
+  }, [recentReceipts, userBranch, spotName]);
+
   const today = useMemo(() => {
     const now = new Date();
     const todayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -489,7 +498,7 @@ export default function Dashboard({
           <DrinkRating dateFrom={dateFrom} dateTo={dateTo} />
 
           {/* Последние чеки */}
-          {recentReceipts.length > 0 && (
+          {displayRecentReceipts.length > 0 && (
             <div className="card" style={{ marginTop: 16 }}>
               <div style={{ padding: "10px 16px", background: "var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 14 }}>
@@ -513,7 +522,7 @@ export default function Dashboard({
                     </tr>
                   </thead>
                   <tbody>
-                    {recentReceipts.map((r) => (
+                    {displayRecentReceipts.map((r) => (
                       <tr key={r.id} className="rh">
                         <td style={{ fontVariantNumeric: "tabular-nums" }}>{r.id}</td>
                         <td style={{ fontWeight: 500 }}>{r.waiter || "—"}</td>
