@@ -8,11 +8,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Данные пользователей — чтение для авторизованных, запись только своего профиля
+    // Данные пользователей — чтение/запись для авторизованных
     match /users/{uid} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && request.auth.uid == uid;
-      allow update: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null;
       allow delete: if false;
     }
 

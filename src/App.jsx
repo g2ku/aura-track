@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoginGate, useAuth, useUserBranch, isAdmin, isAdminOrManager } from "./auth.jsx";
+import { LoginGate, useAuth, useUserBranch, isAdmin, isAdminOrManager, logout } from "./auth.jsx";
 import { useHashRoute, useRememberRoute } from "./router";
 import { useAppStore } from "./store/useAppStore";
 
@@ -35,6 +35,45 @@ function MainApp() {
   const role = auth?.role || null;
   const userBranch = useUserBranch();
   const canEdit = isAdminOrManager();
+
+  // Куратор без филиала — экран ожидания
+  if (auth && role === "curator" && !userBranch) {
+    return (
+      <div className="login-wrap">
+        <div className="login-card" style={{ textAlign: "center", maxWidth: 420 }}>
+          <div className="login-logo" style={{ background: "var(--text-accent)" }}>
+            <i className="ti ti-clock" aria-hidden="true" />
+          </div>
+          <h2 style={{ fontSize: 20, marginTop: 16, color: "var(--text-primary)" }}>
+            Ожидайте назначения роли
+          </h2>
+          <p style={{ color: "var(--text-secondary)", fontSize: 14, marginTop: 8, lineHeight: 1.6 }}>
+            Администратор назначит вам филиал и роль.<br />
+            Оповестите его, пожалуйста.
+          </p>
+          <div style={{ marginTop: 20, padding: "12px 16px", borderRadius: 10, background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Ваш аккаунт</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{auth.email}</div>
+          </div>
+          <button
+            onClick={() => { logout(); window.location.hash = "#/login"; }}
+            style={{
+              marginTop: 20,
+              padding: "10px 24px",
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--bg-elevated)",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+              fontSize: 14,
+            }}
+          >
+            Выйти
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const docs = useAppStore((s) => s.docs);
   const globalPayments = useAppStore((s) => s.globalPayments);
