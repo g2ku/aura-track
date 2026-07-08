@@ -8,8 +8,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Данные пользователей — чтение для авторизованных, запись только своего профиля
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
     // Рабочие данные — только серверный доступ (через Admin SDK)
-    // Клиентский доступ запрещён — все операции через серверные функции
     match /{document=**} {
       allow read, write: if false;
     }

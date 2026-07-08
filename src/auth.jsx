@@ -8,7 +8,7 @@
 // Метаданные пользователя хранятся в Firestore: users/{uid}
 //   { uid, email, displayName, role, branch, spotName, createdAt }
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import {
   onAuthChange,
   loginUser,
@@ -16,6 +16,8 @@ import {
   subscribeUserMeta,
   isFirebaseConfigured,
 } from "./firebase.js";
+
+const RegistrationPage = lazy(() => import("./components/RegistrationPage.jsx"));
 
 // ─── Справочник филиалов ─────────────────────────────────────────────
 // branchId → { spotName, spotId (Poster) }
@@ -244,8 +246,20 @@ export function LoginGate({ children }) {
     );
   }
 
-  // Страница регистрации доступна без авторизации
-  if (isRegisterPage) return children;
+  // Страница регистрации доступна без авторизации — рендерим отдельно, без сайдбара
+  if (isRegisterPage) {
+    return (
+      <Suspense fallback={
+        <div className="login-wrap">
+          <div className="login-card" style={{ textAlign: "center" }}>
+            <i className="ti ti-loader-2" style={{ fontSize: 28, animation: "spin 1s linear infinite" }} />
+          </div>
+        </div>
+      }>
+        <RegistrationPage />
+      </Suspense>
+    );
+  }
 
   if (auth) return children;
 
