@@ -68,7 +68,7 @@ export default function Dashboard({
     async function load() {
       setPosterLoading(true);
       setPosterError("");
-      // Параллельная загрузка: касса + поставки одновременно
+      // Параллельная загрузка кассы + поставок (без чеков — они на отдельной вкладке)
       const [cashResult, suppliesResult] = await Promise.allSettled([
         fetchCashBySpot(dateFrom, dateTo),
         fetchSupplyStatus(null),
@@ -78,16 +78,6 @@ export default function Dashboard({
         else setPosterError("Кассы: " + (cashResult.reason?.message || "Ошибка"));
         if (suppliesResult.status === "fulfilled") setSupplyStatus(suppliesResult.value);
         else setPosterError(prev => prev ? prev + "; Поставки: " + (suppliesResult.reason?.message || "Ошибка") : "Поставки: " + (suppliesResult.reason?.message || "Ошибка"));
-      }
-      // Чеки — загружаем только если пользователь на вкладке «Чеки» или для recentReceipts
-      try {
-        const receipts = await fetchReceipts(dateFrom, dateTo, { signal: undefined });
-        if (!cancelled) {
-          setAllReceipts(receipts.receipts);
-          setRecentReceipts(receipts.receipts.slice(0, 5));
-        }
-      } catch (e) {
-        console.error("[Dashboard] fetchReceipts error:", e);
       }
       if (!cancelled) setPosterLoading(false);
     }
