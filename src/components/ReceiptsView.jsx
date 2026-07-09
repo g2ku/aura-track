@@ -364,11 +364,14 @@ function Kpi({ label, value, accent }) {
 }
 
 function ReceiptRow({ r, expanded, onToggle }) {
+  const timeSinceOpen = r.status === "open" && r.dateOpen ? calcTimeSince(r.dateOpen) : null;
+  const isWarning = timeSinceOpen && timeSinceOpen.minutes > 30;
+
   return (
     <>
       <tr
         className="rh"
-        style={{ cursor: "pointer" }}
+        style={{ cursor: "pointer", background: isWarning ? "rgba(245,158,11,0.06)" : undefined }}
         onClick={onToggle}
       >
         <td style={{ fontVariantNumeric: "tabular-nums" }}>{r.id}</td>
@@ -391,15 +394,18 @@ function ReceiptRow({ r, expanded, onToggle }) {
         </td>
         <td style={{ textAlign: "center" }}>
           <span style={{
-            display: "inline-block",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
             padding: "2px 8px",
             borderRadius: 4,
             fontSize: 11,
             fontWeight: 500,
-            background: r.status === "open" ? "var(--warning)18" : "var(--success)18",
+            background: r.status === "open" ? "rgba(245,158,11,0.12)" : "rgba(34,197,94,0.12)",
             color: r.status === "open" ? "var(--warning)" : "var(--success)",
           }}>
             {r.status === "open" ? "Открыт" : "Закрыт"}
+            {isWarning && <i className="ti ti-alert-triangle" style={{ fontSize: 12 }} />}
           </span>
         </td>
       </tr>
@@ -407,6 +413,19 @@ function ReceiptRow({ r, expanded, onToggle }) {
         <tr>
           <td colSpan={9} style={{ padding: 0 }}>
             <div style={{ padding: "10px 16px", background: "var(--bg-elevated)", borderTop: "1px solid var(--border)" }}>
+              {r.status === "open" && timeSinceOpen && (
+                <div style={{
+                  padding: "8px 12px", borderRadius: 8, marginBottom: 8,
+                  background: isWarning ? "rgba(245,158,11,0.1)" : "rgba(59,130,246,0.1)",
+                  border: `1px solid ${isWarning ? "rgba(245,158,11,0.3)" : "rgba(59,130,246,0.3)"}`,
+                  fontSize: 13, color: isWarning ? "var(--warning)" : "var(--text-accent)",
+                  display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <i className={`ti ti-${isWarning ? "alert-triangle" : "clock"}`} />
+                  Открыт {timeSinceOpen.display}
+                  {isWarning && " — превышен лимит 30 мин!"}
+                </div>
+              )}
               <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>
                 Товары в чеке ({r.products.length}):
               </div>
@@ -434,4 +453,22 @@ function ReceiptRow({ r, expanded, onToggle }) {
       )}
     </>
   );
+}
+
+function calcTimeSince(dateStr) {
+  if (!dateStr) return null;
+  let d;
+  if (typeof dateStr === "number") {
+    d = new Date(dateStr * 1000);
+  } else {
+    d = new Date(dateStr.replace(" ", "T"));
+  }
+  if (isNaN(d)) return null;
+  const diff = Date.now() - d.getTime();
+  if (diff < 0) return null;
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours > 0) return { minutes, display: `${hours} ч ${mins} мин` };
+  return { minutes, display: `${minutes} мин` };
 }

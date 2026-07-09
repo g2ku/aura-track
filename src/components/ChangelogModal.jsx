@@ -1,9 +1,22 @@
 import { useEffect, useState, useCallback } from "react";
 
-const CURRENT_VERSION = "1.5.1";
+const CURRENT_VERSION = "1.5.2";
 const STORAGE_KEY = "aura-track:last-seen-v3";
 
 const ENTRIES = [
+  {
+    version: "1.5.2",
+    date: "2026-07-09",
+    items: [
+      "Касса: кэш увеличен до 24ч, данные мгновенно из localStorage",
+      "Касса: prefetch при входе — данные готовы к открытию дашборда",
+      "Касса: Vercel CDN кэширование увеличено до 30 мин",
+      "Чеки: исправлена скидка (поле discount)",
+      "Чеки: прибыль теперь в рублях (было в копейках)",
+      "Чеки: попытка загрузки открытых чеков (статус=0)",
+      "Чеки: таймер «открыт X мин» с предупреждением >30 мин",
+    ],
+  },
   {
     version: "1.5.1",
     date: "2026-07-08",

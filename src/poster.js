@@ -572,6 +572,7 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
     days,
     DAY_CONCURRENCY,
     async (yyyymmdd) => {
+      // Закрытые чеки (основной запрос)
       const first = await call(
         "transactions.getTransactions",
         { date_from: yyyymmdd, date_to: yyyymmdd, per_page: PER_PAGE, page: 1 },
@@ -596,19 +597,23 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
         for (const arr of results) allData.push(...arr);
       }
 
-      // DEBUG: логируем первый чек для анализа полей Poster API
-      if (allData.length > 0 && !window.__posterTxLogged) {
-        window.__posterTxLogged = true;
-        console.log("[Poster] RAW transaction sample:", JSON.stringify(allData[0], null, 2));
-        console.log("[Poster] All keys:", Object.keys(allData[0]));
-        const statusMap = {};
-        for (const tx of allData) {
-          const s = String(tx.status);
-          statusMap[s] = (statusMap[s] || 0) + 1;
+      // Открытые чеки (статус=0)
+      try {
+        const openRes = await call(
+          "transactions.getTransactions",
+          { date_from: yyyymmdd, date_to: yyyymmdd, per_page: 500, status: 0 },
+          opts,
+        );
+        const openData = openRes?.response?.data || [];
+        // Добавляем только те, которых нет в основном списке
+        const existingIds = new Set(allData.map(tx => tx.transaction_id || tx.id));
+        for (const tx of openData) {
+          if (!existingIds.has(tx.transaction_id || tx.id)) {
+            allData.push(tx);
+          }
         }
-        console.log("[Poster] Status distribution:", statusMap);
-        const openTxs = allData.filter(tx => tx.status === 0 || tx.status === "0");
-        console.log("[Poster] Open transactions:", openTxs.length);
+      } catch (_) {
+        // Открытые чеки могут быть недоступны — не критично
       }
 
       for (const tx of allData) {
@@ -625,9 +630,12 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
           };
         });
         const totalSum = products.reduce((s, p) => s + p.sum, 0);
-        const discount = Number(tx.discount_sum || 0);
-        const profit = Number(tx.profit || 0);
-        const isOpen = tx.status === 0 || tx.status === "0";
+        // Poster: поле "discount" (не discount_sum), значение в рублях
+        const discount = Number(tx.discount || 0);
+        // Poster: total_profit в копейках → делим на 100
+        const profit = Math.round(Number(tx.total_profit || tx.profit || 0) / 100);
+        // Poster не возвращает status для закрытых чеков; проверяем по date_close
+        const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
 
         allReceipts.push({
           id: tx.id || tx.transaction_id,
