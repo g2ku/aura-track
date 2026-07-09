@@ -68,20 +68,18 @@ export default function Dashboard({
     async function load() {
       setPosterLoading(true);
       setPosterError("");
-      try {
-        const cash = await fetchCashBySpot(dateFrom, dateTo);
-        if (!cancelled) setCashBySpot(cash);
-      } catch (e) {
-        console.error("[Dashboard] fetchCashBySpot error:", e);
-        if (!cancelled) setPosterError("Кассы: " + (e.message || e));
+      // Параллельная загрузка: касса + поставки одновременно
+      const [cashResult, suppliesResult] = await Promise.allSettled([
+        fetchCashBySpot(dateFrom, dateTo),
+        fetchSupplyStatus(null),
+      ]);
+      if (!cancelled) {
+        if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
+        else setPosterError("Кассы: " + (cashResult.reason?.message || "Ошибка"));
+        if (suppliesResult.status === "fulfilled") setSupplyStatus(suppliesResult.value);
+        else setPosterError(prev => prev ? prev + "; Поставки: " + (suppliesResult.reason?.message || "Ошибка") : "Поставки: " + (suppliesResult.reason?.message || "Ошибка"));
       }
-      try {
-        const supplies = await fetchSupplyStatus(null);
-        if (!cancelled) setSupplyStatus(supplies);
-      } catch (e) {
-        console.error("[Dashboard] fetchSupplyStatus error:", e);
-        if (!cancelled) setPosterError(prev => prev ? prev + "; Поставки: " + (e.message || e) : "Поставки: " + (e.message || e));
-      }
+      // Чеки — загружаем только если пользователь на вкладке «Чеки» или для recentReceipts
       try {
         const receipts = await fetchReceipts(dateFrom, dateTo, { signal: undefined });
         if (!cancelled) {
