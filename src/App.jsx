@@ -8,6 +8,7 @@ import { useUpload } from "./hooks/useUpload";
 import { usePayments } from "./hooks/usePayments";
 import { useReports } from "./hooks/useReports";
 import { useRouteContent } from "./hooks/useRouteContent";
+import { prefetchCashBySpot } from "./poster";
 
 import Sidebar from "./components/Sidebar";
 import UploadModal from "./components/UploadModal";
@@ -90,6 +91,20 @@ function MainApp() {
 
   useRememberRoute();
   useEffect(() => { initStore(); }, [initStore]);
+
+  // Prefetch кассы при загрузке приложения — данные будут готовы к моменту открытия дашборда
+  useEffect(() => {
+    if (!userBranch || role === "curator") return;
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const to = `${d.getFullYear()}-${m}-${day}`;
+    d.setDate(d.getDate() - 6);
+    const m2 = String(d.getMonth() + 1).padStart(2, "0");
+    const day2 = String(d.getDate()).padStart(2, "0");
+    const from = `${d.getFullYear()}-${m2}-${day2}`;
+    prefetchCashBySpot(from, to).catch(() => {});
+  }, [userBranch, role]);
 
   useEffect(() => {
     const handler = (e) => {

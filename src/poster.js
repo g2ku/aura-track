@@ -29,8 +29,8 @@ const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v3";
-const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const CACHE_KEY = "supply-track.poster.salesByDay.v4";
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
 const DAY_CONCURRENCY = 4;    // параллельных дней за раз
@@ -253,6 +253,119 @@ function setCachedDay(yyyymmdd, payload) {
 
 export function clearPosterCache() {
   try { localStorage.removeItem(CACHE_KEY); } catch (_) {}
+}
+
+// ─── Stale-while-revalidate: отдаём устаревший кэш мгновенно ─────────────
+
+export function getCachedCashBySpot(dateFrom, dateTo) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) return null;
+  const days = enumerateDays(fromP, toP);
+  const spots = spotsCache.data || {};
+  const merged = new Map();
+  let transactionsCount = 0;
+  const txBySpot = {};
+  let allCached = true;
+
+  for (const yyyymmdd of days) {
+    const entry = readCache()[yyyymmdd];
+    if (!entry) { allCached = false; continue; }
+    transactionsCount += entry.transactionsCount || 0;
+    for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
+      txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
+    }
+    for (const [spotId, productMap] of Object.entries(entry.rowsBySpot || {})) {
+      if (!merged.has(spotId)) merged.set(spotId, new Map());
+      const dst = merged.get(spotId);
+      for (const [name, v] of Object.entries(productMap)) {
+        if (!dst.has(name)) dst.set(name, { qty: 0, sum: 0 });
+        const row = dst.get(name);
+        row.qty += v.qty;
+        row.sum += v.sum;
+      }
+    }
+  }
+
+  if (merged.size === 0) return null;
+
+  const rows = [];
+  for (const [spotId, productMap] of merged.entries()) {
+    const spot = spots[spotId] || { name: `Филиал #${spotId}` };
+    for (const [productName, v] of productMap.entries()) {
+      rows.push({ spotId, spotName: spot.name, productName, qty: v.qty, sum: v.sum });
+    }
+  }
+  rows.sort((a, b) => {
+    if (a.spotName !== b.spotName) return a.spotName.localeCompare(b.spotName, "ru");
+    return b.sum - a.sum;
+  });
+
+  return { rows, transactionsCount, txBySpot, daysCount: days.length, stale: true };
+}
+
+// ─── Prefetch: предзагрузка данных при старте приложения ────────────────
+
+const PREFETCH_KEY = "supply-track.poster.prefetch";
+const PREFETCH_TTL = 30 * 60 * 1000; // 30 min — не чаще раза в 30 мин
+
+let prefetchInFlight = null;
+
+export function prefetchCashBySpot(dateFrom, dateTo, opts = {}) {
+  if (prefetchInFlight) return prefetchInFlight;
+
+  // Проверяем, не делали ли мы prefetch недавно
+  try {
+    const raw = localStorage.getItem(PREFETCH_KEY);
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached && Date.now() - cached.ts < PREFETCH_TTL) {
+        return Promise.resolve(cached.data);
+      }
+    }
+  } catch (_) {}
+
+  prefetchInFlight = fetchPosterSales(dateFrom, dateTo, opts)
+    .then((result) => {
+      // Агрегируем по филиалам
+      const bySpot = {};
+      for (const row of result.rows) {
+        const sid = row.spotId;
+        if (!bySpot[sid]) bySpot[sid] = { spotId: sid, spotName: row.spotName, total: 0, txCount: 0 };
+        bySpot[sid].total += row.sum || 0;
+      }
+      for (const [spotId, count] of Object.entries(result.txBySpot || {})) {
+        if (bySpot[spotId]) bySpot[spotId].txCount = count;
+      }
+      const daysCount = result.daysCount || 1;
+      for (const v of Object.values(bySpot)) {
+        v.daysCount = daysCount;
+        v.avgPerDay = daysCount > 0 ? Math.round(v.total / daysCount) : 0;
+        v.avgCheck = v.txCount > 0 ? Math.round(v.total / v.txCount) : 0;
+      }
+      const cash = Object.values(bySpot).sort((a, b) => b.total - a.total);
+
+      try {
+        localStorage.setItem(PREFETCH_KEY, JSON.stringify({ ts: Date.now(), data: cash }));
+      } catch (_) {}
+
+      return cash;
+    })
+    .finally(() => { prefetchInFlight = null; });
+
+  return prefetchInFlight;
+}
+
+export function getCachedPrefetch() {
+  try {
+    const raw = localStorage.getItem(PREFETCH_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    if (!cached || Date.now() - cached.ts > PREFETCH_TTL) return null;
+    return cached.data;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ─── Список филиалов ──────────────────────────────────────────────────
@@ -481,6 +594,21 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
           return data?.response?.data || [];
         });
         for (const arr of results) allData.push(...arr);
+      }
+
+      // DEBUG: логируем первый чек для анализа полей Poster API
+      if (allData.length > 0 && !window.__posterTxLogged) {
+        window.__posterTxLogged = true;
+        console.log("[Poster] RAW transaction sample:", JSON.stringify(allData[0], null, 2));
+        console.log("[Poster] All keys:", Object.keys(allData[0]));
+        const statusMap = {};
+        for (const tx of allData) {
+          const s = String(tx.status);
+          statusMap[s] = (statusMap[s] || 0) + 1;
+        }
+        console.log("[Poster] Status distribution:", statusMap);
+        const openTxs = allData.filter(tx => tx.status === 0 || tx.status === "0");
+        console.log("[Poster] Open transactions:", openTxs.length);
       }
 
       for (const tx of allData) {
