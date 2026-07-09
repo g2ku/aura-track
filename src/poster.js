@@ -598,22 +598,24 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
       }
 
       // Открытые чеки (статус=0)
+      let openData = [];
       try {
         const openRes = await call(
           "transactions.getTransactions",
           { date_from: yyyymmdd, date_to: yyyymmdd, per_page: 500, status: 0 },
           opts,
         );
-        const openData = openRes?.response?.data || [];
-        // Добавляем только те, которых нет в основном списке
-        const existingIds = new Set(allData.map(tx => tx.transaction_id || tx.id));
-        for (const tx of openData) {
-          if (!existingIds.has(tx.transaction_id || tx.id)) {
-            allData.push(tx);
-          }
-        }
+        openData = openRes?.response?.data || [];
       } catch (_) {
         // Открытые чеки могут быть недоступны — не критично
+      }
+
+      // Добавляем открытые чеки, которых нет в основном списке
+      const existingIds = new Set(allData.map(tx => tx.transaction_id || tx.id));
+      for (const tx of openData) {
+        if (!existingIds.has(tx.transaction_id || tx.id)) {
+          allData.push(tx);
+        }
       }
 
       for (const tx of allData) {

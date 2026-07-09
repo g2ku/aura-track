@@ -457,18 +457,24 @@ function ReceiptRow({ r, expanded, onToggle }) {
 
 function calcTimeSince(dateStr) {
   if (!dateStr) return null;
-  let d;
-  if (typeof dateStr === "number") {
-    d = new Date(dateStr * 1000);
-  } else {
-    d = new Date(dateStr.replace(" ", "T"));
+  try {
+    let d;
+    if (typeof dateStr === "number") {
+      d = new Date(dateStr * 1000);
+    } else if (typeof dateStr === "string") {
+      d = new Date(dateStr.replace(" ", "T"));
+    } else {
+      return null;
+    }
+    if (isNaN(d.getTime())) return null;
+    const diff = Date.now() - d.getTime();
+    if (diff < 0) return null;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0) return { minutes, display: `${hours} ч ${mins} мин` };
+    return { minutes, display: `${minutes} мин` };
+  } catch (_) {
+    return null;
   }
-  if (isNaN(d)) return null;
-  const diff = Date.now() - d.getTime();
-  if (diff < 0) return null;
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours > 0) return { minutes, display: `${hours} ч ${mins} мин` };
-  return { minutes, display: `${minutes} мин` };
 }
