@@ -258,50 +258,40 @@ export function clearPosterCache() {
 // ─── Stale-while-revalidate: отдаём устаревший кэш мгновенно ─────────────
 
 export function getCachedCashBySpot(dateFrom, dateTo) {
-  const fromP = toPosterDate(dateFrom);
-  const toP = toPosterDate(dateTo);
-  if (!fromP || !toP) return null;
-  const days = enumerateDays(fromP, toP);
-  const spots = spotsCache.data || {};
-  const merged = new Map();
-  let transactionsCount = 0;
-  const txBySpot = {};
-  let allCached = true;
+  try {
+    const fromP = toPosterDate(dateFrom);
+    const toP = toPosterDate(dateTo);
+    if (!fromP || !toP) return null;
+    const days = enumerateDays(fromP, toP);
+    const spots = spotsCache.data || {};
+    const bySpot = {};
 
-  for (const yyyymmdd of days) {
-    const entry = readCache()[yyyymmdd];
-    if (!entry) { allCached = false; continue; }
-    transactionsCount += entry.transactionsCount || 0;
-    for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
-      txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
-    }
-    for (const [spotId, productMap] of Object.entries(entry.rowsBySpot || {})) {
-      if (!merged.has(spotId)) merged.set(spotId, new Map());
-      const dst = merged.get(spotId);
-      for (const [name, v] of Object.entries(productMap)) {
-        if (!dst.has(name)) dst.set(name, { qty: 0, sum: 0 });
-        const row = dst.get(name);
-        row.qty += v.qty;
-        row.sum += v.sum;
+    for (const yyyymmdd of days) {
+      const entry = readCache()[yyyymmdd];
+      if (!entry) continue;
+      for (const [spotId, productMap] of Object.entries(entry.rowsBySpot || {})) {
+        if (!bySpot[spotId]) bySpot[spotId] = { spotId, spotName: spots[spotId]?.name || `Филиал #${spotId}`, total: 0, txCount: 0 };
+        for (const v of Object.values(productMap)) {
+          bySpot[spotId].total += v.sum || 0;
+        }
+      }
+      for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
+        if (bySpot[spotId]) bySpot[spotId].txCount += count;
       }
     }
-  }
 
-  if (merged.size === 0) return null;
+    if (Object.keys(bySpot).length === 0) return null;
 
-  const rows = [];
-  for (const [spotId, productMap] of merged.entries()) {
-    const spot = spots[spotId] || { name: `Филиал #${spotId}` };
-    for (const [productName, v] of productMap.entries()) {
-      rows.push({ spotId, spotName: spot.name, productName, qty: v.qty, sum: v.sum });
+    const daysCount = days.length;
+    for (const v of Object.values(bySpot)) {
+      v.daysCount = daysCount;
+      v.avgPerDay = daysCount > 0 ? Math.round(v.total / daysCount) : 0;
+      v.avgCheck = v.txCount > 0 ? Math.round(v.total / v.txCount) : 0;
     }
+    return Object.values(bySpot).sort((a, b) => b.total - a.total);
+  } catch (_) {
+    return null;
   }
-  rows.sort((a, b) => {
-    if (a.spotName !== b.spotName) return a.spotName.localeCompare(b.spotName, "ru");
-    return b.sum - a.sum;
-  });
-
-  return { rows, transactionsCount, txBySpot, daysCount: days.length, stale: true };
 }
 
 // ─── Prefetch: предзагрузка данных при старте приложения ────────────────
