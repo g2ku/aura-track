@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchReceipts, getSpots, clearPosterCache, getCachedCashBySpot, getCachedPrefetch, prefetchCashBySpot } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, clearPosterCache, getCachedCashBySpot } from "../poster";
 import { getSpotNameForBranch } from "../auth.jsx";
 import DrinkRating from "./DrinkRating";
 
@@ -59,8 +59,8 @@ export default function Dashboard({
   useEffect(() => {
     let cancelled = false;
 
-    // 1. Показываем кэш мгновенно (stale-while-revalidate)
-    const cachedCash = getCachedCashBySpot(dateFrom, dateTo) || getCachedPrefetch();
+    // 1. Показываем кэш мгновенно (stale-while-revalidate) — только для ТОЧНОГО диапазона
+    const cachedCash = getCachedCashBySpot(dateFrom, dateTo);
     if (cachedCash && !cashBySpot.length) {
       setCashBySpot(cachedCash);
     }

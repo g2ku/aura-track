@@ -246,9 +246,12 @@ function getCachedDay(yyyymmdd) {
 }
 
 function setCachedDay(yyyymmdd, payload) {
-  const cache = readCache();
-  cache[yyyymmdd] = { ts: Date.now(), ...payload };
-  writeCache(cache);
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    const cache = raw ? (JSON.parse(raw) || {}) : {};
+    cache[yyyymmdd] = { ts: Date.now(), ...payload };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch (_) {}
 }
 
 export function clearPosterCache() {
@@ -701,12 +704,15 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     return { rows, transactionsCount, txBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length };
   }
 
-  // Есть некэшированные дни — загружаем одним запросом весь диапазон
+  // Загружаем только некэшированные дни (не весь период!)
+  const uncachedFrom = uncachedDays[0];
+  const uncachedTo = uncachedDays[uncachedDays.length - 1];
+
   opts.onProgress?.({ done: 0, total: 1, phase: "fetch" });
 
   const first = await call(
     "transactions.getTransactions",
-    { date_from: fromP, date_to: toP, per_page: PER_PAGE, page: 1 },
+    { date_from: uncachedFrom, date_to: uncachedTo, per_page: PER_PAGE, page: 1 },
     opts,
   );
   const r1 = first?.response || {};
@@ -723,7 +729,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     const results = await mapWithLimit(otherPages, 6, async (p) => {
       const data = await call(
         "transactions.getTransactions",
-        { date_from: fromP, date_to: toP, per_page: PER_PAGE, page: p },
+        { date_from: uncachedFrom, date_to: uncachedTo, per_page: PER_PAGE, page: p },
         opts,
       );
       return data?.response?.data || [];
