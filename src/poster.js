@@ -545,7 +545,7 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
 }
 
 // ─── Чеки (полный список транзакций) ──────────────────────────────────
-
+// Один запрос на весь период + пагинация вместо N запросов по дням.
 export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
@@ -558,96 +558,90 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
   const allReceipts = [];
   let transactionsCount = 0;
 
-  await mapWithProgress(
-    days,
-    DAY_CONCURRENCY,
-    async (yyyymmdd) => {
-      // Закрытые чеки (основной запрос)
-      const first = await call(
+  opts.onProgress?.({ done: 0, total: 1 });
+
+  // Один запрос на весь период
+  const first = await call(
+    "transactions.getTransactions",
+    { date_from: fromP, date_to: toP, per_page: PER_PAGE, page: 1 },
+    opts,
+  );
+  const r1 = first?.response || {};
+  const total = Number(r1.count || 0);
+  const allData = [...(r1.data || [])];
+
+  opts.onProgress?.({ done: 1, total: Math.ceil(total / PER_PAGE) + 1 });
+
+  // Пагинация
+  if (total > PER_PAGE) {
+    const totalPages = Math.ceil(total / PER_PAGE);
+    const otherPages = [];
+    for (let p = 2; p <= totalPages; p++) otherPages.push(p);
+    const results = await mapWithLimit(otherPages, 6, async (p) => {
+      const data = await call(
         "transactions.getTransactions",
-        { date_from: yyyymmdd, date_to: yyyymmdd, per_page: PER_PAGE, page: 1 },
+        { date_from: fromP, date_to: toP, per_page: PER_PAGE, page: p },
         opts,
       );
-      const r1 = first?.response || {};
-      const total = Number(r1.count || 0);
-      const allData = [...(r1.data || [])];
+      return data?.response?.data || [];
+    });
+    for (const arr of results) allData.push(...arr);
+  }
 
-      if (total > PER_PAGE) {
-        const totalPages = Math.ceil(total / PER_PAGE);
-        const otherPages = [];
-        for (let p = 2; p <= totalPages; p++) otherPages.push(p);
-        const results = await mapWithLimit(otherPages, 4, async (p) => {
-          const data = await call(
-            "transactions.getTransactions",
-            { date_from: yyyymmdd, date_to: yyyymmdd, per_page: PER_PAGE, page: p },
-            opts,
-          );
-          return data?.response?.data || [];
-        });
-        for (const arr of results) allData.push(...arr);
-      }
+  opts.onProgress?.({ done: 1, total: 1 });
 
-      // Открытые чеки (статус=0)
-      let openData = [];
-      try {
-        const openRes = await call(
-          "transactions.getTransactions",
-          { date_from: yyyymmdd, date_to: yyyymmdd, per_page: 500, status: 0 },
-          opts,
-        );
-        openData = openRes?.response?.data || [];
-      } catch (_) {
-        // Открытые чеки могут быть недоступны — не критично
-      }
+  // Открытые чеки (статус=0)
+  let openData = [];
+  try {
+    const openRes = await call(
+      "transactions.getTransactions",
+      { date_from: fromP, date_to: toP, per_page: 500, status: 0 },
+      opts,
+    );
+    openData = openRes?.response?.data || [];
+  } catch (_) {}
 
-      // Добавляем открытые чеки, которых нет в основном списке
-      const existingIds = new Set(allData.map(tx => tx.transaction_id || tx.id));
-      for (const tx of openData) {
-        if (!existingIds.has(tx.transaction_id || tx.id)) {
-          allData.push(tx);
-        }
-      }
+  const existingIds = new Set(allData.map(tx => tx.transaction_id || tx.id));
+  for (const tx of openData) {
+    if (!existingIds.has(tx.transaction_id || tx.id)) {
+      allData.push(tx);
+    }
+  }
 
-      for (const tx of allData) {
-        transactionsCount++;
-        const spotId = String(tx.spot_id || "");
-        const spot = spots[spotId] || {};
-        const products = (tx.products || []).map((it) => {
-          const pid = String(it.product_id);
-          const mid = String(it.modification_id || 0);
-          return {
-            name: menu[`${pid}:${mid}`] || menu[pid] || `Товар #${pid}`,
-            qty: Number(it.num || 0),
-            sum: Number(it.payed_sum || it.product_sum || 0),
-          };
-        });
-        const totalSum = products.reduce((s, p) => s + p.sum, 0);
-        // Poster: поле "discount" (не discount_sum), значение в рублях
-        const discount = Number(tx.discount || 0);
-        // Poster: total_profit в копейках → делим на 100
-        const profit = Math.round(Number(tx.total_profit || tx.profit || 0) / 100);
-        // Poster не возвращает status для закрытых чеков; проверяем по date_close
-        const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
+  for (const tx of allData) {
+    transactionsCount++;
+    const spotId = String(tx.spot_id || "");
+    const spot = spots[spotId] || {};
+    const products = (tx.products || []).map((it) => {
+      const pid = String(it.product_id);
+      const mid = String(it.modification_id || 0);
+      return {
+        name: menu[`${pid}:${mid}`] || menu[pid] || `Товар #${pid}`,
+        qty: Number(it.num || 0),
+        sum: Number(it.payed_sum || it.product_sum || 0),
+      };
+    });
+    const totalSum = products.reduce((s, p) => s + p.sum, 0);
+    const discount = Number(tx.discount || 0);
+    const profit = Math.round(Number(tx.total_profit || tx.profit || 0) / 100);
+    const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
 
-        allReceipts.push({
-          id: tx.id || tx.transaction_id,
-          spotId,
-          spotName: spot.name || spotId,
-          waiter: tx.waiter_name || tx.employee_name || "",
-          dateOpen: tx.date_open || "",
-          dateClose: tx.date_close || "",
-          sum: totalSum || Number(tx.sum || 0),
-          discount,
-          profit,
-          status: isOpen ? "open" : "closed",
-          fiscalization: tx.fiscalization || null,
-          products,
-          paymentTypes: tx.payment_types || tx.payments || [],
-        });
-      }
-    },
-    ({ done, total }) => opts.onProgress?.({ done, total }),
-  );
+    allReceipts.push({
+      id: tx.id || tx.transaction_id,
+      spotId,
+      spotName: spot.name || spotId,
+      waiter: tx.waiter_name || tx.employee_name || "",
+      dateOpen: tx.date_open || "",
+      dateClose: tx.date_close || "",
+      sum: totalSum || Number(tx.sum || 0),
+      discount,
+      profit,
+      status: isOpen ? "open" : "closed",
+      fiscalization: tx.fiscalization || null,
+      products,
+      paymentTypes: tx.payment_types || tx.payments || [],
+    });
+  }
 
   allReceipts.sort((a, b) => {
     if (a.dateOpen > b.dateOpen) return -1;
@@ -663,7 +657,8 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
 }
 
 // ─── Основная функция ─────────────────────────────────────────────────
-
+// Для периодов >1 день загружаем ВСЕ транзакции за раз (с пагинацией),
+// потом разбиваем по дням и кэшируем. Вместо 30 запросов — 1 запрос.
 export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
@@ -675,42 +670,115 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   }
 
   const days = enumerateDays(fromP, toP);
-  const [spots] = await Promise.all([getSpots(opts), getMenuIndex(opts)]);
+  const [spots, menu] = await Promise.all([getSpots(opts), getMenuIndex(opts)]);
 
-  const dayResults = await mapWithProgress(
-    days,
-    DAY_CONCURRENCY,
-    async (yyyymmdd) => {
-      const r = await fetchOneDay(yyyymmdd, opts);
-      return { yyyymmdd, ...r };
-    },
-    ({ done, total }) => opts.onProgress?.({ done, total }),
+  // Проверяем кэш: если ВСЕ дни есть в кэше — возвращаем сразу
+  const uncachedDays = days.filter(d => !getCachedDay(d));
+  if (uncachedDays.length === 0) {
+    // Все дни в кэше — собираем из кэша
+    const merged = new Map();
+    let transactionsCount = 0;
+    const txBySpot = {};
+    for (const yyyymmdd of days) {
+      const entry = getCachedDay(yyyymmdd);
+      if (!entry) continue;
+      transactionsCount += entry.transactionsCount || 0;
+      for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
+        txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
+      }
+      for (const [spotId, productMap] of Object.entries(entry.rowsBySpot || {})) {
+        if (!merged.has(spotId)) merged.set(spotId, new Map());
+        const dst = merged.get(spotId);
+        for (const [name, v] of Object.entries(productMap)) {
+          if (!dst.has(name)) dst.set(name, { qty: 0, sum: 0 });
+          const row = dst.get(name);
+          row.qty += v.qty;
+          row.sum += v.sum;
+        }
+      }
+    }
+    const rows = buildRows(spots, merged);
+    return { rows, transactionsCount, txBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length };
+  }
+
+  // Есть некэшированные дни — загружаем одним запросом весь диапазон
+  opts.onProgress?.({ done: 0, total: 1, phase: "fetch" });
+
+  const first = await call(
+    "transactions.getTransactions",
+    { date_from: fromP, date_to: toP, per_page: PER_PAGE, page: 1 },
+    opts,
   );
+  const r1 = first?.response || {};
+  const total = Number(r1.count || 0);
+  const allData = [...(r1.data || [])];
+
+  opts.onProgress?.({ done: 1, total: Math.ceil(total / PER_PAGE) + 1, phase: "fetch" });
+
+  // Пагинация: загружаем остальные страницы параллельно
+  if (total > PER_PAGE) {
+    const totalPages = Math.ceil(total / PER_PAGE);
+    const otherPages = [];
+    for (let p = 2; p <= totalPages; p++) otherPages.push(p);
+    const results = await mapWithLimit(otherPages, 6, async (p) => {
+      const data = await call(
+        "transactions.getTransactions",
+        { date_from: fromP, date_to: toP, per_page: PER_PAGE, page: p },
+        opts,
+      );
+      return data?.response?.data || [];
+    });
+    for (const arr of results) allData.push(...arr);
+  }
+
+  // Разбиваем по дням и кэшируем каждый день отдельно
+  const byDay = {};
+  for (const yyyymmdd of days) byDay[yyyymmdd] = [];
+  for (const tx of allData) {
+    const dateStr = (tx.date_close || tx.date_open || "").slice(0, 10).replace(/-/g, "");
+    if (byDay[dateStr]) byDay[dateStr].push(tx);
+  }
 
   const merged = new Map();
   let transactionsCount = 0;
   const txBySpot = {};
-  let cachedDays = 0;
-  let freshDays = 0;
 
-  for (const r of dayResults) {
-    if (r.fromCache) cachedDays++;
-    else freshDays++;
-    transactionsCount += r.transactionsCount || 0;
-    for (const [spotId, count] of Object.entries(r.txBySpot || {})) {
-      txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
-    }
-    // Fallback: если в кэше нет txBySpot, считаем по rowsBySpot (каждый товар = 1 чек — приблизительно)
-    if (!r.txBySpot) {
-      for (const [spotId, productMap] of Object.entries(r.rowsBySpot || {})) {
-        let spotTx = 0;
-        for (const v of Object.values(productMap)) {
-          spotTx += v.txCount || 0;
-        }
-        if (spotTx > 0) txBySpot[spotId] = (txBySpot[spotId] || 0) + spotTx;
+  for (const yyyymmdd of days) {
+    const dayTxs = byDay[yyyymmdd] || [];
+    const rowsBySpot = {};
+    const dayTxBySpot = {};
+    let dayTxCount = 0;
+
+    for (const tx of dayTxs) {
+      const products = tx.products || [];
+      if (products.length === 0) continue;
+      dayTxCount++;
+      const spotId = String(tx.spot_id || "");
+      if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
+      if (!dayTxBySpot[spotId]) dayTxBySpot[spotId] = 0;
+      dayTxBySpot[spotId]++;
+
+      for (const it of products) {
+        const pid = String(it.product_id);
+        const mid = String(it.modification_id || 0);
+        const name = menu[`${pid}:${mid}`] || menu[pid] || `Товар #${pid}`;
+        const qty = Number(it.num || 0);
+        const sum = Number(it.payed_sum || it.product_sum || 0);
+        if (!rowsBySpot[spotId][name]) rowsBySpot[spotId][name] = { qty: 0, sum: 0 };
+        const row = rowsBySpot[spotId][name];
+        row.qty += qty;
+        row.sum += sum;
       }
     }
-    for (const [spotId, productMap] of Object.entries(r.rowsBySpot || {})) {
+
+    // Кэшируем день
+    setCachedDay(yyyymmdd, { rowsBySpot, transactionsCount: dayTxCount, txBySpot: dayTxBySpot });
+
+    transactionsCount += dayTxCount;
+    for (const [spotId, count] of Object.entries(dayTxBySpot)) {
+      txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
+    }
+    for (const [spotId, productMap] of Object.entries(rowsBySpot)) {
       if (!merged.has(spotId)) merged.set(spotId, new Map());
       const dst = merged.get(spotId);
       for (const [name, v] of Object.entries(productMap)) {
@@ -722,33 +790,23 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     }
   }
 
+  const rows = buildRows(spots, merged);
+  return { rows, transactionsCount, txBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
+}
+
+function buildRows(spots, merged) {
   const rows = [];
   for (const [spotId, productMap] of merged.entries()) {
     const spot = spots[spotId] || { name: `Филиал #${spotId}` };
     for (const [productName, v] of productMap.entries()) {
-      rows.push({
-        spotId,
-        spotName: spot.name,
-        productName,
-        qty: v.qty,
-        sum: v.sum,
-        transactionsCount: v.txCount,
-      });
+      rows.push({ spotId, spotName: spot.name, productName, qty: v.qty, sum: v.sum });
     }
   }
   rows.sort((a, b) => {
     if (a.spotName !== b.spotName) return a.spotName.localeCompare(b.spotName, "ru");
     return b.sum - a.sum;
   });
-
-  return {
-    rows,
-    transactionsCount,
-    txBySpot,
-    cachedDays,
-    freshDays,
-    daysCount: days.length,
-  };
+  return rows;
 }
 
 // ─── Множественные периоды для сравнения ─────────────────────────────────
