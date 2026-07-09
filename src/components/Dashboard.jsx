@@ -52,7 +52,7 @@ export default function Dashboard({
   const [recentReceipts, setRecentReceipts] = useState([]);
   const [posterLoading, setPosterLoading] = useState(false);
   const [posterError, setPosterError] = useState("");
-  const [dateFrom, setDateFrom] = useState(daysAgoStr(6));
+  const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
   const [refreshKey, setRefreshKey] = useState(0);
 

@@ -98,12 +98,8 @@ function MainApp() {
     const d = new Date();
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
-    const to = `${d.getFullYear()}-${m}-${day}`;
-    d.setDate(d.getDate() - 6);
-    const m2 = String(d.getMonth() + 1).padStart(2, "0");
-    const day2 = String(d.getDate()).padStart(2, "0");
-    const from = `${d.getFullYear()}-${m2}-${day2}`;
-    prefetchCashBySpot(from, to).catch(() => {});
+    const today = `${d.getFullYear()}-${m}-${day}`;
+    prefetchCashBySpot(today, today).catch(() => {});
   }, [userBranch, role]);
 
   useEffect(() => {
