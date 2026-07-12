@@ -1,9 +1,9 @@
-import * as XLSX from "xlsx";
 import { parseRows } from "../parser";
 import { fmt } from "../utils";
 
 export default function SheetSelect({ wb, sheets, fileName, onPick, onCancel }) {
-  function pick(sheetName) {
+  async function pick(sheetName) {
+    const XLSX = await import("xlsx");
     const ws = wb.Sheets[sheetName];
     // raw:false → числа как строки, чтобы запятая в "17 944,2" не терялась
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false })

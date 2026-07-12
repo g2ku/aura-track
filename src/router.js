@@ -47,6 +47,9 @@ function parseHash(hash) {
   if (parts.length >= 2 && parts[0] === "admin" && parts[1] === "users") {
     return { path: "/admin/users", params: {} };
   }
+  if (parts.length >= 2 && parts[0] === "admin" && parts[1] === "ip-groups") {
+    return { path: "/admin/ip-groups", params: {} };
+  }
   return { path: "/", params: {} };
 }
 

@@ -16,6 +16,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Настройки — чтение для авторизованных, запись для авторизованных
+    match /settings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
     // Рабочие данные — только серверный доступ (через Admin SDK)
     match /{document=**} {
       allow read, write: if false;

@@ -2,7 +2,8 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, clearPosterCache, getCachedCashBySpot } from "../poster";
-import { getSpotNameForBranch } from "../auth.jsx";
+import { getSpotNameForBranch, isAdmin, isAdminOrManager } from "../auth.jsx";
+import { loadIPGroups } from "../ipGroups";
 import DrinkRating from "./DrinkRating";
 
 function greeting(now = new Date()) {
@@ -55,6 +56,8 @@ export default function Dashboard({
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
   const [refreshKey, setRefreshKey] = useState(0);
+  const [ipGroups, setIpGroups] = useState([]);
+  const [selectedIP, setSelectedIP] = useState("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -85,38 +88,78 @@ export default function Dashboard({
     return () => { cancelled = true; };
   }, [dateFrom, dateTo, refreshKey]);
 
+  // Load IP groups for admin/manager filter
+  useEffect(() => {
+    if (!isAdminOrManager()) return;
+    loadIPGroups().then(data => {
+      setIpGroups(data?.groups || []);
+    }).catch(() => {});
+  }, []);
+
   const empty = docs.length === 0;
 
   // Фильтрация по филиалу: branch-пользователь видит только свой филиал
   const spotName = getSpotNameForBranch(userBranch);
-  const displayCashBySpot = useMemo(() => {
-    if (!userBranch) return cashBySpot;
-    return cashBySpot.filter(c => {
-      if (!c.spotName) return false;
-      if (spotName && c.spotName === spotName) return true;
-      return c.spotName === userBranch || c.spotName?.includes(userBranch.replace("Aura02_", ""));
-    });
-  }, [cashBySpot, userBranch, spotName]);
 
-  const displaySupplyStatus = useMemo(() => {
-    if (!userBranch) return supplyStatus;
-    const filtered = {};
-    for (const [id, s] of Object.entries(supplyStatus)) {
-      if (!s.spotName) continue;
-      const match = spotName ? s.spotName === spotName : (s.spotName === userBranch || s.spotName?.includes(userBranch.replace("Aura02_", "")));
-      if (match) filtered[id] = s;
+  // Helper: check if a spot matches the IP filter
+  function matchesIPFilter(spotNameOrBranch) {
+    if (selectedIP === "all") return true;
+    const group = ipGroups.find(g => g.id === selectedIP);
+    if (!group) return true;
+    // Match by spotName or branchId
+    return group.branches.some(b => {
+      const bSpotName = getSpotNameForBranch(b);
+      return spotNameOrBranch === bSpotName || spotNameOrBranch === b;
+    });
+  }
+
+  const displayCashBySpot = useMemo(() => {
+    let filtered = cashBySpot;
+    if (userBranch) {
+      filtered = filtered.filter(c => {
+        if (!c.spotName) return false;
+        if (spotName && c.spotName === spotName) return true;
+        return c.spotName === userBranch || c.spotName?.includes(userBranch.replace("Aura02_", ""));
+      });
+    } else if (selectedIP !== "all") {
+      filtered = filtered.filter(c => c.spotName && matchesIPFilter(c.spotName));
     }
     return filtered;
-  }, [supplyStatus, userBranch, spotName]);
+  }, [cashBySpot, userBranch, spotName, selectedIP, ipGroups]);
+
+  const displaySupplyStatus = useMemo(() => {
+    let filtered = supplyStatus;
+    if (userBranch) {
+      const f = {};
+      for (const [id, s] of Object.entries(supplyStatus)) {
+        if (!s.spotName) continue;
+        const match = spotName ? s.spotName === spotName : (s.spotName === userBranch || s.spotName?.includes(userBranch.replace("Aura02_", "")));
+        if (match) f[id] = s;
+      }
+      filtered = f;
+    } else if (selectedIP !== "all") {
+      const f = {};
+      for (const [id, s] of Object.entries(supplyStatus)) {
+        if (s.spotName && matchesIPFilter(s.spotName)) f[id] = s;
+      }
+      filtered = f;
+    }
+    return filtered;
+  }, [supplyStatus, userBranch, spotName, selectedIP, ipGroups]);
 
   const displayRecentReceipts = useMemo(() => {
-    if (!userBranch) return recentReceipts;
-    return recentReceipts.filter(r => {
-      if (!r.spotName) return false;
-      if (spotName && r.spotName === spotName) return true;
-      return r.spotName === userBranch || r.spotName?.includes(userBranch.replace("Aura02_", ""));
-    });
-  }, [recentReceipts, userBranch, spotName]);
+    let filtered = recentReceipts;
+    if (userBranch) {
+      filtered = filtered.filter(r => {
+        if (!r.spotName) return false;
+        if (spotName && r.spotName === spotName) return true;
+        return r.spotName === userBranch || r.spotName?.includes(userBranch.replace("Aura02_", ""));
+      });
+    } else if (selectedIP !== "all") {
+      filtered = filtered.filter(r => r.spotName && matchesIPFilter(r.spotName));
+    }
+    return filtered;
+  }, [recentReceipts, userBranch, spotName, selectedIP, ipGroups]);
 
   const today = useMemo(() => {
     const now = new Date();
@@ -384,6 +427,26 @@ export default function Dashboard({
         <div className="section-label" style={{ margin: 0 }}>
           <i className="ti ti-building-store" /> Кассы точек (Poster)
         </div>
+        {isAdminOrManager() && ipGroups.length > 0 && !userBranch && (
+          <select
+            value={selectedIP}
+            onChange={e => setSelectedIP(e.target.value)}
+            style={{
+              padding: "4px 8px",
+              background: "var(--surface-1)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              fontSize: 12,
+              fontWeight: 500,
+            }}
+          >
+            <option value="all">Все филиалы</option>
+            {ipGroups.map(g => (
+              <option key={g.id} value={g.id}>{g.name} ({g.branches.length})</option>
+            ))}
+          </select>
+        )}
         <div className="dash-date-row" style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
             style={{ padding: "4px 8px", background: "var(--surface-1)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 4, fontSize: 13 }} />

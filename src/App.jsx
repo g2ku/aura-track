@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { LoginGate, useAuth, useUserBranch, isAdmin, isAdminOrManager, logout } from "./auth.jsx";
 import { useHashRoute, useRememberRoute } from "./router";
 import { useAppStore } from "./store/useAppStore";
@@ -11,16 +11,17 @@ import { useRouteContent } from "./hooks/useRouteContent";
 import { prefetchCashBySpot } from "./poster";
 
 import Sidebar from "./components/Sidebar";
-import UploadModal from "./components/UploadModal";
-import GlobalPaymentModal from "./components/GlobalPaymentModal";
-import BranchPaymentModal from "./components/BranchPaymentModal";
-import ConfirmModal from "./components/ConfirmModal";
-import PostUploadModal from "./components/PostUploadModal";
-import CommandPalette from "./components/CommandPalette";
-import FeedbackModal from "./components/FeedbackModal";
-import ChangelogModal from "./components/ChangelogModal";
 import BottomNav from "./components/BottomNav";
+import CommandPalette from "./components/CommandPalette";
 import { ToastViewport } from "./ui";
+
+const UploadModal = lazy(() => import("./components/UploadModal"));
+const GlobalPaymentModal = lazy(() => import("./components/GlobalPaymentModal"));
+const BranchPaymentModal = lazy(() => import("./components/BranchPaymentModal"));
+const ConfirmModal = lazy(() => import("./components/ConfirmModal"));
+const PostUploadModal = lazy(() => import("./components/PostUploadModal"));
+const FeedbackModal = lazy(() => import("./components/FeedbackModal"));
+const ChangelogModal = lazy(() => import("./components/ChangelogModal"));
 
 export default function App() {
   return (
@@ -157,93 +158,96 @@ function MainApp() {
         <div className="content">{content}</div>
       </div>
 
-      <UploadModal
-        open={modal?.kind === "upload"}
-        onParsed={handleParsed}
-        onMultipleSheets={handleMultipleSheets}
-        onClose={closeModal}
-      />
+      <Suspense fallback={null}>
+        <UploadModal
+          open={modal?.kind === "upload"}
+          onParsed={handleParsed}
+          onMultipleSheets={handleMultipleSheets}
+          onClose={closeModal}
+        />
 
-      <GlobalPaymentModal
-        open={modal?.kind === "globalPay"}
-        agg={agg}
-        onClose={closeModal}
-        onConfirm={handleAddGlobalPayment}
-      />
+        <GlobalPaymentModal
+          open={modal?.kind === "globalPay"}
+          agg={agg}
+          onClose={closeModal}
+          onConfirm={handleAddGlobalPayment}
+        />
 
-      <BranchPaymentModal
-        open={modal?.kind === "branchPay"}
-        branch={modal?.payload?.branch}
-        docs={docs}
-        onClose={closeModal}
-        onConfirm={handleAddBranchPayment}
-      />
+        <BranchPaymentModal
+          open={modal?.kind === "branchPay"}
+          branch={modal?.payload?.branch}
+          docs={docs}
+          onClose={closeModal}
+          onConfirm={handleAddBranchPayment}
+        />
 
-      <ConfirmModal
-        open={modal?.kind === "confirmDup"}
-        title="Такой отчёт уже загружен"
-        message={
-          modal?.payload ? (
-            <div>
-              Отчёт <b>{modal.payload.payload.fileName}</b> ·{" "}
-              <b>{modal.payload.payload.date || modal.payload.payload.sheetName}</b> уже есть в базе
-              {modal.payload.existing?.uploadedBy && (
-                <> (загружен: <b>{modal.payload.existing.uploadedBy}</b>)</>
-              )}.
-              <div style={{ marginTop: 8, color: "var(--text-secondary)" }}>
-                Замена перезапишет данные и удалит историю оплат по этому отчёту.
+        <ConfirmModal
+          open={modal?.kind === "confirmDup"}
+          title="Такой отчёт уже загружен"
+          message={
+            modal?.payload ? (
+              <div>
+                Отчёт <b>{modal.payload.payload.fileName}</b> ·{" "}
+                <b>{modal.payload.payload.date || modal.payload.payload.sheetName}</b> уже есть в базе
+                {modal.payload.existing?.uploadedBy && (
+                  <> (загружен: <b>{modal.payload.existing.uploadedBy}</b>)</>
+                )}.
+                <div style={{ marginTop: 8, color: "var(--text-secondary)" }}>
+                  Замена перезапишет данные и удалит историю оплат по этому отчёту.
+                </div>
               </div>
-            </div>
-          ) : ""
-        }
-        confirmText="Заменить"
-        danger
-        onConfirm={() => replaceReport(modal.payload.payload)}
-        onCancel={closeModal}
-      />
+            ) : ""
+          }
+          confirmText="Заменить"
+          danger
+          onConfirm={() => replaceReport(modal.payload.payload)}
+          onCancel={closeModal}
+        />
 
-      <ConfirmModal
-        open={modal?.kind === "confirmDupAll"}
-        title="Есть дубли среди листов"
-        message={
-          modal?.payload ? (
-            <div>
-              Среди {modal.payload.all.length} подготовленных листов один уже есть в базе
-              ({modal.payload.existing?.fileName} · {modal.payload.payload.date || modal.payload.payload.sheetName}).
-              <div style={{ marginTop: 8, color: "var(--text-secondary)" }}>
-                Замена затрёт данные и историю оплат только для дубля; остальные будут добавлены.
+        <ConfirmModal
+          open={modal?.kind === "confirmDupAll"}
+          title="Есть дубли среди листов"
+          message={
+            modal?.payload ? (
+              <div>
+                Среди {modal.payload.all.length} подготовленных листов один уже есть в базе
+                ({modal.payload.existing?.fileName} · {modal.payload.payload.date || modal.payload.payload.sheetName}).
+                <div style={{ marginTop: 8, color: "var(--text-secondary)" }}>
+                  Замена затрёт данные и историю оплат только для дубля; остальные будут добавлены.
+                </div>
               </div>
-            </div>
-          ) : ""
-        }
-        confirmText="Заменить и загрузить"
-        danger
-        onConfirm={() => replaceAll(modal.payload.all)}
-        onCancel={closeModal}
-      />
+            ) : ""
+          }
+          confirmText="Заменить и загрузить"
+          danger
+          onConfirm={() => replaceAll(modal.payload.all)}
+          onCancel={closeModal}
+        />
 
-      <ConfirmModal
-        open={modal?.kind === "error"}
-        title="Ошибка"
-        message={modal?.payload?.message || ""}
-        confirmText="OK"
-        cancelText=""
-        onConfirm={closeModal}
-        onCancel={closeModal}
-      />
+        <ConfirmModal
+          open={modal?.kind === "error"}
+          title="Ошибка"
+          message={modal?.payload?.message || ""}
+          confirmText="OK"
+          cancelText=""
+          onConfirm={closeModal}
+          onCancel={closeModal}
+        />
 
-      <PostUploadModal
-        open={!!pendingUpload}
-        parsed={pendingUpload?.parsed}
-        fileName={pendingUpload?.fileName}
-        onConfirm={confirmUpload}
-        onCancel={cancelUpload}
-      />
+        <PostUploadModal
+          open={!!pendingUpload}
+          parsed={pendingUpload?.parsed}
+          fileName={pendingUpload?.fileName}
+          onConfirm={confirmUpload}
+          onCancel={cancelUpload}
+        />
+
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+        <ChangelogModal />
+      </Suspense>
 
       <ToastViewport />
       <CommandPalette />
-      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-      <ChangelogModal />
       <BottomNav />
     </div>
   );

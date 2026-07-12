@@ -1,22 +1,64 @@
-// Боковое меню с 6 разделами + кнопка командной палитры (⌘K).
-// На десктопе фиксировано слева, на мобильных — drawer (гамбургер).
+// Боковое меню с группами разделов (как в Poster).
+// На десктопе фиксировано слева, на мобильных — drawer.
 
 import { useState, useEffect } from "react";
 import { logout, getUserSpotName, isAdmin, isAdminOrManager } from "../auth.jsx";
 
-const NAV = [
-  { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
-  { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
-  { id: "reports", path: "/reports", icon: "ti-file-text", label: "Отчёты" },
-  { id: "products", path: "/products", icon: "ti-box", label: "Товары" },
-  { id: "payments", path: "/payments", icon: "ti-cash", label: "Оплаты" },
-  { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
-  { id: "poster", path: "/poster", icon: "ti-cloud", label: "Poster API" },
-  { id: "receipts", path: "/receipts", icon: "ti-receipt", label: "Чеки" },
-  { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
-  { id: "tickets", path: "/tickets", icon: "ti-message-circle", label: "Запросы" },
-  { id: "my-tickets", path: "/my-tickets", icon: "ti-message-circle", label: "Мои обращения" },
-  { id: "admin-users", path: "/admin/users", icon: "ti-users", label: "Пользователи", adminOnly: true },
+const GROUPS = [
+  {
+    id: "stats",
+    icon: "ti-chart-bar",
+    label: "Статистика",
+    items: [
+      { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
+      { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
+      { id: "receipts", path: "/receipts", icon: "ti-receipt", label: "Чеки" },
+    ],
+  },
+  {
+    id: "products",
+    icon: "ti-box",
+    label: "Товары",
+    items: [
+      { id: "products", path: "/products", icon: "ti-packages", label: "Товары" },
+      { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация", adminOnly: true },
+    ],
+  },
+  {
+    id: "finance",
+    icon: "ti-cash",
+    label: "Финансы",
+    items: [
+      { id: "payments", path: "/payments", icon: "ti-wallet", label: "Оплаты", adminOnly: true },
+      { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги", adminOnly: true },
+    ],
+  },
+  {
+    id: "poster",
+    icon: "ti-cloud",
+    label: "Poster",
+    items: [
+      { id: "poster", path: "/poster", icon: "ti-building-store", label: "Poster API" },
+    ],
+  },
+  {
+    id: "tickets",
+    icon: "ti-message-circle",
+    label: "Обращения",
+    items: [
+      { id: "tickets", path: "/tickets", icon: "ti-message-circle", label: "Запросы", managerOnly: true },
+      { id: "my-tickets", path: "/my-tickets", icon: "ti-mail", label: "Мои обращения" },
+    ],
+  },
+  {
+    id: "admin",
+    icon: "ti-settings",
+    label: "Настройки",
+    items: [
+      { id: "admin-users", path: "/admin/users", icon: "ti-users", label: "Пользователи", adminOnly: true },
+      { id: "admin-ip-groups", path: "/admin/ip-groups", icon: "ti-building", label: "Группы ИП", adminOnly: true },
+    ],
+  },
 ];
 
 function currentNavId(path) {
@@ -32,16 +74,43 @@ function currentNavId(path) {
   if (path.startsWith("/tickets")) return "tickets";
   if (path.startsWith("/my-tickets")) return "my-tickets";
   if (path.startsWith("/admin/users")) return "admin-users";
+  if (path.startsWith("/admin/ip-groups")) return "admin-ip-groups";
   return "dashboard";
+}
+
+function groupIdForItem(itemId) {
+  for (const g of GROUPS) {
+    if (g.items.some(i => i.id === itemId)) return g.id;
+  }
+  return null;
 }
 
 export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback }) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem("aura-sidebar-groups");
+      return saved ? JSON.parse(saved) : { stats: true };
+    } catch { return { stats: true }; }
+  });
   const activeId = currentNavId(route.path);
   const spotName = getUserSpotName();
   const isBranch = role === "curator";
+  const isManager = role === "manager" || role === "admin";
 
   useEffect(() => { setOpen(false); }, [route.path]);
+
+  // Auto-expand group containing active item
+  useEffect(() => {
+    const gid = groupIdForItem(activeId);
+    if (gid && !expanded[gid]) {
+      setExpanded(prev => ({ ...prev, [gid]: true }));
+    }
+  }, [activeId]);
+
+  useEffect(() => {
+    localStorage.setItem("aura-sidebar-groups", JSON.stringify(expanded));
+  }, [expanded]);
 
   useEffect(() => {
     if (!open) return;
@@ -57,26 +126,30 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
+  function toggleGroup(gid) {
+    setExpanded(prev => ({ ...prev, [gid]: !prev[gid] }));
+  }
+
   function handleLogout() {
     logout();
     window.dispatchEvent(new Event("auth-change"));
   }
 
-  // Глобальный хоткей для открытия командной палитры (вынесен в CommandPalette).
-  // Здесь только визуальная кнопка-индикатор, которая диспатчит событие.
   function openPalette() {
-    // Имитируем ⌘K — нативно его уже слушает CommandPalette.
     const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true });
     window.dispatchEvent(ev);
   }
 
+  function canSeeItem(item) {
+    if (item.adminOnly && !isAdminOrManager()) return false;
+    if (item.managerOnly && !isManager) return false;
+    if (isBranch && (item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
+    return true;
+  }
+
   return (
     <>
-      <button
-        className="hamburger"
-        onClick={() => setOpen(true)}
-        aria-label="Открыть меню"
-      >
+      <button className="hamburger" onClick={() => setOpen(true)} aria-label="Открыть меню">
         <i className="ti ti-menu-2" aria-hidden="true" />
       </button>
 
@@ -88,44 +161,50 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
             <i className="ti ti-coffee" aria-hidden="true" />
             <span>Aura 02 Poster Pro</span>
           </div>
-          <button
-            className="icon-btn sidebar-close"
-            onClick={() => setOpen(false)}
-            aria-label="Закрыть меню"
-          >
+          <button className="icon-btn sidebar-close" onClick={() => setOpen(false)} aria-label="Закрыть меню">
             <i className="ti ti-x" aria-hidden="true" />
           </button>
         </div>
 
-        <button
-          className="sidebar-palette"
-          onClick={openPalette}
-          title="Поиск (⌘K)"
-          aria-label="Открыть командную палитру"
-        >
+        <button className="sidebar-palette" onClick={openPalette} title="Поиск (⌘K)" aria-label="Открыть командную палитру">
           <i className="ti ti-search" aria-hidden="true" />
           <span>Поиск</span>
           <kbd>⌘K</kbd>
         </button>
 
         <nav className="sidebar-nav">
-          {NAV.filter(item => {
-            // Curator (куратор) — скрываем админ-разделы
-            if (isBranch && (item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
-            if (isBranch && item.id === "my-tickets") return true;
-            if (item.adminOnly && !isAdminOrManager()) return false;
-            return true;
-          }).map((item) => (
-            <button
-              key={item.id}
-              className={`sidebar-link${activeId === item.id ? " active" : ""}`}
-              onClick={() => onNavigate(item.path)}
-            >
-              <i className={`ti ${item.icon}`} aria-hidden="true" />
-              <span>{item.label}</span>
-              {activeId === item.id && <span className="sidebar-dot" aria-hidden="true" />}
-            </button>
-          ))}
+          {GROUPS.map(group => {
+            const visibleItems = group.items.filter(canSeeItem);
+            if (visibleItems.length === 0) return null;
+            const isExpanded = expanded[group.id];
+            const hasActive = visibleItems.some(i => i.id === activeId);
+
+            return (
+              <div key={group.id} className={`sidebar-group${hasActive ? " has-active" : ""}`}>
+                <button
+                  className={`sidebar-group-header${isExpanded ? " expanded" : ""}`}
+                  onClick={() => toggleGroup(group.id)}
+                >
+                  <i className={`ti ${group.icon}`} aria-hidden="true" />
+                  <span>{group.label}</span>
+                  <i className={`ti ti-chevron-${isExpanded ? "down" : "right"} sidebar-group-arrow`} aria-hidden="true" />
+                </button>
+                {isExpanded && (
+                  <div className="sidebar-group-items">
+                    {visibleItems.map(item => (
+                      <button
+                        key={item.id}
+                        className={`sidebar-link sidebar-link-sub${activeId === item.id ? " active" : ""}`}
+                        onClick={() => onNavigate(item.path)}
+                      >
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="sidebar-foot">

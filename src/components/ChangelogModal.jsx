@@ -1,9 +1,21 @@
 import { useEffect, useState, useCallback } from "react";
 
-const CURRENT_VERSION = "1.5.2";
+const CURRENT_VERSION = "1.5.3";
 const STORAGE_KEY = "aura-track:last-seen-v3";
 
 const ENTRIES = [
+  {
+    version: "1.5.3",
+    date: "2026-07-12",
+    items: [
+      "Группы ИП — распределение филиалов между ИП в админке",
+      "Фильтр по ИП на дашборде (для админа/управляющего)",
+      "Сайдбар с группировкой разделов (как в Poster)",
+      "Ленивая загрузка компонентов — быстрее первая загрузка",
+      "Скелетоны-заглушки вместо пустого экрана",
+      "Размер бандла: 553 KB → 336 KB (−40%)",
+    ],
+  },
   {
     version: "1.5.2",
     date: "2026-07-09",

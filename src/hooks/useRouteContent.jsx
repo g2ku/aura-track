@@ -1,22 +1,33 @@
-import Dashboard from "../components/Dashboard";
-import BranchesView from "../components/BranchesView";
-import BranchDetail from "../components/BranchDetail";
-import ReportsView from "../components/ReportsView";
-import ReportDetailView from "../components/ReportDetailView";
-import PaymentsView from "../components/PaymentsView";
-import DebtsView from "../components/DebtsView";
-import ProductsView from "../components/ProductsView";
-import PosterView from "../components/PosterView";
-import PosterCompareView from "../components/PosterCompareView";
-import ReceiptsView from "../components/ReceiptsView";
-import InventoryView from "../components/InventoryView";
-import InventorySession from "../components/InventorySession";
-import TicketsView from "../components/TicketsView";
-import MyTicketsView from "../components/MyTicketsView";
-import RegistrationPage from "../components/RegistrationPage";
-import AdminUsers from "../components/AdminUsers";
+import { lazy, Suspense } from "react";
 import { UnknownBranchFallback, UnknownRouteFallback } from "../components/Fallbacks";
+import { SkeletonDashboard, SkeletonView } from "../components/Skeleton";
 import { isAdmin, isAdminOrManager } from "../auth.jsx";
+
+const Dashboard = lazy(() => import("../components/Dashboard"));
+const BranchesView = lazy(() => import("../components/BranchesView"));
+const BranchDetail = lazy(() => import("../components/BranchDetail"));
+const ReportsView = lazy(() => import("../components/ReportsView"));
+const ReportDetailView = lazy(() => import("../components/ReportDetailView"));
+const PaymentsView = lazy(() => import("../components/PaymentsView"));
+const DebtsView = lazy(() => import("../components/DebtsView"));
+const ProductsView = lazy(() => import("../components/ProductsView"));
+const PosterView = lazy(() => import("../components/PosterView"));
+const PosterCompareView = lazy(() => import("../components/PosterCompareView"));
+const ReceiptsView = lazy(() => import("../components/ReceiptsView"));
+const InventoryView = lazy(() => import("../components/InventoryView"));
+const InventorySession = lazy(() => import("../components/InventorySession"));
+const TicketsView = lazy(() => import("../components/TicketsView"));
+const MyTicketsView = lazy(() => import("../components/MyTicketsView"));
+const RegistrationPage = lazy(() => import("../components/RegistrationPage"));
+const AdminUsers = lazy(() => import("../components/AdminUsers"));
+
+function RouteFallback() {
+  return <SkeletonDashboard />;
+}
+
+function ViewFallback() {
+  return <SkeletonView />;
+}
 
 export function useRouteContent({
   route, filteredDocs, filteredAgg, agg, canEdit, userBranch, role, globalPayments,
@@ -24,8 +35,10 @@ export function useRouteContent({
 }) {
   const p = route.path;
 
+  let content;
+
   if (p === "/" || !p) {
-    return (
+    content = (
       <Dashboard
         docs={filteredDocs}
         agg={filteredAgg}
@@ -37,10 +50,8 @@ export function useRouteContent({
         onOpenGlobalPayment={() => openModal("globalPay")}
       />
     );
-  }
-
-  if (p === "/branches") {
-    return (
+  } else if (p === "/branches") {
+    content = (
       <BranchesView
         docs={filteredDocs}
         canEdit={canEdit}
@@ -48,13 +59,11 @@ export function useRouteContent({
         onPayBranch={(b) => openModal("branchPay", { branch: b })}
       />
     );
-  }
-
-  if (p === "/branches/:name") {
+  } else if (p === "/branches/:name") {
     const name = route.params.name;
     const isOwnBranch = userBranch && (name === userBranch || name.includes(userBranch.replace("Aura02_", "")));
     if (isOwnBranch || agg.byBranch[name] || filteredAgg.byBranch[name]) {
-      return (
+      content = (
         <BranchDetail
           branch={name}
           docs={filteredDocs}
@@ -63,12 +72,11 @@ export function useRouteContent({
           onPay={(b) => openModal("branchPay", { branch: b })}
         />
       );
+    } else {
+      content = <UnknownBranchFallback name={name} onBack={() => route.navigate("/branches")} />;
     }
-    return <UnknownBranchFallback name={name} onBack={() => route.navigate("/branches")} />;
-  }
-
-  if (p === "/reports") {
-    return (
+  } else if (p === "/reports") {
+    content = (
       <ReportsView
         docs={filteredDocs}
         agg={filteredAgg}
@@ -78,13 +86,11 @@ export function useRouteContent({
         onDelete={handleDeleteReports}
       />
     );
-  }
-
-  if (p.startsWith("/reports/")) {
+  } else if (p.startsWith("/reports/")) {
     const docId = decodeURIComponent(p.replace("/reports/", ""));
     const d = filteredDocs.find((x) => x.id === docId);
     if (d) {
-      return (
+      content = (
         <ReportDetailView
           report={d}
           canEdit={canEdit}
@@ -92,17 +98,16 @@ export function useRouteContent({
           onBack={() => route.navigate("/reports")}
         />
       );
+    } else {
+      content = (
+        <div className="card empty-state">
+          <div className="empty-state-title">Отчёт не найден</div>
+          <button className="btn btn-out" onClick={() => route.navigate("/reports")}>Назад</button>
+        </div>
+      );
     }
-    return (
-      <div className="card empty-state">
-        <div className="empty-state-title">Отчёт не найден</div>
-        <button className="btn btn-out" onClick={() => route.navigate("/reports")}>Назад</button>
-      </div>
-    );
-  }
-
-  if (p === "/payments") {
-    return (
+  } else if (p === "/payments") {
+    content = (
       <PaymentsView
         docs={filteredDocs}
         globalPayments={globalPayments}
@@ -110,10 +115,8 @@ export function useRouteContent({
         onOpenGlobalPayment={() => openModal("globalPay")}
       />
     );
-  }
-
-  if (p === "/debts") {
-    return (
+  } else if (p === "/debts") {
+    content = (
       <DebtsView
         docs={filteredDocs}
         canEdit={canEdit}
@@ -121,28 +124,24 @@ export function useRouteContent({
         onOpenBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
       />
     );
-  }
-
-  if (p === "/products") {
-    return <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
-  }
-
-  if (p === "/poster") return <PosterView />;
-  if (p === "/poster/compare") return <PosterCompareView />;
-  if (p === "/receipts") return <ReceiptsView />;
-
-  if (p === "/inventory") {
-    return (
+  } else if (p === "/products") {
+    content = <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
+  } else if (p === "/poster") {
+    content = <PosterView />;
+  } else if (p === "/poster/compare") {
+    content = <PosterCompareView />;
+  } else if (p === "/receipts") {
+    content = <ReceiptsView />;
+  } else if (p === "/inventory") {
+    content = (
       <InventoryView
         canEdit={canEdit}
         role={role}
         onOpenSession={(spotId) => route.navigate(`/inventory/${encodeURIComponent(spotId)}`)}
       />
     );
-  }
-
-  if (p === "/inventory/:spotId") {
-    return (
+  } else if (p === "/inventory/:spotId") {
+    content = (
       <InventorySession
         spotId={route.params.spotId}
         canEdit={canEdit}
@@ -150,12 +149,20 @@ export function useRouteContent({
         onBack={() => route.navigate("/inventory")}
       />
     );
+  } else if (p === "/tickets" && isAdminOrManager()) {
+    content = <TicketsView />;
+  } else if (p === "/my-tickets") {
+    content = <MyTicketsView />;
+  } else if (p === "/register") {
+    content = <RegistrationPage />;
+  } else if (p === "/admin/users" && isAdmin()) {
+    content = <AdminUsers />;
+  } else if (p === "/admin/ip-groups" && isAdmin()) {
+    const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
+    content = <IPGroupsAdmin />;
+  } else {
+    content = <UnknownRouteFallback navigate={route.navigate} />;
   }
 
-  if (p === "/tickets" && isAdminOrManager()) return <TicketsView />;
-  if (p === "/my-tickets") return <MyTicketsView />;
-  if (p === "/register") return <RegistrationPage />;
-  if (p === "/admin/users" && isAdmin()) return <AdminUsers />;
-
-  return <UnknownRouteFallback navigate={route.navigate} />;
+  return <Suspense fallback={<RouteFallback />}>{content}</Suspense>;
 }
