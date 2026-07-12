@@ -131,29 +131,27 @@ export default function TaxesView() {
     return () => { cancelled = true; };
   }, [dateRange.from, dateRange.to]);
 
-  // Fetch monthly data for forecast
+  // Fetch monthly data for forecast — on demand only
   const [monthlyData, setMonthlyData] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    async function loadMonthly() {
-      const m = getMonthRanges(year);
-      const results = await Promise.allSettled(
-        m.map(month =>
-          fetchCashBySpot(month.from, month.to).then(data => ({
-            label: month.label,
-            total: data.reduce((s, c) => s + (c.total || 0), 0),
-          }))
-        )
-      );
-      if (!cancelled) {
-        setMonthlyData(results.map((r, i) =>
-          r.status === "fulfilled" ? r.value : { label: m[i].label, total: 0 }
-        ));
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastLoaded, setForecastLoaded] = useState(false);
+
+  async function loadForecast() {
+    setForecastLoading(true);
+    const m = getMonthRanges(year);
+    const months = [];
+    for (const month of m) {
+      try {
+        const data = await fetchCashBySpot(month.from, month.to);
+        months.push({ label: month.label, total: data.reduce((s, c) => s + (c.total || 0), 0) });
+      } catch {
+        months.push({ label: month.label, total: 0 });
       }
     }
-    loadMonthly();
-    return () => { cancelled = true; };
-  }, [year]);
+    setMonthlyData(months);
+    setForecastLoaded(true);
+    setForecastLoading(false);
+  }
 
   // Group cash by IP
   const ipData = useMemo(() => {
@@ -405,7 +403,25 @@ export default function TaxesView() {
           </div>
 
           {/* Прогноз */}
-          {forecast && (
+          {!forecastLoaded && (
+            <div className="card" style={{ padding: 16, textAlign: "center" }}>
+              <button
+                className="btn"
+                style={{ fontSize: 13, padding: "8px 20px" }}
+                onClick={loadForecast}
+                disabled={forecastLoading}
+              >
+                {forecastLoading ? (
+                  <><i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", marginRight: 6 }} /> Загрузка прогноза…</>
+                ) : (
+                  <><i className="ti ti-chart-line" style={{ marginRight: 6 }} /> Показать прогноз на следующее полугодие</>
+                )}
+              </button>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>линейная регрессия по месяцам {year}</div>
+            </div>
+          )}
+
+          {forecastLoaded && forecast && (
             <div className="card" style={{ padding: 0 }}>
               <div style={{ padding: "10px 16px", background: "var(--bg-elevated)", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 14 }}>
                 <i className="ti ti-chart-line" style={{ marginRight: 6, color: "var(--text-accent)" }} /> Прогноз на следующее полугодие

@@ -29,7 +29,7 @@ const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v5";
+const CACHE_KEY = "supply-track.poster.salesByDay.v6";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
@@ -59,18 +59,33 @@ export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
   const result = await fetchPosterSales(dateFrom, dateTo, opts);
   console.log("[poster] fetchCashBySpot rows:", result.rows?.length, "days:", result.daysCount, "tx:", result.transactionsCount);
   const bySpot = {};
+
+  // Use tx.sum-based cashBySpot (transaction-level totals) — matches Poster's "Оплачено"
+  const cashBySpot = result.cashBySpot || {};
+  const spotNames = {};
   for (const row of result.rows) {
-    const sid = row.spotId;
-    if (!bySpot[sid]) bySpot[sid] = { spotId: sid, spotName: row.spotName, total: 0, txCount: 0 };
-    bySpot[sid].total += row.sum || 0;
+    spotNames[row.spotId] = row.spotName;
   }
+  for (const [spotId, total] of Object.entries(cashBySpot)) {
+    bySpot[spotId] = { spotId, spotName: spotNames[spotId] || `Филиал #${spotId}`, total, txCount: 0 };
+  }
+
   for (const [spotId, count] of Object.entries(result.txBySpot || {})) {
     if (!bySpot[spotId]) {
-      const spot = result.rows.find(r => r.spotId === spotId);
-      bySpot[spotId] = { spotId, spotName: spot?.spotName || `Филиал #${spotId}`, total: 0, txCount: 0 };
+      bySpot[spotId] = { spotId, spotName: spotNames[spotId] || `Филиал #${spotId}`, total: 0, txCount: 0 };
     }
     bySpot[spotId].txCount = count;
   }
+
+  // Fallback: if cashBySpot is empty (old cache), sum from product rows
+  if (Object.keys(cashBySpot).length === 0) {
+    for (const row of result.rows) {
+      const sid = row.spotId;
+      if (!bySpot[sid]) bySpot[sid] = { spotId: sid, spotName: row.spotName, total: 0, txCount: 0 };
+      bySpot[sid].total += row.sum || 0;
+    }
+  }
+
   const daysCount = result.daysCount || 1;
   for (const v of Object.values(bySpot)) {
     v.daysCount = daysCount;
@@ -670,12 +685,16 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     const merged = new Map();
     let transactionsCount = 0;
     const txBySpot = {};
+    const cashBySpot = {};
     for (const yyyymmdd of days) {
       const entry = getCachedDay(yyyymmdd);
       if (!entry) continue;
       transactionsCount += entry.transactionsCount || 0;
       for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
         txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
+      }
+      for (const [spotId, amount] of Object.entries(entry.cashBySpot || {})) {
+        cashBySpot[spotId] = (cashBySpot[spotId] || 0) + amount;
       }
       for (const [spotId, productMap] of Object.entries(entry.rowsBySpot || {})) {
         if (!merged.has(spotId)) merged.set(spotId, new Map());
@@ -689,7 +708,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       }
     }
     const rows = buildRows(spots, merged);
-    return { rows, transactionsCount, txBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length };
+    return { rows, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length };
   }
 
   // Загружаем только некэшированные дни (не весь период!)
@@ -736,21 +755,24 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   const merged = new Map();
   let transactionsCount = 0;
   const txBySpot = {};
+  const cashBySpot = {};
 
   for (const yyyymmdd of days) {
     const dayTxs = byDay[yyyymmdd] || [];
     const rowsBySpot = {};
     const dayTxBySpot = {};
+    const dayCashBySpot = {};
     let dayTxCount = 0;
 
     for (const tx of dayTxs) {
       const products = tx.products || [];
-      if (products.length === 0) continue;
       dayTxCount++;
       const spotId = String(tx.spot_id || "");
       if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
       if (!dayTxBySpot[spotId]) dayTxBySpot[spotId] = 0;
       dayTxBySpot[spotId]++;
+
+      dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + Number(tx.sum || 0);
 
       for (const it of products) {
         const pid = String(it.product_id);
@@ -766,11 +788,14 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     }
 
     // Кэшируем день
-    setCachedDay(yyyymmdd, { rowsBySpot, transactionsCount: dayTxCount, txBySpot: dayTxBySpot });
+    setCachedDay(yyyymmdd, { rowsBySpot, transactionsCount: dayTxCount, txBySpot: dayTxBySpot, cashBySpot: dayCashBySpot });
 
     transactionsCount += dayTxCount;
     for (const [spotId, count] of Object.entries(dayTxBySpot)) {
       txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
+    }
+    for (const [spotId, amount] of Object.entries(dayCashBySpot)) {
+      cashBySpot[spotId] = (cashBySpot[spotId] || 0) + amount;
     }
     for (const [spotId, productMap] of Object.entries(rowsBySpot)) {
       if (!merged.has(spotId)) merged.set(spotId, new Map());
@@ -785,7 +810,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   }
 
   const rows = buildRows(spots, merged);
-  return { rows, transactionsCount, txBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
+  return { rows, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
 }
 
 function buildRows(spots, merged) {
