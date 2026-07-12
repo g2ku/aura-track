@@ -600,16 +600,21 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
 
   opts.onProgress?.({ done: 1, total: 1 });
 
-  // Открытые чеки (статус=0)
+  // Открытые чеки: дополнительный запрос без date_to ловит чеки без date_close.
+  // status=0 не работает (405), поэтому просто берём последние страницы без date_to.
+  // Только для текущей даты — для прошлых дат открытых чеков быть не может.
+  const todayStr2 = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
   let openData = [];
-  try {
-    const openRes = await call(
-      "transactions.getTransactions",
-      { date_from: fromP, date_to: toP, per_page: 500, status: 0 },
-      opts,
-    );
-    openData = openRes?.response?.data || [];
-  } catch (_) {}
+  if (dateTo === todayStr2) {
+    try {
+      const openRes = await call(
+        "transactions.getTransactions",
+        { date_from: fromP, per_page: 100, page: 1 },
+        opts,
+      );
+      openData = openRes?.response?.data || [];
+    } catch (_) {}
+  }
 
   const existingIds = new Set(allData.map(tx => tx.transaction_id || tx.id));
   for (const tx of openData) {
