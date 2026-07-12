@@ -59,19 +59,23 @@ export default function Dashboard({
   const [ipGroups, setIpGroups] = useState([]);
   const [selectedIP, setSelectedIP] = useState("all");
 
+  // Сегодняшний день?
+  const isToday = dateFrom === todayStr() && dateTo === todayStr();
+
   useEffect(() => {
     let cancelled = false;
 
-    // 1. Показываем кэш мгновенно (stale-while-revalidate) — только для ТОЧНОГО диапазона
-    const cachedCash = getCachedCashBySpot(dateFrom, dateTo);
-    if (cachedCash && !cashBySpot.length) {
-      setCashBySpot(cachedCash);
+    // Для «сегодня» — кэш не используем, всегда свежие данные
+    if (!isToday) {
+      const cachedCash = getCachedCashBySpot(dateFrom, dateTo);
+      if (cachedCash && !cashBySpot.length) {
+        setCashBySpot(cachedCash);
+      }
     }
 
     async function load() {
       setPosterLoading(true);
       setPosterError("");
-      // Параллельная загрузка кассы + поставок (без чеков — они на отдельной вкладке)
       const [cashResult, suppliesResult] = await Promise.allSettled([
         fetchCashBySpot(dateFrom, dateTo),
         fetchSupplyStatus(null),
@@ -87,6 +91,18 @@ export default function Dashboard({
     load();
     return () => { cancelled = true; };
   }, [dateFrom, dateTo, refreshKey]);
+
+  // Автообновление кассы каждые 2 минуты для «сегодня»
+  useEffect(() => {
+    if (!isToday) return;
+    const interval = setInterval(async () => {
+      try {
+        const cash = await fetchCashBySpot(dateFrom, dateTo);
+        setCashBySpot(cash);
+      } catch (_) {}
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [isToday, dateFrom, dateTo]);
 
   // Load IP groups for admin/manager filter
   useEffect(() => {

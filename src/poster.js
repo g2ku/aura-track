@@ -231,11 +231,12 @@ function getCachedDay(yyyymmdd) {
   const cache = readCache();
   const entry = cache[yyyymmdd];
   if (!entry) return null;
-  // Сегодняшний день — короткий TTL (5 мин), вчера и раньше — 24ч
+  // Сегодняшний день — не кэшируем (всегда свежие данные)
   const today = new Date();
   const todayYMD = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
-  const ttl = yyyymmdd === todayYMD ? 5 * 60 * 1000 : CACHE_TTL_MS;
-  if (Date.now() - (entry.ts || 0) > ttl) return null;
+  if (yyyymmdd === todayYMD) return null;
+  // Прошлые дни — кэш 24ч
+  if (Date.now() - (entry.ts || 0) > CACHE_TTL_MS) return null;
   // Защита от устаревших записей со сломанным матчингом имён
   for (const productMap of Object.values(entry.rowsBySpot || {})) {
     for (const name of Object.keys(productMap)) {
