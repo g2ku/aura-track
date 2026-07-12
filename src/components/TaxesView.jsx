@@ -13,8 +13,6 @@ import { loadIPGroups } from "../ipGroups";
 import { getSpotNameForBranch, isAdminOrManager } from "../auth.jsx";
 import { fmt } from "../utils";
 
-const TAX_RATE = 0.03;
-
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -75,6 +73,7 @@ export default function TaxesView() {
   const [error, setError] = useState("");
   const [ipGroups, setIpGroups] = useState([]);
   const [selectedIP, setSelectedIP] = useState("all");
+  const [taxRateStr, setTaxRateStr] = useState("3");
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -137,18 +136,20 @@ export default function TaxesView() {
   useEffect(() => {
     let cancelled = false;
     async function loadMonthly() {
-      const months = [];
       const m = getMonthRanges(year);
-      for (const month of m) {
-        try {
-          const data = await fetchCashBySpot(month.from, month.to);
-          const total = data.reduce((s, c) => s + (c.total || 0), 0);
-          months.push({ label: month.label, total });
-        } catch {
-          months.push({ label: month.label, total: 0 });
-        }
+      const results = await Promise.allSettled(
+        m.map(month =>
+          fetchCashBySpot(month.from, month.to).then(data => ({
+            label: month.label,
+            total: data.reduce((s, c) => s + (c.total || 0), 0),
+          }))
+        )
+      );
+      if (!cancelled) {
+        setMonthlyData(results.map((r, i) =>
+          r.status === "fulfilled" ? r.value : { label: m[i].label, total: 0 }
+        ));
       }
-      if (!cancelled) setMonthlyData(months);
     }
     loadMonthly();
     return () => { cancelled = true; };
@@ -200,8 +201,9 @@ export default function TaxesView() {
     return ipData.filter(g => g.id === selectedIP);
   }, [ipData, selectedIP]);
 
+  const taxRate = Math.max(0, Math.min(100, parseFloat(taxRateStr) || 0)) / 100;
   const totalCash = displayedIPs.reduce((s, g) => s + g.cash, 0);
-  const totalTax = Math.round(totalCash * TAX_RATE);
+  const totalTax = Math.round(totalCash * taxRate);
   const totalTx = displayedIPs.reduce((s, g) => s + g.txCount, 0);
 
   // Forecast
@@ -221,7 +223,7 @@ export default function TaxesView() {
             <i className="ti ti-file-invoice" aria-hidden="true" /> Налоги
           </h1>
           <div className="view-sub">
-            3% от кассы по ИП за выбранный период
+            <span style={{ opacity: 0.7 }}>от кассы по ИП за выбранный период</span>
           </div>
         </div>
       </div>
@@ -309,7 +311,7 @@ export default function TaxesView() {
             <select
               value={selectedIP}
               onChange={e => setSelectedIP(e.target.value)}
-              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: 13, marginLeft: "auto" }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: 13 }}
             >
               <option value="all">Все ИП</option>
               {ipGroups.map(g => (
@@ -317,6 +319,20 @@ export default function TaxesView() {
               ))}
             </select>
           )}
+
+          {/* Ставка налога */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              value={taxRateStr}
+              onChange={e => setTaxRateStr(e.target.value)}
+              style={{ width: 56, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: 13, textAlign: "right" }}
+            />
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>%</span>
+          </div>
         </div>
         <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
           Период: {new Date(dateRange.from).toLocaleDateString("ru-RU")} — {new Date(dateRange.to).toLocaleDateString("ru-RU")}
@@ -344,7 +360,7 @@ export default function TaxesView() {
               <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)" }}>{fmt(totalCash)}</div>
             </div>
             <div className="card" style={{ padding: 16, textAlign: "center", borderLeft: "3px solid var(--danger)" }}>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4, fontWeight: 600, textTransform: "uppercase" }}>Налог 3%</div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4, fontWeight: 600, textTransform: "uppercase" }}>Налог {taxRateStr}%</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "var(--danger)" }}>{fmt(totalTax)}</div>
             </div>
             <div className="card" style={{ padding: 16, textAlign: "center" }}>
@@ -364,7 +380,7 @@ export default function TaxesView() {
                   <th style={{ textAlign: "left" }}>ИП</th>
                   <th style={{ textAlign: "right" }}>Касса</th>
                   <th style={{ textAlign: "right" }}>Чеки</th>
-                  <th style={{ textAlign: "right" }}>Налог 3%</th>
+                  <th style={{ textAlign: "right" }}>Налог {taxRateStr}%</th>
                 </tr>
               </thead>
               <tbody>
@@ -374,7 +390,7 @@ export default function TaxesView() {
                     <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(g.cash)}</td>
                     <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{g.txCount.toLocaleString("ru-RU")}</td>
                     <td style={{ textAlign: "right", fontWeight: 600, color: "var(--danger)", fontVariantNumeric: "tabular-nums" }}>
-                      {fmt(Math.round(g.cash * TAX_RATE))}
+                      {fmt(Math.round(g.cash * taxRate))}
                     </td>
                   </tr>
                 ))}
@@ -433,9 +449,9 @@ export default function TaxesView() {
                     <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(forecast.forecast.reduce((s, v) => s + v, 0))}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Прогноз налога 3%</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Прогноз налога {taxRateStr}%</div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "var(--danger)" }}>
-                      {fmt(Math.round(forecast.forecast.reduce((s, v) => s + v, 0) * TAX_RATE))}
+                      {fmt(Math.round(forecast.forecast.reduce((s, v) => s + v, 0) * taxRate))}
                     </div>
                   </div>
                   <div style={{ textAlign: "right" }}>
