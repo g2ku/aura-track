@@ -124,6 +124,9 @@ export function useRouteContent({
         onOpenBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
       />
     );
+  } else if (p === "/taxes" && isAdmin()) {
+    const TaxesView = lazy(() => import("../components/TaxesView"));
+    content = <TaxesView />;
   } else if (p === "/products") {
     content = <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
   } else if (p === "/poster") {

@@ -31,6 +31,7 @@ const GROUPS = [
     items: [
       { id: "payments", path: "/payments", icon: "ti-wallet", label: "Оплаты", adminOnly: true },
       { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги", adminOnly: true },
+      { id: "taxes", path: "/taxes", icon: "ti-file-invoice", label: "Налоги", adminOnly: true },
     ],
   },
   {
@@ -68,6 +69,7 @@ function currentNavId(path) {
   if (path.startsWith("/products")) return "products";
   if (path.startsWith("/payments")) return "payments";
   if (path.startsWith("/debts")) return "debts";
+  if (path.startsWith("/taxes")) return "taxes";
   if (path.startsWith("/poster")) return "poster";
   if (path.startsWith("/receipts")) return "receipts";
   if (path.startsWith("/inventory")) return "inventory";
