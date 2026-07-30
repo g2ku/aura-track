@@ -53,7 +53,30 @@ export function toPosterDate(input) {
   return `${m[1]}${m[2].padStart(2, "0")}${m[3].padStart(2, "0")}`;
 }
 
-// ─── Кассы филиалов (выручка за период) ──────────────────────────────────
+// ─── Кассы филиалов через establishments.getEstablishments ───────────────
+// Использует тот же API что и страница "Заведения" в Poster
+
+const ESTABLISHMENTS_CACHE_KEY = "supply-track.poster.establishments.v1";
+
+export async function fetchEstablishmentsSummary(dateFrom, dateTo, opts = {}) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) return null;
+
+  // Try establishments.getEstablishments with date params
+  try {
+    const data = await call("establishments.getEstablishments", {
+      date_from: fromP,
+      date_to: toP,
+    }, opts);
+    console.log("[poster] establishments.getEstablishments:", JSON.stringify(data?.response).slice(0, 500));
+    return data?.response;
+  } catch (e) {
+    console.warn("[poster] establishments.getEstablishments failed:", e.message);
+  }
+
+  return null;
+}
 
 export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
   const result = await fetchPosterSales(dateFrom, dateTo, opts);
@@ -546,6 +569,8 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
   const cashBySpot = {};
   let transactionsCount = 0;
   for (const tx of allData) {
+    const status = String(tx.status ?? "");
+    if (status === "0" || status === "2") continue;
     const products = tx.products || [];
     if (products.length === 0) continue;
     transactionsCount++;
@@ -758,6 +783,9 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   const allTxBySpot = {};
   let allTxCount = 0;
   for (const tx of allData) {
+    // Poster "Заведения" считает только закрытые транзакции (status=1)
+    const status = String(tx.status ?? "");
+    if (status === "0" || status === "2") continue;
     const spotId = String(tx.spot_id || "");
     allTxCount++;
     allTxBySpot[spotId] = (allTxBySpot[spotId] || 0) + 1;
