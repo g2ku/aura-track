@@ -131,8 +131,8 @@ async function handlePercentChange(metric, spot, period1, period2, productName) 
     const sum1 = prods1.reduce((s, p) => s + p.sum, 0);
     const sum2 = prods2.reduce((s, p) => s + p.sum, 0);
 
-    const qtyPct = pctChange(total1, total2);
-    const sumPct = pctChange(sum1, sum2);
+    const qtyPct = pctChange(total2, total1);
+    const sumPct = pctChange(sum2, sum1);
     const pl1 = formatPeriodLabel(period1);
     const pl2 = formatPeriodLabel(period2);
 
@@ -156,8 +156,8 @@ async function handlePercentChange(metric, spot, period1, period2, productName) 
   const tx1 = f1.reduce((s, d) => s + (d.txCount || 0), 0);
   const tx2 = f2.reduce((s, d) => s + (d.txCount || 0), 0);
 
-  const cashPct = pctChange(cash1, cash2);
-  const txPct = pctChange(tx1, tx2);
+  const cashPct = pctChange(cash2, cash1);
+  const txPct = pctChange(tx2, tx1);
   const pl1 = formatPeriodLabel(period1);
   const pl2 = formatPeriodLabel(period2);
   const sl = label(spot);
@@ -176,7 +176,7 @@ async function handlePercentChange(metric, spot, period1, period2, productName) 
       const b = spotMap2[sid];
       const c1 = a?.total || 0;
       const c2 = b?.total || 0;
-      const p = pctChange(c1, c2);
+      const p = pctChange(c2, c1);
       const name = a?.spotName || b?.spotName || sid;
       lines.push(`• ${name}: ${fmt(c1)} → ${fmt(c2)}  ${changeEmoji(p)}`);
     }
@@ -190,7 +190,7 @@ async function handlePercentChange(metric, spot, period1, period2, productName) 
   // Single spot or all combined
   const avgCheck1 = tx1 > 0 ? Math.round(cash1 / tx1) : 0;
   const avgCheck2 = tx2 > 0 ? Math.round(cash2 / tx2) : 0;
-  const avgPct = pctChange(avgCheck1, avgCheck2);
+  const avgPct = pctChange(avgCheck2, avgCheck1);
 
   return {
     text: `Сравнение ${sl}:\n${pl1}: ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${pl2}: ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} средний чек`,
