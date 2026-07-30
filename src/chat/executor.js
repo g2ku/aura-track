@@ -2,6 +2,7 @@
 
 import { fetchCashBySpot, fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
+import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 
 // ─── Утилиты ──────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ export async function executeQuery(parsed) {
 
   try {
     if (operation === "percentChange" && period2) {
-      return await handlePercentChange(metric, spot, period, period2, product);
+      return await handlePercentChange(metric, spot, period, period2, product, parsed.raw);
     }
 
     switch (metric) {
@@ -101,8 +102,9 @@ export async function executeQuery(parsed) {
 
 // ─── Сравнение двух периодов (процентное изменение) ────────────────
 
-async function handlePercentChange(metric, spot, period1, period2, productName) {
+async function handlePercentChange(metric, spot, period1, period2, productName, raw) {
   const isProductSearch = !!productName;
+  const wantIPGroups = raw && /по\s+(?:группам|разным)\s+ип/i.test(raw);
 
   if (isProductSearch) {
     const [data1, data2] = await Promise.all([
@@ -162,8 +164,67 @@ async function handlePercentChange(metric, spot, period1, period2, productName) 
   const pl2 = formatPeriodLabel(period2);
   const sl = label(spot);
 
-  // If comparing all spots, show per-spot breakdown
+  // If comparing all spots, show per-spot or per-IP-group breakdown
   if (isAll(spot) && f1.length > 1) {
+    // IP group aggregation
+    if (wantIPGroups) {
+      try {
+        const ipData = await loadIPGroups();
+        const groups = ipData?.groups || [];
+        if (groups.length > 0) {
+          const spotMap1 = {};
+          const spotMap2 = {};
+          for (const d of f1) spotMap1[d.spotId] = d;
+          for (const d of f2) spotMap2[d.spotId] = d;
+
+          const groupCash = {};
+          for (const g of groups) {
+            groupCash[g.id] = { name: g.name, cash1: 0, cash2: 0, tx1: 0, tx2: 0 };
+          }
+
+          // Map spotId → branchId for IP group lookup
+          const spotToBranch = {};
+          for (const [id, cfg] of Object.entries({ "1": "Aura02_Gagarina", "2": "Aura02_Zharokova", "3": "Aura02_OBI", "4": "Aura02_Abaya", "7": "Aura02_Koktem", "9": "Aura02_Dubai", "10": "Aura02_Atakent", "11": "Aura02_Rams" })) {
+            spotToBranch[id] = id;  // Actually spotId === branchId suffix
+          }
+
+          // Build spotId → branchId from Poster spot names
+          for (const d of f1) {
+            const branchId = d.spotName.startsWith("Aura02_") ? d.spotName : spotToBranch[d.spotId] || d.spotId;
+            const g = getBranchIPGroup(groups, branchId);
+            if (g && groupCash[g.id]) {
+              groupCash[g.id].cash1 += d.total || 0;
+              groupCash[g.id].tx1 += d.txCount || 0;
+            }
+          }
+          for (const d of f2) {
+            const branchId = d.spotName.startsWith("Aura02_") ? d.spotName : spotToBranch[d.spotId] || d.spotId;
+            const g = getBranchIPGroup(groups, branchId);
+            if (g && groupCash[g.id]) {
+              groupCash[g.id].cash2 += d.total || 0;
+              groupCash[g.id].tx2 += d.txCount || 0;
+            }
+          }
+
+          const lines = [];
+          for (const g of groups) {
+            const gc = groupCash[g.id];
+            if (!gc || (gc.cash1 === 0 && gc.cash2 === 0)) continue;
+            const p = pctChange(gc.cash2, gc.cash1);
+            lines.push(`• ${gc.name}: ${fmt(gc.cash1)} → ${fmt(gc.cash2)}  ${changeEmoji(p)}`);
+          }
+
+          return {
+            text: `Сравнение кассы по группам ИП:\n${pl1} vs ${pl2}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}`,
+            data: { period1, period2, cash1, cash2, cashPct, txPct },
+          };
+        }
+      } catch (e) {
+        console.warn("[Chat] IP groups load failed, falling back to per-spot", e);
+      }
+    }
+
+    // Per-spot breakdown (default)
     const spotMap1 = {};
     const spotMap2 = {};
     for (const d of f1) spotMap1[d.spotId] = d;
