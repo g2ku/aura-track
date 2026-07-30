@@ -569,8 +569,7 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
   const cashBySpot = {};
   let transactionsCount = 0;
   for (const tx of allData) {
-    const status = String(tx.status ?? "");
-    if (status === "0" || status === "2") continue;
+    if (tx.status !== 1 && tx.status !== "1") continue;
     const products = tx.products || [];
     if (products.length === 0) continue;
     transactionsCount++;
@@ -779,13 +778,11 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   // Разбиваем по дням и кэшируем каждый день отдельно
   const byDay = {};
   for (const yyyymmdd of days) byDay[yyyymmdd] = [];
-  // Считаем ВСЕ транзакции для чеков — API уже отфильтровал по дате
+  // Считаем транзакции — только закрытые (status=1), как Poster "Заведения"
   const allTxBySpot = {};
   let allTxCount = 0;
   for (const tx of allData) {
-    // Poster "Заведения" считает только закрытые транзакции (status=1)
-    const status = String(tx.status ?? "");
-    if (status === "0" || status === "2") continue;
+    if (tx.status !== 1 && tx.status !== "1") continue;
     const spotId = String(tx.spot_id || "");
     allTxCount++;
     allTxBySpot[spotId] = (allTxBySpot[spotId] || 0) + 1;
