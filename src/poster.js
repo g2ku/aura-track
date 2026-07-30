@@ -29,7 +29,7 @@ const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v9";
+const CACHE_KEY = "supply-track.poster.salesByDay.v10";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
