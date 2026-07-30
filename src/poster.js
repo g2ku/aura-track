@@ -29,7 +29,7 @@ const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v13";
+const CACHE_KEY = "supply-track.poster.salesByDay.v14";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
@@ -547,16 +547,15 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
   for (const tx of allData) {
     const payedSum = Number(tx.payed_sum || tx.sum || 0);
     if (payedSum === 0) continue;
-    const products = tx.products || [];
-    if (products.length === 0) continue;
-    transactionsCount++;
     const spotId = String(tx.spot_id || "");
-    if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
+    transactionsCount++;
     if (!txBySpot[spotId]) txBySpot[spotId] = 0;
     txBySpot[spotId]++;
-
     cashBySpot[spotId] = (cashBySpot[spotId] || 0) + payedSum;
 
+    const products = tx.products || [];
+    if (products.length === 0) continue;
+    if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
     const productMap = rowsBySpot[spotId];
     for (const it of products) {
       const pid = String(it.product_id);
@@ -760,6 +759,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   // Считаем транзакции — исключаем с payed_sum=0 (Poster не считает их чеками)
   const allTxBySpot = {};
   let allTxCount = 0;
+  let unmappedCash = {}; // tx without date_open, date_close outside period — still add to cash
   for (const tx of allData) {
     const payedSum = Number(tx.payed_sum || tx.sum || 0);
     if (payedSum === 0) continue;
@@ -770,8 +770,12 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     const dateClose = (tx.date_close || "").slice(0, 10).replace(/-/g, "");
     const dateOpen = (tx.date_open || "").slice(0, 10).replace(/-/g, "");
     const dateStr = byDay[dateClose] ? dateClose : (byDay[dateOpen] ? dateOpen : null);
-    if (tx.products && tx.products.length > 0 && dateStr) {
+    if (dateStr) {
       byDay[dateStr].push(tx);
+    } else {
+      // Transaction returned by API but no matching day (e.g. date_close in next month, no date_open)
+      // Still count in cashBySpot since API considers it part of this period
+      unmappedCash[spotId] = (unmappedCash[spotId] || 0) + payedSum;
     }
   }
 
@@ -816,27 +820,30 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     let dayTxCount = 0;
 
     for (const tx of dayTxs) {
-      const products = tx.products || [];
-      if (products.length === 0) continue;
       const spotId = String(tx.spot_id || "");
-      if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
+      const payedSum = Number(tx.payed_sum || tx.sum || 0);
+
+      // Cash counted for ALL transactions with payed_sum > 0
       if (!dayTxBySpot[spotId]) dayTxBySpot[spotId] = 0;
       dayTxBySpot[spotId]++;
       dayTxCount++;
+      dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + payedSum;
 
-      // Poster "Оплачено" = tx.payed_sum
-      dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + Number(tx.payed_sum || tx.sum || 0);
-
-      for (const it of products) {
-        const pid = String(it.product_id);
-        const mid = String(it.modification_id || 0);
-        const name = menu[`${pid}:${mid}`] || menu[pid] || `Товар #${pid}`;
-        const qty = Number(it.num || 0);
-        const sum = Number(it.payed_sum || it.product_sum || 0);
-        if (!rowsBySpot[spotId][name]) rowsBySpot[spotId][name] = { qty: 0, sum: 0 };
-        const row = rowsBySpot[spotId][name];
-        row.qty += qty;
-        row.sum += sum;
+      // Product rows only for transactions with products
+      const products = tx.products || [];
+      if (products.length > 0) {
+        if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
+        for (const it of products) {
+          const pid = String(it.product_id);
+          const mid = String(it.modification_id || 0);
+          const name = menu[`${pid}:${mid}`] || menu[pid] || `Товар #${pid}`;
+          const qty = Number(it.num || 0);
+          const sum = Number(it.payed_sum || it.product_sum || 0);
+          if (!rowsBySpot[spotId][name]) rowsBySpot[spotId][name] = { qty: 0, sum: 0 };
+          const row = rowsBySpot[spotId][name];
+          row.qty += qty;
+          row.sum += sum;
+        }
       }
     }
 
@@ -860,6 +867,11 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
         row.sum += v.sum;
       }
     }
+  }
+
+  // Add unmapped transactions' cash (cross-month tx without date_open)
+  for (const [spotId, amount] of Object.entries(unmappedCash)) {
+    cashBySpot[spotId] = (cashBySpot[spotId] || 0) + amount;
   }
 
   const rows = buildRows(spots, merged);
