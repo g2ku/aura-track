@@ -244,17 +244,49 @@ function monthToPeriod(monthName, year) {
 
 function parseComparisonPeriods(text) {
   const lower = text.toLowerCase();
+  const now = new Date();
+  const currentYear = now.getFullYear();
 
   // Pattern: "июнь и июль" / "июнь vs июль" / "июнь к июлю" / "июнь сравнению с июлем"
   const sep = /\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;
   const parts = lower.split(sep).map(s => s.trim()).filter(Boolean);
 
-  if (parts.length >= 2) {
-    const yearMatch = text.match(/(\d{4})/);
-    const year = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
-    const p1 = monthToPeriod(parts[0], year);
-    const p2 = monthToPeriod(parts[1], year);
-    if (p1 && p2) return [p1, p2];
+  if (parts.length < 2) return null;
+
+  // Try direct month matching first: "июнь и июль", "июнь 2025 и июнь 2026"
+  function extractYear(part) {
+    const ym = part.match(/(\d{4})/);
+    return ym ? parseInt(ym[1]) : currentYear;
+  }
+
+  const p1 = monthToPeriod(parts[0], extractYear(parts[0]));
+  const p2 = monthToPeriod(parts[1], extractYear(parts[1]));
+  if (p1 && p2) return [p1, p2];
+
+  // "2025 год и 2026 июнь" / "июнь 2025 и 2026" — one part has month, other doesn't
+  // Find which parts have month names and which don't
+  const partMonths = parts.map(part => {
+    for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
+      if (part.includes(prefix)) return monthNum;
+    }
+    return null;
+  });
+
+  const partYears = parts.map(part => extractYear(part));
+
+  // If exactly one part has a month and the other doesn't — use that month for both
+  const monthWithIdx = partMonths.findIndex(m => m !== null);
+  if (monthWithIdx !== -1 && partMonths.filter(m => m !== null).length === 1) {
+    const sharedMonth = partMonths[monthWithIdx];
+    const results = parts.map((_, i) => {
+      const year = partYears[i];
+      const lastDay = new Date(year, sharedMonth, 0).getDate();
+      return {
+        from: `${year}-${String(sharedMonth).padStart(2, "0")}-01`,
+        to: `${year}-${String(sharedMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+      };
+    });
+    return results;
   }
 
   return null;
