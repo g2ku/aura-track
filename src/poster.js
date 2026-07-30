@@ -29,7 +29,7 @@ const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v12";
+const CACHE_KEY = "supply-track.poster.salesByDay.v13";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
@@ -53,37 +53,13 @@ export function toPosterDate(input) {
   return `${m[1]}${m[2].padStart(2, "0")}${m[3].padStart(2, "0")}`;
 }
 
-// ─── Кассы филиалов через establishments.getEstablishments ───────────────
-// Использует тот же API что и страница "Заведения" в Poster
-
-const ESTABLISHMENTS_CACHE_KEY = "supply-track.poster.establishments.v1";
-
-export async function fetchEstablishmentsSummary(dateFrom, dateTo, opts = {}) {
-  const fromP = toPosterDate(dateFrom);
-  const toP = toPosterDate(dateTo);
-  if (!fromP || !toP) return null;
-
-  // Try establishments.getEstablishments with date params
-  try {
-    const data = await call("establishments.getEstablishments", {
-      date_from: fromP,
-      date_to: toP,
-    }, opts);
-    console.log("[poster] establishments.getEstablishments:", JSON.stringify(data?.response).slice(0, 500));
-    return data?.response;
-  } catch (e) {
-    console.warn("[poster] establishments.getEstablishments failed:", e.message);
-  }
-
-  return null;
-}
 
 export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
   const result = await fetchPosterSales(dateFrom, dateTo, opts);
   console.log("[poster] fetchCashBySpot rows:", result.rows?.length, "days:", result.daysCount, "tx:", result.transactionsCount);
   const bySpot = {};
 
-  // Use tx.sum-based cashBySpot (transaction-level totals) — matches Poster's "Оплачено"
+  // Use tx.payed_sum-based cashBySpot — matches Poster's "Оплачено" exactly
   const cashBySpot = result.cashBySpot || {};
   const spotNames = {};
   for (const row of result.rows) {
@@ -569,7 +545,8 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
   const cashBySpot = {};
   let transactionsCount = 0;
   for (const tx of allData) {
-    if (tx.status !== 1 && tx.status !== "1") continue;
+    const payedSum = Number(tx.payed_sum || tx.sum || 0);
+    if (payedSum === 0) continue;
     const products = tx.products || [];
     if (products.length === 0) continue;
     transactionsCount++;
@@ -578,7 +555,7 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
     if (!txBySpot[spotId]) txBySpot[spotId] = 0;
     txBySpot[spotId]++;
 
-    cashBySpot[spotId] = (cashBySpot[spotId] || 0) + (Number(tx.sum || 0) - Number(tx.discount || 0));
+    cashBySpot[spotId] = (cashBySpot[spotId] || 0) + payedSum;
 
     const productMap = rowsBySpot[spotId];
     for (const it of products) {
@@ -646,6 +623,8 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
   opts.onProgress?.({ done: 1, total: 1 });
 
   for (const tx of allData) {
+    const payedSum = Number(tx.payed_sum || tx.sum || 0);
+    if (payedSum === 0) continue;
     transactionsCount++;
     const spotId = String(tx.spot_id || "");
     const spot = spots[spotId] || {};
@@ -670,7 +649,7 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
       waiter: tx.waiter_name || tx.employee_name || "",
       dateOpen: tx.date_open || "",
       dateClose: tx.date_close || "",
-      sum: totalSum || Number(tx.sum || 0),
+      sum: payedSum,
       discount,
       profit,
       status: isOpen ? "open" : "closed",
@@ -778,11 +757,12 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   // Разбиваем по дням и кэшируем каждый день отдельно
   const byDay = {};
   for (const yyyymmdd of days) byDay[yyyymmdd] = [];
-  // Считаем транзакции — только закрытые (status=1), как Poster "Заведения"
+  // Считаем транзакции — исключаем с payed_sum=0 (Poster не считает их чеками)
   const allTxBySpot = {};
   let allTxCount = 0;
   for (const tx of allData) {
-    if (tx.status !== 1 && tx.status !== "1") continue;
+    const payedSum = Number(tx.payed_sum || tx.sum || 0);
+    if (payedSum === 0) continue;
     const spotId = String(tx.spot_id || "");
     allTxCount++;
     allTxBySpot[spotId] = (allTxBySpot[spotId] || 0) + 1;
@@ -844,10 +824,8 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       dayTxBySpot[spotId]++;
       dayTxCount++;
 
-      // Poster "Оплачено" = tx.sum - tx.discount
-      const txSum = Number(tx.sum || 0);
-      const txDiscount = Number(tx.discount || 0);
-      dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + (txSum - txDiscount);
+      // Poster "Оплачено" = tx.payed_sum
+      dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + Number(tx.payed_sum || tx.sum || 0);
 
       for (const it of products) {
         const pid = String(it.product_id);
