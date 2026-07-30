@@ -29,7 +29,7 @@ const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v8";
+const CACHE_KEY = "supply-track.poster.salesByDay.v9";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
@@ -556,7 +556,10 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
     if (!txBySpot[spotId]) txBySpot[spotId] = 0;
     txBySpot[spotId]++;
 
-    let paidSum = Number(tx.sum || 0);
+    let paidSum = 0;
+    for (const it of products) {
+      paidSum += Number(it.payed_sum || it.product_sum || 0);
+    }
     cashBySpot[spotId] = (cashBySpot[spotId] || 0) + paidSum;
 
     const productMap = rowsBySpot[spotId];
@@ -824,8 +827,12 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       dayTxBySpot[spotId]++;
       dayTxCount++;
 
-      // Poster считает "Оплачено" = tx.sum (сумма транзакции)
-      dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + Number(tx.sum || 0);
+      // Poster "Оплачено" = сумма payed_sum по всем товарам чека (после скидок)
+      let dayPaid = 0;
+      for (const it of products) {
+        dayPaid += Number(it.payed_sum || it.product_sum || 0);
+      }
+      dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + dayPaid;
 
       for (const it of products) {
         const pid = String(it.product_id);

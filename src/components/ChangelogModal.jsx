@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 
-const CURRENT_VERSION = "1.5.3";
+const CURRENT_VERSION = "1.5.4";
 const STORAGE_KEY = "aura-track:last-seen-v3";
 
 const ENTRIES = [
