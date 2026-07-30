@@ -122,23 +122,34 @@ function parsePeriod(text) {
     }
   }
 
-  // "за июнь 2026" / "в июне" / "за июнь"
-  for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
-    if (text.includes(prefix)) {
-      const yearMatch = text.match(/(\d{4})/);
-      const year = yearMatch ? parseInt(yearMatch[1]) : currentYear;
-      const lastDay = new Date(year, monthNum, 0).getDate();
+  // "за июнь 2026" / "в июне" / "за июнь" — but only if NOT a day+month pattern
+  // First check for "N días/дня/день назад" — BEFORE month names
+  const daysAgoMatch = text.match(/(\d+)\s*(?:дн[а-я]*\s*(?:назад|тому))/);
+  if (daysAgoMatch) {
+    const n = parseInt(daysAgoMatch[1]);
+    const d = new Date(now.getTime() - n * 86400000);
+    return { from: fmtDate(d), to: fmtDate(d) };
+  }
+
+  // "28 июля" / "15 июня" — day + month pattern
+  const dayMonthMatch = text.match(/(\d{1,2})\s+(январ|феврал|март|апрел|ма[яйе]|июн[а-яе]*|июл[а-яе]*|август[а-яе]*|сентябр[а-яе]*|октябр[а-яе]*|ноябр[а-яе]*|декабр[а-яе]*)/);
+  if (dayMonthMatch) {
+    const day = parseInt(dayMonthMatch[1]);
+    const monthNum = findMonth(dayMonthMatch[2]);
+    const yearMatch = text.match(/(\d{4})/);
+    const year = yearMatch ? parseInt(yearMatch[1]) : currentYear;
+    if (monthNum) {
       return {
-        from: `${year}-${String(monthNum).padStart(2, "0")}-01`,
-        to: `${year}-${String(monthNum).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+        from: `${year}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+        to: `${year}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
       };
     }
   }
 
-  // "за неделю"
+  // "за неделю" / "за последнюю неделю" — BEFORE month names
   if (text.includes("недел")) {
     const to = fmtDate(now);
-    const from = new Date(now.getTime() - 7 * 86400000);
+    const from = new Date(now.getTime() - 6 * 86400000);
     return { from: fmtDate(from), to };
   }
 
@@ -177,6 +188,19 @@ function parsePeriod(text) {
   // "за год"
   if (text.includes("за год") || text.includes("за весь год")) {
     return { from: `${currentYear}-01-01`, to: `${currentYear}-12-31` };
+  }
+
+  // "за июнь 2026" / "в июне" / "за июнь"
+  for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
+    if (text.includes(prefix)) {
+      const yearMatch = text.match(/(\d{4})/);
+      const year = yearMatch ? parseInt(yearMatch[1]) : currentYear;
+      const lastDay = new Date(year, monthNum, 0).getDate();
+      return {
+        from: `${year}-${String(monthNum).padStart(2, "0")}-01`,
+        to: `${year}-${String(monthNum).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+      };
+    }
   }
 
   // Default: текущий месяц
@@ -276,8 +300,9 @@ const NON_PRODUCT_WORDS = new Set([
   "чек", "чеки", "чеков", "чекам", "касса", "кассу", "кассы", "налог", "налога",
   "выручка", "выручку", "прибыль", "процент", "процентов", "упал", "вырос",
   "изменилась", "изменился", "динамика", "рост", "снижение", "все", "всех",
-  "всего", "филиал", "филиалы", "итого", "средн", "средний", "средняя",
+  "всего", "филиал", "филиалы", "филиалам", "итого", "средн", "средний", "средняя",
   "максимум", "минимум", "сравнение", "сравнить", "товар", "товары",
+  "по филиалам", "по филиала",
 ]);
 
 // ─── Парсинг операции ─────────────────────────────────────────────

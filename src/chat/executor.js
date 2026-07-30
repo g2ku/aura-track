@@ -39,12 +39,28 @@ function isAll(spot) {
 
 function formatPeriodLabel(period) {
   if (!period) return "";
-  const from = new Date(period.from);
-  const to = new Date(period.to);
-  if (from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear()) {
+  const from = new Date(period.from + "T00:00:00");
+  const to = new Date(period.to + "T00:00:00");
+  const diffDays = Math.round((to - from) / 86400000) + 1;
+
+  // Single day
+  if (diffDays === 1) {
+    return from.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  }
+  // Short range (up to 14 days)
+  if (diffDays <= 14) {
+    const f = from.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    const t = to.toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+    return `${f} — ${t} (${diffDays} дн.)`;
+  }
+  // Full month
+  if (from.getDate() === 1 && to.getDate() === new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate()) {
     return from.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
   }
-  return `${from.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })} — ${to.toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" })}`;
+  // Other ranges
+  const f = from.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  const t = to.toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+  return `${f} — ${t}`;
 }
 
 function pctChange(a, b) {
@@ -290,7 +306,12 @@ async function handleAvgCheck(operation, spot, period) {
 
 async function handleProducts(operation, spot, period, productName) {
   const data = await fetchPosterSales(period.from, period.to);
+  const pl = formatPeriodLabel(period);
 
+  // If asking for per-branch breakdown (or no specific product)
+  const wantBySpot = !productName || /по\s*филиалам/i.test(period?.raw || "");
+
+  // Group by product (filtered by spot)
   const productMap = {};
   for (const row of data.rows) {
     if (!matchesRowSpot(row, spot)) continue;
@@ -300,14 +321,48 @@ async function handleProducts(operation, spot, period, productName) {
     productMap[name].sum += row.sum || 0;
   }
 
+  // Group by spot+product for per-branch view
+  const spotProductMap = {};
+  for (const row of data.rows) {
+    if (productName && !row.productName.toLowerCase().includes(productName.toLowerCase())) continue;
+    const sid = row.spotId;
+    const sname = row.spotName || sid;
+    if (!spotProductMap[sid]) spotProductMap[sid] = { spotName: sname, products: {} };
+    const pm = spotProductMap[sid].products;
+    const name = row.productName;
+    if (!pm[name]) pm[name] = { name, qty: 0, sum: 0 };
+    pm[name].qty += row.qty || 0;
+    pm[name].sum += row.sum || 0;
+  }
+
   const products = Object.values(productMap);
-  const pl = formatPeriodLabel(period);
 
   if (productName) {
     const matches = products.filter(p => p.name.toLowerCase().includes(productName.toLowerCase()));
     if (matches.length === 0) return { text: `Товар «${productName}» не найден за ${pl}.`, data: null };
-    const lines = matches.map(p => `• ${p.name}: ${p.qty} шт. на ${fmt(p.sum)}`).join("\n");
-    return { text: `Продажи «${productName}» за ${pl}:\n${lines}`, data: matches };
+
+    // Per-branch breakdown
+    const bySpot = Object.values(spotProductMap)
+      .map(s => {
+        const pMatches = Object.values(s.products).filter(p => p.name.toLowerCase().includes(productName.toLowerCase()));
+        const total = pMatches.reduce((acc, p) => acc + p.qty, 0);
+        const sum = pMatches.reduce((acc, p) => acc + p.sum, 0);
+        return { spotName: s.spotName, qty: total, sum, products: pMatches };
+      })
+      .filter(s => s.qty > 0)
+      .sort((a, b) => b.sum - a.sum);
+
+    const allQty = matches.reduce((s, p) => s + p.qty, 0);
+    const allSum = matches.reduce((s, p) => s + p.sum, 0);
+
+    // Show all variants
+    const variantLines = matches.map(p => `  ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
+
+    // Per-branch totals
+    const branchLines = bySpot.map(s => `• ${s.spotName}: ${s.qty} шт. / ${fmt(s.sum)}`).join("\n");
+
+    const text = `Продажи «${productName}» за ${pl}:\n\nВарианты:\n${variantLines}\n\nИтого: ${allQty} шт. / ${fmt(allSum)}\n\nПо филиалам:\n${branchLines}`;
+    return { text, data: { matches, bySpot } };
   }
 
   products.sort((a, b) => b.sum - a.sum);
