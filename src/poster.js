@@ -546,8 +546,6 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
   const cashBySpot = {};
   let transactionsCount = 0;
   for (const tx of allData) {
-    const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
-    if (isOpen) continue;
     const products = tx.products || [];
     if (products.length === 0) continue;
     transactionsCount++;
@@ -760,15 +758,12 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   // Разбиваем по дням и кэшируем каждый день отдельно
   const byDay = {};
   for (const yyyymmdd of days) byDay[yyyymmdd] = [];
-  // Считаем ВСЕ транзакции (включая пустые) для чеков
+  // Считаем ВСЕ транзакции для чеков (Poster включает открытые)
   const allTxBySpot = {};
   let allTxCount = 0;
   for (const tx of allData) {
-    // Poster "Кассы" считает только закрытые транзакции
-    const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
-    if (isOpen) continue;
     const spotId = String(tx.spot_id || "");
-    const dateStr = (tx.date_close || tx.date_open || "").slice(0, 10).replace(/-/g, "");
+    const dateStr = (tx.date_open || tx.date_close || "").slice(0, 10).replace(/-/g, "");
     if (tx.products && tx.products.length > 0) {
       if (byDay[dateStr]) byDay[dateStr].push(tx);
     }
