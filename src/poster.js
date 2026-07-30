@@ -29,7 +29,7 @@ const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v6";
+const CACHE_KEY = "supply-track.poster.salesByDay.v8";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
@@ -293,11 +293,9 @@ export function getCachedCashBySpot(dateFrom, dateTo) {
     for (const yyyymmdd of days) {
       const entry = readCache()[yyyymmdd];
       if (!entry) continue;
-      for (const [spotId, productMap] of Object.entries(entry.rowsBySpot || {})) {
+      for (const [spotId, total] of Object.entries(entry.cashBySpot || {})) {
         if (!bySpot[spotId]) bySpot[spotId] = { spotId, spotName: spots[spotId]?.name || `Филиал #${spotId}`, total: 0, txCount: 0 };
-        for (const v of Object.values(productMap)) {
-          bySpot[spotId].total += v.sum || 0;
-        }
+        bySpot[spotId].total += total;
       }
       for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
         if (bySpot[spotId]) bySpot[spotId].txCount += count;
@@ -341,15 +339,20 @@ export function prefetchCashBySpot(dateFrom, dateTo, opts = {}) {
 
   prefetchInFlight = fetchPosterSales(dateFrom, dateTo, opts)
     .then((result) => {
-      // Агрегируем по филиалам
+      // Агрегируем по филиалам через cashBySpot (payment-based)
       const bySpot = {};
+      const spotNames = {};
       for (const row of result.rows) {
-        const sid = row.spotId;
-        if (!bySpot[sid]) bySpot[sid] = { spotId: sid, spotName: row.spotName, total: 0, txCount: 0 };
-        bySpot[sid].total += row.sum || 0;
+        spotNames[row.spotId] = row.spotName;
+      }
+      for (const [spotId, total] of Object.entries(result.cashBySpot || {})) {
+        bySpot[spotId] = { spotId, spotName: spotNames[spotId] || `Филиал #${spotId}`, total, txCount: 0 };
       }
       for (const [spotId, count] of Object.entries(result.txBySpot || {})) {
-        if (bySpot[spotId]) bySpot[spotId].txCount = count;
+        if (!bySpot[spotId]) {
+          bySpot[spotId] = { spotId, spotName: spotNames[spotId] || `Филиал #${spotId}`, total: 0, txCount: 0 };
+        }
+        bySpot[spotId].txCount = count;
       }
       const daysCount = result.daysCount || 1;
       for (const v of Object.values(bySpot)) {
@@ -540,8 +543,11 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
   // Агрегируем по филиалам и товарам.
   const rowsBySpot = {};
   const txBySpot = {};
+  const cashBySpot = {};
   let transactionsCount = 0;
   for (const tx of allData) {
+    const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
+    if (isOpen) continue;
     const products = tx.products || [];
     if (products.length === 0) continue;
     transactionsCount++;
@@ -549,6 +555,10 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
     if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
     if (!txBySpot[spotId]) txBySpot[spotId] = 0;
     txBySpot[spotId]++;
+
+    let paidSum = Number(tx.sum || 0);
+    cashBySpot[spotId] = (cashBySpot[spotId] || 0) + paidSum;
+
     const productMap = rowsBySpot[spotId];
     for (const it of products) {
       const pid = String(it.product_id);
@@ -563,7 +573,7 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
     }
   }
 
-  const payload = { rowsBySpot, transactionsCount, txBySpot };
+  const payload = { rowsBySpot, transactionsCount, txBySpot, cashBySpot };
   setCachedDay(yyyymmdd, payload);
   return { ...payload, fromCache: false };
 }
@@ -747,9 +757,22 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   // Разбиваем по дням и кэшируем каждый день отдельно
   const byDay = {};
   for (const yyyymmdd of days) byDay[yyyymmdd] = [];
+  // Считаем ВСЕ транзакции (включая пустые) для чеков
+  const allTxBySpot = {};
+  let allTxCount = 0;
   for (const tx of allData) {
+    // Poster "Кассы" считает только закрытые транзакции
+    const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
+    if (isOpen) continue;
+    const spotId = String(tx.spot_id || "");
     const dateStr = (tx.date_close || tx.date_open || "").slice(0, 10).replace(/-/g, "");
-    if (byDay[dateStr]) byDay[dateStr].push(tx);
+    if (tx.products && tx.products.length > 0) {
+      if (byDay[dateStr]) byDay[dateStr].push(tx);
+    }
+    if (byDay[dateStr]) {
+      allTxCount++;
+      allTxBySpot[spotId] = (allTxBySpot[spotId] || 0) + 1;
+    }
   }
 
   const merged = new Map();
@@ -757,7 +780,35 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   const txBySpot = {};
   const cashBySpot = {};
 
+  const uncachedSet = new Set(uncachedDays);
+
   for (const yyyymmdd of days) {
+    // Если день уже в кэше — берём оттуда, не перезаписываем
+    if (!uncachedSet.has(yyyymmdd)) {
+      const cached = getCachedDay(yyyymmdd);
+      if (cached) {
+        transactionsCount += cached.transactionsCount || 0;
+        for (const [spotId, count] of Object.entries(cached.txBySpot || {})) {
+          txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
+        }
+        for (const [spotId, amount] of Object.entries(cached.cashBySpot || {})) {
+          cashBySpot[spotId] = (cashBySpot[spotId] || 0) + amount;
+        }
+        for (const [spotId, productMap] of Object.entries(cached.rowsBySpot || {})) {
+          if (!merged.has(spotId)) merged.set(spotId, new Map());
+          const dst = merged.get(spotId);
+          for (const [name, v] of Object.entries(productMap)) {
+            if (!dst.has(name)) dst.set(name, { qty: 0, sum: 0 });
+            const row = dst.get(name);
+            row.qty += v.qty;
+            row.sum += v.sum;
+          }
+        }
+        continue;
+      }
+    }
+
+    // День не в кэше — обрабатываем из allData
     const dayTxs = byDay[yyyymmdd] || [];
     const rowsBySpot = {};
     const dayTxBySpot = {};
@@ -766,12 +817,14 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
 
     for (const tx of dayTxs) {
       const products = tx.products || [];
-      dayTxCount++;
+      if (products.length === 0) continue;
       const spotId = String(tx.spot_id || "");
       if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
       if (!dayTxBySpot[spotId]) dayTxBySpot[spotId] = 0;
       dayTxBySpot[spotId]++;
+      dayTxCount++;
 
+      // Poster считает "Оплачено" = tx.sum (сумма транзакции)
       dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + Number(tx.sum || 0);
 
       for (const it of products) {
@@ -787,7 +840,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       }
     }
 
-    // Кэшируем день
+    // Кэшируем только свежие дни
     setCachedDay(yyyymmdd, { rowsBySpot, transactionsCount: dayTxCount, txBySpot: dayTxBySpot, cashBySpot: dayCashBySpot });
 
     transactionsCount += dayTxCount;
@@ -810,7 +863,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   }
 
   const rows = buildRows(spots, merged);
-  return { rows, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
+  return { rows, transactionsCount: allTxCount, txBySpot: allTxBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
 }
 
 function buildRows(spots, merged) {

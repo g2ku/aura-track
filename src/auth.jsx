@@ -227,6 +227,8 @@ export async function logout() {
 // ─── Экран логина ─────────────────────────────────────────────────────
 
 export function LoginGate({ children }) {
+  if (!isFirebaseConfigured()) return children;
+
   const { auth, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

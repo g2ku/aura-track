@@ -40,6 +40,7 @@ const GROUPS = [
     label: "Poster",
     items: [
       { id: "poster", path: "/poster", icon: "ti-building-store", label: "Poster API" },
+      { id: "chat", path: "/chat", icon: "ti-message-chatbot", label: "Ассистент" },
     ],
   },
   {

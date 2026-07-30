@@ -163,6 +163,9 @@ export function useRouteContent({
   } else if (p === "/admin/ip-groups" && isAdmin()) {
     const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
     content = <IPGroupsAdmin />;
+  } else if (p === "/chat") {
+    const DataChat = lazy(() => import("../components/DataChat"));
+    content = <DataChat />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }

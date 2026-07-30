@@ -1,8 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-// Poster API token — подставляется серверно, не попадает в бандл
-const POSTER_TOKEN = process.env.VITE_POSTER_TOKEN || "";
+// Читаем .env вручную (dotenv не установлен)
+let token = "";
+try {
+  const env = readFileSync(resolve(".env"), "utf-8");
+  const m = env.match(/^VITE_POSTER_TOKEN\s*=\s*(.+)$/m);
+  if (m) token = m[1].trim();
+} catch (_) {}
 
 // Плагин: проксирует /api/poster/* → joinposter.com/api/* с серверной подстановкой токена
 function posterProxyPlugin() {
@@ -10,7 +17,7 @@ function posterProxyPlugin() {
     name: "poster-proxy",
     configureServer(server) {
       server.middlewares.use("/api/poster", (req, res) => {
-        if (!POSTER_TOKEN) {
+        if (!token) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: { message: "VITE_POSTER_TOKEN not set in .env" } }));
           return;
@@ -21,7 +28,7 @@ function posterProxyPlugin() {
 
         // Добавляем токен к URL
         const url = new URL(targetUrl);
-        url.searchParams.set("token", POSTER_TOKEN);
+        url.searchParams.set("token", token);
 
         import("node:https").then(({ default: https }) => {
           const proxyReq = https.request(
