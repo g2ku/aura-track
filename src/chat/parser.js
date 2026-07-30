@@ -253,19 +253,14 @@ function parseSpot(text) {
 
 // ─── Парсинг метрики ──────────────────────────────────────────────
 
-function parseMetric(text) {
+function parseMetric(text, product) {
   const lower = text.toLowerCase();
-  // Check products FIRST — "продажи латте", "сколько O2", "товар X"
-  const productIndicators = ["продаж", "продали", "продан", "сколько.*за", "сколько.*в", "сколько.*на"];
-  const hasProductIntent = productIndicators.some(k => lower.includes(k)) && parseProduct(text);
-  if (hasProductIntent) {
-    // If there's a specific product mentioned, metric is products
-    const productWords = ["товар", "напиток", "продукт", "позици"];
-    const hasProductWord = productWords.some(k => lower.includes(k));
-    if (hasProductWord) return "products";
-    // "сколько латте", "продажи O2" — likely asking for product sales
-    const afterWord = lower.match(/(?:продаж|продали|продан)\s+/);
-    if (afterWord) return "products";
+  // If product was detected, default to products (unless explicit metric keyword overrides)
+  if (product) {
+    // "продажи латте", "сколько O2", "латте за июнь" — all product queries
+    const hasSaleWord = /(?:продаж|продали|продан|сколько|было|был)/.test(lower);
+    const explicitMetric = METRICS.some(m => m.value !== "products" && m.keys.some(k => lower.includes(k)));
+    if (hasSaleWord || !explicitMetric) return "products";
   }
   for (const m of METRICS) {
     for (const key of m.keys) {
@@ -352,27 +347,27 @@ export function parseQuestion(text) {
   if (!text || !text.trim()) return null;
 
   const lower = text.toLowerCase();
+  const product = parseProduct(text);
 
   // Check for comparison between two periods first
   const compPeriods = parseComparisonPeriods(lower);
   if (compPeriods) {
     const spot = parseSpot(text);
     return {
-      metric: parseMetric(text),
+      metric: parseMetric(text, product),
       operation: "percentChange",
       spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
       period: compPeriods[0],
       period2: compPeriods[1],
-      product: parseProduct(text),
+      product,
       raw: text,
     };
   }
 
-  const metric = parseMetric(text);
+  const metric = parseMetric(text, product);
   const operation = parseOperation(text);
   const spot = parseSpot(text);
   const period = parsePeriod(text);
-  const product = parseProduct(text);
 
   return {
     metric,

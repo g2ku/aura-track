@@ -3056,10 +3056,10 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .chat-container {
   display: flex;
   flex-direction: column;
-  max-width: 720px;
-  height: calc(100vh - 100px);
-  max-height: 700px;
+  max-width: 900px;
+  height: calc(100vh - 48px);
   margin: 0 auto;
+  position: relative;
 }
 
 .chat-header {
@@ -3126,16 +3126,48 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   color: var(--text-muted);
 }
 
+.chat-suggestions-wrap {
+  flex-shrink: 0;
+  position: relative;
+}
+
 .chat-suggestions {
   flex-shrink: 0;
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding: 8px 4px;
+  padding: 8px 28px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  scroll-behavior: smooth;
 }
 .chat-suggestions::-webkit-scrollbar { display: none; }
+
+.chat-sug-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card, var(--bg));
+  color: var(--text-secondary, var(--text));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+.chat-sug-arrow:hover {
+  background: var(--bg-elevated, rgba(255,255,255,0.08));
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+.chat-sug-arrow-left { left: 2px; }
+.chat-sug-arrow-right { right: 2px; }
 
 .chat-suggestion-btn {
   flex-shrink: 0;

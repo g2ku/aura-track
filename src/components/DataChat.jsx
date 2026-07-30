@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { parseQuestion, describeParsed } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
 
@@ -18,8 +18,11 @@ export default function DataChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
+  const sugRef = useRef(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -28,6 +31,31 @@ export default function DataChat() {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  const checkScroll = useCallback(() => {
+    const el = sugRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    const el = sugRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    window.addEventListener("resize", checkScroll);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [checkScroll]);
+
+  function scrollSuggestions(dir) {
+    const el = sugRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * 200, behavior: "smooth" });
+  }
 
   async function handleSend(text) {
     const q = (text || input).trim();
@@ -118,17 +146,29 @@ export default function DataChat() {
         <div ref={endRef} />
       </div>
 
-      {/* Suggestions — always visible */}
-      <div className="chat-suggestions">
-        {EXAMPLES.map(ex => (
-          <button
-            key={ex}
-            className="chat-suggestion-btn"
-            onClick={() => handleSend(ex)}
-          >
-            {ex}
+      {/* Suggestions with scroll arrows */}
+      <div className="chat-suggestions-wrap">
+        {canScrollLeft && (
+          <button className="chat-sug-arrow chat-sug-arrow-left" onClick={() => scrollSuggestions(-1)}>
+            <i className="ti ti-chevron-left" />
           </button>
-        ))}
+        )}
+        <div className="chat-suggestions" ref={sugRef}>
+          {EXAMPLES.map(ex => (
+            <button
+              key={ex}
+              className="chat-suggestion-btn"
+              onClick={() => handleSend(ex)}
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
+        {canScrollRight && (
+          <button className="chat-sug-arrow chat-sug-arrow-right" onClick={() => scrollSuggestions(1)}>
+            <i className="ti ti-chevron-right" />
+          </button>
+        )}
       </div>
 
       {/* Input */}
