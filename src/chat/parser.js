@@ -1,11 +1,4 @@
 // chat/parser.js — парсер естественных вопросов о данных.
-//
-// Извлекает из текста:
-//   - метрику (касса, чеки, средний чек, товары)
-//   - филиал (Гагарина, Дубай, все)
-//   - период (за июнь, за неделю, с 1 по 15 июля, текущий месяц)
-//   - операцию (среднее, сумма, максимум, минимум, количество)
-//   - товар (латте, капучино)
 
 import { BRANCHES } from "../auth.jsx";
 
@@ -13,8 +6,8 @@ import { BRANCHES } from "../auth.jsx";
 
 const METRICS = [
   { keys: ["касса", "кассу", "кассы", "выручка", "выручку", "выручки", "деньги", "средств"], value: "cash" },
+  { keys: ["средний чек", "средняя сумма"], value: "avgCheck" },
   { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж"], value: "checks" },
-  { keys: ["средний чек", "средняя сумма", "средний чек"], value: "avgCheck" },
   { keys: ["товар", "товары", "товаров", "позици", "меню", "напитк", "продукт"], value: "products" },
   { keys: ["прибыль", "прибылью", "профит"], value: "profit" },
   { keys: ["налог", "налога", "налоги"], value: "tax" },
@@ -27,10 +20,10 @@ const OPERATIONS = [
   { keys: ["максимум", "максимальн", "больше всего", "самый большой", "топ", "лучш"], value: "max" },
   { keys: ["минимум", "минимальн", "меньше всего", "самый маленьк"], value: "min" },
   { keys: ["сравн", "сравнить", "разниц", "отлич"], value: "compare" },
+  { keys: ["измени", "вырос", "упал", "изменилась", "изменился", "рост", "снижение", "динамик"], value: "percentChange" },
 ];
 
-// Сpot aliases (user-friendly → branchId for filtering)
-// spotId = Poster numeric ID, branchId = internal Latin ID
+// Spot aliases
 const SPOT_ALIASES = {};
 const SPOT_MAP = [
   { keys: ["гагарина", "гагарину", "гагарине"], branchId: "Aura02_Gagarina", spotId: "1", posterName: "Gagarina" },
@@ -43,7 +36,6 @@ const SPOT_MAP = [
   { keys: ["абая", "абаю"], branchId: "Aura02_Abaya", spotId: "4", posterName: "Abaya" },
 ];
 
-// Also add Latin branch names
 for (const [id, cfg] of Object.entries(BRANCHES)) {
   SPOT_MAP.push({ keys: [cfg.spotName.toLowerCase(), id.toLowerCase()], branchId: id, spotId: cfg.spotId, posterName: id.replace("Aura02_", "") });
 }
@@ -58,6 +50,49 @@ SPOT_ALIASES["всех"] = "all";
 SPOT_ALIASES["все филиалы"] = "all";
 SPOT_ALIASES["все точки"] = "all";
 
+// ─── Product aliases (user short names → Poster product names) ───
+
+const PRODUCT_ALIASES = {
+  "o2": "спешл",
+  "о2": "спешл",
+  "о-2": "спешл",
+  "о 2": "спешл",
+  "спешл": "спешл",
+  "спеціал": "спешл",
+  "спец": "спешл",
+  "латте": "латте",
+  "лте": "латте",
+  "капучино": "капучино",
+  "капуч": "капучино",
+  "американо": "американо",
+  "амер": "американо",
+  "раф": "раф",
+  "рафф": "раф",
+  "мокко": "мокко",
+  "моко": "мокко",
+  "фрапучино": "фрапучино",
+  "фрап": "фрапучино",
+  "матча": "матча",
+  "матч": "матча",
+  "маттча": "матча",
+  "matcha": "матча",
+  "бамбл": "бамбл",
+  "bambl": "бамбл",
+  "голубик": "голубик",
+  "лимонад": "лимонад",
+  "смузи": "смузи",
+  "smoothie": "смузи",
+  "милкшейк": "милкшейк",
+  "milkshake": "милкшейк",
+  "чай": "чай",
+  "эспрессо тоник": "эспрессо тоник",
+  "тоник": "тоник",
+  "горячий шоколад": "горячий шоколад",
+  "шоколад": "горячий шоколад",
+  "облепиха": "облепиха",
+  "рябина": "рябина",
+};
+
 const MONTH_NAMES = {
   "январ": 1, "феврал": 2, "март": 3, "апрел": 4,
   "ма": 5, "июн": 6, "июл": 7, "август": 8,
@@ -71,7 +106,7 @@ function parsePeriod(text) {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
 
-  // "с 1 по 15 июля" / "с 1.07 по 15.07" / "с 1 июля по 15 июля"
+  // "с 1 по 15 июля"
   const rangeMatch = text.match(/с\s+(\d{1,2})\s*(?:\.(\d{1,2}))?\s*(?:\.(\d{4}))?\s+по\s+(\d{1,2})\s*(?:\.(\d{1,2}))?\s*(?:\.(\d{4}))?/);
   if (rangeMatch) {
     const [, d1, m1, y1, d2, m2, y2] = rangeMatch;
@@ -90,7 +125,6 @@ function parsePeriod(text) {
   // "за июнь 2026" / "в июне" / "за июнь"
   for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
     if (text.includes(prefix)) {
-      // Проверяем год в тексте
       const yearMatch = text.match(/(\d{4})/);
       const year = yearMatch ? parseInt(yearMatch[1]) : currentYear;
       const lastDay = new Date(year, monthNum, 0).getDate();
@@ -101,7 +135,7 @@ function parsePeriod(text) {
     }
   }
 
-  // "за неделю" / "за последнюю неделю"
+  // "за неделю"
   if (text.includes("недел")) {
     const to = fmtDate(now);
     const from = new Date(now.getTime() - 7 * 86400000);
@@ -119,7 +153,7 @@ function parsePeriod(text) {
     return { from: fmtDate(yesterday), to: fmtDate(yesterday) };
   }
 
-  // "за текущий месяц" / "этот месяц"
+  // "за текущий месяц"
   if (text.includes("текущий месяц") || text.includes("этот месяц") || text.includes("этого месяца")) {
     const lastDay = new Date(currentYear, currentMonth, 0).getDate();
     return {
@@ -128,7 +162,7 @@ function parsePeriod(text) {
     };
   }
 
-  // "за квартал" / "текущий квартал"
+  // "за квартал"
   if (text.includes("квартал")) {
     const quarter = Math.ceil(currentMonth / 3);
     const qStart = (quarter - 1) * 3 + 1;
@@ -140,7 +174,7 @@ function parsePeriod(text) {
     };
   }
 
-  // "за год" / "за 2026"
+  // "за год"
   if (text.includes("за год") || text.includes("за весь год")) {
     return { from: `${currentYear}-01-01`, to: `${currentYear}-12-31` };
   }
@@ -164,6 +198,44 @@ function fmtDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// ─── Parse a single month reference and return period ────────────
+
+function monthToPeriod(monthName, year) {
+  const now = new Date();
+  const currentYear = year || now.getFullYear();
+  for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
+    if (monthName.includes(prefix)) {
+      const lastDay = new Date(currentYear, monthNum, 0).getDate();
+      return {
+        from: `${currentYear}-${String(monthNum).padStart(2, "0")}-01`,
+        to: `${currentYear}-${String(monthNum).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+        label: monthName.trim(),
+      };
+    }
+  }
+  return null;
+}
+
+// ─── Parse two periods for comparison ─────────────────────────────
+
+function parseComparisonPeriods(text) {
+  const lower = text.toLowerCase();
+
+  // Pattern: "июнь и июль" / "июнь vs июль" / "июнь к июлю" / "июнь сравнению с июлем"
+  const sep = /\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;
+  const parts = lower.split(sep).map(s => s.trim()).filter(Boolean);
+
+  if (parts.length >= 2) {
+    const yearMatch = text.match(/(\d{4})/);
+    const year = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
+    const p1 = monthToPeriod(parts[0], year);
+    const p2 = monthToPeriod(parts[1], year);
+    if (p1 && p2) return [p1, p2];
+  }
+
+  return null;
+}
+
 // ─── Парсинг филиала ──────────────────────────────────────────────
 
 function parseSpot(text) {
@@ -176,22 +248,42 @@ function parseSpot(text) {
       bestLen = alias.length;
     }
   }
-  return bestMatch; // { branchId, spotId, posterName } or "all" or null
+  return bestMatch;
 }
 
 // ─── Парсинг метрики ──────────────────────────────────────────────
 
 function parseMetric(text) {
   const lower = text.toLowerCase();
+  // Check products FIRST — "продажи латте", "сколько O2", "товар X"
+  const productIndicators = ["продаж", "продали", "продан", "сколько.*за", "сколько.*в", "сколько.*на"];
+  const hasProductIntent = productIndicators.some(k => lower.includes(k)) && parseProduct(text);
+  if (hasProductIntent) {
+    // If there's a specific product mentioned, metric is products
+    const productWords = ["товар", "напиток", "продукт", "позици"];
+    const hasProductWord = productWords.some(k => lower.includes(k));
+    if (hasProductWord) return "products";
+    // "сколько латте", "продажи O2" — likely asking for product sales
+    const afterWord = lower.match(/(?:продаж|продали|продан)\s+/);
+    if (afterWord) return "products";
+  }
   for (const m of METRICS) {
     for (const key of m.keys) {
       if (lower.includes(key)) return m.value;
     }
   }
-  // Если упомянуты числа/деньги — по умолчанию касса
   if (lower.match(/\d+\s*₸|\d+\s*тенге|₽|dollars?/i)) return "cash";
-  return "cash"; // default
+  return "cash";
 }
+
+// Words that should NOT be parsed as products
+const NON_PRODUCT_WORDS = new Set([
+  "чек", "чеки", "чеков", "чекам", "касса", "кассу", "кассы", "налог", "налога",
+  "выручка", "выручку", "прибыль", "процент", "процентов", "упал", "вырос",
+  "изменилась", "изменился", "динамика", "рост", "снижение", "все", "всех",
+  "всего", "филиал", "филиалы", "итого", "средн", "средний", "средняя",
+  "максимум", "минимум", "сравнение", "сравнить", "товар", "товары",
+]);
 
 // ─── Парсинг операции ─────────────────────────────────────────────
 
@@ -202,7 +294,6 @@ function parseOperation(text) {
       if (lower.includes(key)) return op.value;
     }
   }
-  // Default
   return "sum";
 }
 
@@ -210,17 +301,47 @@ function parseOperation(text) {
 
 function parseProduct(text) {
   const lower = text.toLowerCase();
-  // "латте", "капучино", "круассан" и т.д. — после "товар/напиток/продукт" или просто слово
-  const afterWord = lower.match(/(?:товар|напиток|продукт|позици[а-я]*|продал[а-я]*|продаж[а-я]*)\s+["«]?([^"»]+?)["»]?\s*(?:за|в|с|по|$)/);
-  if (afterWord) return afterWord[1].trim();
 
-  // Просто слово после "сколько" — "сколько латте"
-  const afterSkolko = lower.match(/сколько\s+([а-яёa-z\s]+?)(?:\s+за|\s+в|\s+с|\s+по|$)/);
-  if (afterSkolko) return afterSkolko[1].trim();
+  // Check product aliases first
+  for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
+    if (lower.includes(alias)) return canonical;
+  }
 
-  // "продали латте" / "латте за июнь"
+  // "продаж O2 за неделю" / "сколько O2 за июнь"
+  const patterns = [
+    /(?:товар|напиток|продукт|позици[а-я]*|продал[а-я]*|продаж[а-я]*)\s+["«]?([^"»]+?)["»]?\s*(?:за|в|с|по|$)/,
+    /сколько\s+([а-яёa-z\s]+?)(?:\s+за|\s+в|\s+с|\s+по|$)/,
+    /(?:было|был[ао]?)\s+([а-яёa-z]+?)(?:\s+за|\s+в|\s+с|\s+по|\s+за\s)/,
+  ];
+
+  for (const pat of patterns) {
+    const match = lower.match(pat);
+    if (match) {
+      const word = match[1].trim();
+      // Skip if any word in the candidate is a non-product word
+      const words = word.split(/\s+/);
+      if (words.some(w => NON_PRODUCT_WORDS.has(w))) continue;
+      // Check aliases again for the extracted word
+      for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
+        if (word === alias || word.includes(alias)) return canonical;
+      }
+      // Skip short or generic words
+      if (word.length < 2) continue;
+      return word;
+    }
+  }
+
+  // "латте за июнь" — product first
   const productFirst = lower.match(/^([а-яёa-z]+)\s+за\s/);
-  if (productFirst) return productFirst[1].trim();
+  if (productFirst) {
+    const word = productFirst[1].trim();
+    if (!NON_PRODUCT_WORDS.has(word)) {
+      for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
+        if (word === alias) return canonical;
+      }
+      return word;
+    }
+  }
 
   return null;
 }
@@ -229,6 +350,23 @@ function parseProduct(text) {
 
 export function parseQuestion(text) {
   if (!text || !text.trim()) return null;
+
+  const lower = text.toLowerCase();
+
+  // Check for comparison between two periods first
+  const compPeriods = parseComparisonPeriods(lower);
+  if (compPeriods) {
+    const spot = parseSpot(text);
+    return {
+      metric: parseMetric(text),
+      operation: "percentChange",
+      spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
+      period: compPeriods[0],
+      period2: compPeriods[1],
+      product: parseProduct(text),
+      raw: text,
+    };
+  }
 
   const metric = parseMetric(text);
   const operation = parseOperation(text);
@@ -246,7 +384,7 @@ export function parseQuestion(text) {
   };
 }
 
-// ─── Типы вопросов (для отладки) ──────────────────────────────────
+// ─── Debug describe ──────────────────────────────────────────────
 
 export function describeParsed(parsed) {
   if (!parsed) return "Не могу распознать вопрос";
@@ -260,5 +398,6 @@ export function describeParsed(parsed) {
   if (!isAll) parts.push(`Филиал: ${spotText}`);
   if (parsed.product) parts.push(`Товар: ${parsed.product}`);
   parts.push(`Период: ${parsed.period.from} — ${parsed.period.to}`);
+  if (parsed.period2) parts.push(`Период2: ${parsed.period2.from} — ${parsed.period2.to}`);
   return parts.join(" | ");
 }

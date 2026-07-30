@@ -1,19 +1,16 @@
-// DataChat — чат-интерфейс для запросов к данным.
-// Парсит естественные вопросы и отвечает реальными данными из Poster.
-
 import { useState, useRef, useEffect } from "react";
 import { parseQuestion, describeParsed } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
 
 const EXAMPLES = [
   "Средняя касса за июнь",
-  "Сколько чеков в Gagarina за июль",
-  "Топ товаров за месяц",
-  "Средний чек всех филиалов за июнь",
-  "Продажи латте за июнь",
+  "Сколько чеков за июль",
+  "Спешл за неделю",
   "Касса Дубай за июль",
-  "Налог за текущий месяц",
   "Сравнение филиалов за июнь",
+  "Средний чек всех филиалов за июнь",
+  "Как изменилась касса Гагарина июнь к июлю",
+  "Налог за текущий месяц",
 ];
 
 export default function DataChat() {
@@ -26,7 +23,7 @@ export default function DataChat() {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -48,7 +45,7 @@ export default function DataChat() {
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         role: "assistant",
-        text: "Не могу распознать вопрос. Попробуйте:\n• Какая касса за июнь?\n• Сколько чеков в Gagarina?\n• Топ товаров за месяц",
+        text: "Не могу распознать вопрос. Попробуйте:\n• Какая касса за июнь?\n• Сколько чеков в Gagarina?\n• Спешл за неделю",
       }]);
       setLoading(false);
       return;
@@ -74,10 +71,10 @@ export default function DataChat() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 100px)", maxHeight: 700 }}>
+    <div className="chat-container">
       {/* Header */}
-      <div className="card" style={{ padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        <i className="ti ti-message-chatbot" style={{ fontSize: 20, color: "var(--text-accent)" }} />
+      <div className="card chat-header">
+        <i className="ti ti-message-chatbot" style={{ fontSize: 20, color: "var(--text-accent)", flexShrink: 0 }} />
         <div>
           <div style={{ fontWeight: 600, fontSize: 14 }}>Ассистент</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Запросы к данным Poster</div>
@@ -89,72 +86,29 @@ export default function DataChat() {
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 4px" }}>
-        {messages.length === 0 && (
-          <div style={{ padding: 16 }}>
-            <div style={{ textAlign: "center", color: "var(--text-muted)", marginBottom: 16 }}>
-              <i className="ti ti-message-chatbot" style={{ fontSize: 36, display: "block", marginBottom: 8, opacity: 0.4 }} />
-              <div style={{ fontSize: 13 }}>Напишите вопрос о данных</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>Например: «средняя касса за июнь»</div>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
-              {EXAMPLES.map(ex => (
-                <button
-                  key={ex}
-                  className="btn btn-out"
-                  style={{ fontSize: 11, padding: "5px 10px" }}
-                  onClick={() => handleSend(ex)}
-                >
-                  {ex}
-                </button>
-              ))}
-            </div>
+      <div className="chat-messages">
+        {messages.length === 0 && !loading && (
+          <div className="chat-empty">
+            <i className="ti ti-message-chatbot" style={{ fontSize: 36, opacity: 0.3 }} />
+            <div>Напишите вопрос о данных</div>
+            <div style={{ fontSize: 12, marginTop: 2 }}>Например: «средняя касса за июнь»</div>
           </div>
         )}
 
         {messages.map(msg => (
-          <div key={msg.id} style={{
-            display: "flex",
-            justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-            marginBottom: 8,
-          }}>
-            <div style={{
-              maxWidth: "80%",
-              padding: "10px 14px",
-              borderRadius: msg.role === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
-              background: msg.role === "user" ? "var(--text-accent)" : "var(--bg-elevated)",
-              color: msg.role === "user" ? "#fff" : "var(--text-primary)",
-              fontSize: 13,
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-            }}>
+          <div key={msg.id} className={"chat-row " + (msg.role === "user" ? "chat-row-user" : "chat-row-bot")}>
+            <div className={"chat-bubble " + (msg.role === "user" ? "chat-bubble-user" : "chat-bubble-bot")}>
               {msg.text}
               {showDebug && msg.debug && (
-                <div style={{
-                  marginTop: 6,
-                  padding: "4px 8px",
-                  borderRadius: 4,
-                  background: "rgba(0,0,0,0.15)",
-                  fontSize: 10,
-                  fontFamily: "monospace",
-                  color: "var(--text-muted)",
-                }}>
-                  {msg.debug}
-                </div>
+                <div className="chat-debug">{msg.debug}</div>
               )}
             </div>
           </div>
         ))}
 
         {loading && (
-          <div style={{ display: "flex", marginBottom: 8 }}>
-            <div style={{
-              padding: "10px 14px",
-              borderRadius: "12px 12px 12px 4px",
-              background: "var(--bg-elevated)",
-              fontSize: 13,
-              color: "var(--text-muted)",
-            }}>
+          <div className="chat-row chat-row-bot">
+            <div className="chat-bubble chat-bubble-bot">
               <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", marginRight: 6 }} />
               Загрузка…
             </div>
@@ -164,37 +118,38 @@ export default function DataChat() {
         <div ref={endRef} />
       </div>
 
-      {/* Input */}
-      <div style={{ flexShrink: 0, paddingTop: 8 }}>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Напишите вопрос…"
-            disabled={loading}
-            style={{
-              flex: 1,
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid var(--border)",
-              background: "var(--bg-card)",
-              color: "var(--text-primary)",
-              fontSize: 13,
-              outline: "none",
-            }}
-          />
+      {/* Suggestions — always visible */}
+      <div className="chat-suggestions">
+        {EXAMPLES.map(ex => (
           <button
-            className="btn"
-            onClick={() => handleSend()}
-            disabled={loading || !input.trim()}
-            style={{ padding: "10px 16px", borderRadius: 10, fontSize: 14 }}
+            key={ex}
+            className="chat-suggestion-btn"
+            onClick={() => handleSend(ex)}
           >
-            <i className="ti ti-send" />
+            {ex}
           </button>
-        </div>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="chat-input-wrap">
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Напишите вопрос…"
+          disabled={loading}
+          className="chat-input"
+        />
+        <button
+          className="btn chat-send-btn"
+          onClick={() => handleSend()}
+          disabled={loading || !input.trim()}
+        >
+          <i className="ti ti-send" />
+        </button>
       </div>
     </div>
   );

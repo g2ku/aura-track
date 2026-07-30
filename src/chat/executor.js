@@ -38,6 +38,7 @@ function isAll(spot) {
 }
 
 function formatPeriodLabel(period) {
+  if (!period) return "";
   const from = new Date(period.from);
   const to = new Date(period.to);
   if (from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear()) {
@@ -46,14 +47,29 @@ function formatPeriodLabel(period) {
   return `${from.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })} — ${to.toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" })}`;
 }
 
+function pctChange(a, b) {
+  if (!b) return 0;
+  return ((a - b) / Math.abs(b)) * 100;
+}
+
+function changeEmoji(pct) {
+  if (pct > 0) return `📈 +${pct.toFixed(1)}%`;
+  if (pct < 0) return `📉 ${pct.toFixed(1)}%`;
+  return `➡️ 0%`;
+}
+
 // ─── Главная ──────────────────────────────────────────────────────
 
 export async function executeQuery(parsed) {
   if (!parsed) return { text: "Не могу распознать вопрос. Попробуйте перефразировать.", data: null };
 
-  const { metric, operation, spot, period, product } = parsed;
+  const { metric, operation, spot, period, period2, product } = parsed;
 
   try {
+    if (operation === "percentChange" && period2) {
+      return await handlePercentChange(metric, spot, period, period2, product);
+    }
+
     switch (metric) {
       case "cash": return await handleCash(operation, spot, period);
       case "checks": return await handleChecks(operation, spot, period);
@@ -65,6 +81,105 @@ export async function executeQuery(parsed) {
   } catch (e) {
     return { text: `Ошибка: ${e.message || "не удалось загрузить данные"}`, data: null };
   }
+}
+
+// ─── Сравнение двух периодов (процентное изменение) ────────────────
+
+async function handlePercentChange(metric, spot, period1, period2, productName) {
+  const isProductSearch = !!productName;
+
+  if (isProductSearch) {
+    const [data1, data2] = await Promise.all([
+      fetchPosterSales(period1.from, period1.to),
+      fetchPosterSales(period2.from, period2.to),
+    ]);
+
+    function getProductSales(data, spot) {
+      const map = {};
+      for (const row of data.rows) {
+        if (!matchesRowSpot(row, spot)) continue;
+        if (!row.productName.toLowerCase().includes(productName.toLowerCase())) continue;
+        const key = row.productName;
+        if (!map[key]) map[key] = { name: key, qty: 0, sum: 0 };
+        map[key].qty += row.qty || 0;
+        map[key].sum += row.sum || 0;
+      }
+      return Object.values(map);
+    }
+
+    const prods1 = getProductSales(data1, spot);
+    const prods2 = getProductSales(data2, spot);
+
+    const total1 = prods1.reduce((s, p) => s + p.qty, 0);
+    const total2 = prods2.reduce((s, p) => s + p.qty, 0);
+    const sum1 = prods1.reduce((s, p) => s + p.sum, 0);
+    const sum2 = prods2.reduce((s, p) => s + p.sum, 0);
+
+    const qtyPct = pctChange(total1, total2);
+    const sumPct = pctChange(sum1, sum2);
+    const pl1 = formatPeriodLabel(period1);
+    const pl2 = formatPeriodLabel(period2);
+
+    return {
+      text: `Продажи «${productName}»:\n${pl1}: ${total1} шт. / ${fmt(sum1)}\n${pl2}: ${total2} шт. / ${fmt(sum2)}\n\n${changeEmoji(qtyPct)} по количеству\n${changeEmoji(sumPct)} по выручке`,
+      data: { period1, period2, total1, total2, sum1, sum2, qtyPct, sumPct },
+    };
+  }
+
+  // Cash or checks comparison
+  const [d1, d2] = await Promise.all([
+    fetchCashBySpot(period1.from, period1.to),
+    fetchCashBySpot(period2.from, period2.to),
+  ]);
+
+  const f1 = d1.filter(d => matchesSpot(d, spot));
+  const f2 = d2.filter(d => matchesSpot(d, spot));
+
+  const cash1 = f1.reduce((s, d) => s + (d.total || 0), 0);
+  const cash2 = f2.reduce((s, d) => s + (d.total || 0), 0);
+  const tx1 = f1.reduce((s, d) => s + (d.txCount || 0), 0);
+  const tx2 = f2.reduce((s, d) => s + (d.txCount || 0), 0);
+
+  const cashPct = pctChange(cash1, cash2);
+  const txPct = pctChange(tx1, tx2);
+  const pl1 = formatPeriodLabel(period1);
+  const pl2 = formatPeriodLabel(period2);
+  const sl = label(spot);
+
+  // If comparing all spots, show per-spot breakdown
+  if (isAll(spot) && f1.length > 1) {
+    const spotMap1 = {};
+    const spotMap2 = {};
+    for (const d of f1) spotMap1[d.spotId] = d;
+    for (const d of f2) spotMap2[d.spotId] = d;
+
+    const allSpotIds = new Set([...Object.keys(spotMap1), ...Object.keys(spotMap2)]);
+    const lines = [];
+    for (const sid of allSpotIds) {
+      const a = spotMap1[sid];
+      const b = spotMap2[sid];
+      const c1 = a?.total || 0;
+      const c2 = b?.total || 0;
+      const p = pctChange(c1, c2);
+      const name = a?.spotName || b?.spotName || sid;
+      lines.push(`• ${name}: ${fmt(c1)} → ${fmt(c2)}  ${changeEmoji(p)}`);
+    }
+
+    return {
+      text: `Сравнение кассы филиалов:\n${pl1} vs ${pl2}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}`,
+      data: { period1, period2, cash1, cash2, cashPct, txPct },
+    };
+  }
+
+  // Single spot or all combined
+  const avgCheck1 = tx1 > 0 ? Math.round(cash1 / tx1) : 0;
+  const avgCheck2 = tx2 > 0 ? Math.round(cash2 / tx2) : 0;
+  const avgPct = pctChange(avgCheck1, avgCheck2);
+
+  return {
+    text: `Сравнение ${sl}:\n${pl1}: ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${pl2}: ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} средний чек`,
+    data: { period1, period2, cash1, cash2, tx1, tx2, cashPct, txPct, avgPct },
+  };
 }
 
 // ─── Касса ────────────────────────────────────────────────────────
