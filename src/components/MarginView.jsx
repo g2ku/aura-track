@@ -110,10 +110,10 @@ function DrinkBuilder({ ingredients, recipes, onSaveRecipe }) {
           </div>
           <div className="builder-cup-info">
             <input
-              className="input builder-name-input"
+              className={`input builder-name-input ${cup.length > 0 && !drinkName.trim() ? "builder-name-input--empty" : ""}`}
               value={drinkName}
               onChange={(e) => setDrinkName(e.target.value)}
-              placeholder="Название напитка..."
+              placeholder={cup.length > 0 ? "Введите название напитка..." : "Название напитка..."}
             />
             <div className="builder-meta-row">
               <select
@@ -248,10 +248,16 @@ function DrinkBuilder({ ingredients, recipes, onSaveRecipe }) {
                 <button className="btn btn-out btn-sm" onClick={clearCup}>
                   <i className="ti ti-trash" /> Очистить
                 </button>
+                {cup.length > 0 && !drinkName.trim() && (
+                  <div className="builder-hint">
+                    <i className="ti ti-alert-circle" /> Введите название напитка
+                  </div>
+                )}
                 <button
                   className="btn btn-pri"
                   onClick={handleSave}
                   disabled={!drinkName.trim() || cup.length === 0}
+                  title={!drinkName.trim() ? "Сначала введите название" : ""}
                 >
                   <i className="ti ti-check" /> Сохранить рецепт
                 </button>

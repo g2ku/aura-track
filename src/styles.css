@@ -3507,6 +3507,14 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   border-color: var(--border-strong);
 }
 .builder-name-input::placeholder { color: var(--text-muted); font-weight: 400; }
+.builder-name-input--empty {
+  border-color: var(--status-warn-bd) !important;
+  animation: namePulse 2s ease infinite;
+}
+@keyframes namePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.15); }
+}
 .builder-meta-row { display: flex; gap: 8px; }
 .builder-meta-select { flex: 0 0 140px; }
 .builder-meta-price { flex: 0 0 120px; }
@@ -3775,6 +3783,20 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   margin-top: 12px;
 }
 .builder-actions .btn { flex: 1; }
+.builder-hint {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--status-warn-bg);
+  color: var(--status-warn-fg);
+  border: 1px solid var(--status-warn-bd);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
 
 .builder-success {
   position: fixed;
