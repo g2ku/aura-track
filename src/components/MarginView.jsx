@@ -19,11 +19,6 @@ function fmtNum(n) {
   return Number(n || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 }
 
-function fmtPct(n) {
-  if (!n && n !== 0) return "—";
-  return (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
-}
-
 // ─── Ингредиенты ──────────────────────────────────────────────────
 
 function IngredientsTab({ ingredients, onChange }) {
@@ -60,31 +55,30 @@ function IngredientsTab({ ingredients, onChange }) {
 
   function pricePerBaseUnit(ing) {
     const ppu = ing.pricePerUnit || 0;
-    if (ing.unit === "кг") return `${fmtNum(ppu)} ₸/кг`;
-    if (ing.unit === "г") return `${fmtNum(ppu)} ₸/г`;
-    if (ing.unit === "л") return `${fmtNum(ppu)} ₸/л`;
-    if (ing.unit === "мл") return `${fmtNum(ppu)} ₸/мл`;
+    if (ppu === 0) return "—";
     return `${fmtNum(ppu)} ₸/${ing.unit}`;
   }
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
-          {editingId ? "Редактировать ингредиент" : "Добавить ингредиент"}
+      {/* ── Form card ── */}
+      <div className="margin-section">
+        <div className="margin-section-title">
+          {editingId ? "Редактировать ингредиент" : "Новый ингредиент"}
         </div>
-        <div className="margin-form">
-          <div className="margin-form-field">
-            <label className="label-sm">Название</label>
+        <div className="margin-form-grid">
+          <div className="margin-form-field margin-form-field--name">
+            <label className="form-label">Название</label>
             <input
               className="input"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="Кофе арабика"
+              onKeyDown={(e) => e.key === "Enter" && add()}
             />
           </div>
-          <div style={{ width: 90, flexShrink: 0 }}>
-            <label className="label-sm">Ед.</label>
+          <div className="margin-form-field margin-form-field--unit">
+            <label className="form-label">Ед. изм.</label>
             <select
               className="input"
               value={form.unit}
@@ -95,55 +89,67 @@ function IngredientsTab({ ingredients, onChange }) {
               ))}
             </select>
           </div>
-          <div className="margin-form-field" style={{ maxWidth: 160 }}>
-            <label className="label-sm">Цена за ед.</label>
+          <div className="margin-form-field margin-form-field--price">
+            <label className="form-label">Цена за единицу</label>
             <input
               className="input"
               type="number"
               value={form.pricePerUnit}
               onChange={(e) => setForm({ ...form, pricePerUnit: e.target.value })}
               placeholder="9500"
+              onKeyDown={(e) => e.key === "Enter" && add()}
             />
           </div>
-          <div className="margin-form-btns">
-            <button className="btn btn-primary" onClick={add}>
-              {editingId ? "Сохранить" : "Добавить"}
-            </button>
-            {editingId && (
-              <button className="btn btn-out" onClick={() => { setEditingId(null); setForm({ name: "", unit: "кг", pricePerUnit: "" }); }}>
-                Отмена
+          <div className="margin-form-field margin-form-field--btn">
+            <label className="form-label">&nbsp;</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-pri" onClick={add}>
+                {editingId ? "✓ Сохранить" : "+ Добавить"}
               </button>
-            )}
+              {editingId && (
+                <button className="btn btn-out" onClick={() => { setEditingId(null); setForm({ name: "", unit: "кг", pricePerUnit: "" }); }}>
+                  Отмена
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
+      {/* ── Table ── */}
       {ingredients.length === 0 ? (
-        <div className="card empty-state">
+        <div className="card empty-state" style={{ padding: 48 }}>
+          <i className="ti ti-bottle" style={{ fontSize: 36, color: "var(--text-muted)", marginBottom: 12 }} />
           <div className="empty-state-title">Нет ингредиентов</div>
           <div className="empty-state-sub">Добавьте ингредиенты для расчёта себестоимости</div>
         </div>
       ) : (
-        <div className="card margin-table-wrap" style={{ padding: 0, overflow: "hidden" }}>
-          <table className="table">
+        <div className="table-card">
+          <table className="data-table">
             <thead>
               <tr>
-                <th>Название</th>
-                <th>Ед.</th>
+                <th style={{ width: "40%" }}>Название</th>
+                <th style={{ width: 80 }}>Ед.</th>
                 <th>Цена за ед.</th>
-                <th style={{ width: 80 }}></th>
+                <th style={{ width: 100 }}></th>
               </tr>
             </thead>
             <tbody>
               {ingredients.map((ing) => (
                 <tr key={ing.id}>
                   <td style={{ fontWeight: 500 }}>{ing.name}</td>
-                  <td>{ing.unit}</td>
+                  <td>
+                    <span className="margin-unit-badge">{ing.unit}</span>
+                  </td>
                   <td>{pricePerBaseUnit(ing)}</td>
                   <td>
-                    <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                      <button className="btn btn-xs btn-out" onClick={() => edit(ing)}>✏️</button>
-                      <button className="btn btn-xs btn-out" style={{ color: "var(--text-danger)" }} onClick={() => remove(ing.id)}>✕</button>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button className="btn btn-sm btn-out" onClick={() => edit(ing)}>
+                        <i className="ti ti-pencil" /> Изм.
+                      </button>
+                      <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => remove(ing.id)}>
+                        <i className="ti ti-trash" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -182,7 +188,6 @@ function RecipesTab({ ingredients, recipes, onChange }) {
   function updateItem(idx, field, val) {
     const next = [...items];
     next[idx] = { ...next[idx], [field]: val };
-    // Sync unit with ingredient's base unit
     if (field === "ingredientId") {
       const ing = ingredients.find((i) => i.id === val);
       if (ing) next[idx].unit = ing.unit === "кг" ? "г" : ing.unit === "л" ? "мл" : ing.unit;
@@ -217,29 +222,30 @@ function RecipesTab({ ingredients, recipes, onChange }) {
     onChange(recipes.filter((r) => r.id !== id));
   }
 
+  const recipeCost = calcRecipeCost(ingredients, { items });
+  const salePrice = Number(form.salePrice) || 0;
+  const marginVal = salePrice - recipeCost;
+  const marginPct = salePrice > 0 ? ((marginVal / salePrice) * 100).toFixed(1) : null;
+
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>
-            {editingRecipe ? "Редактировать рецепт" : "Новый рецепт"}
-          </div>
-          {!editingRecipe && (
-            <button className="btn btn-out btn-sm" onClick={startNew}>Очистить</button>
-          )}
+      {/* ── Recipe form ── */}
+      <div className="margin-section">
+        <div className="margin-section-title">
+          {editingRecipe ? "Редактировать рецепт" : "Новый рецепт"}
         </div>
-        <div className="margin-form">
-          <div className="margin-form-field">
-            <label className="label-sm">Название напитка</label>
+        <div className="margin-form-grid">
+          <div className="margin-form-field margin-form-field--name">
+            <label className="form-label">Название напитка</label>
             <input
               className="input"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Латте"
+              placeholder="Латте, Капучино, Раф..."
             />
           </div>
-          <div className="margin-form-field" style={{ maxWidth: 160 }}>
-            <label className="label-sm">Категория</label>
+          <div className="margin-form-field margin-form-field--cat">
+            <label className="form-label">Категория</label>
             <select
               className="input"
               value={form.category}
@@ -250,8 +256,8 @@ function RecipesTab({ ingredients, recipes, onChange }) {
               ))}
             </select>
           </div>
-          <div className="margin-form-field" style={{ maxWidth: 140 }}>
-            <label className="label-sm">Цена продажи ₸</label>
+          <div className="margin-form-field margin-form-field--price">
+            <label className="form-label">Цена продажи ₸</label>
             <input
               className="input"
               type="number"
@@ -262,84 +268,96 @@ function RecipesTab({ ingredients, recipes, onChange }) {
           </div>
         </div>
 
-        <div style={{ fontWeight: 500, fontSize: 13, marginTop: 12, marginBottom: 8, color: "var(--text-secondary)" }}>
-          Ингредиенты рецепта
-        </div>
-        {items.map((item, idx) => {
-          const ing = ingredients.find((i) => i.id === item.ingredientId);
-          const unitPrice = ing ? getCostForQty(ing, Number(item.qty) || 0, item.unit) : 0;
-          return (
-            <div key={idx} className="margin-recipe-item">
-              <select
-                className="input margin-recipe-item-ing"
-                value={item.ingredientId}
-                onChange={(e) => updateItem(idx, "ingredientId", e.target.value)}
-              >
-                <option value="">Выберите...</option>
-                {ingredients.map((ing) => (
-                  <option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>
-                ))}
-              </select>
-              <input
-                className="input margin-recipe-item-qty"
-                type="number"
-                value={item.qty}
-                onChange={(e) => updateItem(idx, "qty", e.target.value)}
-                placeholder="кол-во"
-              />
-              <select
-                className="input margin-recipe-item-unit"
-                value={item.unit}
-                onChange={(e) => updateItem(idx, "unit", e.target.value)}
-              >
-                {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-              </select>
-              <span className="margin-recipe-item-cost">
-                {ing ? fmtNum(unitPrice) + " ₸" : ""}
-              </span>
-              <button className="btn btn-xs btn-out" style={{ color: "var(--text-danger)" }} onClick={() => removeItem(idx)}>✕</button>
-            </div>
-          );
-        })}
-        <div className="margin-stats-row">
-          <button className="btn btn-out btn-sm" onClick={addItem}>+ Ингредиент</button>
+        {/* ── Ingredient rows ── */}
+        <div className="margin-recipe-divider">
+          <span>Ингредиенты рецепта</span>
           {items.length > 0 && (
-            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-              Себестоимость: <b>{fmtNum(calcRecipeCost(ingredients, { items }))} ₸</b>
-              {Number(form.salePrice) > 0 && (
-                <> | Маржа: <b style={{ color: Number(form.salePrice) - calcRecipeCost(ingredients, { items }) >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
-                  {fmtNum(Number(form.salePrice) - calcRecipeCost(ingredients, { items }))} ₸ ({((1 - calcRecipeCost(ingredients, { items }) / Number(form.salePrice)) * 100).toFixed(1)}%)
+            <span className="margin-recipe-cost-live">
+              Себест.: <b>{fmtNum(recipeCost)} ₸</b>
+              {marginPct && (
+                <> · Маржа: <b style={{ color: marginVal >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                  {fmtNum(marginVal)} ₸ ({marginPct}%)
                 </b></>
               )}
             </span>
           )}
         </div>
-        <div style={{ marginTop: 12 }}>
-          <button className="btn btn-primary" onClick={save}>
-            {editingRecipe ? "Сохранить" : "Добавить рецепт"}
+
+        {items.map((item, idx) => {
+          const ing = ingredients.find((i) => i.id === item.ingredientId);
+          const unitPrice = ing ? getCostForQty(ing, Number(item.qty) || 0, item.unit) : 0;
+          return (
+            <div key={idx} className="margin-ingredient-row">
+              <div className="margin-ingredient-row--fields">
+                <select
+                  className="input margin-ingredient-row--select"
+                  value={item.ingredientId}
+                  onChange={(e) => updateItem(idx, "ingredientId", e.target.value)}
+                >
+                  <option value="">Выберите...</option>
+                  {ingredients.map((ing) => (
+                    <option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>
+                  ))}
+                </select>
+                <input
+                  className="input margin-ingredient-row--qty"
+                  type="number"
+                  value={item.qty}
+                  onChange={(e) => updateItem(idx, "qty", e.target.value)}
+                  placeholder="кол-во"
+                />
+                <select
+                  className="input margin-ingredient-row--unit"
+                  value={item.unit}
+                  onChange={(e) => updateItem(idx, "unit", e.target.value)}
+                >
+                  {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <div className="margin-ingredient-row--actions">
+                <span className="margin-ingredient-cost">{ing ? `${fmtNum(unitPrice)} ₸` : "—"}</span>
+                <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)", padding: "4px 8px" }} onClick={() => removeItem(idx)}>
+                  <i className="ti ti-x" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn btn-out" onClick={addItem}>
+            <i className="ti ti-plus" /> Ингредиент
           </button>
-          {editingRecipe && (
-            <button className="btn btn-out" style={{ marginLeft: 8 }} onClick={startNew}>Отмена</button>
-          )}
+          <div style={{ flex: 1 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-pri" onClick={save}>
+              {editingRecipe ? "✓ Сохранить" : "+ Добавить рецепт"}
+            </button>
+            {editingRecipe && (
+              <button className="btn btn-out" onClick={startNew}>Отмена</button>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* ── Recipe list ── */}
       {recipes.length === 0 ? (
-        <div className="card empty-state">
+        <div className="card empty-state" style={{ padding: 48 }}>
+          <i className="ti ti-cookie" style={{ fontSize: 36, color: "var(--text-muted)", marginBottom: 12 }} />
           <div className="empty-state-title">Нет рецептов</div>
           <div className="empty-state-sub">Добавьте рецепты для расчёта маржинальности</div>
         </div>
       ) : (
-        <div className="card margin-table-wrap" style={{ padding: 0, overflow: "hidden" }}>
-          <table className="table">
+        <div className="table-card">
+          <table className="data-table">
             <thead>
               <tr>
                 <th>Название</th>
                 <th>Категория</th>
-                <th>Продажа</th>
-                <th>Себест.</th>
-                <th>Маржа</th>
-                <th style={{ width: 80 }}></th>
+                <th className="text-right">Продажа</th>
+                <th className="text-right">Себест.</th>
+                <th className="text-right">Маржа</th>
+                <th style={{ width: 100 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -350,16 +368,20 @@ function RecipesTab({ ingredients, recipes, onChange }) {
                 return (
                   <tr key={recipe.id}>
                     <td style={{ fontWeight: 500 }}>{recipe.name}</td>
-                    <td>{recipe.category}</td>
-                    <td>{fmt(recipe.salePrice)}</td>
-                    <td>{fmt(cost)}</td>
-                    <td style={{ color: margin >= 0 ? "var(--text-success)" : "var(--text-danger)", fontWeight: 600 }}>
-                      {fmt(margin)} ({marginPct}%)
+                    <td><span className="margin-unit-badge">{recipe.category}</span></td>
+                    <td className="text-right">{fmt(recipe.salePrice)}</td>
+                    <td className="text-right">{fmt(cost)}</td>
+                    <td className="text-right" style={{ color: margin >= 0 ? "var(--text-success)" : "var(--text-danger)", fontWeight: 600 }}>
+                      {fmt(margin)} <span style={{ fontWeight: 400, fontSize: 12 }}>({marginPct}%)</span>
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                        <button className="btn btn-xs btn-out" onClick={() => startEdit(recipe)}>✏️</button>
-                        <button className="btn btn-xs btn-out" style={{ color: "var(--text-danger)" }} onClick={() => removeRecipe(recipe.id)}>✕</button>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button className="btn btn-sm btn-out" onClick={() => startEdit(recipe)}>
+                          <i className="ti ti-pencil" /> Изм.
+                        </button>
+                        <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => removeRecipe(recipe.id)}>
+                          <i className="ti ti-trash" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -401,7 +423,6 @@ function DashboardTab({ ingredients, recipes }) {
     setLoading(false);
   }
 
-  // Сопоставляем товары из Poster с рецептами
   const categoryStats = useMemo(() => {
     if (!salesData) return [];
     const recipeMap = {};
@@ -412,7 +433,6 @@ function DashboardTab({ ingredients, recipes }) {
     const cats = {};
     for (const row of salesData.rows) {
       const productName = row.productName || "";
-      // Use recipe category if matched, otherwise "Другое"
       const recipe = recipeMap[productName.toLowerCase()];
       const cat = recipe ? recipe.category : "Другое";
 
@@ -421,7 +441,6 @@ function DashboardTab({ ingredients, recipes }) {
       cats[cat].qty += row.qty || 0;
       cats[cat].revenue += row.sum || 0;
 
-      // Find recipe match
       if (recipe) {
         const costPerUnit = calcRecipeCost(ingredients, recipe);
         const totalCost = costPerUnit * (row.qty || 0);
@@ -455,10 +474,10 @@ function DashboardTab({ ingredients, recipes }) {
   return (
     <div>
       {/* Period selector */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="margin-period-row">
-          <div>
-            <label className="label-sm">С</label>
+      <div className="margin-section">
+        <div className="margin-form-grid">
+          <div className="margin-form-field">
+            <label className="form-label">Период: С</label>
             <input
               className="input"
               type="date"
@@ -466,8 +485,8 @@ function DashboardTab({ ingredients, recipes }) {
               onChange={(e) => setPeriod({ ...period, from: e.target.value })}
             />
           </div>
-          <div>
-            <label className="label-sm">По</label>
+          <div className="margin-form-field">
+            <label className="form-label">По</label>
             <input
               className="input"
               type="date"
@@ -475,18 +494,22 @@ function DashboardTab({ ingredients, recipes }) {
               onChange={(e) => setPeriod({ ...period, to: e.target.value })}
             />
           </div>
-          <button className="btn btn-out btn-sm" onClick={load} disabled={loading} style={{ marginTop: 18 }}>
-            {loading ? "⏳" : "🔄 Обновить"}
-          </button>
+          <div className="margin-form-field margin-form-field--btn">
+            <label className="form-label">&nbsp;</label>
+            <button className="btn btn-out" onClick={load} disabled={loading}>
+              {loading ? "⏳ Загрузка..." : "🔄 Обновить"}
+            </button>
+          </div>
         </div>
       </div>
 
       {loading && !salesData ? (
-        <div className="card empty-state">
+        <div className="card empty-state" style={{ padding: 48 }}>
           <div className="empty-state-title">Загрузка данных...</div>
         </div>
       ) : categoryStats.length === 0 ? (
-        <div className="card empty-state">
+        <div className="card empty-state" style={{ padding: 48 }}>
+          <i className="ti ti-chart-line" style={{ fontSize: 36, color: "var(--text-muted)", marginBottom: 12 }} />
           <div className="empty-state-title">Нет данных</div>
           <div className="empty-state-sub">
             {recipes.length === 0
@@ -498,15 +521,15 @@ function DashboardTab({ ingredients, recipes }) {
         <>
           {/* Summary cards */}
           <div className="margin-summary">
-            <div className="card margin-summary-card">
+            <div className="margin-summary-card">
               <div className="margin-summary-label">Выручка</div>
               <div className="margin-summary-value">{fmt(totalRevenue)}</div>
             </div>
-            <div className="card margin-summary-card">
+            <div className="margin-summary-card">
               <div className="margin-summary-label">Себестоимость</div>
               <div className="margin-summary-value" style={{ color: "var(--text-danger)" }}>{fmt(totalCost)}</div>
             </div>
-            <div className="card margin-summary-card">
+            <div className="margin-summary-card">
               <div className="margin-summary-label">Чистая маржа</div>
               <div className="margin-summary-value" style={{ color: totalMargin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
                 {fmt(totalMargin)} <span style={{ fontSize: 14 }}>({totalMarginPct}%)</span>
@@ -515,16 +538,16 @@ function DashboardTab({ ingredients, recipes }) {
           </div>
 
           {/* Category breakdown */}
-          <div className="card margin-table-wrap" style={{ padding: 0, overflow: "hidden" }}>
-            <table className="table">
+          <div className="table-card">
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>Категория</th>
-                  <th>Кол-во</th>
-                  <th>Выручка</th>
-                  <th>Себест.</th>
-                  <th>Маржа</th>
-                  <th>%</th>
+                  <th className="text-right">Кол-во</th>
+                  <th className="text-right">Выручка</th>
+                  <th className="text-right">Себест.</th>
+                  <th className="text-right">Маржа</th>
+                  <th className="text-right">%</th>
                 </tr>
               </thead>
               <tbody>
@@ -536,31 +559,35 @@ function DashboardTab({ ingredients, recipes }) {
                         key={cat.name}
                         style={{ cursor: "pointer" }}
                         onClick={() => setExpandedCat(isExpanded ? null : cat.name)}
+                        className="clickable-row"
                       >
                         <td style={{ fontWeight: 600 }}>
-                          {isExpanded ? "▼" : "▶"} {cat.name}
+                          <span style={{ display: "inline-block", width: 16, color: "var(--text-muted)", fontSize: 11 }}>
+                            {isExpanded ? "▼" : "▶"}
+                          </span>
+                          {cat.name}
                         </td>
-                        <td>{cat.qty.toLocaleString("ru-RU")}</td>
-                        <td>{fmt(cat.revenue)}</td>
-                        <td>{fmt(cat.cost)}</td>
-                        <td style={{ color: cat.margin >= 0 ? "var(--text-success)" : "var(--text-danger)", fontWeight: 600 }}>
+                        <td className="text-right">{cat.qty.toLocaleString("ru-RU")}</td>
+                        <td className="text-right">{fmt(cat.revenue)}</td>
+                        <td className="text-right">{fmt(cat.cost)}</td>
+                        <td className="text-right" style={{ color: cat.margin >= 0 ? "var(--text-success)" : "var(--text-danger)", fontWeight: 600 }}>
                           {fmt(cat.margin)}
                         </td>
-                        <td style={{ fontWeight: 600 }}>{cat.marginPct}%</td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>{cat.marginPct}%</td>
                       </tr>
                       {isExpanded && Object.values(cat.products).map((p) => {
                         const pMargin = p.revenue - p.cost;
                         const pMarginPct = p.revenue > 0 ? ((pMargin / p.revenue) * 100).toFixed(1) : "0.0";
                         return (
-                          <tr key={p.name} style={{ background: "var(--bg-secondary)" }}>
-                            <td style={{ paddingLeft: 32, fontSize: 13 }}>{p.name}</td>
-                            <td style={{ fontSize: 13 }}>{p.qty.toLocaleString("ru-RU")}</td>
-                            <td style={{ fontSize: 13 }}>{fmt(p.revenue)}</td>
-                            <td style={{ fontSize: 13 }}>{fmt(p.cost)}</td>
-                            <td style={{ fontSize: 13, color: pMargin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                          <tr key={p.name} style={{ background: "var(--surface-2)" }}>
+                            <td style={{ paddingLeft: 32, fontSize: 13, color: "var(--text-secondary)" }}>{p.name}</td>
+                            <td className="text-right" style={{ fontSize: 13 }}>{p.qty.toLocaleString("ru-RU")}</td>
+                            <td className="text-right" style={{ fontSize: 13 }}>{fmt(p.revenue)}</td>
+                            <td className="text-right" style={{ fontSize: 13 }}>{fmt(p.cost)}</td>
+                            <td className="text-right" style={{ fontSize: 13, color: pMargin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
                               {fmt(pMargin)}
                             </td>
-                            <td style={{ fontSize: 13 }}>{pMarginPct}%</td>
+                            <td className="text-right" style={{ fontSize: 13 }}>{pMarginPct}%</td>
                           </tr>
                         );
                       })}
@@ -629,16 +656,18 @@ export default function MarginView() {
 
   if (error) {
     return (
-      <div className="card empty-state">
+      <div className="card empty-state" style={{ padding: 48 }}>
+        <i className="ti ti-alert-triangle" style={{ fontSize: 36, color: "var(--text-danger)", marginBottom: 12 }} />
         <div className="empty-state-title">Ошибка</div>
         <div className="empty-state-sub">{error}</div>
+        <button className="btn btn-out" style={{ marginTop: 16 }} onClick={reload}>Повторить</button>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="card empty-state">
+      <div className="card empty-state" style={{ padding: 48 }}>
         <div className="empty-state-title">Загрузка...</div>
       </div>
     );
@@ -646,13 +675,18 @@ export default function MarginView() {
 
   return (
     <div>
-      <div className="page-header margin-page-header">
-        <div style={{ minWidth: 0 }}>
+      {/* Header */}
+      <div className="margin-page-header">
+        <div>
           <h1 className="page-title">Маржинальность</h1>
           <div className="page-sub">Калькулятор себестоимости и маржи</div>
         </div>
-        {saving && <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Сохранение...</span>}
-        <button className="btn btn-out btn-sm" onClick={reload}>🔄 Загрузить</button>
+        <div className="margin-header-actions">
+          {saving && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Сохранение...</span>}
+          <button className="btn btn-out" onClick={reload}>
+            <i className="ti ti-refresh" /> Загрузить
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -660,35 +694,37 @@ export default function MarginView() {
         {TABS.map((t) => (
           <button
             key={t.id}
-            className={`btn ${tab === t.id ? "btn-primary" : "btn-out"}`}
+            className={`btn ${tab === t.id ? "btn-pri" : "btn-out"}`}
             onClick={() => setTab(t.id)}
           >
-            <i className={`ti ${t.icon}`} style={{ marginRight: 6 }} />
+            <i className={`ti ${t.icon}`} />
             {t.label}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
-      {tab === "ingredients" && (
-        <IngredientsTab
-          ingredients={data.ingredients || []}
-          onChange={(ings) => update({ ingredients: ings })}
-        />
-      )}
-      {tab === "recipes" && (
-        <RecipesTab
-          ingredients={data.ingredients || []}
-          recipes={data.recipes || []}
-          onChange={(recs) => update({ recipes: recs })}
-        />
-      )}
-      {tab === "dashboard" && (
-        <DashboardTab
-          ingredients={data.ingredients || []}
-          recipes={data.recipes || []}
-        />
-      )}
+      <div className="margin-tab-content">
+        {tab === "ingredients" && (
+          <IngredientsTab
+            ingredients={data.ingredients || []}
+            onChange={(ings) => update({ ingredients: ings })}
+          />
+        )}
+        {tab === "recipes" && (
+          <RecipesTab
+            ingredients={data.ingredients || []}
+            recipes={data.recipes || []}
+            onChange={(recs) => update({ recipes: recs })}
+          />
+        )}
+        {tab === "dashboard" && (
+          <DashboardTab
+            ingredients={data.ingredients || []}
+            recipes={data.recipes || []}
+          />
+        )}
+      </div>
     </div>
   );
 }
