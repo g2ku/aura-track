@@ -6,6 +6,7 @@ import { fetchPosterSales, fetchCashBySpot } from "../poster.js";
 import { fmt } from "../utils.js";
 
 const TABS = [
+  { id: "builder", label: "Создать напиток", icon: "ti-glass" },
   { id: "ingredients", label: "Ингредиенты", icon: "ti-bottle" },
   { id: "recipes", label: "Рецепты", icon: "ti-cookie" },
   { id: "dashboard", label: "Маржа по продажам", icon: "ti-chart-line" },
@@ -17,6 +18,268 @@ function uid() {
 
 function fmtNum(n) {
   return Number(n || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+}
+
+// ─── Конструктор напитка (мини-игра) ─────────────────────────────
+
+const ING_CATEGORIES = [
+  { id: "base", label: "Основы", icon: "ti-droplet", ids: ["ing_milk", "ing_cream33", "ing_cream10", "ing_water", "ing_soda", "ing_tonic"] },
+  { id: "coffee", label: "Кофе и чай", icon: "ti-coffee", ids: ["ing_coffee", "ing_tea_black", "ing_tea_green", "ing_tea_assam", "ing_tea_bergamot", "ing_matcha"] },
+  { id: "syrup", label: "Сиропы", icon: "ti-candy", ids: ["ing_syrup_vanilla", "ing_syrup_caramel", "ing_syrup_strawberry", "ing_syrup_chocolate", "ing_syrup_iris", "ing_syrup_sugar"] },
+  { id: "chocolate", label: "Шоколад", icon: "ti-cookie", ids: ["ing_choc_granules", "ing_cocoa", "ing_choc_paste"] },
+  { id: "fruit", label: "Фрукты", icon: "ti-leaf", ids: ["ing_lemon", "ing_lime", "ing_orange", "ing_cucumber", "ing_mint", "ing_blueberry", "ing_raspberry", "ing_mango", "ing_kiwi", "ing_banana", "ing_apple", "ing_ginger"] },
+  { id: "ice", label: "Лёд и мороженое", icon: "ti-snowflake", ids: ["ing_ice", "ing_icecream_vanilla", "ing_icecream_chocolate", "ing_icecream_strawberry"] },
+  { id: "prep", label: "Заготовки", icon: "ti-flask", ids: ["ing_elixir_pistachio", "ing_elixir_raspberry", "ing_elixir_coconut", "ing_prep_green", "ing_prep_raspberry", "ing_prep_peach", "ing_prep_citrus", "ing_pre_sugar_syrup", "ing_pre_citrus_mix", "ing_pre_basil", "ing_prep_raspberry_mix", "ing_prep_raspberry_passion", "ing_pre_seabuckthorn_mix", "ing_pre_blueberry_mix", "ing_pre_currant_mint", "ing_pre_cherry_mint_mix"] },
+  { id: "decor", label: "Декор", icon: "ti-star", ids: ["ing_orange_slice", "ing_lemon_slice", "ing_cucumber_slice", "ing_orange_juice", "ing_grapefruit_juice", "ing_pineapple_juice", "ing_seabuckthorn", "ing_cherry_mint", "ing_currant_rosemary", "ing_honey", "ing_cinnamon"] },
+];
+
+const DEFAULT_QTY = {
+  г: 20, мл: 30, шт: 1, л: 0.1, кг: 0.02,
+};
+
+function DrinkBuilder({ ingredients, recipes, onSaveRecipe }) {
+  const [drinkName, setDrinkName] = useState("");
+  const [category, setCategory] = useState("Кофе");
+  const [salePrice, setSalePrice] = useState("");
+  const [cup, setCup] = useState([]); // [{ ingredientId, qty, unit }]
+  const [activeCat, setActiveCat] = useState("base");
+  const [showResult, setShowResult] = useState(false);
+  const [animatingId, setAnimatingId] = useState(null);
+
+  function addToCup(ing) {
+    const existing = cup.find((c) => c.ingredientId === ing.id);
+    if (existing) {
+      // bump qty
+      setCup(cup.map((c) =>
+        c.ingredientId === ing.id ? { ...c, qty: c.qty + (DEFAULT_QTY[ing.unit] || 10) } : c
+      ));
+    } else {
+      const defaultUnit = ing.unit === "кг" ? "г" : ing.unit === "л" ? "мл" : ing.unit;
+      setCup([...cup, { ingredientId: ing.id, qty: DEFAULT_QTY[defaultUnit] || 10, unit: defaultUnit }]);
+    }
+    setAnimatingId(ing.id);
+    setTimeout(() => setAnimatingId(null), 400);
+  }
+
+  function updateCupItem(ingredientId, qty) {
+    setCup(cup.map((c) => c.ingredientId === ingredientId ? { ...c, qty: Number(qty) || 0 } : c));
+  }
+
+  function removeFromCup(ingredientId) {
+    setCup(cup.filter((c) => c.ingredientId !== ingredientId));
+  }
+
+  function clearCup() {
+    setCup([]);
+    setShowResult(false);
+  }
+
+  const recipeCost = calcRecipeCost(ingredients, { items: cup });
+  const saleP = Number(salePrice) || 0;
+  const margin = saleP - recipeCost;
+  const marginPct = saleP > 0 ? ((margin / saleP) * 100).toFixed(1) : null;
+
+  function handleSave() {
+    if (!drinkName.trim() || cup.length === 0) return;
+    const recipe = {
+      id: uid(),
+      name: drinkName.trim(),
+      category,
+      salePrice: saleP,
+      items: cup.filter((c) => c.qty > 0),
+    };
+    onSaveRecipe([...recipes, recipe]);
+    setShowResult(true);
+  }
+
+  const catIngs = ING_CATEGORIES.find((c) => c.id === activeCat);
+  const availableIngs = catIngs
+    ? catIngs.ids.map((id) => ingredients.find((i) => i.id === id)).filter(Boolean)
+    : [];
+
+  return (
+    <div className="builder">
+      {/* ── Header: drink info ── */}
+      <div className="builder-header">
+        <div className="builder-cup-area">
+          <div className="builder-cup">
+            <div className="builder-cup-icon">
+              <i className="ti ti-glass" />
+            </div>
+            <div className="builder-cup-count">{cup.length}</div>
+          </div>
+          <div className="builder-cup-info">
+            <input
+              className="input builder-name-input"
+              value={drinkName}
+              onChange={(e) => setDrinkName(e.target.value)}
+              placeholder="Название напитка..."
+            />
+            <div className="builder-meta-row">
+              <select
+                className="input builder-meta-select"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                {PRODUCT_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <input
+                className="input builder-meta-price"
+                type="number"
+                value={salePrice}
+                onChange={(e) => setSalePrice(e.target.value)}
+                placeholder="Цена ₸"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Main area: ingredients + cup ── */}
+      <div className="builder-body">
+        {/* Left: ingredient catalog */}
+        <div className="builder-catalog">
+          <div className="builder-cat-tabs">
+            {ING_CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                className={`builder-cat-tab ${activeCat === cat.id ? "active" : ""}`}
+                onClick={() => setActiveCat(cat.id)}
+              >
+                <i className={`ti ${cat.icon}`} />
+                <span>{cat.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="builder-ingredients-grid">
+            {availableIngs.map((ing) => {
+              const inCup = cup.find((c) => c.ingredientId === ing.id);
+              const isAnimating = animatingId === ing.id;
+              return (
+                <button
+                  key={ing.id}
+                  className={`builder-ingredient-chip ${inCup ? "in-cup" : ""} ${isAnimating ? "animating" : ""}`}
+                  onClick={() => addToCup(ing)}
+                >
+                  <span className="builder-chip-name">{ing.name}</span>
+                  <span className="builder-chip-unit">{ing.unit}</span>
+                  {inCup && <span className="builder-chip-badge">{inCup.qty}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right: current cup */}
+        <div className="builder-cup-panel">
+          <div className="builder-cup-panel-title">
+            <i className="ti ti-flask" /> Ваш напиток
+          </div>
+
+          {cup.length === 0 ? (
+            <div className="builder-empty">
+              <i className="ti ti-hand-click" />
+              <span>Выберите ингредиенты слева</span>
+            </div>
+          ) : (
+            <div className="builder-cup-items">
+              {cup.map((item) => {
+                const ing = ingredients.find((i) => i.id === item.ingredientId);
+                if (!ing) return null;
+                const cost = getCostForQty(ing, item.qty, item.unit);
+                return (
+                  <div key={item.ingredientId} className="builder-cup-item">
+                    <div className="builder-cup-item-top">
+                      <span className="builder-cup-item-name">{ing.name}</span>
+                      <button className="builder-cup-item-remove" onClick={() => removeFromCup(item.ingredientId)}>
+                        <i className="ti ti-x" />
+                      </button>
+                    </div>
+                    <div className="builder-cup-item-bottom">
+                      <div className="builder-qty-control">
+                        <button
+                          className="builder-qty-btn"
+                          onClick={() => updateCupItem(item.ingredientId, Math.max(0, item.qty - (item.unit === "шт" ? 1 : 5)))}
+                        >−</button>
+                        <input
+                          className="builder-qty-input"
+                          type="number"
+                          value={item.qty}
+                          onChange={(e) => updateCupItem(item.ingredientId, e.target.value)}
+                        />
+                        <button
+                          className="builder-qty-btn"
+                          onClick={() => updateCupItem(item.ingredientId, item.qty + (item.unit === "шт" ? 1 : 5))}
+                        >+</button>
+                        <span className="builder-qty-unit">{item.unit}</span>
+                      </div>
+                      <span className="builder-cup-item-cost">{fmtNum(cost)} ₸</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── Live totals ── */}
+          {cup.length > 0 && (
+            <div className="builder-totals">
+              <div className="builder-total-row">
+                <span>Себестоимость</span>
+                <b>{fmtNum(recipeCost)} ₸</b>
+              </div>
+              {saleP > 0 && (
+                <>
+                  <div className="builder-total-row">
+                    <span>Цена продажи</span>
+                    <b>{fmt(saleP)}</b>
+                  </div>
+                  <div className="builder-total-row builder-total-margin">
+                    <span>Маржа</span>
+                    <b style={{ color: margin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                      {fmt(margin)} ({marginPct}%)
+                    </b>
+                  </div>
+                </>
+              )}
+              <div className="builder-actions">
+                <button className="btn btn-out btn-sm" onClick={clearCup}>
+                  <i className="ti ti-trash" /> Очистить
+                </button>
+                <button
+                  className="btn btn-pri"
+                  onClick={handleSave}
+                  disabled={!drinkName.trim() || cup.length === 0}
+                >
+                  <i className="ti ti-check" /> Сохранить рецепт
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Success overlay ── */}
+      {showResult && (
+        <div className="builder-success" onClick={() => setShowResult(false)}>
+          <div className="builder-success-card" onClick={(e) => e.stopPropagation()}>
+            <div className="builder-success-icon">🎉</div>
+            <div className="builder-success-title">Напиток создан!</div>
+            <div className="builder-success-name">{drinkName}</div>
+            <div className="builder-success-cost">
+              Себестоимость: <b>{fmt(recipeCost)}</b>
+              {marginPct && <> · Маржа: <b style={{ color: "var(--text-success)" }}>{marginPct}%</b></>}
+            </div>
+            <button className="btn btn-pri" onClick={() => { setShowResult(false); clearCup(); setDrinkName(""); setSalePrice(""); }}>
+              Создать ещё
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Ингредиенты ──────────────────────────────────────────────────
@@ -705,6 +968,13 @@ export default function MarginView() {
 
       {/* Tab content */}
       <div className="margin-tab-content">
+        {tab === "builder" && (
+          <DrinkBuilder
+            ingredients={data.ingredients || []}
+            recipes={data.recipes || []}
+            onSaveRecipe={(recs) => update({ recipes: recs })}
+          />
+        )}
         {tab === "ingredients" && (
           <IngredientsTab
             ingredients={data.ingredients || []}
