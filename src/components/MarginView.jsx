@@ -73,8 +73,8 @@ function IngredientsTab({ ingredients, onChange }) {
         <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
           {editingId ? "Редактировать ингредиент" : "Добавить ингредиент"}
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div style={{ flex: "1 1 180px" }}>
+        <div className="margin-form">
+          <div className="margin-form-field">
             <label className="label-sm">Название</label>
             <input
               className="input"
@@ -83,7 +83,7 @@ function IngredientsTab({ ingredients, onChange }) {
               placeholder="Кофе арабика"
             />
           </div>
-          <div style={{ width: 90 }}>
+          <div style={{ width: 90, flexShrink: 0 }}>
             <label className="label-sm">Ед.</label>
             <select
               className="input"
@@ -95,7 +95,7 @@ function IngredientsTab({ ingredients, onChange }) {
               ))}
             </select>
           </div>
-          <div style={{ flex: "1 1 120px" }}>
+          <div className="margin-form-field" style={{ maxWidth: 160 }}>
             <label className="label-sm">Цена за ед.</label>
             <input
               className="input"
@@ -105,7 +105,7 @@ function IngredientsTab({ ingredients, onChange }) {
               placeholder="9500"
             />
           </div>
-          <div style={{ display: "flex", gap: 4 }}>
+          <div className="margin-form-btns">
             <button className="btn btn-primary" onClick={add}>
               {editingId ? "Сохранить" : "Добавить"}
             </button>
@@ -124,14 +124,14 @@ function IngredientsTab({ ingredients, onChange }) {
           <div className="empty-state-sub">Добавьте ингредиенты для расчёта себестоимости</div>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div className="card margin-table-wrap" style={{ padding: 0, overflow: "hidden" }}>
           <table className="table">
             <thead>
               <tr>
                 <th>Название</th>
                 <th>Ед.</th>
                 <th>Цена за ед.</th>
-                <th style={{ width: 100 }}></th>
+                <th style={{ width: 80 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -141,7 +141,7 @@ function IngredientsTab({ ingredients, onChange }) {
                   <td>{ing.unit}</td>
                   <td>{pricePerBaseUnit(ing)}</td>
                   <td>
-                    <div style={{ display: "flex", gap: 4 }}>
+                    <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                       <button className="btn btn-xs btn-out" onClick={() => edit(ing)}>✏️</button>
                       <button className="btn btn-xs btn-out" style={{ color: "var(--text-danger)" }} onClick={() => remove(ing.id)}>✕</button>
                     </div>
@@ -228,8 +228,8 @@ function RecipesTab({ ingredients, recipes, onChange }) {
             <button className="btn btn-out btn-sm" onClick={startNew}>Очистить</button>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-          <div style={{ flex: "1 1 180px" }}>
+        <div className="margin-form">
+          <div className="margin-form-field">
             <label className="label-sm">Название напитка</label>
             <input
               className="input"
@@ -238,7 +238,7 @@ function RecipesTab({ ingredients, recipes, onChange }) {
               placeholder="Латте"
             />
           </div>
-          <div style={{ flex: "1 1 140px" }}>
+          <div className="margin-form-field" style={{ maxWidth: 160 }}>
             <label className="label-sm">Категория</label>
             <select
               className="input"
@@ -250,7 +250,7 @@ function RecipesTab({ ingredients, recipes, onChange }) {
               ))}
             </select>
           </div>
-          <div style={{ flex: "1 1 100px" }}>
+          <div className="margin-form-field" style={{ maxWidth: 140 }}>
             <label className="label-sm">Цена продажи ₸</label>
             <input
               className="input"
@@ -262,17 +262,16 @@ function RecipesTab({ ingredients, recipes, onChange }) {
           </div>
         </div>
 
-        <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8, color: "var(--text-secondary)" }}>
+        <div style={{ fontWeight: 500, fontSize: 13, marginTop: 12, marginBottom: 8, color: "var(--text-secondary)" }}>
           Ингредиенты рецепта
         </div>
         {items.map((item, idx) => {
           const ing = ingredients.find((i) => i.id === item.ingredientId);
           const unitPrice = ing ? getCostForQty(ing, Number(item.qty) || 0, item.unit) : 0;
           return (
-            <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+            <div key={idx} className="margin-recipe-item">
               <select
-                className="input"
-                style={{ flex: "1 1 150px" }}
+                className="input margin-recipe-item-ing"
                 value={item.ingredientId}
                 onChange={(e) => updateItem(idx, "ingredientId", e.target.value)}
               >
@@ -282,29 +281,27 @@ function RecipesTab({ ingredients, recipes, onChange }) {
                 ))}
               </select>
               <input
-                className="input"
+                className="input margin-recipe-item-qty"
                 type="number"
-                style={{ width: 80 }}
                 value={item.qty}
                 onChange={(e) => updateItem(idx, "qty", e.target.value)}
                 placeholder="кол-во"
               />
               <select
-                className="input"
-                style={{ width: 70 }}
+                className="input margin-recipe-item-unit"
                 value={item.unit}
                 onChange={(e) => updateItem(idx, "unit", e.target.value)}
               >
                 {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
               </select>
-              <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 70 }}>
+              <span className="margin-recipe-item-cost">
                 {ing ? fmtNum(unitPrice) + " ₸" : ""}
               </span>
               <button className="btn btn-xs btn-out" style={{ color: "var(--text-danger)" }} onClick={() => removeItem(idx)}>✕</button>
             </div>
           );
         })}
-        <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+        <div className="margin-stats-row">
           <button className="btn btn-out btn-sm" onClick={addItem}>+ Ингредиент</button>
           {items.length > 0 && (
             <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
@@ -333,16 +330,16 @@ function RecipesTab({ ingredients, recipes, onChange }) {
           <div className="empty-state-sub">Добавьте рецепты для расчёта маржинальности</div>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div className="card margin-table-wrap" style={{ padding: 0, overflow: "hidden" }}>
           <table className="table">
             <thead>
               <tr>
                 <th>Название</th>
                 <th>Категория</th>
-                <th>Цена продажи</th>
-                <th>Себестоимость</th>
+                <th>Продажа</th>
+                <th>Себест.</th>
                 <th>Маржа</th>
-                <th style={{ width: 100 }}></th>
+                <th style={{ width: 80 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -360,7 +357,7 @@ function RecipesTab({ ingredients, recipes, onChange }) {
                       {fmt(margin)} ({marginPct}%)
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: 4 }}>
+                      <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                         <button className="btn btn-xs btn-out" onClick={() => startEdit(recipe)}>✏️</button>
                         <button className="btn btn-xs btn-out" style={{ color: "var(--text-danger)" }} onClick={() => removeRecipe(recipe.id)}>✕</button>
                       </div>
@@ -459,8 +456,8 @@ function DashboardTab({ ingredients, recipes }) {
     <div>
       {/* Period selector */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 140px" }}>
+        <div className="margin-period-row">
+          <div>
             <label className="label-sm">С</label>
             <input
               className="input"
@@ -469,7 +466,7 @@ function DashboardTab({ ingredients, recipes }) {
               onChange={(e) => setPeriod({ ...period, from: e.target.value })}
             />
           </div>
-          <div style={{ flex: "1 1 140px" }}>
+          <div>
             <label className="label-sm">По</label>
             <input
               className="input"
@@ -500,32 +497,32 @@ function DashboardTab({ ingredients, recipes }) {
       ) : (
         <>
           {/* Summary cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
-            <div className="card" style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Выручка</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{fmt(totalRevenue)}</div>
+          <div className="margin-summary">
+            <div className="card margin-summary-card">
+              <div className="margin-summary-label">Выручка</div>
+              <div className="margin-summary-value">{fmt(totalRevenue)}</div>
             </div>
-            <div className="card" style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Себестоимость</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-danger)" }}>{fmt(totalCost)}</div>
+            <div className="card margin-summary-card">
+              <div className="margin-summary-label">Себестоимость</div>
+              <div className="margin-summary-value" style={{ color: "var(--text-danger)" }}>{fmt(totalCost)}</div>
             </div>
-            <div className="card" style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Чистая маржа</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: totalMargin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+            <div className="card margin-summary-card">
+              <div className="margin-summary-label">Чистая маржа</div>
+              <div className="margin-summary-value" style={{ color: totalMargin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
                 {fmt(totalMargin)} <span style={{ fontSize: 14 }}>({totalMarginPct}%)</span>
               </div>
             </div>
           </div>
 
           {/* Category breakdown */}
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="card margin-table-wrap" style={{ padding: 0, overflow: "hidden" }}>
             <table className="table">
               <thead>
                 <tr>
                   <th>Категория</th>
                   <th>Кол-во</th>
                   <th>Выручка</th>
-                  <th>Себестоимость</th>
+                  <th>Себест.</th>
                   <th>Маржа</th>
                   <th>%</th>
                 </tr>
@@ -649,23 +646,22 @@ export default function MarginView() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
+      <div className="page-header margin-page-header">
+        <div style={{ minWidth: 0 }}>
           <h1 className="page-title">Маржинальность</h1>
           <div className="page-sub">Калькулятор себестоимости и маржи</div>
         </div>
         {saving && <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Сохранение...</span>}
-        <button className="btn btn-out btn-sm" onClick={reload} style={{ marginLeft: 8 }}>🔄 Загрузить</button>
+        <button className="btn btn-out btn-sm" onClick={reload}>🔄 Загрузить</button>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, overflowX: "auto" }}>
+      <div className="margin-tabs">
         {TABS.map((t) => (
           <button
             key={t.id}
             className={`btn ${tab === t.id ? "btn-primary" : "btn-out"}`}
             onClick={() => setTab(t.id)}
-            style={{ whiteSpace: "nowrap" }}
           >
             <i className={`ti ${t.icon}`} style={{ marginRight: 6 }} />
             {t.label}

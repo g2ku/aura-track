@@ -3236,3 +3236,61 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .chat-header { padding: 10px 12px; }
   .chat-bubble { max-width: 95%; }
 }
+
+/* ═══ MarginView ═══ */
+.margin-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.margin-form-field { flex: 1 1 140px; min-width: 0; }
+.margin-form-btns { display: flex; gap: 4; flex-shrink: 0; }
+
+.margin-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.margin-recipe-item { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.margin-recipe-item .input { min-width: 0; }
+.margin-recipe-item-ing { flex: 1 1 160px; min-width: 120px; }
+.margin-recipe-item-qty { width: 70px; flex-shrink: 0; }
+.margin-recipe-item-unit { width: 60px; flex-shrink: 0; }
+.margin-recipe-item-cost { font-size: 12px; color: var(--text-secondary); min-width: 60px; text-align: right; }
+
+.margin-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.margin-summary-card { text-align: center; padding: 12px; }
+.margin-summary-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.margin-summary-value { font-size: 20px; font-weight: 700; }
+
+.margin-stats-row { display: flex; gap: 8; margin-top: 8; flex-wrap: wrap; align-items: center; }
+
+@media (max-width: 768px) {
+  .margin-form { flex-direction: column; gap: 10px; }
+  .margin-form-field { flex: none; width: 100%; }
+  .margin-form-btns { width: 100%; }
+  .margin-form-btns .btn { flex: 1; }
+
+  .margin-recipe-item { flex-direction: column; gap: 6px; }
+  .margin-recipe-item-ing { flex: none; width: 100%; }
+  .margin-recipe-item-qty { width: 100%; }
+  .margin-recipe-item-unit { width: 100%; }
+
+  .margin-summary { grid-template-columns: 1fr; }
+  .margin-summary-value { font-size: 18px; }
+
+  .margin-stats-row { flex-direction: column; align-items: flex-start; }
+  .margin-stats-row .btn { width: 100%; }
+
+  .margin-table-wrap table { font-size: 13px; }
+  .margin-table-wrap table th,
+  .margin-table-wrap table td { padding: 8px 6px; }
+
+  .margin-period-row { flex-direction: column; gap: 10px; }
+  .margin-period-row > div { width: 100%; flex: none; }
+  .margin-period-row .btn { width: 100%; margin-top: 0; }
+
+  .margin-page-header { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .margin-page-header .btn { margin-left: 0; }
+
+  .margin-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .margin-tabs .btn { min-width: fit-content; }
+}
+
+@media (max-width: 480px) {
+  .margin-summary-value { font-size: 16px; }
+  .margin-table-wrap table { font-size: 12px; }
+}
