@@ -21,6 +21,7 @@ const GROUPS = [
     label: "Товары",
     items: [
       { id: "products", path: "/products", icon: "ti-packages", label: "Товары" },
+      { id: "margin", path: "/margin", icon: "ti-chart-pie", label: "Маржа" },
       { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация", adminOnly: true },
     ],
   },

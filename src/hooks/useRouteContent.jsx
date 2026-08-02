@@ -20,6 +20,7 @@ const TicketsView = lazy(() => import("../components/TicketsView"));
 const MyTicketsView = lazy(() => import("../components/MyTicketsView"));
 const RegistrationPage = lazy(() => import("../components/RegistrationPage"));
 const AdminUsers = lazy(() => import("../components/AdminUsers"));
+const MarginView = lazy(() => import("../components/MarginView"));
 
 function RouteFallback() {
   return <SkeletonDashboard />;
@@ -163,6 +164,8 @@ export function useRouteContent({
   } else if (p === "/admin/ip-groups" && isAdmin()) {
     const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
     content = <IPGroupsAdmin />;
+  } else if (p === "/margin") {
+    content = <MarginView />;
   } else if (p === "/chat") {
     const DataChat = lazy(() => import("../components/DataChat"));
     content = <DataChat />;
