@@ -164,7 +164,7 @@ export function useRouteContent({
   } else if (p === "/admin/ip-groups" && isAdmin()) {
     const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
     content = <IPGroupsAdmin />;
-  } else if (p === "/margin") {
+  } else if (p === "/margin" && isAdmin()) {
     content = <MarginView />;
   } else if (p === "/chat") {
     const DataChat = lazy(() => import("../components/DataChat"));
