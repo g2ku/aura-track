@@ -771,21 +771,27 @@ export async function loadMargin() {
   try {
     const snap = await getDoc(doc(getDb(), SETTINGS_DOC));
     if (snap.exists()) {
-      cached = snap.data();
-      return cached;
+      const d = snap.data();
+      // If document exists but has empty arrays, re-populate with defaults
+      if ((!d.ingredients || d.ingredients.length === 0) && (!d.recipes || d.recipes.length === 0)) {
+        const data = { ingredients: DEFAULT_INGREDIENTS, recipes: DEFAULT_RECIPES, updatedAt: Date.now() };
+        try { await setDoc(doc(getDb(), SETTINGS_DOC), data); } catch {}
+        cached = data;
+        return data;
+      }
+      cached = d;
+      return d;
     }
   } catch (e) {
     console.warn("[Margin] load error:", e);
   }
-  // First load — populate with defaults
-  const data = {
-    ingredients: DEFAULT_INGREDIENTS,
-    recipes: DEFAULT_RECIPES,
-    updatedAt: Date.now(),
-  };
+  // First load or error — populate with defaults
+  const data = { ingredients: DEFAULT_INGREDIENTS, recipes: DEFAULT_RECIPES, updatedAt: Date.now() };
   try {
     await setDoc(doc(getDb(), SETTINGS_DOC), data);
-  } catch {}
+  } catch (e) {
+    console.warn("[Margin] save defaults error:", e);
+  }
   cached = data;
   return data;
 }

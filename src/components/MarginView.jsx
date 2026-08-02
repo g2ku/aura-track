@@ -1,7 +1,7 @@
 // MarginView — калькулятор маржинальности: ингредиенты, рецепты, дашборд чистой маржи.
 
 import { useState, useEffect, useMemo } from "react";
-import { loadMargin, saveMargin, calcRecipeCost, PRODUCT_CATEGORIES, UNITS } from "../margin.js";
+import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEGORIES, UNITS } from "../margin.js";
 import { fetchPosterSales, fetchCashBySpot } from "../poster.js";
 import { fmt } from "../utils.js";
 
@@ -605,6 +605,17 @@ export default function MarginView() {
       .catch((e) => setError(e.message));
   }, []);
 
+  async function reload() {
+    clearMarginCache();
+    setError(null);
+    try {
+      const d = await loadMargin();
+      setData(d);
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   async function update(newPartial) {
     if (!data) return;
     setSaving(true);
@@ -643,6 +654,7 @@ export default function MarginView() {
           <div className="page-sub">Калькулятор себестоимости и маржи</div>
         </div>
         {saving && <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Сохранение...</span>}
+        <button className="btn btn-out btn-sm" onClick={reload} style={{ marginLeft: 8 }}>🔄 Загрузить</button>
       </div>
 
       {/* Tabs */}
