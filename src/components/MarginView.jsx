@@ -415,7 +415,9 @@ function DashboardTab({ ingredients, recipes }) {
     const cats = {};
     for (const row of salesData.rows) {
       const productName = row.productName || "";
-      const cat = row.categoryName || "Другое";
+      // Use recipe category if matched, otherwise "Другое"
+      const recipe = recipeMap[productName.toLowerCase()];
+      const cat = recipe ? recipe.category : "Другое";
 
       if (!cats[cat]) cats[cat] = { name: cat, qty: 0, revenue: 0, cost: 0, margin: 0, products: {} };
 
@@ -423,7 +425,6 @@ function DashboardTab({ ingredients, recipes }) {
       cats[cat].revenue += row.sum || 0;
 
       // Find recipe match
-      const recipe = recipeMap[productName.toLowerCase()];
       if (recipe) {
         const costPerUnit = calcRecipeCost(ingredients, recipe);
         const totalCost = costPerUnit * (row.qty || 0);

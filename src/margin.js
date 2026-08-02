@@ -816,7 +816,7 @@ export function calcRecipeCost(ingredients, recipe) {
     if (!ing) continue;
     total += convertToBaseAndCost(ing, item.qty, item.unit);
   }
-  return total;
+  return Math.round(total * 100) / 100;
 }
 
 function convertToBaseAndCost(ingredient, qty, unit) {
@@ -827,7 +827,7 @@ function convertToBaseAndCost(ingredient, qty, unit) {
   else if (unit === "кг" && (baseUnit === "г" || baseUnit === "мл")) baseQty = qty * 1000;
   else if (unit === "мл" && baseUnit === "л") baseQty = qty / 1000;
   else if (unit === "л" && (baseUnit === "мл" || baseUnit === "г")) baseQty = qty * 1000;
-  return baseQty * ppu;
+  return Math.round(baseQty * ppu * 100) / 100;
 }
 
 export function getIngredientCostPerUnit(ingredient, qty, unit) {
