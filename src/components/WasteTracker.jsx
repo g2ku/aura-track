@@ -112,11 +112,11 @@ export default function WasteTracker() {
       <div className="waste-summary">
         <div className="waste-summary-card">
           <div className="waste-summary-label">Всего списаний</div>
-          <div className="waste-summary-value">{totalItems}</div>
+          <div className="waste-summary-value">{stats.totalItems}</div>
         </div>
         <div className="waste-summary-card">
           <div className="waste-summary-label">Общее кол-во</div>
-          <div className="waste-summary-value">{totalQty}</div>
+          <div className="waste-summary-value">{stats.totalQty}</div>
         </div>
         <div className="waste-summary-card">
           <div className="waste-summary-label">Просрочка</div>
