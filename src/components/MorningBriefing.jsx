@@ -4,8 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashBySpot, fetchPosterSales } from "../poster";
-import { loadMargin, calcRecipeCost } from "../margin";
-import { isAdmin } from "../auth.jsx";
+import { loadMargin } from "../margin";
 
 function yesterdayStr() {
   const d = new Date();
@@ -96,18 +95,20 @@ export default function MorningBriefing() {
   // Week average
   const weekAvg = useMemo(() => {
     const daysCount = {};
+    let totalTx = 0;
     for (const entry of weekCash) {
       const d = entry.date;
       daysCount[d] = true;
+      totalTx += entry.txCount || 0;
     }
     const numDays = Object.keys(daysCount).length || 1;
     const total = weekCash.reduce((s, e) => s + (e.total || 0), 0);
     return {
       total,
       avgPerDay: Math.round(total / numDays),
-      avgCheck: yStats.txCount > 0 ? Math.round(yStats.total / yStats.txCount) : 0,
+      avgCheck: totalTx > 0 ? Math.round(total / totalTx) : 0,
     };
-  }, [weekCash, yStats]);
+  }, [weekCash]);
 
   // Top products
   const topProducts = useMemo(() => {

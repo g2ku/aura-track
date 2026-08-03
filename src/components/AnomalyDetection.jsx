@@ -4,7 +4,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashPerDay, fetchCashBySpot } from "../poster";
-import { isAdmin } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();

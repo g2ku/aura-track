@@ -3,8 +3,6 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { fetchCashPerDay } from "../poster";
-import { isAdmin } from "../auth.jsx";
-import { BRANCHES } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();

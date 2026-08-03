@@ -121,8 +121,8 @@ export default function CrossLocationDashboard({ agg }) {
   const rows = useMemo(() => {
     const byBranch = agg?.byBranch || {};
     const prevMap = {};
-    for (const p of prevCashData) {
-      prevMap[p.spotId] = p;
+    for (const prev of prevCashData) {
+      prevMap[prev.spotId] = prev;
     }
 
     return cashData.map((spot) => {

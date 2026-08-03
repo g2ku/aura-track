@@ -5,8 +5,6 @@ import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchPosterSales } from "../poster";
 import { loadMargin } from "../margin";
-import { isAdmin } from "../auth.jsx";
-import { loadWaste } from "../firebase";
 
 function todayStr() {
   const d = new Date();

@@ -74,8 +74,7 @@ export default function ProfitabilityMatrix() {
       let category = "Другое";
 
       if (recipe) {
-        const result = calcRecipeCost(recipe, ingredients);
-        costPerUnit = result.cost;
+        costPerUnit = calcRecipeCost(ingredients, recipe);
         const avgPrice = ps.qty > 0 ? ps.revenue / ps.qty : 0;
         marginPct = avgPrice > 0 ? ((avgPrice - costPerUnit) / avgPrice * 100) : 0;
         category = recipe.category || "Другое";

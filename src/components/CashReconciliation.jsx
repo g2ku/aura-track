@@ -4,7 +4,6 @@
 import { useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { fetchCashBySpot } from "../poster";
-import { isAdmin } from "../auth.jsx";
 import { saveCashRecon, loadCashRecon } from "../firebase";
 
 function todayStr() {

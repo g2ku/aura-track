@@ -5,8 +5,6 @@ import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashBySpot, fetchPosterSales } from "../poster";
 import { loadMargin, calcRecipeCost } from "../margin";
-import { isAdmin } from "../auth.jsx";
-import { BRANCHES } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -74,8 +72,8 @@ export default function PnLView({ agg }) {
   const cogsByProduct = useMemo(() => {
     const map = {};
     for (const recipe of recipes) {
-      const result = calcRecipeCost(recipe, ingredients);
-      map[normalize(recipe.name)] = result.cost;
+      const cost = calcRecipeCost(ingredients, recipe);
+      map[normalize(recipe.name)] = cost;
     }
     return map;
   }, [recipes, ingredients]);

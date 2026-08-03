@@ -139,7 +139,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   }, [activeId]);
 
   useEffect(() => {
-    localStorage.setItem("aura-sidebar-groups", JSON.stringify(expanded));
+    try { localStorage.setItem("aura-sidebar-groups", JSON.stringify(expanded)); } catch (_) {}
   }, [expanded]);
 
   useEffect(() => {

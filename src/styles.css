@@ -4056,6 +4056,47 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 }
 .pnl-summary-value--negative { color: #ef4444; }
 
+/* ─── Base form + page layout classes ────────────────────────────── */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.page-title {
+  font-size: var(--fs-20);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+.page-sub {
+  font-size: var(--fs-13);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.form-control {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text-primary);
+  font-size: var(--fs-14);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.form-control:focus {
+  border-color: var(--text-accent);
+}
+
 /* ─── Responsive (admin analytics) ──────────────────────────────── */
 @media (max-width: 768px) {
   .cross-loc-summary { grid-template-columns: repeat(2, 1fr); }

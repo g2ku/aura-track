@@ -4,7 +4,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { loadMargin } from "../margin";
-import { isAdmin } from "../auth.jsx";
 import { loadWaste, saveWaste } from "../firebase";
 
 function todayStr() {
