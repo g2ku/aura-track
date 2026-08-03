@@ -60,6 +60,15 @@ const MarginView = lazy(() => import("../components/MarginView"));
 const TaxesView = lazy(() => import("../components/TaxesView"));
 const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
 const DataChat = lazy(() => import("../components/DataChat"));
+const CrossLocationDashboard = lazy(() => import("../components/CrossLocationDashboard"));
+const CashReconciliation = lazy(() => import("../components/CashReconciliation"));
+const ProfitabilityMatrix = lazy(() => import("../components/ProfitabilityMatrix"));
+const WasteTracker = lazy(() => import("../components/WasteTracker"));
+const TrafficHeatmap = lazy(() => import("../components/TrafficHeatmap"));
+const PnLView = lazy(() => import("../components/PnLView"));
+const AutoReplenishmentAlerts = lazy(() => import("../components/AutoReplenishmentAlerts"));
+const AnomalyDetection = lazy(() => import("../components/AnomalyDetection"));
+const MorningBriefing = lazy(() => import("../components/MorningBriefing"));
 
 function RouteFallback() {
   return <SkeletonDashboard />;
@@ -205,6 +214,24 @@ export function useRouteContent({
     content = <MarginView />;
   } else if (p === "/chat") {
     content = <DataChat />;
+  } else if (p === "/cross-dashboard" && isAdmin()) {
+    content = <CrossLocationDashboard agg={agg} />;
+  } else if (p === "/cash-recon" && isAdmin()) {
+    content = <CashReconciliation />;
+  } else if (p === "/profitability" && isAdmin()) {
+    content = <ProfitabilityMatrix />;
+  } else if (p === "/waste" && isAdmin()) {
+    content = <WasteTracker />;
+  } else if (p === "/traffic-heatmap" && isAdmin()) {
+    content = <TrafficHeatmap />;
+  } else if (p === "/pnl" && isAdmin()) {
+    content = <PnLView agg={agg} />;
+  } else if (p === "/replenish" && isAdmin()) {
+    content = <AutoReplenishmentAlerts />;
+  } else if (p === "/anomalies" && isAdmin()) {
+    content = <AnomalyDetection />;
+  } else if (p === "/briefing" && isAdmin()) {
+    content = <MorningBriefing />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }

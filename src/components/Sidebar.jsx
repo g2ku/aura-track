@@ -11,6 +11,7 @@ const GROUPS = [
     label: "Статистика",
     items: [
       { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
+      { id: "briefing", path: "/briefing", icon: "ti-sun", label: "Сводка дня", adminOnly: true },
       { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
       { id: "receipts", path: "/receipts", icon: "ti-receipt", label: "Чеки" },
     ],
@@ -54,6 +55,21 @@ const GROUPS = [
     ],
   },
   {
+    id: "admin-analytics",
+    icon: "ti-chart-bar",
+    label: "Аналитика",
+    items: [
+      { id: "cross-dashboard", path: "/cross-dashboard", icon: "ti-world", label: "Кросс-локации", adminOnly: true },
+      { id: "cash-recon", path: "/cash-recon", icon: "ti-check-double", label: "Сверка касс", adminOnly: true },
+      { id: "profitability", path: "/profitability", icon: "ti-chart-pie", label: "Меню-инжиниринг", adminOnly: true },
+      { id: "waste", path: "/waste", icon: "ti-trash", label: "Отходы", adminOnly: true },
+      { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта", adminOnly: true },
+      { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L", adminOnly: true },
+      { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки", adminOnly: true },
+      { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии", adminOnly: true },
+    ],
+  },
+  {
     id: "admin",
     icon: "ti-settings",
     label: "Настройки",
@@ -79,6 +95,16 @@ function currentNavId(path) {
   if (path.startsWith("/my-tickets")) return "my-tickets";
   if (path.startsWith("/admin/users")) return "admin-users";
   if (path.startsWith("/admin/ip-groups")) return "admin-ip-groups";
+  if (path.startsWith("/cross-dashboard")) return "cross-dashboard";
+  if (path.startsWith("/cash-recon")) return "cash-recon";
+  if (path.startsWith("/profitability")) return "profitability";
+  if (path.startsWith("/waste")) return "waste";
+  if (path.startsWith("/traffic-heatmap")) return "traffic-heatmap";
+  if (path.startsWith("/pnl")) return "pnl";
+  if (path.startsWith("/replenish")) return "replenish";
+  if (path.startsWith("/anomalies")) return "anomalies";
+  if (path.startsWith("/briefing")) return "briefing";
+  if (path.startsWith("/margin")) return "margin";
   return "dashboard";
 }
 

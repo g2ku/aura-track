@@ -3831,3 +3831,241 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .builder-ingredients-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .builder-cup-item-bottom { flex-direction: column; align-items: stretch; gap: 4px; }
 }
+
+/* ─── Cross-Location Dashboard ──────────────────────────────────── */
+.cross-loc-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.cross-loc-summary-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+.cross-loc-summary-label {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.cross-loc-summary-value {
+  font-size: var(--fs-22);
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 4px;
+}
+.status-dot--good { background: #22c55e; }
+.status-dot--warn { background: #f59e0b; }
+.status-dot--danger { background: #ef4444; }
+
+/* ─── Cash Reconciliation ───────────────────────────────────────── */
+.cash-recon-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-width: 480px;
+}
+.cash-recon-form .form-group { margin-bottom: 0; }
+.cash-recon-discrepancy {
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  margin-top: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cash-recon-discrepancy--ok {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+.cash-recon-discrepancy--warn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+.cash-recon-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: var(--fs-12);
+  font-weight: 600;
+}
+.cash-recon-status--ok { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+.cash-recon-status--abnormal { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+.cash-recon-status--missing { background: rgba(156, 163, 175, 0.1); color: #9ca3af; }
+
+/* ─── Profitability Matrix ──────────────────────────────────────── */
+.profit-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.profit-matrix-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  text-align: center;
+}
+.profit-matrix-card-name {
+  font-size: var(--fs-14);
+  font-weight: 600;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profit-matrix-card-qty {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.profit-matrix-card-revenue {
+  font-size: var(--fs-15);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.profit-matrix-card-cost {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.profit-matrix-card-margin {
+  font-size: var(--fs-18);
+  font-weight: 700;
+  margin-top: 4px;
+}
+.profit-matrix-card-margin--positive { color: #22c55e; }
+.profit-matrix-card-margin--negative { color: #ef4444; }
+.profit-matrix-card-margin--zero { color: var(--text-muted); }
+.profit-matrix-card-category {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ─── Waste Tracker ─────────────────────────────────────────────── */
+.waste-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.waste-summary-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+.waste-summary-label {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.waste-summary-value {
+  font-size: var(--fs-20);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Traffic Heatmap ───────────────────────────────────────────── */
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: 60px repeat(24, 1fr);
+  gap: 2px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.heatmap-header {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 4px 0;
+}
+.heatmap-row-label {
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+.heatmap-cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  min-width: 16px;
+  min-height: 16px;
+  transition: transform 0.1s;
+  cursor: default;
+  position: relative;
+}
+.heatmap-cell:hover {
+  transform: scale(1.3);
+  z-index: 2;
+}
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.heatmap-legend-bar {
+  width: 120px;
+  height: 12px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #1a1a2e, #16213e, #0f3460, #e94560);
+}
+
+/* ─── P&L ───────────────────────────────────────────────────────── */
+.pnl-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.pnl-summary-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+.pnl-summary-label {
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.pnl-summary-value {
+  font-size: var(--fs-20);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pnl-summary-value--negative { color: #ef4444; }
+
+/* ─── Responsive (admin analytics) ──────────────────────────────── */
+@media (max-width: 768px) {
+  .cross-loc-summary { grid-template-columns: repeat(2, 1fr); }
+  .waste-summary { grid-template-columns: 1fr; }
+  .pnl-summary { grid-template-columns: repeat(2, 1fr); }
+  .cash-recon-form { grid-template-columns: 1fr; }
+  .profit-matrix-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .cross-loc-summary { grid-template-columns: 1fr; }
+  .pnl-summary { grid-template-columns: 1fr; }
+  .profit-matrix-grid { grid-template-columns: 1fr; }
+}
