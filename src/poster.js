@@ -30,7 +30,7 @@ const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
 const CACHE_KEY = "supply-track.poster.salesByDay.v14";
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
 const DAY_CONCURRENCY = 4;    // параллельных дней за раз

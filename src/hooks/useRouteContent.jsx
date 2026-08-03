@@ -1,7 +1,43 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, Component } from "react";
 import { UnknownBranchFallback, UnknownRouteFallback } from "../components/Fallbacks";
 import { SkeletonDashboard, SkeletonView } from "../components/Skeleton";
 import { isAdmin, isAdminOrManager } from "../auth.jsx";
+
+// ─── Route-level ErrorBoundary ───────────────────────────────────
+// Ловит ошибки lazy-загрузки и рендера конкретного маршрута,
+// не краша всё приложение.
+class RouteErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Route error:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="card empty-state" style={{ padding: 48 }}>
+          <i className="ti ti-alert-triangle" style={{ fontSize: 36, color: "var(--text-danger)", marginBottom: 12 }} />
+          <div className="empty-state-title">Ошибка загрузки раздела</div>
+          <div className="empty-state-sub" style={{ marginBottom: 16 }}>
+            {this.state.error?.message || "Не удалось загрузить компонент"}
+          </div>
+          <button
+            className="btn btn-out"
+            onClick={() => { this.setState({ error: null }); window.location.reload(); }}
+          >
+            <i className="ti ti-refresh" /> Перезагрузить
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const Dashboard = lazy(() => import("../components/Dashboard"));
 const BranchesView = lazy(() => import("../components/BranchesView"));
@@ -21,6 +57,9 @@ const MyTicketsView = lazy(() => import("../components/MyTicketsView"));
 const RegistrationPage = lazy(() => import("../components/RegistrationPage"));
 const AdminUsers = lazy(() => import("../components/AdminUsers"));
 const MarginView = lazy(() => import("../components/MarginView"));
+const TaxesView = lazy(() => import("../components/TaxesView"));
+const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
+const DataChat = lazy(() => import("../components/DataChat"));
 
 function RouteFallback() {
   return <SkeletonDashboard />;
@@ -126,7 +165,6 @@ export function useRouteContent({
       />
     );
   } else if (p === "/taxes" && isAdmin()) {
-    const TaxesView = lazy(() => import("../components/TaxesView"));
     content = <TaxesView />;
   } else if (p === "/products") {
     content = <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
@@ -162,16 +200,18 @@ export function useRouteContent({
   } else if (p === "/admin/users" && isAdmin()) {
     content = <AdminUsers />;
   } else if (p === "/admin/ip-groups" && isAdmin()) {
-    const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
     content = <IPGroupsAdmin />;
   } else if (p === "/margin" && isAdmin()) {
     content = <MarginView />;
   } else if (p === "/chat") {
-    const DataChat = lazy(() => import("../components/DataChat"));
     content = <DataChat />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
   }
 
-  return <Suspense fallback={<RouteFallback />}>{content}</Suspense>;
+  return (
+    <RouteErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>{content}</Suspense>
+    </RouteErrorBoundary>
+  );
 }

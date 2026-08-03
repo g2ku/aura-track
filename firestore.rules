@@ -8,11 +8,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Данные пользователей — чтение/запись для авторизованных
+    // Данные пользователей
     match /users/{uid} {
       allow read: if request.auth != null;
+      // Can create own profile; can update only own profile (except admins via Admin SDK)
       allow create: if request.auth != null && request.auth.uid == uid;
-      allow update: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid == uid;
+      // Delete only via Admin SDK
       allow delete: if false;
     }
 
