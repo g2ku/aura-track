@@ -5,10 +5,17 @@ import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { loadMargin } from "../margin";
 import { loadWaste, saveWaste } from "../firebase";
+import { BRANCHES } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function fmtDate(d) {
+  if (!d) return "—";
+  if (d.length === 8) return `${d.slice(6, 8)}.${d.slice(4, 6)}.${d.slice(0, 4)}`;
+  return d;
 }
 
 const CATEGORIES = [
@@ -20,16 +27,7 @@ const CATEGORIES = [
   { id: "other", label: "Другое", icon: "📦" },
 ];
 
-const SPOTS = [
-  { id: "1", name: "Гагарина" },
-  { id: "2", name: "Заря" },
-  { id: "3", name: "Дубай" },
-  { id: "4", name: "Абая" },
-  { id: "7", name: "Коктем" },
-  { id: "9", name: "Оби" },
-  { id: "10", name: "Атакент" },
-  { id: "11", name: "Рамс" },
-];
+const SPOTS = Object.values(BRANCHES).map((b) => ({ id: b.spotId, name: b.spotName }));
 
 export default function WasteTracker() {
   const [wasteLog, setWasteLog] = useState([]);
@@ -227,7 +225,7 @@ export default function WasteTracker() {
                 const cat = CATEGORIES.find((c) => c.id === w.category);
                 return (
                   <tr key={w.id}>
-                    <td>{w.date}</td>
+                    <td>{fmtDate(w.date)}</td>
                     <td style={{ fontWeight: 600 }}>{w.ingredientName}</td>
                     <td>{w.spotName}</td>
                     <td className="text-right">{w.qty} {w.unit}</td>

@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashBySpot, fetchPosterSales } from "../poster";
 import { loadMargin } from "../margin";
+import { BRANCHES } from "../auth.jsx";
 
 function yesterdayStr() {
   const d = new Date();
@@ -22,16 +23,7 @@ function normalize(s) {
   return (s || "").toLowerCase().trim();
 }
 
-const SPOTS = [
-  { id: "1", name: "Гагарина" },
-  { id: "2", name: "Заря" },
-  { id: "3", name: "Дубай" },
-  { id: "4", name: "Абая" },
-  { id: "7", name: "Коктем" },
-  { id: "9", name: "Оби" },
-  { id: "10", name: "Атакент" },
-  { id: "11", name: "Рамс" },
-];
+const SPOTS = Object.values(BRANCHES).map((b) => ({ id: b.spotId, name: b.spotName }));
 
 function greeting(now = new Date()) {
   const h = now.getHours();

@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashPerDay, fetchCashBySpot } from "../poster";
+import { BRANCHES } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -16,16 +17,12 @@ function daysAgoStr(n) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-const SPOTS = [
-  { id: "1", name: "Гагарина" },
-  { id: "2", name: "Заря" },
-  { id: "3", name: "Дубай" },
-  { id: "4", name: "Абая" },
-  { id: "7", name: "Коктем" },
-  { id: "9", name: "Оби" },
-  { id: "10", name: "Атакент" },
-  { id: "11", name: "Рамс" },
-];
+function fmtDate(d) {
+  if (!d || d.length !== 8) return d || "—";
+  return `${d.slice(6, 8)}.${d.slice(4, 6)}.${d.slice(0, 4)}`;
+}
+
+const SPOTS = Object.values(BRANCHES).map((b) => ({ id: b.spotId, name: b.spotName }));
 
 function mean(arr) {
   if (arr.length === 0) return 0;
@@ -225,7 +222,7 @@ export default function AnomalyDetection() {
             <tbody>
               {anomalies.map((a, idx) => (
                 <tr key={`${a.spotId}-${a.date}-${idx}`}>
-                  <td>{a.date}</td>
+                  <td>{fmtDate(a.date)}</td>
                   <td style={{ fontWeight: 600 }}>{a.spotName}</td>
                   <td className="text-right" style={{ fontWeight: 600 }}>{fmt(a.total)}</td>
                   <td className="text-right" style={{ color: "var(--text-secondary)" }}>{fmt(a.avgTotal)}</td>

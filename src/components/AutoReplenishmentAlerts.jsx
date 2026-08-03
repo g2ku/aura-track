@@ -21,18 +21,7 @@ function normalize(s) {
   return (s || "").toLowerCase().trim();
 }
 
-const SPOTS = [
-  { id: "1", name: "Гагарина" },
-  { id: "2", name: "Заря" },
-  { id: "3", name: "Дубай" },
-  { id: "4", name: "Абая" },
-  { id: "7", name: "Коктем" },
-  { id: "9", name: "Оби" },
-  { id: "10", name: "Атакент" },
-  { id: "11", name: "Рамс" },
-];
-
-const THRESHOLD_DAYS = [3, 5, 7, 14]; // Alert when X days of stock left
+const THRESHOLD_DAYS = [3, 5, 7, 14];
 
 export default function AutoReplenishmentAlerts() {
   const [threshold, setThreshold] = useState(7);
