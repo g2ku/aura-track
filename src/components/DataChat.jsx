@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { parseQuestion, describeParsed } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
+import { getUserBranch, getSpotNameForBranch, BRANCHES } from "../auth.jsx";
 
-const EXAMPLES = [
+const EXAMPLES_ALL = [
   "Средняя касса за июнь",
   "Сколько чеков за июль",
   "Спешл за неделю",
@@ -17,6 +18,19 @@ const EXAMPLES = [
   "В какое время пик продаж?",
   "Маржа за июнь",
   "Рейтинг филиалов за июнь",
+];
+
+const EXAMPLES_BRANCH = [
+  "Средняя касса за июнь",
+  "Сколько чеков за июль",
+  "Спешл за неделю",
+  "Касса вчера",
+  "Тренд кассы за 3 месяца",
+  "Прогноз на август",
+  "Какой день недели самый прибыльный?",
+  "В какое время пик продаж?",
+  "Маржа за июнь",
+  "Средний чек за июнь",
 ];
 
 const FOLLOW_UP = {
@@ -50,11 +64,17 @@ export default function DataChat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const userBranch = getUserBranch();
+  const branchLabel = userBranch ? getSpotNameForBranch(userBranch) : null;
+  const userBranchObj = userBranch && BRANCHES[userBranch]
+    ? { spotId: BRANCHES[userBranch].spotId, spotName: BRANCHES[userBranch].spotName, posterName: BRANCHES[userBranch].spotName, branchId: userBranch }
+    : null;
+  const initialExamples = branchLabel ? EXAMPLES_BRANCH : EXAMPLES_ALL;
   const [showDebug, setShowDebug] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [context, setContext] = useState(null); // last parsed query for follow-ups
-  const [suggestions, setSuggestions] = useState(EXAMPLES);
+  const [suggestions, setSuggestions] = useState(initialExamples);
   const endRef = useRef(null);
   const inputRef = useRef(null);
   const sugRef = useRef(null);
@@ -93,7 +113,7 @@ export default function DataChat() {
   }
 
   function generateFollowUps(parsed, result) {
-    if (!parsed) return EXAMPLES.slice(0, 5);
+    if (!parsed) return initialExamples.slice(0, 5);
     const metric = parsed.metric;
     const spot = parsed.spot;
     const period = parsed.period;
@@ -155,7 +175,7 @@ export default function DataChat() {
       return;
     }
 
-    const result = await executeQuery(parsed);
+    const result = await executeQuery(parsed, userBranchObj);
 
     // Generate follow-up suggestions
     const followUps = generateFollowUps(parsed, result);
@@ -187,7 +207,9 @@ export default function DataChat() {
         <i className="ti ti-message-chatbot" style={{ fontSize: 20, color: "var(--text-accent)", flexShrink: 0 }} />
         <div>
           <div style={{ fontWeight: 600, fontSize: 14 }}>Ассистент</div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Запросы к данным Poster</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            {branchLabel ? `Филиал: ${branchLabel}` : "Запросы к данным Poster"}
+          </div>
         </div>
         <label style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
           <input type="checkbox" checked={showDebug} onChange={e => setShowDebug(e.target.checked)} style={{ width: 14, height: 14 }} />

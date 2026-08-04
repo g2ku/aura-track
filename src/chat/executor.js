@@ -118,32 +118,39 @@ function changeEmoji(pct) {
 
 // ─── Главная ──────────────────────────────────────────────────────
 
-export async function executeQuery(parsed) {
+export async function executeQuery(parsed, userBranch) {
   if (!parsed) return { text: "Не могу распознать вопрос. Попробуйте перефразировать.", data: null };
 
   const { metric, operation, spot, period, period2, product, ipGroup } = parsed;
 
+  // Single-branch user: override spot to their branch if they didn't specify one
+  let effectiveSpot = spot;
+  if (userBranch && (!spot || (typeof spot === "object" && spot.branchId === "all"))) {
+    // userBranch comes as { spotId, spotName, branchId } from DataChat
+    effectiveSpot = userBranch;
+  }
+
   try {
     if (operation === "percentChange" && period2) {
-      return await handlePercentChange(metric, spot, period, period2, product, ipGroup, parsed.raw);
+      return await handlePercentChange(metric, effectiveSpot, period, period2, product, ipGroup, parsed.raw);
     }
 
     // Operations that work across metrics
-    if (operation === "trend") return await handleTrend(metric, spot, period, ipGroup);
-    if (operation === "forecast") return await handleForecast(metric, spot, period, ipGroup);
-    if (operation === "byWeekday") return await handleByWeekday(metric, spot, period, ipGroup);
-    if (operation === "byHour") return await handleByHour(metric, spot, period, ipGroup);
-    if (operation === "anomaly") return await handleAnomaly(metric, spot, period, ipGroup);
-    if (metric === "compareBranches") return await handleCompareBranches(operation, spot, period, ipGroup);
+    if (operation === "trend") return await handleTrend(metric, effectiveSpot, period, ipGroup);
+    if (operation === "forecast") return await handleForecast(metric, effectiveSpot, period, ipGroup);
+    if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup);
+    if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
+    if (operation === "anomaly") return await handleAnomaly(metric, effectiveSpot, period, ipGroup);
+    if (metric === "compareBranches") return await handleCompareBranches(operation, effectiveSpot, period, ipGroup);
 
     switch (metric) {
-      case "cash": return await handleCash(operation, spot, period, ipGroup);
-      case "checks": return await handleChecks(operation, spot, period, ipGroup);
-      case "avgCheck": return await handleAvgCheck(operation, spot, period, ipGroup);
-      case "products": return await handleProducts(operation, spot, period, product, ipGroup);
-      case "tax": return await handleTax(operation, spot, period, ipGroup);
-      case "margin": return await handleMargin(operation, spot, period, ipGroup);
-      default: return await handleCash(operation, spot, period, ipGroup);
+      case "cash": return await handleCash(operation, effectiveSpot, period, ipGroup);
+      case "checks": return await handleChecks(operation, effectiveSpot, period, ipGroup);
+      case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
+      case "products": return await handleProducts(operation, effectiveSpot, period, product, ipGroup);
+      case "tax": return await handleTax(operation, effectiveSpot, period, ipGroup);
+      case "margin": return await handleMargin(operation, effectiveSpot, period, ipGroup);
+      default: return await handleCash(operation, effectiveSpot, period, ipGroup);
     }
   } catch (e) {
     return { text: `Ошибка: ${e.message || "не удалось загрузить данные"}`, data: null };

@@ -11,7 +11,7 @@ const GROUPS = [
     label: "Статистика",
     items: [
       { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
-      { id: "briefing", path: "/briefing", icon: "ti-sun", label: "Сводка дня", adminOnly: true },
+      { id: "briefing", path: "/briefing", icon: "ti-sun", label: "Сводка дня" },
       { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
       { id: "receipts", path: "/receipts", icon: "ti-receipt", label: "Чеки" },
     ],
@@ -22,8 +22,8 @@ const GROUPS = [
     label: "Товары",
     items: [
       { id: "products", path: "/products", icon: "ti-packages", label: "Товары" },
-      { id: "margin", path: "/margin", icon: "ti-chart-pie", label: "Маржа", adminOnly: true },
-      { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация", adminOnly: true },
+      { id: "margin", path: "/margin", icon: "ti-chart-pie", label: "Маржа" },
+      { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
     ],
   },
   {
@@ -31,9 +31,9 @@ const GROUPS = [
     icon: "ti-cash",
     label: "Финансы",
     items: [
-      { id: "payments", path: "/payments", icon: "ti-wallet", label: "Оплаты", adminOnly: true },
-      { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги", adminOnly: true },
-      { id: "taxes", path: "/taxes", icon: "ti-file-invoice", label: "Налоги", adminOnly: true },
+      { id: "payments", path: "/payments", icon: "ti-wallet", label: "Оплаты" },
+      { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
+      { id: "taxes", path: "/taxes", icon: "ti-file-invoice", label: "Налоги" },
     ],
   },
   {
@@ -42,7 +42,7 @@ const GROUPS = [
     label: "Poster",
     items: [
       { id: "poster", path: "/poster", icon: "ti-building-store", label: "Poster API" },
-      { id: "chat", path: "/chat", icon: "ti-message-chatbot", label: "Ассистент", adminOnly: true },
+      { id: "chat", path: "/chat", icon: "ti-message-chatbot", label: "Ассистент" },
     ],
   },
   {
@@ -59,14 +59,14 @@ const GROUPS = [
     icon: "ti-chart-bar",
     label: "Аналитика",
     items: [
-      { id: "cross-dashboard", path: "/cross-dashboard", icon: "ti-world", label: "Кросс-локации", adminOnly: true },
-      { id: "cash-recon", path: "/cash-recon", icon: "ti-check-double", label: "Сверка касс", adminOnly: true },
-      { id: "profitability", path: "/profitability", icon: "ti-chart-pie", label: "Меню-инжиниринг", adminOnly: true },
-      { id: "waste", path: "/waste", icon: "ti-trash", label: "Отходы", adminOnly: true },
-      { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта", adminOnly: true },
-      { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L", adminOnly: true },
-      { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки", adminOnly: true },
-      { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии", adminOnly: true },
+      { id: "cross-dashboard", path: "/cross-dashboard", icon: "ti-world", label: "Кросс-локации" },
+      { id: "cash-recon", path: "/cash-recon", icon: "ti-check-double", label: "Сверка касс" },
+      { id: "profitability", path: "/profitability", icon: "ti-chart-pie", label: "Меню-инжиниринг" },
+      { id: "waste", path: "/waste", icon: "ti-trash", label: "Отходы" },
+      { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта" },
+      { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L" },
+      { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки" },
+      { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии" },
     ],
   },
   {

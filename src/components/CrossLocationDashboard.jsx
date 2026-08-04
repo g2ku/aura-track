@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { fetchCashBySpot, fetchCashPerDay } from "../poster";
-import { isAdmin } from "../auth.jsx";
+import { isAdmin, getUserBranch, getSpotNameForBranch } from "../auth.jsx";
 import { BRANCHES } from "../auth.jsx";
 
 function todayStr() {
@@ -205,7 +205,10 @@ export default function CrossLocationDashboard({ agg }) {
     downloadCsv("cross-location-dashboard", headers, sorted);
   }
 
-  if (!isAdmin()) {
+  const userBranch = getUserBranch();
+  const branchLabel = userBranch ? getSpotNameForBranch(userBranch) : null;
+
+  if (!isAdmin() && !userBranch) {
     return (
       <div className="card empty-state" style={{ padding: 48 }}>
         <i className="ti ti-lock" style={{ fontSize: 36, color: "var(--text-muted)", marginBottom: 12 }} />

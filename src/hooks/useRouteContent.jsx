@@ -173,7 +173,7 @@ export function useRouteContent({
         onOpenBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
       />
     );
-  } else if (p === "/taxes" && isAdmin()) {
+  } else if (p === "/taxes") {
     content = <TaxesView />;
   } else if (p === "/products") {
     content = <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
@@ -210,27 +210,27 @@ export function useRouteContent({
     content = <AdminUsers />;
   } else if (p === "/admin/ip-groups" && isAdmin()) {
     content = <IPGroupsAdmin />;
-  } else if (p === "/margin" && isAdmin()) {
+  } else if (p === "/margin") {
     content = <MarginView />;
-  } else if (p === "/chat" && isAdmin()) {
+  } else if (p === "/chat") {
     content = <DataChat />;
-  } else if (p === "/cross-dashboard" && isAdmin()) {
+  } else if (p === "/cross-dashboard") {
     content = <CrossLocationDashboard agg={agg} />;
-  } else if (p === "/cash-recon" && isAdmin()) {
+  } else if (p === "/cash-recon") {
     content = <CashReconciliation />;
-  } else if (p === "/profitability" && isAdmin()) {
+  } else if (p === "/profitability") {
     content = <ProfitabilityMatrix />;
-  } else if (p === "/waste" && isAdmin()) {
+  } else if (p === "/waste") {
     content = <WasteTracker />;
-  } else if (p === "/traffic-heatmap" && isAdmin()) {
+  } else if (p === "/traffic-heatmap") {
     content = <TrafficHeatmap />;
-  } else if (p === "/pnl" && isAdmin()) {
+  } else if (p === "/pnl") {
     content = <PnLView agg={agg} />;
-  } else if (p === "/replenish" && isAdmin()) {
+  } else if (p === "/replenish") {
     content = <AutoReplenishmentAlerts />;
-  } else if (p === "/anomalies" && isAdmin()) {
+  } else if (p === "/anomalies") {
     content = <AnomalyDetection />;
-  } else if (p === "/briefing" && isAdmin()) {
+  } else if (p === "/briefing") {
     content = <MorningBriefing />;
   } else {
     content = <UnknownRouteFallback navigate={route.navigate} />;
