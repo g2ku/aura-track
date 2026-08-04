@@ -1,6 +1,7 @@
 // chat/parser.js — парсер естественных вопросов о данных.
 
 import { BRANCHES } from "../auth.jsx";
+import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 
 // ─── Словари ──────────────────────────────────────────────────────
 
@@ -17,7 +18,7 @@ const METRICS = [
   { keys: ["день недели", "день", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "будни", "выходн"], value: "weekday" },
   { keys: ["час", "часы", "время", "пик", "утро", "день", "вечер", "ноч"], value: "hourly" },
   { keys: ["аномали", "отклонени", "подозрительн", "странны"], value: "anomaly" },
-  { keys: ["сравн", "сравнить", "разниц", "отлич", "кто лучш", "кто худш", "кто больше", "кто меньше"], value: "compareBranches" },
+  { keys: ["сравн", "сравнить", "разниц", "отлич", "кто лучш", "кто худш", "кто больше", "кто меньше", "рейтинг", "ранжир"], value: "compareBranches" },
 ];
 
 const OPERATIONS = [
@@ -57,10 +58,39 @@ for (const entry of SPOT_MAP) {
     SPOT_ALIASES[key] = entry;
   }
 }
-SPOT_ALIASES["все"] = "all";
-SPOT_ALIASES["всех"] = "all";
-SPOT_ALIASES["все филиалы"] = "all";
-SPOT_ALIASES["все точки"] = "all";
+// Add Latin aliases for Poster spot names
+SPOT_ALIASES["gagarina"] = SPOT_ALIASES["гагарина"];
+SPOT_ALIASES["zharokova"] = SPOT_ALIASES["жарокова"];
+SPOT_ALIASES["dubai"] = SPOT_ALIASES["дубай"];
+SPOT_ALIASES["koktem"] = SPOT_ALIASES["коктем"];
+SPOT_ALIASES["atakent"] = SPOT_ALIASES["атакент"];
+SPOT_ALIASES["obi"] = SPOT_ALIASES["оби"];
+SPOT_ALIASES["rams"] = SPOT_ALIASES["рамс"];
+SPOT_ALIASES["abaya"] = SPOT_ALIASES["абая"];
+
+SPOT_ALIASES["все"] = { branchId: "all", spotId: "all", posterName: "all" };
+SPOT_ALIASES["всех"] = { branchId: "all", spotId: "all", posterName: "all" };
+SPOT_ALIASES["все филиалы"] = { branchId: "all", spotId: "all", posterName: "all" };
+SPOT_ALIASES["все точки"] = { branchId: "all", spotId: "all", posterName: "all" };
+
+// ─── IP group aliases ──────────────────────────────────────────────
+const IP_GROUP_ALIASES = {
+  "смагул": { id: "ip_smagul", name: "ИП Смагул" },
+  "смагула": { id: "ip_smagul", name: "ИП Смагул" },
+  "смагулу": { id: "ip_smagul", name: "ИП Смагул" },
+  "бажа": { id: "ip_baja", name: "ИП Бажа" },
+  "бажи": { id: "ip_baja", name: "ИП Бажа" },
+  "алуа": { id: "ip_alua", name: "ИП Алуа" },
+};
+
+function parseIPGroup(text) {
+  const lower = text.toLowerCase();
+  // Match "ип X" or just the group name
+  for (const [alias, group] of Object.entries(IP_GROUP_ALIASES)) {
+    if (lower.includes(alias) || lower.includes(`ип ${alias}`)) return group;
+  }
+  return null;
+}
 
 // ─── Product aliases (user short names → Poster product names) ───
 
@@ -107,7 +137,7 @@ const PRODUCT_ALIASES = {
 
 const MONTH_NAMES = {
   "январ": 1, "феврал": 2, "март": 3, "апрел": 4,
-  "ма": 5, "июн": 6, "июл": 7, "август": 8,
+  "мая": 5, "май": 5, "июн": 6, "июл": 7, "август": 8,
   "сентябр": 9, "октябр": 10, "ноябр": 11, "декабр": 12,
 };
 
@@ -118,12 +148,25 @@ function parsePeriod(text) {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
 
-  // "с 1 по 15 июля"
-  const rangeMatch = text.match(/с\s+(\d{1,2})\s*(?:\.(\d{1,2}))?\s*(?:\.(\d{4}))?\s+по\s+(\d{1,2})\s*(?:\.(\d{1,2}))?\s*(?:\.(\d{4}))?/);
+  // "15.06.2026" / "15-06-2026" / "15/06/2026" — DD.MM.YYYY
+  const dotDateMatch = text.match(/(\d{1,2})[\.\-\/](\d{1,2})[\.\-\/](\d{4})/);
+  if (dotDateMatch) {
+    const [, d, m, y] = dotDateMatch;
+    const month = parseInt(m);
+    if (month >= 1 && month <= 12) {
+      return {
+        from: `${y}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+        to: `${y}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+      };
+    }
+  }
+
+  // "с 1 по 15 июля" / "с 1.07 по 15.07" / "с 1 по 15 июля 2026"
+  const rangeMatch = text.match(/с\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?\s+по\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?/);
   if (rangeMatch) {
     const [, d1, m1, y1, d2, m2, y2] = rangeMatch;
     const month1 = m1 ? parseInt(m1) : findMonth(text);
-    const month2 = m2 ? parseInt(m2) : month1;
+    const month2 = m2 ? parseInt(m2) : findMonth(text);
     const year1 = y1 ? parseInt(y1) : currentYear;
     const year2 = y2 ? parseInt(y2) : year1;
     if (month1 && month2) {
@@ -259,13 +302,11 @@ function parseComparisonPeriods(text) {
   const now = new Date();
   const currentYear = now.getFullYear();
 
-  // Pattern: "июнь и июль" / "июнь vs июль" / "июнь к июлю" / "июнь сравнению с июлем"
   const sep = /\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;
   const parts = lower.split(sep).map(s => s.trim()).filter(Boolean);
 
   if (parts.length < 2) return null;
 
-  // Try direct month matching first: "июнь и июль", "июнь 2025 и июнь 2026"
   function extractYear(part) {
     const ym = part.match(/(\d{4})/);
     return ym ? parseInt(ym[1]) : currentYear;
@@ -275,30 +316,40 @@ function parseComparisonPeriods(text) {
   const p2 = monthToPeriod(parts[1], extractYear(parts[1]));
   if (p1 && p2) return [p1, p2];
 
-  // "2025 год и 2026 июнь" / "июнь 2025 и 2026" — one part has month, other doesn't
-  // Find which parts have month names and which don't
-  const partMonths = parts.map(part => {
-    for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
-      if (part.includes(prefix)) return monthNum;
+  // Handle year-only comparisons: "2025 и 2026", "2025 год и 2026"
+  const yearOnly1 = parts[0].match(/(\d{4})/);
+  const yearOnly2 = parts[1].match(/(\d{4})/);
+  if (yearOnly1 && yearOnly2) {
+    const y1 = parseInt(yearOnly1[1]);
+    const y2 = parseInt(yearOnly2[1]);
+    // Check if one part has a month name
+    const month1 = monthToPeriod(parts[0], y1);
+    const month2 = monthToPeriod(parts[1], y2);
+    if (month1 && month2) return [month1, month2];
+    // Both are year-only: compare Jan 1 of each year
+    if (!month1 && !month2) {
+      return [
+        { from: `${y1}-01-01`, to: `${y1}-12-31`, label: `${y1} год` },
+        { from: `${y2}-01-01`, to: `${y2}-12-31`, label: `${y2} год` },
+      ];
     }
-    return null;
-  });
-
-  const partYears = parts.map(part => extractYear(part));
-
-  // If exactly one part has a month and the other doesn't — use that month for both
-  const monthWithIdx = partMonths.findIndex(m => m !== null);
-  if (monthWithIdx !== -1 && partMonths.filter(m => m !== null).length === 1) {
-    const sharedMonth = partMonths[monthWithIdx];
-    const results = parts.map((_, i) => {
-      const year = partYears[i];
-      const lastDay = new Date(year, sharedMonth, 0).getDate();
-      return {
-        from: `${year}-${String(sharedMonth).padStart(2, "0")}-01`,
-        to: `${year}-${String(sharedMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
-      };
-    });
-    return results;
+    // One has month, other is year-only: use same month for both
+    if (month1 && !month2) {
+      const m = month1;
+      const lastDay = new Date(y2, m.label ? findMonth(m.label) || 6 : 6, 0).getDate();
+      return [
+        month1,
+        { from: `${y2}-${String(findMonth(month1.label) || 6).padStart(2, "0")}-01`, to: `${y2}-${String(findMonth(month1.label) || 6).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}` },
+      ];
+    }
+    if (!month1 && month2) {
+      const m = month2;
+      const lastDay = new Date(y1, findMonth(m.label) || 6, 0).getDate();
+      return [
+        { from: `${y1}-${String(findMonth(month2.label) || 6).padStart(2, "0")}-01`, to: `${y1}-${String(findMonth(month2.label) || 6).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}` },
+        month2,
+      ];
+    }
   }
 
   return null;
@@ -347,6 +398,9 @@ const NON_PRODUCT_WORDS = new Set([
   "всего", "филиал", "филиалы", "филиалам", "итого", "средн", "средний", "средняя",
   "максимум", "минимум", "сравнение", "сравнить", "товар", "товары",
   "по филиалам", "по филиала",
+  "привет", "помоги", "спасибо", "пожалуйста", "здравствуй", "пока",
+  "да", "нет", "ок", "хорошо", "плохо", "как дела", "что нового",
+  "показать", "скажи", "расскажи", "объясни", "объяснить",
 ]);
 
 // ─── Парсинг операции ─────────────────────────────────────────────
@@ -366,8 +420,9 @@ function parseOperation(text) {
 function parseProduct(text) {
   const lower = text.toLowerCase();
 
-  // Check product aliases first
-  for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
+  // Check product aliases first — sort by length descending so longer matches win
+  const sortedAliases = Object.entries(PRODUCT_ALIASES).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, canonical] of sortedAliases) {
     if (lower.includes(alias)) return canonical;
   }
 
@@ -412,11 +467,12 @@ function parseProduct(text) {
 
 // ─── Главная функция ──────────────────────────────────────────────
 
-export function parseQuestion(text) {
+export async function parseQuestion(text) {
   if (!text || !text.trim()) return null;
 
   const lower = text.toLowerCase();
   const product = parseProduct(text);
+  const ipGroup = parseIPGroup(text);
 
   // Check for comparison between two periods first
   const compPeriods = parseComparisonPeriods(lower);
@@ -429,6 +485,7 @@ export function parseQuestion(text) {
       period: compPeriods[0],
       period2: compPeriods[1],
       product,
+      ipGroup,
       raw: text,
     };
   }
@@ -438,12 +495,30 @@ export function parseQuestion(text) {
   const spot = parseSpot(text);
   const period = parsePeriod(text);
 
+  // Check if this is a meaningful query (has metric keyword, product, spot, or period keyword)
+  const hasMetricKeyword = METRICS.some(m => m.keys.some(k => lower.includes(k)));
+  const hasOperationKeyword = OPERATIONS.some(op => op.keys.some(k => lower.includes(k)));
+  const hasSpot = !!spot;
+  const hasProduct = !!product;
+  const hasPeriodKeyword = /(?:за|в|с|по|назад|недел|месяц|квартал|год|сегодня|вчера|текущ)/.test(lower);
+  const hasMoney = /\d+\s*₸|\d+\s*тенге/.test(lower);
+
+  // Filter out common greetings and non-data words
+  const GREETINGS = /^(?:привет|помоги|помощь|спасибо|пожалуйста|здравствуй|пока|да|нет|ок|хорошо|плохо|как дела|что нового|показать|скажи|расскажи|объясни|объяснить|понял|ясно|понятно|ага|угу|ну|так|ещё|еще|пожалуй|ладно|норм|нормально|отлично|класс|супер|круто|здорово|ага|нет|не|нету|было|будет|может|надо|нужно|хочу|давай|сделай|сделать|посчитай|посчитать|считай|считать)/;
+  const isGreeting = GREETINGS.test(lower.trim());
+
+  // If nothing meaningful is detected, return null
+  if (isGreeting || (!hasMetricKeyword && !hasOperationKeyword && !hasSpot && !hasProduct && !hasPeriodKeyword && !hasMoney && !ipGroup)) {
+    return null;
+  }
+
   return {
     metric,
     operation,
     spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
     period,
     product,
+    ipGroup,
     raw: text,
   };
 }
@@ -460,6 +535,7 @@ export function describeParsed(parsed) {
   parts.push(`Метрика: ${parsed.metric}`);
   parts.push(`Операция: ${parsed.operation}`);
   if (!isAll) parts.push(`Филиал: ${spotText}`);
+  if (parsed.ipGroup) parts.push(`ИП: ${parsed.ipGroup.name}`);
   if (parsed.product) parts.push(`Товар: ${parsed.product}`);
   parts.push(`Период: ${parsed.period.from} — ${parsed.period.to}`);
   if (parsed.period2) parts.push(`Период2: ${parsed.period2.from} — ${parsed.period2.to}`);

@@ -142,14 +142,14 @@ export default function DataChat() {
       }
     }
 
-    const parsed = parseQuestion(actualQuery);
+    const parsed = await parseQuestion(actualQuery);
     const debugInfo = parsed ? describeParsed(parsed) : null;
 
     if (!parsed) {
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         role: "assistant",
-        text: "Не могу распознать вопрос. Попробуйте:\n• Какая касса за июнь?\n• Сколько чеков в Gagarina?\n• Спешл за неделю",
+        text: "Не распознал вопрос. Попробуйте:\n• Касса за июнь\n• Сколько чеков в Gagarina\n• Спешл за неделю\n• Сравнение июнь и июль\n• Налог ИП Смагул за июнь",
       }]);
       setLoading(false);
       return;

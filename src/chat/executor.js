@@ -1,6 +1,6 @@
 // chat/executor.js — выполняет распознанный запрос к данным Poster.
 
-import { fetchCashBySpot, fetchPosterSales } from "../poster.js";
+import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay } from "../poster.js";
 import { fmt } from "../utils.js";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 
@@ -36,6 +36,47 @@ function label(spot) {
 
 function isAll(spot) {
   return !spot || spot === "all" || (typeof spot === "object" && spot.branchId === "all");
+}
+
+async function resolveIPGroupBranches(ipGroup) {
+  if (!ipGroup) return null;
+  try {
+    const data = await loadIPGroups();
+    const groups = data?.groups || [];
+    const g = groups.find(gr => gr.id === ipGroup.id);
+    return g ? g.branches : null;
+  } catch { return null; }
+}
+
+function matchesIPGroup(branchId, groupBranches) {
+  if (!groupBranches) return true;
+  return groupBranches.includes(branchId);
+}
+
+async function filterByIPGroup(data, ipGroup) {
+  if (!ipGroup) return data;
+  const groupBranches = await resolveIPGroupBranches(ipGroup);
+  if (!groupBranches) return data;
+  return data.filter(d => {
+    // Map Poster spotName to branchId
+    const branchId = d.branchId || (d.spotName?.startsWith("Aura02_") ? d.spotName : null);
+    if (branchId) return matchesIPGroup(branchId, groupBranches);
+    // Fallback: match by spotId
+    const spotIdBranchMap = { "1": "Aura02_Gagarina", "2": "Aura02_Zharokova", "3": "Aura02_OBI", "4": "Aura02_Abaya", "7": "Aura02_Koktem", "9": "Aura02_Dubai", "10": "Aura02_Atakent", "11": "Aura02_Rams" };
+    const mapped = spotIdBranchMap[d.spotId];
+    return mapped ? matchesIPGroup(mapped, groupBranches) : true;
+  });
+}
+
+// Days in a month (for normalization)
+function daysInPeriod(from, to) {
+  const d1 = new Date(from + "T00:00:00");
+  const d2 = new Date(to + "T00:00:00");
+  return Math.round((d2 - d1) / 86400000) + 1;
+}
+
+function fmtDateJS(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function formatPeriodLabel(period) {
@@ -80,29 +121,29 @@ function changeEmoji(pct) {
 export async function executeQuery(parsed) {
   if (!parsed) return { text: "Не могу распознать вопрос. Попробуйте перефразировать.", data: null };
 
-  const { metric, operation, spot, period, period2, product } = parsed;
+  const { metric, operation, spot, period, period2, product, ipGroup } = parsed;
 
   try {
     if (operation === "percentChange" && period2) {
-      return await handlePercentChange(metric, spot, period, period2, product, parsed.raw);
+      return await handlePercentChange(metric, spot, period, period2, product, ipGroup, parsed.raw);
     }
 
     // Operations that work across metrics
-    if (operation === "trend") return await handleTrend(metric, spot, period);
-    if (operation === "forecast") return await handleForecast(metric, spot, period);
-    if (operation === "byWeekday") return await handleByWeekday(metric, spot, period);
-    if (operation === "byHour") return await handleByHour(metric, spot, period);
-    if (operation === "anomaly") return await handleAnomaly(metric, spot, period);
-    if (metric === "compareBranches") return await handleCompareBranches(operation, spot, period);
+    if (operation === "trend") return await handleTrend(metric, spot, period, ipGroup);
+    if (operation === "forecast") return await handleForecast(metric, spot, period, ipGroup);
+    if (operation === "byWeekday") return await handleByWeekday(metric, spot, period, ipGroup);
+    if (operation === "byHour") return await handleByHour(metric, spot, period, ipGroup);
+    if (operation === "anomaly") return await handleAnomaly(metric, spot, period, ipGroup);
+    if (metric === "compareBranches") return await handleCompareBranches(operation, spot, period, ipGroup);
 
     switch (metric) {
-      case "cash": return await handleCash(operation, spot, period);
-      case "checks": return await handleChecks(operation, spot, period);
-      case "avgCheck": return await handleAvgCheck(operation, spot, period);
-      case "products": return await handleProducts(operation, spot, period, product);
-      case "tax": return await handleTax(operation, spot, period);
-      case "margin": return await handleMargin(operation, spot, period);
-      default: return await handleCash(operation, spot, period);
+      case "cash": return await handleCash(operation, spot, period, ipGroup);
+      case "checks": return await handleChecks(operation, spot, period, ipGroup);
+      case "avgCheck": return await handleAvgCheck(operation, spot, period, ipGroup);
+      case "products": return await handleProducts(operation, spot, period, product, ipGroup);
+      case "tax": return await handleTax(operation, spot, period, ipGroup);
+      case "margin": return await handleMargin(operation, spot, period, ipGroup);
+      default: return await handleCash(operation, spot, period, ipGroup);
     }
   } catch (e) {
     return { text: `Ошибка: ${e.message || "не удалось загрузить данные"}`, data: null };
@@ -111,7 +152,7 @@ export async function executeQuery(parsed) {
 
 // ─── Сравнение двух периодов (процентное изменение) ────────────────
 
-async function handlePercentChange(metric, spot, period1, period2, productName, raw) {
+async function handlePercentChange(metric, spot, period1, period2, productName, ipGroup, raw) {
   const isProductSearch = !!productName;
   const wantIPGroups = raw && /по\s+(?:группам|разным)\s+ип/i.test(raw);
 
@@ -159,8 +200,15 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
     fetchCashBySpot(period2.from, period2.to),
   ]);
 
-  const f1 = d1.filter(d => matchesSpot(d, spot));
-  const f2 = d2.filter(d => matchesSpot(d, spot));
+  let f1 = d1.filter(d => matchesSpot(d, spot));
+  let f2 = d2.filter(d => matchesSpot(d, spot));
+
+  // Apply IP group filter
+  f1 = await filterByIPGroup(f1, ipGroup);
+  f2 = await filterByIPGroup(f2, ipGroup);
+
+  const days1 = daysInPeriod(period1.from, period1.to);
+  const days2 = daysInPeriod(period2.from, period2.to);
 
   const cash1 = f1.reduce((s, d) => s + (d.total || 0), 0);
   const cash2 = f2.reduce((s, d) => s + (d.total || 0), 0);
@@ -172,6 +220,15 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
   const pl1 = formatPeriodLabel(period1);
   const pl2 = formatPeriodLabel(period2);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
+
+  // Normalize by day count when comparing different-length periods
+  const avgCash1 = days1 > 0 ? Math.round(cash1 / days1) : cash1;
+  const avgCash2 = days2 > 0 ? Math.round(cash2 / days2) : cash2;
+  const avgPct = pctChange(avgCash2, avgCash1);
+  const avgCheck1 = tx1 > 0 ? Math.round(cash1 / tx1) : 0;
+  const avgCheck2 = tx2 > 0 ? Math.round(cash2 / tx2) : 0;
+  const avgCheckPct = pctChange(avgCheck2, avgCheck1);
 
   // If comparing all spots, show per-spot or per-IP-group breakdown
   if (isAll(spot) && f1.length > 1) {
@@ -191,15 +248,9 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
             groupCash[g.id] = { name: g.name, cash1: 0, cash2: 0, tx1: 0, tx2: 0 };
           }
 
-          // Map spotId → branchId for IP group lookup
-          const spotToBranch = {};
-          for (const [id, cfg] of Object.entries({ "1": "Aura02_Gagarina", "2": "Aura02_Zharokova", "3": "Aura02_OBI", "4": "Aura02_Abaya", "7": "Aura02_Koktem", "9": "Aura02_Dubai", "10": "Aura02_Atakent", "11": "Aura02_Rams" })) {
-            spotToBranch[id] = id;  // Actually spotId === branchId suffix
-          }
-
           // Build spotId → branchId from Poster spot names
           for (const d of f1) {
-            const branchId = d.spotName.startsWith("Aura02_") ? d.spotName : spotToBranch[d.spotId] || d.spotId;
+            const branchId = d.spotName?.startsWith("Aura02_") ? d.spotName : d.spotId;
             const g = getBranchIPGroup(groups, branchId);
             if (g && groupCash[g.id]) {
               groupCash[g.id].cash1 += d.total || 0;
@@ -207,7 +258,7 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
             }
           }
           for (const d of f2) {
-            const branchId = d.spotName.startsWith("Aura02_") ? d.spotName : spotToBranch[d.spotId] || d.spotId;
+            const branchId = d.spotName?.startsWith("Aura02_") ? d.spotName : d.spotId;
             const g = getBranchIPGroup(groups, branchId);
             if (g && groupCash[g.id]) {
               groupCash[g.id].cash2 += d.total || 0;
@@ -252,49 +303,68 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
     }
 
     return {
-      text: `Сравнение кассы филиалов:\n${pl1} vs ${pl2}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}`,
-      data: { period1, period2, cash1, cash2, cashPct, txPct },
+      text: `Сравнение кассы филиалов${ipLabel}:\n${pl1} (${days1} дн.) vs ${pl2} (${days2} дн.)\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}\nСреднее/день: ${fmt(avgCash1)} → ${fmt(avgCash2)}  ${changeEmoji(avgPct)}`,
+      data: { period1, period2, cash1, cash2, cashPct, txPct, avgPct, days1, days2 },
     };
   }
 
   // Single spot or all combined
-  const avgCheck1 = tx1 > 0 ? Math.round(cash1 / tx1) : 0;
-  const avgCheck2 = tx2 > 0 ? Math.round(cash2 / tx2) : 0;
-  const avgPct = pctChange(avgCheck2, avgCheck1);
-
   return {
-    text: `Сравнение ${sl}:\n${pl1}: ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${pl2}: ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} средний чек`,
-    data: { period1, period2, cash1, cash2, tx1, tx2, cashPct, txPct, avgPct },
+    text: `Сравнение ${sl}${ipLabel}:\n${pl1} (${days1} дн.): ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${pl2} (${days2} дн.): ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} среднее/день\n${changeEmoji(avgCheckPct)} средний чек`,
+    data: { period1, period2, cash1, cash2, tx1, tx2, cashPct, txPct, avgPct, avgCheckPct, days1, days2 },
   };
 }
 
 // ─── Касса ────────────────────────────────────────────────────────
 
-async function handleCash(operation, spot, period) {
-  const data = await fetchCashBySpot(period.from, period.to);
-  const filtered = data.filter(d => matchesSpot(d, spot));
+async function handleCash(operation, spot, period, ipGroup) {
+  // For large date ranges (year), fetch month by month to avoid hanging
+  const d1 = new Date(period.from + "T00:00:00");
+  const d2 = new Date(period.to + "T00:00:00");
+  const totalDays = Math.round((d2 - d1) / 86400000) + 1;
+
+  let data;
+  if (totalDays > 62) {
+    // More than 2 months — fetch month by month
+    data = [];
+    let cur = new Date(d1);
+    while (cur <= d2) {
+      const monthStart = new Date(cur.getFullYear(), cur.getMonth(), 1);
+      const monthEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+      const from = fmtDateJS(monthStart < d1 ? d1 : monthStart);
+      const to = fmtDateJS(monthEnd > d2 ? d2 : monthEnd);
+      const monthData = await fetchCashBySpot(from, to);
+      data.push(...monthData);
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+  } else {
+    data = await fetchCashBySpot(period.from, period.to);
+  }
+  let filtered = data.filter(d => matchesSpot(d, spot));
+  filtered = await filterByIPGroup(filtered, ipGroup);
   const totalCash = filtered.reduce((s, d) => s + (d.total || 0), 0);
   const totalTx = filtered.reduce((s, d) => s + (d.txCount || 0), 0);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   if (operation === "compare") {
     const sorted = [...filtered].sort((a, b) => b.total - a.total);
     const lines = sorted.map((d, i) => `${i + 1}. ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(d.avgCheck)})`).join("\n");
-    return { text: `Сравнение филиалов за ${pl}:\n${lines}`, data: sorted };
+    return { text: `Сравнение филиалов${ipLabel} за ${pl}:\n${lines}`, data: sorted };
   }
 
   if (operation === "max" && filtered.length > 0) {
     const sorted = [...filtered].sort((a, b) => b.total - a.total);
     const lines = sorted.map((d, i) => `${i + 1}. ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
-    return { text: `Топ филиалов по кассе за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)}`, data: { sorted, totalCash } };
+    return { text: `Топ филиалов по кассе${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)}`, data: { sorted, totalCash } };
   }
 
   if (operation === "average" && filtered.length > 0) {
     const days = filtered[0].daysCount || 1;
     const avgPerDay = Math.round(totalCash / days);
     return {
-      text: `Средняя касса ${sl} за ${pl}:\n${fmt(totalCash)} за ${days} дн. = ${fmt(avgPerDay)}/день\nЧеков: ${totalTx.toLocaleString("ru-RU")}`,
+      text: `Средняя касса ${sl}${ipLabel} за ${pl}:\n${fmt(totalCash)} за ${days} дн. = ${fmt(avgPerDay)}/день\nЧеков: ${totalTx.toLocaleString("ru-RU")}`,
       data: { totalCash, totalTx, avgPerDay, days },
     };
   }
@@ -302,58 +372,62 @@ async function handleCash(operation, spot, period) {
   if (!isAll(spot) && filtered.length === 1) {
     const d = filtered[0];
     return {
-      text: `Касса ${d.spotName} за ${pl}:\n${fmt(d.total)}\nЧеков: ${d.txCount.toLocaleString("ru-RU")}\nСредний чек: ${fmt(d.avgCheck)}`,
+      text: `Касса ${d.spotName}${ipLabel} за ${pl}:\n${fmt(d.total)}\nЧеков: ${d.txCount.toLocaleString("ru-RU")}\nСредний чек: ${fmt(d.avgCheck)}`,
       data: d,
     };
   }
 
   const lines = filtered.map(d => `• ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
   return {
-    text: `Касса ${sl} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)} | Чеков: ${totalTx.toLocaleString("ru-RU")}`,
+    text: `Касса ${sl}${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)} | Чеков: ${totalTx.toLocaleString("ru-RU")}`,
     data: { filtered, totalCash, totalTx },
   };
 }
 
 // ─── Чеки ─────────────────────────────────────────────────────────
 
-async function handleChecks(operation, spot, period) {
+async function handleChecks(operation, spot, period, ipGroup) {
   const data = await fetchCashBySpot(period.from, period.to);
-  const filtered = data.filter(d => matchesSpot(d, spot));
+  let filtered = data.filter(d => matchesSpot(d, spot));
+  filtered = await filterByIPGroup(filtered, ipGroup);
   const totalTx = filtered.reduce((s, d) => s + (d.txCount || 0), 0);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   if (operation === "max" && filtered.length > 1) {
     const sorted = [...filtered].sort((a, b) => b.txCount - a.txCount);
     const lines = sorted.map((d, i) => `${i + 1}. ${d.spotName}: ${d.txCount.toLocaleString("ru-RU")} чеков`).join("\n");
-    return { text: `Топ по количеству чеков за ${pl}:\n${lines}\n\nИтого: ${totalTx.toLocaleString("ru-RU")}`, data: sorted };
+    return { text: `Топ по количеству чеков${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${totalTx.toLocaleString("ru-RU")}`, data: sorted };
   }
 
   if (!isAll(spot) && filtered.length === 1) {
     const d = filtered[0];
     const days = d.daysCount || 1;
     return {
-      text: `Чеки ${d.spotName} за ${pl}:\nВсего: ${d.txCount.toLocaleString("ru-RU")}\nВ среднем: ${Math.round(d.txCount / days)}/день`,
+      text: `Чеки ${d.spotName}${ipLabel} за ${pl}:\nВсего: ${d.txCount.toLocaleString("ru-RU")}\nВ среднем: ${Math.round(d.txCount / days)}/день`,
       data: d,
     };
   }
 
   return {
-    text: `Количество чеков ${sl} за ${pl}:\n${totalTx.toLocaleString("ru-RU")}`,
+    text: `Количество чеков ${sl}${ipLabel} за ${pl}:\n${totalTx.toLocaleString("ru-RU")}`,
     data: { totalTx },
   };
 }
 
 // ─── Средний чек ──────────────────────────────────────────────────
 
-async function handleAvgCheck(operation, spot, period) {
+async function handleAvgCheck(operation, spot, period, ipGroup) {
   const data = await fetchCashBySpot(period.from, period.to);
-  const filtered = data.filter(d => matchesSpot(d, spot));
+  let filtered = data.filter(d => matchesSpot(d, spot));
+  filtered = await filterByIPGroup(filtered, ipGroup);
   const totalCash = filtered.reduce((s, d) => s + (d.total || 0), 0);
   const totalTx = filtered.reduce((s, d) => s + (d.txCount || 0), 0);
   const avg = totalTx > 0 ? Math.round(totalCash / totalTx) : 0;
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   if (filtered.length > 1) {
     const lines = filtered.map(d => {
@@ -361,22 +435,23 @@ async function handleAvgCheck(operation, spot, period) {
       return `• ${d.spotName}: ${fmt(a)}`;
     }).join("\n");
     return {
-      text: `Средний чек ${sl} за ${pl}:\n${lines}\n\nОбщий средний: ${fmt(avg)}`,
+      text: `Средний чек ${sl}${ipLabel} за ${pl}:\n${lines}\n\nОбщий средний: ${fmt(avg)}`,
       data: { filtered, avg },
     };
   }
 
   return {
-    text: `Средний чек ${sl} за ${pl}:\n${fmt(avg)}`,
+    text: `Средний чек ${sl}${ipLabel} за ${pl}:\n${fmt(avg)}`,
     data: { avg },
   };
 }
 
 // ─── Товары ───────────────────────────────────────────────────────
 
-async function handleProducts(operation, spot, period, productName) {
+async function handleProducts(operation, spot, period, productName, ipGroup) {
   const data = await fetchPosterSales(period.from, period.to);
   const pl = formatPeriodLabel(period);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   // If asking for per-branch breakdown (or no specific product)
   const wantBySpot = !productName || /по\s*филиалам/i.test(period?.raw || "");
@@ -385,6 +460,13 @@ async function handleProducts(operation, spot, period, productName) {
   const productMap = {};
   for (const row of data.rows) {
     if (!matchesRowSpot(row, spot)) continue;
+    if (ipGroup) {
+      const branchId = row.spotName?.startsWith("Aura02_") ? row.spotName : null;
+      if (branchId) {
+        const groupBranches = await resolveIPGroupBranches(ipGroup);
+        if (groupBranches && !groupBranches.includes(branchId)) continue;
+      }
+    }
     const name = row.productName;
     if (!productMap[name]) productMap[name] = { name, qty: 0, sum: 0 };
     productMap[name].qty += row.qty || 0;
@@ -408,13 +490,35 @@ async function handleProducts(operation, spot, period, productName) {
   const products = Object.values(productMap);
 
   if (productName) {
-    const matches = products.filter(p => p.name.toLowerCase().includes(productName.toLowerCase()));
+    const searchLower = productName.toLowerCase();
+    // Fuzzy match: includes, startsWith, or normalized match
+    const matches = products.filter(p => {
+      const nameLower = p.name.toLowerCase();
+      if (nameLower.includes(searchLower)) return true;
+      // Normalize: remove spaces, dashes, special chars
+      const normalized = nameLower.replace(/[\s\-_().,!?]/g, "");
+      const searchNormalized = searchLower.replace(/[\s\-_().,!?]/g, "");
+      if (normalized.includes(searchNormalized)) return true;
+      // Check first word match (e.g., "спешл" matches "Спешл O2")
+      const firstWord = nameLower.split(/[\s\-]/)[0];
+      if (firstWord === searchLower || firstWord.includes(searchLower)) return true;
+      return false;
+    });
     if (matches.length === 0) return { text: `Товар «${productName}» не найден за ${pl}.`, data: null };
 
     // Per-branch breakdown
     const bySpot = Object.values(spotProductMap)
       .map(s => {
-        const pMatches = Object.values(s.products).filter(p => p.name.toLowerCase().includes(productName.toLowerCase()));
+        const pMatches = Object.values(s.products).filter(p => {
+          const nameLower = p.name.toLowerCase();
+          if (nameLower.includes(searchLower)) return true;
+          const normalized = nameLower.replace(/[\s\-_().,!?]/g, "");
+          const searchNormalized = searchLower.replace(/[\s\-_().,!?]/g, "");
+          if (normalized.includes(searchNormalized)) return true;
+          const firstWord = nameLower.split(/[\s\-]/)[0];
+          if (firstWord === searchLower || firstWord.includes(searchLower)) return true;
+          return false;
+        });
         const total = pMatches.reduce((acc, p) => acc + p.qty, 0);
         const sum = pMatches.reduce((acc, p) => acc + p.sum, 0);
         return { spotName: s.spotName, qty: total, sum, products: pMatches };
@@ -431,7 +535,7 @@ async function handleProducts(operation, spot, period, productName) {
     // Per-branch totals
     const branchLines = bySpot.map(s => `• ${s.spotName}: ${s.qty} шт. / ${fmt(s.sum)}`).join("\n");
 
-    const text = `Продажи «${productName}» за ${pl}:\n\nВарианты:\n${variantLines}\n\nИтого: ${allQty} шт. / ${fmt(allSum)}\n\nПо филиалам:\n${branchLines}`;
+    const text = `Продажи «${productName}»${ipLabel} за ${pl}:\n\nВарианты:\n${variantLines}\n\nИтого: ${allQty} шт. / ${fmt(allSum)}\n\nПо филиалам:\n${branchLines}`;
     return { text, data: { matches, bySpot } };
   }
 
@@ -441,32 +545,34 @@ async function handleProducts(operation, spot, period, productName) {
   const totalQty = products.reduce((s, p) => s + p.qty, 0);
   const totalSum = products.reduce((s, p) => s + p.sum, 0);
   return {
-    text: `Товары за ${pl} (всего ${products.length} наименований):\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}`,
+    text: `Товары${ipLabel} за ${pl} (всего ${products.length} наименований):\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}`,
     data: { products: top, totalQty, totalSum },
   };
 }
 
 // ─── Налоги ───────────────────────────────────────────────────────
 
-async function handleTax(operation, spot, period) {
+async function handleTax(operation, spot, period, ipGroup) {
   const data = await fetchCashBySpot(period.from, period.to);
-  const filtered = data.filter(d => matchesSpot(d, spot));
+  let filtered = data.filter(d => matchesSpot(d, spot));
+  filtered = await filterByIPGroup(filtered, ipGroup);
   const totalCash = filtered.reduce((s, d) => s + (d.total || 0), 0);
   const tax = Math.round(totalCash * 0.03);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   return {
-    text: `Налог 3% ${sl} за ${pl}:\nКасса: ${fmt(totalCash)}\nНалог: ${fmt(tax)}`,
+    text: `Налог 3% ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\nНалог: ${fmt(tax)}`,
     data: { totalCash, tax },
   };
 }
 
 // ─── Маржа ───────────────────────────────────────────────────────
 
-async function handleMargin(operation, spot, period) {
+async function handleMargin(operation, spot, period, ipGroup) {
   const { loadMargin, calcRecipeCost } = await import("../margin.js");
-  const { default: getMenuIndex } = await import("../poster.js");
+  const { getMenuIndex } = await import("../poster.js");
 
   const [cashData, marginData, menuIdx] = await Promise.all([
     fetchCashBySpot(period.from, period.to),
@@ -474,14 +580,16 @@ async function handleMargin(operation, spot, period) {
     getMenuIndex(),
   ]);
 
-  const filtered = cashData.filter(d => matchesSpot(d, spot));
+  let filtered = cashData.filter(d => matchesSpot(d, spot));
+  filtered = await filterByIPGroup(filtered, ipGroup);
   const totalCash = filtered.reduce((s, d) => s + (d.total || 0), 0);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   if (!marginData?.recipes || marginData.recipes.length === 0) {
     return {
-      text: `Маржа ${sl} за ${pl}:\nКасса: ${fmt(totalCash)}\n\n⚠️ Рецепты не настроены. Настройте в разделе «Маржа».`,
+      text: `Маржа ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\nРецепты не настроены. Настройте в разделе «Маржа».`,
       data: { totalCash },
     };
   }
@@ -508,19 +616,23 @@ async function handleMargin(operation, spot, period) {
   ).join("\n");
 
   return {
-    text: `Маржинальность ${sl} за ${pl}:\nКасса: ${fmt(totalCash)}\n\nСредняя себестоимость: ${fmt(avgCost)}\nСредняя цена: ${fmt(avgPrice)}\nСредняя маржа: ${avgMargin}%\n\nТоп по марже:\n${topLines}`,
+    text: `Маржинальность ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\nСредняя себестоимость: ${fmt(avgCost)}\nСредняя цена: ${fmt(avgPrice)}\nСредняя маржа: ${avgMargin}%\n\nТоп по марже:\n${topLines}`,
     data: { totalCash, avgCost, avgPrice, avgMargin, topProducts: withMargin.slice(0, 5) },
   };
 }
 
 // ─── Тренд ──────────────────────────────────────────────────────
 
-async function handleTrend(metric, spot, period) {
-  // Get data for 3 months (current + 2 previous)
+async function handleTrend(metric, spot, period, ipGroup) {
   const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const today = now.getDate();
+
+  // Get last 3 COMPLETE months (exclude current incomplete month)
   const months = [];
-  for (let i = 2; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  for (let i = 3; i >= 1; i--) {
+    const d = new Date(currentYear, currentMonth - i, 1);
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     months.push({
       label: d.toLocaleDateString("ru-RU", { month: "short", year: "numeric" }),
@@ -529,38 +641,49 @@ async function handleTrend(metric, spot, period) {
     });
   }
 
-  const results = await Promise.all(months.map(m => fetchCashBySpot(m.from, m.to)));
+  // Fetch month by month to avoid large-range API failures
+  const results = [];
+  for (const m of months) {
+    const r = await fetchCashBySpot(m.from, m.to);
+    results.push(r);
+  }
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  const monthlyData = results.map((data, i) => {
-    const filtered = data.filter(d => matchesSpot(d, spot));
+  const monthlyData = [];
+  for (let i = 0; i < results.length; i++) {
+    let filtered = results[i].filter(d => matchesSpot(d, spot));
+    filtered = await filterByIPGroup(filtered, ipGroup);
     const total = filtered.reduce((s, d) => s + (d.total || 0), 0);
     const tx = filtered.reduce((s, d) => s + (d.txCount || 0), 0);
-    return { month: months[i].label, total, tx };
-  });
+    monthlyData.push({ month: months[i].label, total, tx, days: daysInPeriod(months[i].from, months[i].to) });
+  }
 
-  // Calculate trend
+  // Calculate trend (compare first and last complete months)
   const values = monthlyData.map(m => m.total);
   const trend = values[2] > values[0] ? "рост" : values[2] < values[0] ? "снижение" : "стабильно";
   const pct = values[0] > 0 ? ((values[2] - values[0]) / values[0] * 100).toFixed(1) : 0;
 
-  const lines = monthlyData.map(m => `• ${m.month}: ${fmt(m.total)} (${m.tx} чеков)`).join("\n");
+  const lines = monthlyData.map(m => `• ${m.month}: ${fmt(m.total)} (${m.tx} чеков, ${m.days} дн.)`).join("\n");
   const emoji = trend === "рост" ? "📈" : trend === "снижение" ? "📉" : "➡️";
 
   return {
-    text: `Тренд кассы ${sl} (3 месяца):\n${lines}\n\n${emoji} ${trend === "рост" ? "+" : ""}${pct}% за 3 месяца`,
+    text: `Тренд кассы ${sl}${ipLabel} (3 полных месяца):\n${lines}\n\n${emoji} ${trend === "рост" ? "+" : ""}${pct}% за период`,
     data: { monthlyData, trend, pctChange: pct },
   };
 }
 
 // ─── Прогноз ────────────────────────────────────────────────────
 
-async function handleForecast(metric, spot, period) {
-  // Get data for 6 months for better forecast
+async function handleForecast(metric, spot, period, ipGroup) {
   const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  // Get last 6 COMPLETE months (exclude current incomplete month)
   const months = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  for (let i = 6; i >= 1; i--) {
+    const d = new Date(currentYear, currentMonth - i, 1);
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     months.push({
       label: d.toLocaleDateString("ru-RU", { month: "short" }),
@@ -569,14 +692,22 @@ async function handleForecast(metric, spot, period) {
     });
   }
 
-  const results = await Promise.all(months.map(m => fetchCashBySpot(m.from, m.to)));
+  // Fetch month by month to avoid large-range API failures
+  const results = [];
+  for (const m of months) {
+    const r = await fetchCashBySpot(m.from, m.to);
+    results.push(r);
+  }
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  const monthlyData = results.map((data, i) => {
-    const filtered = data.filter(d => matchesSpot(d, spot));
+  const monthlyData = [];
+  for (let i = 0; i < results.length; i++) {
+    let filtered = results[i].filter(d => matchesSpot(d, spot));
+    filtered = await filterByIPGroup(filtered, ipGroup);
     const total = filtered.reduce((s, d) => s + (d.total || 0), 0);
-    return { month: months[i].label, total };
-  });
+    monthlyData.push({ month: months[i].label, total, days: daysInPeriod(months[i].from, months[i].to) });
+  }
 
   // Linear regression
   const n = monthlyData.length;
@@ -591,27 +722,27 @@ async function handleForecast(metric, spot, period) {
 
   // Next month forecast
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextLastDay = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
   const forecast = Math.round(slope * n + intercept);
   const forecastLabel = nextMonth.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
 
-  const lines = monthlyData.map(m => `• ${m.month}: ${fmt(m.total)}`).join("\n");
+  const lines = monthlyData.map(m => `• ${m.month}: ${fmt(m.total)} (${m.days} дн.)`).join("\n");
   const emoji = slope > 0 ? "📈" : slope < 0 ? "📉" : "➡️";
 
   return {
-    text: `Прогноз ${sl}:\n\nИстория:\n${lines}\n\n${emoji} Прогноз на ${forecastLabel}: ${fmt(forecast)}`,
+    text: `Прогноз ${sl}${ipLabel}:\n\nИстория (полные месяцы):\n${lines}\n\n${emoji} Прогноз на ${forecastLabel} (${nextLastDay} дн.): ${fmt(forecast)}`,
     data: { monthlyData, forecast, forecastLabel, slope },
   };
 }
 
 // ─── По дням недели ─────────────────────────────────────────────
 
-async function handleByWeekday(metric, spot, period) {
-  const data = await fetchCashBySpot(period.from, period.to);
+async function handleByWeekday(metric, spot, period, ipGroup) {
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  // We need daily data - fetch receipts for this
-  const { fetchReceipts } = await import("../poster.js");
+  // Fetch receipts for daily breakdown
   const receipts = await fetchReceipts(period.from, period.to);
 
   const weekdayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
@@ -620,10 +751,18 @@ async function handleByWeekday(metric, spot, period) {
 
   for (const r of receipts.receipts || []) {
     if (r.spotId && !matchesSpot({ spotId: r.spotId, spotName: r.spotName }, spot)) continue;
+    if (ipGroup) {
+      const branchId = r.spotName?.startsWith("Aura02_") ? r.spotName : null;
+      if (branchId) {
+        const groupBranches = await resolveIPGroupBranches(ipGroup);
+        if (groupBranches && !groupBranches.includes(branchId)) continue;
+      }
+    }
     const date = r.dateOpen ? new Date(r.dateOpen) : null;
-    if (!date) continue;
+    if (!date || isNaN(date.getTime())) continue;
     const day = date.getDay();
-    weekdayTotals[day] += r.sum || 0;
+    const sum = Number(r.sum) || 0;
+    weekdayTotals[day] += sum;
     weekdayCounts[day]++;
   }
 
@@ -645,19 +784,19 @@ async function handleByWeekday(metric, spot, period) {
   const worstDay = indexed[indexed.length - 1];
 
   return {
-    text: `Касса по дням недели ${sl} за ${pl}:\n${lines}\n\n🏆 Лучший день: ${bestDay.name}\n📉 Худший день: ${worstDay.name}`,
+    text: `Касса по дням недели ${sl}${ipLabel} за ${pl}:\n${lines}\n\n🏆 Лучший день: ${bestDay.name}\n📉 Худший день: ${worstDay.name}`,
     data: { weekdayData: indexed, bestDay: bestDay.name, worstDay: worstDay.name },
   };
 }
 
 // ─── По часам ───────────────────────────────────────────────────
 
-async function handleByHour(metric, spot, period) {
+async function handleByHour(metric, spot, period, ipGroup) {
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   // Fetch receipts for hourly breakdown
-  const { fetchReceipts } = await import("../poster.js");
   const receipts = await fetchReceipts(period.from, period.to);
 
   const hourTotals = Array(24).fill(0);
@@ -665,10 +804,18 @@ async function handleByHour(metric, spot, period) {
 
   for (const r of receipts.receipts || []) {
     if (r.spotId && !matchesSpot({ spotId: r.spotId, spotName: r.spotName }, spot)) continue;
+    if (ipGroup) {
+      const branchId = r.spotName?.startsWith("Aura02_") ? r.spotName : null;
+      if (branchId) {
+        const groupBranches = await resolveIPGroupBranches(ipGroup);
+        if (groupBranches && !groupBranches.includes(branchId)) continue;
+      }
+    }
     const date = r.dateOpen ? new Date(r.dateOpen) : null;
-    if (!date) continue;
+    if (!date || isNaN(date.getTime())) continue;
     const hour = date.getHours();
-    hourTotals[hour] += r.sum || 0;
+    const sum = Number(r.sum) || 0;
+    hourTotals[hour] += sum;
     hourCounts[hour]++;
   }
 
@@ -692,26 +839,25 @@ async function handleByHour(metric, spot, period) {
   const quietLines = quietHours.map(h => `• ${h.label}: ${fmt(h.total)}`).join("\n");
 
   return {
-    text: `Пиковые часы ${sl} за ${pl}:\n\n🔥 Топ-3 часа:\n${lines}\n\n💤 Тихие часы:\n${quietLines}`,
+    text: `Пиковые часы ${sl}${ipLabel} за ${pl}:\n\n🔥 Топ-3 часа:\n${lines}\n\n💤 Тихие часы:\n${quietLines}`,
     data: { peakHours, quietHours, hourData: indexed },
   };
 }
 
 // ─── Аномалии ───────────────────────────────────────────────────
 
-async function handleAnomaly(metric, spot, period) {
-  // Get daily data for the period
-  const { fetchCashPerDay } = await import("../poster.js");
+async function handleAnomaly(metric, spot, period, ipGroup) {
   const dailyData = await fetchCashPerDay(period.from, period.to);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   if (!dailyData || dailyData.length === 0) {
     return { text: `Нет данных за ${pl} для анализа аномалий.`, data: null };
   }
 
   // Filter by spot if needed
-  const filtered = isAll(spot) ? dailyData : dailyData.filter(d => matchesSpot(d, spot));
+  let filtered = isAll(spot) ? dailyData : dailyData.filter(d => matchesSpot(d, spot));
 
   // Calculate stats
   const values = filtered.map(d => d.total || 0);
@@ -742,29 +888,33 @@ async function handleAnomaly(metric, spot, period) {
 
   if (anomalies.length === 0) {
     return {
-      text: `Аномалии ${sl} за ${pl}:\n\n✅ Аномалий не обнаружено.\nСредняя касса: ${fmt(avg)} (σ=${fmt(Math.round(stdDev))})`,
+      text: `Аномалии ${sl}${ipLabel} за ${pl}:\n\nАномалий не обнаружено.\nСредняя касса: ${fmt(avg)} (σ=${fmt(Math.round(stdDev))})`,
       data: { mean, stdDev, anomalies: [] },
     };
   }
 
   return {
-    text: `Аномалии ${sl} за ${pl}:\n\nОбнаружено: ${anomalies.length}\nСредняя касса: ${fmt(avg)} (σ=${fmt(Math.round(stdDev))})\n\n${lines}`,
+    text: `Аномалии ${sl}${ipLabel} за ${pl}:\n\nОбнаружено: ${anomalies.length}\nСредняя касса: ${fmt(avg)} (σ=${fmt(Math.round(stdDev))})\n\n${lines}`,
     data: { mean, stdDev, anomalies },
   };
 }
 
 // ─── Сравнение филиалов ─────────────────────────────────────────
 
-async function handleCompareBranches(operation, spot, period) {
+async function handleCompareBranches(operation, spot, period, ipGroup) {
   const data = await fetchCashBySpot(period.from, period.to);
   const pl = formatPeriodLabel(period);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  if (data.length === 0) {
-    return { text: `Нет данных за ${pl}.`, data: null };
+  let filtered = data;
+  filtered = await filterByIPGroup(filtered, ipGroup);
+
+  if (filtered.length === 0) {
+    return { text: `Нет данных${ipLabel} за ${pl}.`, data: null };
   }
 
-  // Sort by cash
-  const sorted = [...data].sort((a, b) => b.total - a.total);
+  // Sort by cash (with avgCheck)
+  const sorted = [...filtered].sort((a, b) => b.total - a.total);
   const lines = sorted.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
     const avgCheck = d.txCount > 0 ? Math.round(d.total / d.txCount) : 0;
@@ -776,7 +926,7 @@ async function handleCompareBranches(operation, spot, period) {
   const diff = worst.total > 0 ? ((best.total - worst.total) / worst.total * 100).toFixed(0) : 0;
 
   return {
-    text: `Рейтинг филиалов за ${pl}:\n${lines}\n\n🏆 Лучший: ${best.spotName} (${fmt(best.total)})\n📉 Худший: ${worst.spotName} (${fmt(worst.total)})\n📊 Разница: +${diff}%`,
+    text: `Рейтинг филиалов${ipLabel} за ${pl}:\n${lines}\n\n🏆 Лучший: ${best.spotName} (${fmt(best.total)})\n📉 Худший: ${worst.spotName} (${fmt(worst.total)})\n📊 Разница: +${diff}%`,
     data: { sorted, best: best.spotName, worst: worst.spotName, diff },
   };
 }
