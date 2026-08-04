@@ -598,7 +598,7 @@ async function handleForecast(metric, spot, period) {
   const emoji = slope > 0 ? "📈" : slope < 0 ? "📉" : "➡️";
 
   return {
-    text: `Прогноз ${sl}:\n\nИстория:\n${lines}\n\n${emoji} Прогноз на ${forecastLabel}: ${fmt(fact)}`,
+    text: `Прогноз ${sl}:\n\nИстория:\n${lines}\n\n${emoji} Прогноз на ${forecastLabel}: ${fmt(forecast)}`,
     data: { monthlyData, forecast, forecastLabel, slope },
   };
 }
