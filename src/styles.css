@@ -3187,6 +3187,29 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   color: var(--text-accent);
 }
 
+/* Follow-up suggestions */
+.chat-followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.chat-followup-btn {
+  font-size: 11px !important;
+  padding: 4px 10px !important;
+  background: var(--bg-elevated, rgba(255,255,255,0.04)) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  color: var(--text-secondary) !important;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.chat-followup-btn:hover {
+  background: var(--bg-accent, rgba(15,138,90,0.1)) !important;
+  border-color: var(--text-accent) !important;
+  color: var(--text-accent) !important;
+}
+
 .chat-input-wrap {
   flex-shrink: 0;
   display: flex;

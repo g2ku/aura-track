@@ -11,7 +11,40 @@ const EXAMPLES = [
   "Средний чек всех филиалов за июнь",
   "Как изменилась касса Гагарина июнь к июлю",
   "Касса вчера",
+  "Тренд кассы за 3 месяца",
+  "Прогноз на август",
+  "Какой день недели самый прибыльный?",
+  "В какое время пик продаж?",
+  "Маржа за июнь",
+  "Рейтинг филиалов за июнь",
 ];
+
+const FOLLOW_UP = {
+  cash: ["Сравнить с прошлым месяцем", "Тренд за 3 месяца", "Прогноз на следующий месяц"],
+  checks: ["По дням недели", "По часам", "Сравнить филиалы"],
+  products: ["По филиалам", "Топ-10 товаров", "Сравнить с прошлым периодом"],
+  margin: ["Топ по марже", "Сравнить филиалы", "Прогноз маржи"],
+  default: ["Сравнить с прошлым месяцем", "Рейтинг филиалов", "Аномалии за период"],
+};
+
+const HISTORY_KEY = "aura-chat-history";
+const MAX_HISTORY = 20;
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveHistory(q) {
+  try {
+    const history = loadHistory().filter(h => h !== q);
+    history.unshift(q);
+    if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {}
+}
 
 export default function DataChat() {
   const [messages, setMessages] = useState([]);
@@ -20,6 +53,8 @@ export default function DataChat() {
   const [showDebug, setShowDebug] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [context, setContext] = useState(null); // last parsed query for follow-ups
+  const [suggestions, setSuggestions] = useState(EXAMPLES);
   const endRef = useRef(null);
   const inputRef = useRef(null);
   const sugRef = useRef(null);
@@ -57,6 +92,34 @@ export default function DataChat() {
     el.scrollBy({ left: dir * 200, behavior: "smooth" });
   }
 
+  function generateFollowUps(parsed, result) {
+    if (!parsed) return EXAMPLES.slice(0, 5);
+    const metric = parsed.metric;
+    const spot = parsed.spot;
+    const period = parsed.period;
+    const ups = FOLLOW_UP[metric] || FOLLOW_UP.default;
+
+    // Build context-aware follow-ups
+    const followUps = [];
+    for (const up of ups) {
+      let q = up;
+      // Add spot context if specific branch was queried
+      if (spot && spot.branchId !== "all") {
+        const spotName = spot.posterName || spot.branchId.replace("Aura02_", "");
+        q = `${q} ${spotName}`;
+      }
+      // Add period context
+      if (period && period.from === period.to) {
+        // Single day - add month context
+        const d = new Date(period.from);
+        const month = d.toLocaleDateString("ru-RU", { month: "long" });
+        q = `${q} за ${month}`;
+      }
+      followUps.push(q);
+    }
+    return followUps;
+  }
+
   async function handleSend(text) {
     const q = (text || input).trim();
     if (!q) return;
@@ -65,8 +128,21 @@ export default function DataChat() {
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     setLoading(true);
+    saveHistory(q);
 
-    const parsed = parseQuestion(q);
+    // Handle context follow-ups (e.g., "а по филиалам")
+    let actualQuery = q;
+    if (context && messages.length > 0) {
+      const lower = q.toLowerCase();
+      if (lower.startsWith("а ") || lower.startsWith("а(")) {
+        // Contextual follow-up
+        const spotName = context.spot?.posterName || "";
+        const periodLabel = context.period ? `${context.period.from} ${context.period.to}` : "";
+        actualQuery = `${context.metric === "cash" ? "касса" : context.metric} ${spotName} ${periodLabel} ${q}`;
+      }
+    }
+
+    const parsed = parseQuestion(actualQuery);
     const debugInfo = parsed ? describeParsed(parsed) : null;
 
     if (!parsed) {
@@ -81,12 +157,18 @@ export default function DataChat() {
 
     const result = await executeQuery(parsed);
 
+    // Generate follow-up suggestions
+    const followUps = generateFollowUps(parsed, result);
+    setSuggestions(followUps);
+    setContext(parsed);
+
     setMessages(prev => [...prev, {
       id: Date.now() + 1,
       role: "assistant",
       text: result.text,
       debug: debugInfo,
       data: result.data,
+      followUps,
     }]);
     setLoading(false);
   }
@@ -131,6 +213,20 @@ export default function DataChat() {
                 <div className="chat-debug">{msg.debug}</div>
               )}
             </div>
+            {/* Follow-up suggestions after bot messages */}
+            {msg.role === "assistant" && msg.followUps && msg.followUps.length > 0 && (
+              <div className="chat-followups">
+                {msg.followUps.map((fu, i) => (
+                  <button
+                    key={i}
+                    className="chat-suggestion-btn chat-followup-btn"
+                    onClick={() => handleSend(fu)}
+                  >
+                    {fu}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
 
@@ -154,7 +250,7 @@ export default function DataChat() {
           </button>
         )}
         <div className="chat-suggestions" ref={sugRef}>
-          {EXAMPLES.map(ex => (
+          {suggestions.map(ex => (
             <button
               key={ex}
               className="chat-suggestion-btn"
