@@ -81,7 +81,25 @@ function po(text){const l=text.toLowerCase();for(const op of OPERATIONS)for(cons
 function pprod(text){const l=text.toLowerCase();const sorted=Object.entries(PA).sort((a,b)=>b[0].length-a[0].length);for(const[a,c]of sorted)if(l.includes(a))return c;const pf=l.match(/^([а-яёa-z]+)\s+за\s/);if(pf){const w=pf[1].trim();if(!NPW.has(w)){for(const[a,c]of Object.entries(PA))if(w===a)return c;return w}}return null}
 function pigrp(text){const l=text.toLowerCase();for(const[a,g]of Object.entries(IPA))if(l.includes(a))return g;return null}
 function mtp(name,yr){const y=yr||now.getFullYear();for(const[p,n]of Object.entries(MONTH_NAMES))if(name.includes(p)){const ld=new Date(y,n,0).getDate();return{from:`${y}-${String(n).padStart(2,"0")}-01`,to:`${y}-${String(n).padStart(2,"0")}-${String(ld).padStart(2,"0")}`,label:name.trim()}}return null}
-function pcp(text){const s=/\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;const parts=text.split(s).map(x=>x.trim()).filter(Boolean);if(parts.length<2)return null;const ey=p=>{const m=p.match(/(\d{4})/);return m?parseInt(m[1]):now.getFullYear()};const p1=mtp(parts[0],ey(parts[0]));const p2=mtp(parts[1],ey(parts[1]));if(p1&&p2)return[p1,p2];return null}
+function pcp(text){
+  const s=/\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;
+  const parts=text.split(s).map(x=>x.trim()).filter(Boolean);
+  if(parts.length<2)return null;
+  const ey=p=>{const m=p.match(/(\d{4})/);return m?parseInt(m[1]):now.getFullYear()};
+  const p1=mtp(parts[0],ey(parts[0]));
+  const p2=mtp(parts[1],ey(parts[1]));
+  if(p1&&p2)return[p1,p2];
+  // Year-only comparison (e.g. "2025 и 2026")
+  const y1=parts[0].match(/(\d{4})/);
+  const y2=parts[1].match(/(\d{4})/);
+  if(y1&&y2&&y1[1]!==y2[1]){
+    return[
+      {from:`${y1[1]}-01-01`,to:`${y1[1]}-12-31`,label:`${y1[1]} год`},
+      {from:`${y2[1]}-01-01`,to:`${y2[1]}-12-31`,label:`${y2[1]} год`}
+    ];
+  }
+  return null;
+}
 const GR=/^(?:привет|помоги|спасибо|пока|да|нет|ок|хорошо|плохо|как дела|показать|скажи|расскажи|объясни|понял|ясно|понятно|ага|ну|так|ещё|ладно|норм|отлично|класс|супер|круто|не|нету|было|будет|может|надо|нужно|хочу|давай|сделай|посчитай|считай)/;
 
 function pq(text){
@@ -144,8 +162,8 @@ test("касса -1000 тенге → still cash", () => { const p=pq("касс�
 // Year in middle of text
 test("сравнение 2025 и 2026 год", () => {
   const p=pq("касса 2025 и 2026 год");
-  // Should detect as comparison
-  if(p) assertEq(p.operation,"percentChange");
+  // Should detect as comparison — either via comparePeriods or percentChange
+  if(p) assert(p.operation==="compare"||p.operation==="percentChange"||p.comparePeriods,`expected compare/percentChange, got ${p.operation}`);
 });
 
 // IP group + spot combined

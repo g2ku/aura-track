@@ -116,10 +116,8 @@ export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
   for (const r of dayResults) {
     for (const [spotId, productMap] of Object.entries(r.rowsBySpot || {})) {
       let total = 0;
-      let txCount = 0;
       for (const v of Object.values(productMap)) {
         total += v.sum || 0;
-        txCount += v.qty || 0;
       }
       if (total > 0) {
         perDay.push({
@@ -127,7 +125,7 @@ export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
           spotId,
           spotName: spots[spotId]?.name || spotId,
           total,
-          txCount,
+          txCount: r.txBySpot?.[spotId] || 0,
         });
       }
     }
@@ -297,7 +295,8 @@ export function getCachedCashBySpot(dateFrom, dateTo) {
         bySpot[spotId].total += total;
       }
       for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
-        if (bySpot[spotId]) bySpot[spotId].txCount += count;
+        if (!bySpot[spotId]) bySpot[spotId] = { spotId, spotName: spots[spotId]?.name || `Филиал #${spotId}`, total: 0, txCount: 0 };
+        bySpot[spotId].txCount += count;
       }
     }
 
@@ -757,15 +756,12 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   const byDay = {};
   for (const yyyymmdd of days) byDay[yyyymmdd] = [];
   // Считаем транзакции — исключаем с payed_sum=0 (Poster не считает их чеками)
-  const allTxBySpot = {};
-  let allTxCount = 0;
   let unmappedCash = {}; // tx without date_open, date_close outside period — still add to cash
+  let unmappedTxCount = {}; // count unmapped transactions per spot
   for (const tx of allData) {
     const payedSum = Number(tx.payed_sum || tx.sum || 0);
     if (payedSum === 0) continue;
     const spotId = String(tx.spot_id || "");
-    allTxCount++;
-    allTxBySpot[spotId] = (allTxBySpot[spotId] || 0) + 1;
 
     const dateClose = (tx.date_close || "").slice(0, 10).replace(/-/g, "");
     const dateOpen = (tx.date_open || "").slice(0, 10).replace(/-/g, "");
@@ -776,6 +772,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       // Transaction returned by API but no matching day (e.g. date_close in next month, no date_open)
       // Still count in cashBySpot since API considers it part of this period
       unmappedCash[spotId] = (unmappedCash[spotId] || 0) + payedSum;
+      unmappedTxCount[spotId] = (unmappedTxCount[spotId] || 0) + 1;
     }
   }
 
@@ -869,13 +866,17 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     }
   }
 
-  // Add unmapped transactions' cash (cross-month tx without date_open)
+  // Add unmapped transactions' cash AND count (cross-month tx without date_open)
   for (const [spotId, amount] of Object.entries(unmappedCash)) {
     cashBySpot[spotId] = (cashBySpot[spotId] || 0) + amount;
   }
+  for (const [spotId, count] of Object.entries(unmappedTxCount)) {
+    transactionsCount += count;
+    txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
+  }
 
   const rows = buildRows(spots, merged);
-  return { rows, transactionsCount: allTxCount, txBySpot: allTxBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
+  return { rows, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
 }
 
 function buildRows(spots, merged) {

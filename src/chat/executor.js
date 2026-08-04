@@ -325,8 +325,8 @@ async function handleCash(operation, spot, period, ipGroup) {
 
   let data;
   if (totalDays > 62) {
-    // More than 2 months — fetch month by month
-    data = [];
+    // More than 2 months — fetch month by month, then aggregate by spot
+    const bySpot = {};
     let cur = new Date(d1);
     while (cur <= d2) {
       const monthStart = new Date(cur.getFullYear(), cur.getMonth(), 1);
@@ -334,9 +334,18 @@ async function handleCash(operation, spot, period, ipGroup) {
       const from = fmtDateJS(monthStart < d1 ? d1 : monthStart);
       const to = fmtDateJS(monthEnd > d2 ? d2 : monthEnd);
       const monthData = await fetchCashBySpot(from, to);
-      data.push(...monthData);
+      for (const d of monthData) {
+        if (!bySpot[d.spotId]) bySpot[d.spotId] = { spotId: d.spotId, spotName: d.spotName, total: 0, txCount: 0 };
+        bySpot[d.spotId].total += d.total;
+        bySpot[d.spotId].txCount += d.txCount;
+      }
       cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
     }
+    data = Object.values(bySpot).map(d => ({
+      ...d,
+      avgCheck: d.txCount > 0 ? Math.round(d.total / d.txCount) : 0,
+      daysCount: totalDays,
+    }));
   } else {
     data = await fetchCashBySpot(period.from, period.to);
   }
