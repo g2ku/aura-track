@@ -212,7 +212,7 @@ export function useRouteContent({
     content = <IPGroupsAdmin />;
   } else if (p === "/margin" && isAdmin()) {
     content = <MarginView />;
-  } else if (p === "/chat") {
+  } else if (p === "/chat" && isAdmin()) {
     content = <DataChat />;
   } else if (p === "/cross-dashboard" && isAdmin()) {
     content = <CrossLocationDashboard agg={agg} />;
