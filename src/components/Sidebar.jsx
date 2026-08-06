@@ -213,6 +213,8 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
 
         <nav className="sidebar-nav">
           {GROUPS.map(group => {
+            // Hide entire analytics group for single-branch (curator) users
+            if (isBranch && group.id === "admin-analytics") return null;
             const visibleItems = group.items.filter(canSeeItem);
             if (visibleItems.length === 0) return null;
             const isExpanded = expanded[group.id];
