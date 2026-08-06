@@ -920,16 +920,29 @@ async function handleAnomaly(metric, spot, period, ipGroup) {
 async function handleCompareBranches(operation, spot, period, ipGroup) {
   const data = await fetchCashBySpot(period.from, period.to);
   const pl = formatPeriodLabel(period);
+  const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  let filtered = data;
+  let filtered = data.filter(d => matchesSpot(d, spot));
   filtered = await filterByIPGroup(filtered, ipGroup);
 
   if (filtered.length === 0) {
-    return { text: `Нет данных${ipLabel} за ${pl}.`, data: null };
+    return { text: `Нет данных ${sl}${ipLabel} за ${pl}.`, data: null };
   }
 
-  // Sort by cash (with avgCheck)
+  // Single branch: show that branch's data
+  if (!isAll(spot) && filtered.length === 1) {
+    const d = filtered[0];
+    const avgCheck = d.txCount > 0 ? Math.round(d.total / d.txCount) : 0;
+    const days = daysInPeriod(period.from, period.to);
+    const avgPerDay = days > 0 ? Math.round(d.total / days) : d.total;
+    return {
+      text: `Касса ${d.spotName}${ipLabel} за ${pl}:\n${fmt(d.total)} / ${d.txCount} чеков / ср.чек ${fmt(avgCheck)}\nСреднее/день: ${fmt(avgPerDay)} (${days} дн.)`,
+      data: d,
+    };
+  }
+
+  // Multiple branches: ranking
   const sorted = [...filtered].sort((a, b) => b.total - a.total);
   const lines = sorted.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";

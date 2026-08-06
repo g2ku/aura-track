@@ -173,7 +173,16 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   function canSeeItem(item) {
     if (item.adminOnly && !isAdminOrManager()) return false;
     if (item.managerOnly && !isManager) return false;
-    if (isBranch && (item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets")) return false;
+    // Single-branch (curator) restrictions
+    if (isBranch) {
+      if (item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets") return false;
+      // Hide: сводка дня, маржа, налоги, кросс-локации, меню-инжиниринг
+      if (item.id === "briefing" || item.id === "margin" || item.id === "taxes" || item.id === "cross-dashboard" || item.id === "profitability") return false;
+    }
+    // Hide for ALL users: сверка касс, отходы
+    if (item.id === "cash-recon" || item.id === "waste") return false;
+    // P&L и аномалии — только admin/manager
+    if ((item.id === "pnl" || item.id === "anomalies") && !isAdminOrManager()) return false;
     return true;
   }
 

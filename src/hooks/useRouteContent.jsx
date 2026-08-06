@@ -78,11 +78,25 @@ function ViewFallback() {
   return <SkeletonView />;
 }
 
+const CURATOR_HIDDEN_ROUTES = ["/briefing", "/margin", "/taxes", "/cross-dashboard", "/profitability"];
+
 export function useRouteContent({
   route, filteredDocs, filteredAgg, agg, canEdit, userBranch, role, globalPayments,
   openModal, handleDeleteReports,
 }) {
   const p = route.path;
+  const isCurator = role === "curator" && userBranch;
+
+  // Curator hidden routes: redirect to dashboard
+  if (isCurator && CURATOR_HIDDEN_ROUTES.includes(p)) {
+    return (
+      <RouteErrorBoundary>
+        <Suspense fallback={<RouteFallback />}>
+          <UnknownRouteFallback navigate={route.navigate} />
+        </Suspense>
+      </RouteErrorBoundary>
+    );
+  }
 
   let content;
 
@@ -217,18 +231,18 @@ export function useRouteContent({
   } else if (p === "/cross-dashboard") {
     content = <CrossLocationDashboard agg={agg} />;
   } else if (p === "/cash-recon") {
-    content = <CashReconciliation />;
+    content = <UnknownRouteFallback navigate={route.navigate} />;
   } else if (p === "/profitability") {
     content = <ProfitabilityMatrix />;
   } else if (p === "/waste") {
-    content = <WasteTracker />;
+    content = <UnknownRouteFallback navigate={route.navigate} />;
   } else if (p === "/traffic-heatmap") {
     content = <TrafficHeatmap />;
-  } else if (p === "/pnl") {
+  } else if (p === "/pnl" && isAdminOrManager()) {
     content = <PnLView agg={agg} />;
   } else if (p === "/replenish") {
     content = <AutoReplenishmentAlerts />;
-  } else if (p === "/anomalies") {
+  } else if (p === "/anomalies" && isAdminOrManager()) {
     content = <AnomalyDetection />;
   } else if (p === "/briefing") {
     content = <MorningBriefing />;

@@ -102,6 +102,7 @@ const PRODUCT_ALIASES = {
   "спешл": "спешл",
   "спеціал": "спешл",
   "спец": "спешл",
+  "special": "спешл",
   "латте": "латте",
   "лте": "латте",
   "капучино": "капучино",
@@ -303,7 +304,18 @@ function parseComparisonPeriods(text) {
   const currentYear = now.getFullYear();
 
   const sep = /\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;
-  const parts = lower.split(sep).map(s => s.trim()).filter(Boolean);
+  let parts = lower.split(sep).map(s => s.trim()).filter(Boolean);
+
+  // If only 1 part, try splitting by space between two month names
+  // e.g., "июнь июль" → ["июнь", "июль"]
+  if (parts.length === 1) {
+    const monthPattern = "(?:январ|феврал|март|апрел|ма[яйе]|июн[а-яе]*|июл[а-яе]*|август[а-яе]*|сентябр[а-яе]*|октябр[а-яе]*|ноябр[а-яе]*|декабр[а-яе]*)";
+    const twoMonthsRe = new RegExp(`^(${monthPattern})\\s+(${monthPattern})$`);
+    const m = parts[0].match(twoMonthsRe);
+    if (m) {
+      parts = [m[1], m[2]];
+    }
+  }
 
   if (parts.length < 2) return null;
 
