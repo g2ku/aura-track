@@ -306,11 +306,11 @@ function parseComparisonPeriods(text) {
   const sep = /\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;
   let parts = lower.split(sep).map(s => s.trim()).filter(Boolean);
 
-  // If only 1 part, try splitting by space between two month names
-  // e.g., "июнь июль" → ["июнь", "июль"]
+  // If only 1 part, find two month names separated by space anywhere in text
+  // e.g., "сравнение филиалы июнь июль" → ["июнь", "июль"]
   if (parts.length === 1) {
-    const monthPattern = "(?:январ|феврал|март|апрел|ма[яйе]|июн[а-яе]*|июл[а-яе]*|август[а-яе]*|сентябр[а-яе]*|октябр[а-яе]*|ноябр[а-яе]*|декабр[а-яе]*)";
-    const twoMonthsRe = new RegExp(`^(${monthPattern})\\s+(${monthPattern})$`);
+    const monthPattern = "(?:январ[а-яе]*|феврал[а-яе]*|март[а-яе]*|апрел[а-яе]*|ма[яйе]|июн[а-яе]*|июл[а-яе]*|август[а-яе]*|сентябр[а-яе]*|октябр[а-яе]*|ноябр[а-яе]*|декабр[а-яе]*)";
+    const twoMonthsRe = new RegExp(`(${monthPattern})\\s+(${monthPattern})`);
     const m = parts[0].match(twoMonthsRe);
     if (m) {
       parts = [m[1], m[2]];

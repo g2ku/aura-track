@@ -4,7 +4,7 @@ import { useUserBranch } from "../auth.jsx";
 const ADMIN_ITEMS = [
   { path: "/", icon: "ti-home", label: "Главная" },
   { path: "/branches", icon: "ti-building", label: "Филиалы" },
-  { path: "/reports", icon: "ti-file", label: "Отчёты" },
+  { path: "/chat", icon: "ti-message-chatbot", label: "Ассистент", isCenter: true },
   { path: "/poster", icon: "ti-report-analytics", label: "Poster" },
   { path: "/receipts", icon: "ti-receipt", label: "Чеки" },
 ];
@@ -12,9 +12,9 @@ const ADMIN_ITEMS = [
 const BRANCH_ITEMS = [
   { path: "/", icon: "ti-home", label: "Главная" },
   { path: "/branches", icon: "ti-building", label: "Филиалы" },
-  { path: "/reports", icon: "ti-file", label: "Отчёты" },
-  { path: "/poster", icon: "ti-report-analytics", label: "Poster" },
+  { path: "/chat", icon: "ti-message-chatbot", label: "Ассистент", isCenter: true },
   { id: "feedback", icon: "ti-bulb", label: "Идея" },
+  { path: "/poster", icon: "ti-report-analytics", label: "Poster" },
 ];
 
 export default function BottomNav() {
@@ -43,7 +43,7 @@ export default function BottomNav() {
         return (
           <button
             key={item.path}
-            className={`bottom-nav-item ${active ? "active" : ""}`}
+            className={`bottom-nav-item${active ? " active" : ""}${item.isCenter ? " bottom-nav-center" : ""}`}
             onClick={() => route.navigate(item.path)}
             aria-label={item.label}
           >
