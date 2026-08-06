@@ -117,7 +117,10 @@ export default function TrafficHeatmap() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Тепловая карта трафика</h1>
-          <div className="page-sub">Средняя выручка по дням недели</div>
+          <div className="page-sub">
+            Средняя выручка по дням недели для каждой точки. Красный — пик, синий — тихо.
+            Видно где загрузка в понедельник, а где в субботу. Чем больше период — тем точнее среднее.
+          </div>
         </div>
       </div>
 

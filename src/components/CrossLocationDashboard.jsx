@@ -142,7 +142,9 @@ export default function CrossLocationDashboard({ agg }) {
 
       const prev = prevMap[spot.spotId];
       const prevTotal = prev?.total || 0;
-      const changePct = prevTotal > 0 ? ((spot.total - prevTotal) / prevTotal * 100).toFixed(1) : null;
+      // Не показываем % если прошлый период пустой или слишком маленький (<10% от текущего)
+      const changePct = (prevTotal > 0 && spot.total > prevTotal * 0.1)
+        ? ((spot.total - prevTotal) / prevTotal * 100).toFixed(1) : null;
 
       return {
         spotId: spot.spotId,
