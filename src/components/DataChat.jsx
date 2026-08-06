@@ -38,6 +38,7 @@ const FOLLOW_UP = {
   checks: ["По дням недели", "По часам", "Сравнить филиалы"],
   products: ["По филиалам", "Топ-10 товаров", "Сравнить с прошлым периодом"],
   margin: ["Топ по марже", "Сравнить филиалы", "Прогноз маржи"],
+  compareBranches: ["Сравнить кассу за период", "Топ по чекам", "Средний чек по филиалам"],
   default: ["Сравнить с прошлым месяцем", "Рейтинг филиалов", "Аномалии за период"],
 };
 
@@ -119,7 +120,25 @@ export default function DataChat() {
     const period = parsed.period;
     const ups = FOLLOW_UP[metric] || FOLLOW_UP.default;
 
-    // Build context-aware follow-ups
+    // Build period label for context
+    let periodLabel = "";
+    if (period) {
+      const d1 = new Date(period.from + "T00:00:00");
+      const d2 = new Date(period.to + "T00:00:00");
+      if (period.from === period.to) {
+        // Single day → use month name
+        periodLabel = d1.toLocaleDateString("ru-RU", { month: "long" });
+      } else if (d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear()) {
+        // Same month
+        periodLabel = d1.toLocaleDateString("ru-RU", { month: "long" });
+      } else {
+        // Different months → "июнь июль"
+        const m1 = d1.toLocaleDateString("ru-RU", { month: "short" });
+        const m2 = d2.toLocaleDateString("ru-RU", { month: "short" });
+        periodLabel = `${m1} ${m2}`;
+      }
+    }
+
     const followUps = [];
     for (const up of ups) {
       let q = up;
@@ -128,9 +147,17 @@ export default function DataChat() {
         const spotName = spot.posterName || spot.branchId.replace("Aura02_", "");
         q = `${q} ${spotName}`;
       }
-      // Add period context
-      if (period && period.from === period.to) {
-        // Single day - add month context
+      // "Сравнить с прошлым месяцем" → "Сравнить июнь с май" when period is June
+      if (/сравн/i.test(up) && period && period.from) {
+        const d1 = new Date(period.from + "T00:00:00");
+        const curMonth = d1.toLocaleDateString("ru-RU", { month: "long" });
+        // Previous month
+        const prev = new Date(d1.getFullYear(), d1.getMonth() - 1, 1);
+        const prevMonth = prev.toLocaleDateString("ru-RU", { month: "long" });
+        q = `Сравнить ${curMonth} с ${prevMonth}`;
+      } else if (/за период/i.test(up) && periodLabel) {
+        q = `${up.replace("за период", `за ${periodLabel}`)}`;
+      } else if (period && period.from === period.to) {
         const d = new Date(period.from);
         const month = d.toLocaleDateString("ru-RU", { month: "long" });
         q = `${q} за ${month}`;

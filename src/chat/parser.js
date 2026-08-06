@@ -209,8 +209,8 @@ function parsePeriod(text) {
     return { from: fmtDate(from), to };
   }
 
-  // "за сегодня"
-  if (text.includes("сегодня")) {
+  // "за сегодня" / "касса сейчас"
+  if (text.includes("сегодня") || text.includes("сейчас")) {
     return { from: fmtDate(now), to: fmtDate(now) };
   }
 

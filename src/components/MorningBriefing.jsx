@@ -84,23 +84,23 @@ export default function MorningBriefing() {
     );
   }, [yesterdayCash]);
 
-  // Week average
+  // Week average — weekCash is per-spot, not per-day, so count days from date range
   const weekAvg = useMemo(() => {
-    const daysCount = {};
+    const d1 = new Date(weekAgo + "T00:00:00");
+    const d2 = new Date(yesterday + "T00:00:00");
+    const numDays = Math.round((d2 - d1) / 86400000) + 1 || 1;
     let totalTx = 0;
     for (const entry of weekCash) {
-      const d = entry.date;
-      daysCount[d] = true;
       totalTx += entry.txCount || 0;
     }
-    const numDays = Object.keys(daysCount).length || 1;
     const total = weekCash.reduce((s, e) => s + (e.total || 0), 0);
     return {
       total,
+      numDays,
       avgPerDay: Math.round(total / numDays),
       avgCheck: totalTx > 0 ? Math.round(total / totalTx) : 0,
     };
-  }, [weekCash]);
+  }, [weekCash, weekAgo, yesterday]);
 
   // Top products
   const topProducts = useMemo(() => {
