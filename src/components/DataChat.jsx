@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { parseQuestion, describeParsed } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
-import { getUserBranch, getSpotNameForBranch, BRANCHES } from "../auth.jsx";
+import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.jsx";
 
 const EXAMPLES_ALL = [
   "Средняя касса за июнь",
@@ -392,22 +392,24 @@ export default function DataChat() {
 
       {/* Input */}
       <div className="chat-input-wrap">
-        <button
-          className={`chat-mic-btn${listening ? " listening" : ""}`}
-          onClick={toggleListening}
-          title={listening ? "Остановить запись" : "Голосовой ввод"}
-          aria-label={listening ? "Остановить запись" : "Голосовой ввод"}
-        >
-          <i className={`ti ${listening ? "ti-player-stop" : "ti-microphone"}`} />
-          {listening && <span className="chat-mic-pulse" />}
-        </button>
+        {isAdmin() && (
+          <button
+            className={`chat-mic-btn${listening ? " listening" : ""}`}
+            onClick={toggleListening}
+            title={listening ? "Остановить запись" : "Голосовой ввод"}
+            aria-label={listening ? "Остановить запись" : "Голосовой ввод"}
+          >
+            <i className={`ti ${listening ? "ti-player-stop" : "ti-microphone"}`} />
+            {listening && <span className="chat-mic-pulse" />}
+          </button>
+        )}
         <input
           ref={inputRef}
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={listening ? "Говорите…" : "Напишите или скажите вопрос…"}
+          placeholder={listening ? "Говорите…" : (isAdmin() ? "Напишите или скажите вопрос…" : "Напишите вопрос…")}
           disabled={loading}
           className={`chat-input${listening ? " listening" : ""}`}
         />
