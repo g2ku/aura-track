@@ -1,9 +1,18 @@
 import { useEffect, useState, useCallback } from "react";
 
-const CURRENT_VERSION = "1.6.0";
-const STORAGE_KEY = "aura-track:last-seen-v4";
+const CURRENT_VERSION = "1.6.1";
+const STORAGE_KEY = "aura-track:last-seen-v5";
 
 const ENTRIES = [
+  {
+    version: "1.6.1",
+    date: "2026-08-06",
+    items: [
+      "Голосовой ввод в ассистенте — нажмите на микрофон и спросите голосом",
+      "Работает на Android (Chrome) и на ПК",
+      "На iPhone — кнопка микрофона на клавиатуре",
+    ],
+  },
   {
     version: "1.6.0",
     date: "2026-08-06",

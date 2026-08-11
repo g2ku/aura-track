@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { parseQuestion, describeParsed } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
+import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, BRANCHES } from "../auth.jsx";
 
 const EXAMPLES_ALL = [
@@ -61,10 +62,18 @@ function saveHistory(q) {
   } catch {}
 }
 
+// Web Speech API detection
+const SpeechRecognitionImpl =
+  typeof window !== "undefined"
+    ? (window.SpeechRecognition || window.webkitSpeechRecognition || null)
+    : null;
+
 export default function DataChat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState(null);
   const userBranch = getUserBranch();
   const branchLabel = userBranch ? getSpotNameForBranch(userBranch) : null;
   const userBranchObj = userBranch && BRANCHES[userBranch]
@@ -79,6 +88,71 @@ export default function DataChat() {
   const endRef = useRef(null);
   const inputRef = useRef(null);
   const sugRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const baseInputRef = useRef("");
+
+  // ─── Voice input ─────────────────────────────────────────────────
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
+    setListening(false);
+  }, []);
+
+  const toggleListening = useCallback(() => {
+    if (listening) { stopListening(); return; }
+
+    if (!SpeechRecognitionImpl) {
+      // Fallback: iOS Safari / unsupported — focus input, keyboard has dictation mic
+      setVoiceError("Нажмите на значок микрофона на клавиатуре (диктовка).");
+      setTimeout(() => setVoiceError(null), 4000);
+      inputRef.current?.focus();
+      return;
+    }
+
+    setVoiceError(null);
+    baseInputRef.current = input;
+    try {
+      const rec = new SpeechRecognitionImpl();
+      rec.lang = "ru-RU";
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+
+      rec.onresult = (e) => {
+        let transcript = "";
+        for (let i = 0; i < e.results.length; i++) {
+          transcript += e.results[i][0].transcript;
+        }
+        setInput(mergeTranscript(baseInputRef.current, transcript));
+      };
+
+      rec.onerror = (e) => {
+        const msg = voiceErrorText(e.error);
+        if (msg) {
+          setVoiceError(msg);
+          setTimeout(() => setVoiceError(null), 4000);
+        }
+        setListening(false);
+      };
+
+      rec.onend = () => {
+        setListening(false);
+        if (recognitionRef.current === rec) recognitionRef.current = null;
+      };
+
+      recognitionRef.current = rec;
+      setListening(true);
+      rec.start();
+    } catch (e) {
+      setVoiceError("Не удалось запустить голосовой ввод.");
+      setTimeout(() => setVoiceError(null), 4000);
+      setListening(false);
+    }
+  }, [listening, stopListening, input]);
+
+  useEffect(() => {
+    return () => stopListening();
+  }, [stopListening]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -318,15 +392,24 @@ export default function DataChat() {
 
       {/* Input */}
       <div className="chat-input-wrap">
+        <button
+          className={`chat-mic-btn${listening ? " listening" : ""}`}
+          onClick={toggleListening}
+          title={listening ? "Остановить запись" : "Голосовой ввод"}
+          aria-label={listening ? "Остановить запись" : "Голосовой ввод"}
+        >
+          <i className={`ti ${listening ? "ti-player-stop" : "ti-microphone"}`} />
+          {listening && <span className="chat-mic-pulse" />}
+        </button>
         <input
           ref={inputRef}
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Напишите вопрос…"
+          placeholder={listening ? "Говорите…" : "Напишите или скажите вопрос…"}
           disabled={loading}
-          className="chat-input"
+          className={`chat-input${listening ? " listening" : ""}`}
         />
         <button
           className="btn chat-send-btn"
@@ -336,6 +419,18 @@ export default function DataChat() {
           <i className="ti ti-send" />
         </button>
       </div>
+      {listening && (
+        <div className="chat-listening-bar">
+          <i className="ti ti-microphone" />
+          Слушаю… Скажите запрос, например «Касса за июнь»
+        </div>
+      )}
+      {voiceError && (
+        <div className="chat-voice-error">
+          <i className="ti ti-alert-triangle" />
+          {voiceError}
+        </div>
+      )}
     </div>
   );
 }
