@@ -6,7 +6,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals } from "../poster";
 import { useHashRoute } from "../router";
 import { getSpotNameForBranch, isAdminOrManager, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
@@ -35,6 +35,12 @@ function daysAgoStr(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function fmtPct(change) {
+  if (change == null || !isFinite(change)) return "";
+  const sign = change > 0 ? "+" : "";
+  return `${sign}${change.toFixed(1)}%`;
 }
 
 function fmtClock(ts) {
@@ -67,6 +73,7 @@ export default function CashLedger({
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
   const [checkedAt, setCheckedAt] = useState(Date.now());
+  const [yesterdayTotal, setYesterdayTotal] = useState(null);
   const [ipGroups, setIpGroups] = useState([]);
   const [selectedIP, setSelectedIP] = useState("all");
 
@@ -85,16 +92,21 @@ export default function CashLedger({
     async function load(quiet) {
       if (!quiet) setLoading(true);
       setError("");
-      const [cashResult, suppliesResult, payResult] = await Promise.allSettled([
+      const yesterday = isToday ? fetchCashBySpot(daysAgoStr(1), daysAgoStr(1)) : Promise.resolve(null);
+      const [cashResult, suppliesResult, payResult, yResult] = await Promise.allSettled([
         fetchCashBySpot(dateFrom, dateTo),
         fetchSupplyStatus(null),
         fetchPaymentBreakdown(dateFrom, dateTo),
+        yesterday,
       ]);
       if (cancelled) return;
       if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
       else setError(cashResult.reason?.message || "Ошибка касс");
       if (suppliesResult.status === "fulfilled") setSupplyStatus(suppliesResult.value);
       if (payResult.status === "fulfilled") setPayBreakdown(payResult.value);
+      if (yResult.status === "fulfilled" && yResult.value) {
+        setYesterdayTotal(yResult.value.reduce((s, c) => s + c.total, 0));
+      }
       setCheckedAt(Date.now());
       setLoading(false);
     }
@@ -151,6 +163,12 @@ export default function CashLedger({
 
   const totalCash = useMemo(() => displayCash.reduce((s, c) => s + c.total, 0), [displayCash]);
   const totalTx = useMemo(() => displayCash.reduce((s, c) => s + c.txCount, 0), [displayCash]);
+
+  // График кассы по дням — из локального кэша дней (без лишних запросов)
+  const daySeries = useMemo(() => {
+    if (isToday) return [];
+    return getCachedDayTotals(dateFrom, dateTo);
+  }, [dateFrom, dateTo, cashBySpot, isToday]);
 
   // Способы оплаты: агрегируем по отфильтрованным точкам
   const paymentMethods = useMemo(() => {
@@ -288,6 +306,23 @@ export default function CashLedger({
           <span className="cl-line-dots" />
           <span className="cl-line-value cl-total-value">{fmt(totalCash)}</span>
         </div>
+        {isToday && yesterdayTotal != null && (
+          <div className="cl-line">
+            <span className="cl-line-label">Вчера за день</span>
+            <span className="cl-line-dots" />
+            <span className="cl-line-value">
+              {fmt(yesterdayTotal)}
+              {totalCash > 0 && yesterdayTotal > 0 && (
+                <span
+                  className={totalCash >= yesterdayTotal ? "delta up" : "delta down"}
+                  title="Сравнение с вчерашней кассой"
+                >
+                  {fmtPct(((totalCash - yesterdayTotal) / yesterdayTotal) * 100)}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
         <div className="cl-line">
           <span className="cl-line-label">Средняя касса · точка</span>
           <span className="cl-line-dots" />
@@ -329,6 +364,37 @@ export default function CashLedger({
         </div>
       )}
 
+      {/* ─── Касса по дням ──────────────────────────────────────────── */}
+      {!isToday && daySeries.length > 0 && (
+        <div className="cl-zone">
+          <div className="cl-zone-title">
+            <i className="ti ti-chart-arcs" aria-hidden="true" /> Касса по дням
+            <span className="cl-zone-sub">· {daySeries.length} дн.</span>
+          </div>
+          <div className="day-chart">
+            {(() => {
+              const max = Math.max(...daySeries.map((d) => d.total), 1);
+              return daySeries.map((d, i) => {
+                const h = Math.max(4, Math.round((d.total / max) * 100));
+                const showLabel = daySeries.length <= 14 || i % 5 === 0 || i === daySeries.length - 1;
+                return (
+                  <div key={d.yyyymmdd} className="day-chart-col" title={`${d.yyyymmdd.slice(8, 10)}.${d.yyyymmdd.slice(5, 7)} · ${fmt(d.total)}`}>
+                    <div className="day-chart-track">
+                      <div className={`day-chart-bar${d.total === max ? " day-chart-bar-max" : ""}`} style={{ height: `${h}%` }} />
+                    </div>
+                    {showLabel ? (
+                      <span className="day-chart-label">{d.yyyymmdd.slice(8, 10)}.{d.yyyymmdd.slice(5, 7)}</span>
+                    ) : (
+                      <span className="day-chart-label" />
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
+
       {/* ─── Лента касс ─────────────────────────────────────────────── */}
       {loading ? (
         <div className="cl-zone">
@@ -336,6 +402,19 @@ export default function CashLedger({
           {[0, 1, 2].map((i) => (
             <div key={i} className="skeleton" style={{ height: 72, marginBottom: 10 }} />
           ))}
+        </div>
+      ) : displayCash.length === 0 && !error ? (
+        <div className="cl-zone">
+          <div className="cl-zone-title"><i className="ti ti-calendar-time" aria-hidden="true" /> Кассы точек</div>
+          <div className="cl-empty">
+            <i className="ti ti-moon-stars" aria-hidden="true" style={{ fontSize: 26, color: "var(--text-muted)" }} />
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Данных за выбранный период нет</div>
+            {isToday && (
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                Первые чеки появятся после открытия точки. Данные обновляются каждые 2 минуты.
+              </div>
+            )}
+          </div>
         </div>
       ) : displayCash.length > 0 ? (
         <div className="cl-zone">

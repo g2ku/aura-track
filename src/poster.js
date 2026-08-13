@@ -360,6 +360,27 @@ export function clearPosterCache() {
   payBreakdownCache.clear();
 }
 
+// Дневные итоги кассы из локального кэша дней (без запросов к API).
+// Возвращает [{ yyyymmdd, total }] за диапазон или [] если кэша нет.
+export function getCachedDayTotals(dateFrom, dateTo) {
+  try {
+    const fromP = toPosterDate(dateFrom);
+    const toP = toPosterDate(dateTo);
+    if (!fromP || !toP) return [];
+    const cache = readCache();
+    const out = [];
+    for (const yyyymmdd of enumerateDays(fromP, toP)) {
+      const entry = cache[yyyymmdd];
+      if (!entry) continue;
+      const total = Object.values(entry.cashBySpot || {}).reduce((s, v) => s + v, 0);
+      out.push({ yyyymmdd, total });
+    }
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
+
 // ─── Stale-while-revalidate: отдаём устаревший кэш мгновенно ─────────────
 
 export function getCachedCashBySpot(dateFrom, dateTo) {

@@ -5039,6 +5039,54 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   align-items: center;
   gap: 8px;
 }
+.design-v2 .cl-zone-sub { color: var(--text-muted); font-weight: 600; }
+.design-v2 .delta { margin-left: 6px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.design-v2 .delta.up { color: var(--text-success); }
+.design-v2 .delta.down { color: var(--text-danger); }
+.design-v2 .day-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 132px;
+  padding: 6px 2px 0;
+}
+.design-v2 .day-chart-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+}
+.design-v2 .day-chart-track {
+  flex: 1 1 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 4px;
+}
+.design-v2 .day-chart-bar {
+  width: 68%;
+  min-width: 3px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--text-accent) 75%, var(--bg)) 0%, color-mix(in srgb, var(--text-accent) 42%, var(--bg)) 100%);
+  transition: opacity 0.15s ease;
+}
+.design-v2 .day-chart-col:hover .day-chart-bar { opacity: 0.75; }
+.design-v2 .day-chart-bar-max { background: linear-gradient(180deg, var(--text-accent) 0%, color-mix(in srgb, var(--text-accent) 55%, transparent) 100%); }
+.design-v2 .day-chart-label { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-muted); white-space: nowrap; overflow: hidden; }
+.design-v2 .cl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 18px;
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+}
 .design-v2 .cl-attention-item {
   display: flex;
   align-items: baseline;

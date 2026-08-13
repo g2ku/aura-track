@@ -8,3 +8,4 @@ dist/
 .vercel
 aura-*.json
 scripts/
+.env*
