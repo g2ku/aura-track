@@ -205,45 +205,54 @@ export default function AnomalyDetection() {
           <div className="empty-state-sub">Все показатели в пределах нормы</div>
         </div>
       ) : (
-        <div className="table-card">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Дата</th>
-                <th>Точка</th>
-                <th className="text-right">Выручка</th>
-                <th className="text-right">Среднее</th>
-                <th className="text-right">Транзакции</th>
-                <th className="text-right">Z (выручка)</th>
-                <th>Тип</th>
-                <th>Важность</th>
-              </tr>
-            </thead>
-            <tbody>
-              {anomalies.map((a, idx) => (
-                <tr key={`${a.spotId}-${a.date}-${idx}`}>
-                  <td>{fmtDate(a.date)}</td>
-                  <td style={{ fontWeight: 600 }}>{a.spotName}</td>
-                  <td className="text-right" style={{ fontWeight: 600 }}>{fmt(a.total)}</td>
-                  <td className="text-right" style={{ color: "var(--text-secondary)" }}>{fmt(a.avgTotal)}</td>
-                  <td className="text-right">{a.txCount}</td>
-                  <td className="text-right" style={{ color: Number(a.zRevenue) > 2.5 ? "#ef4444" : "#f59e0b", fontWeight: 600 }}>
-                    {a.zRevenue}σ
-                  </td>
-                  <td>
-                    <span style={{ color: a.type === "spike" ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
-                      {a.type === "spike" ? "↑ Всплеск" : "↓ Падение"}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`cash-recon-status cash-recon-status--${a.severity === "high" ? "abnormal" : "ok"}`}>
-                      {a.severity === "high" ? "Высокая" : "Средняя"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="cl-zone">
+          <div className="cl-zone-title"><i className="ti ti-bug" aria-hidden="true" /> Найденные аномалии</div>
+          {anomalies.map((a, idx) => (
+            <div key={`${a.spotId}-${a.date}-${idx}`} className="cl-spot">
+              <div className="cl-spot-head">
+                <span className="cl-spot-name-text">{a.spotName}</span>
+                <div className="cl-spot-cash" style={{ color: Number(a.zRevenue) > 2.5 ? "var(--text-danger)" : "var(--text-warning)", fontWeight: 700, fontSize: 15 }}>
+                  {a.zRevenue}σ
+                </div>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Дата</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmtDate(a.date)}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Выручка</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value" style={{ fontWeight: 700 }}>{fmt(a.total)}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Среднее за период</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmt(a.avgTotal)}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Транзакции</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{a.txCount}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Тип</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value" style={{ color: a.type === "spike" ? "var(--text-success)" : "var(--text-danger)", fontWeight: 700 }}>
+                  {a.type === "spike" ? "↑ Всплеск" : "↓ Падение"}
+                </span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Важность</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">
+                  <span className={`stamp ${a.severity === "high" ? "stamp-bad" : "stamp-warn"}`}>
+                    {a.severity === "high" ? "Высокая" : "Средняя"}
+                  </span>
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

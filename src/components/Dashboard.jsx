@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, clearPosterCache, getCachedCashBySpot } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, clearPosterCache, getCachedCashBySpot } from "../poster";
 import { getSpotNameForBranch, isAdmin, isAdminOrManager } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
 import DrinkRating from "./DrinkRating";
@@ -40,7 +40,7 @@ function daysAgoStr(n) {
 
 export default function Dashboard({
   docs, agg: aggProp, canEdit, userBranch,
-  onAddReport, onSelectBranch, onPayBranch, onOpenGlobalPayment,
+  onAddReport, onSelectBranch,
 }) {
   const agg = useMemo(
     () => aggProp || { global: { total: 0, paid: 0, debt: 0, reportCount: 0, branchCount: 0 }, byBranch: {}, branches: [] },
@@ -49,6 +49,7 @@ export default function Dashboard({
 
   const [cashBySpot, setCashBySpot] = useState([]);
   const [supplyStatus, setSupplyStatus] = useState({});
+  const [payBreakdown, setPayBreakdown] = useState(null);
   const [allReceipts, setAllReceipts] = useState([]);
   const [recentReceipts, setRecentReceipts] = useState([]);
   const [posterLoading, setPosterLoading] = useState(false);
@@ -76,15 +77,17 @@ export default function Dashboard({
     async function load() {
       setPosterLoading(true);
       setPosterError("");
-      const [cashResult, suppliesResult] = await Promise.allSettled([
+      const [cashResult, suppliesResult, payResult] = await Promise.allSettled([
         fetchCashBySpot(dateFrom, dateTo),
         fetchSupplyStatus(null),
+        fetchPaymentBreakdown(dateFrom, dateTo),
       ]);
       if (!cancelled) {
         if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
         else setPosterError("Кассы: " + (cashResult.reason?.message || "Ошибка"));
         if (suppliesResult.status === "fulfilled") setSupplyStatus(suppliesResult.value);
         else setPosterError(prev => prev ? prev + "; Поставки: " + (suppliesResult.reason?.message || "Ошибка") : "Поставки: " + (suppliesResult.reason?.message || "Ошибка"));
+        if (payResult.status === "fulfilled") setPayBreakdown(payResult.value);
       }
       if (!cancelled) setPosterLoading(false);
     }
@@ -97,8 +100,12 @@ export default function Dashboard({
     if (!isToday) return;
     const interval = setInterval(async () => {
       try {
-        const cash = await fetchCashBySpot(dateFrom, dateTo);
-        setCashBySpot(cash);
+        const [cash, pay] = await Promise.allSettled([
+          fetchCashBySpot(dateFrom, dateTo),
+          fetchPaymentBreakdown(dateFrom, dateTo),
+        ]);
+        if (cash.status === "fulfilled") setCashBySpot(cash.value);
+        if (pay.status === "fulfilled") setPayBreakdown(pay.value);
       } catch (_) {}
     }, 2 * 60 * 1000);
     return () => clearInterval(interval);
@@ -236,6 +243,26 @@ export default function Dashboard({
 
   const totalCash = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.total, 0), [displayCashBySpot]);
   const totalTx = useMemo(() => displayCashBySpot.reduce((s, c) => s + c.txCount, 0), [displayCashBySpot]);
+
+  // Способы оплаты: агрегируем по отфильтрованным филиалам
+  const paymentMethods = useMemo(() => {
+    if (!payBreakdown) return null;
+    const spotIds = new Set(displayCashBySpot.map(c => String(c.spotId)));
+    const sums = {};
+    for (const [spotId, methods] of Object.entries(payBreakdown.bySpot || {})) {
+      if (!spotIds.has(String(spotId))) continue;
+      for (const [methodId, sum] of Object.entries(methods)) {
+        sums[methodId] = (sums[methodId] || 0) + sum;
+      }
+    }
+    const list = Object.entries(sums).map(([id, sum]) => ({
+      id,
+      name: getPaymentMethodName(id),
+      sum: Math.round(sum),
+    }));
+    list.sort((a, b) => b.sum - a.sum);
+    return list;
+  }, [payBreakdown, displayCashBySpot]);
   const daysInPeriod = useMemo(() => {
     if (!dateFrom || !dateTo) return 1;
     const a = new Date(dateFrom), b = new Date(dateTo);
@@ -502,14 +529,14 @@ export default function Dashboard({
               <div className="kpi-icon"><i className="ti ti-cash" /></div>
               <div className="kpi-info">
                 <div className="kpi-label">Общая касса</div>
-                <div className="kpi-value">{fmt(totalCash)} ₸</div>
+                <div className="kpi-value">{fmt(totalCash)}</div>
               </div>
             </div>
             <div className="kpi-card kpi-indigo">
               <div className="kpi-icon"><i className="ti ti-chart-bar" /></div>
               <div className="kpi-info">
                 <div className="kpi-label">Средняя касса/день</div>
-                <div className="kpi-value">{fmt(avgCashPerDay)} ₸</div>
+                <div className="kpi-value">{fmt(avgCashPerDay)}</div>
               </div>
             </div>
             <div className="kpi-card kpi-emerald">
@@ -523,10 +550,38 @@ export default function Dashboard({
               <div className="kpi-icon"><i className="ti ti-chart-dots" /></div>
               <div className="kpi-info">
                 <div className="kpi-label">Средний чек</div>
-                <div className="kpi-value">{fmt(avgCheck)} ₸</div>
+                <div className="kpi-value">{fmt(avgCheck)}</div>
               </div>
             </div>
           </div>
+
+          {/* ─── Способы оплаты (Poster) ─────────────────────────── */}
+          {paymentMethods && paymentMethods.length > 0 && totalCash > 0 && (
+            <div className="pay-methods card" style={{ marginTop: 12, padding: "14px 16px" }}>
+              <div className="section-label" style={{ margin: 0, marginBottom: 10 }}>
+                <i className="ti ti-credit-card" /> Способы оплаты (Poster)
+              </div>
+              <div className="pay-methods-grid">
+                {paymentMethods.map((m) => {
+                  const pct = (m.sum / totalCash) * 100;
+                  const s = String(m.id);
+                  const tone = s === "0" ? "pay-cash" : s === "11" ? "pay-kaspi" : s === "12" ? "pay-halyk" : "pay-other";
+                  return (
+                    <div key={m.id} className={`pay-method-card ${tone}`}>
+                      <div className="pay-method-head">
+                        <span className="pay-method-name">{m.name}</span>
+                        <span className="pay-method-pct">{pct.toFixed(0)}%</span>
+                      </div>
+                      <div className="pay-method-value">{fmt(m.sum)}</div>
+                      <div className="pay-method-bar">
+                        <div className="pay-method-bar-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="card table-card" style={{ overflow: "auto" }}>
             <table className="data-table">
@@ -550,20 +605,20 @@ export default function Dashboard({
                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelectBranch(c.spotName)}
                   >
                     <td className="text-left fw-600">{c.spotName}</td>
-                    <td className="text-right fw-600">{fmt(c.total)} ₸</td>
+                    <td className="text-right fw-600">{fmt(c.total)}</td>
                     <td className="text-right">{c.txCount.toLocaleString("ru-RU")}</td>
-                    <td className="text-right text-accent">{fmt(c.avgCheck)} ₸</td>
-                    <td className="text-right text-muted">{fmt(c.avgPerDay)} ₸</td>
+                    <td className="text-right text-accent">{fmt(c.avgCheck)}</td>
+                    <td className="text-right text-muted">{fmt(c.avgPerDay)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="tfoot-row">
                   <td className="fw-600">Итого</td>
-                  <td className="text-right fw-600">{fmt(totalCash)} ₸</td>
+                  <td className="text-right fw-600">{fmt(totalCash)}</td>
                   <td className="text-right fw-600">{totalTx.toLocaleString("ru-RU")}</td>
-                  <td className="text-right fw-600 text-accent">{fmt(avgCheck)} ₸</td>
-                  <td className="text-right fw-600 text-muted">{fmt(avgCashPerDay)} ₸</td>
+                  <td className="text-right fw-600 text-accent">{fmt(avgCheck)}</td>
+                  <td className="text-right fw-600 text-muted">{fmt(avgCashPerDay)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -651,15 +706,11 @@ export default function Dashboard({
           <div className="stats-row">
             <div className="stat-card">
               <div className="stat-label">Общая поставка</div>
-              <div className="stat-value">{fmt(totalSupply)} ₸</div>
+              <div className="stat-value">{fmt(totalSupply)}</div>
             </div>
             <div className="stat-card">
               <div className="stat-label">Средняя поставка</div>
-              <div className="stat-value text-accent">{fmt(avgSupplyPerBranch)} ₸</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Долг</div>
-              <div className="stat-value text-danger">{fmt(agg.global.debt || 0)} ₸</div>
+              <div className="stat-value text-accent">{fmt(avgSupplyPerBranch)}</div>
             </div>
           </div>
 
@@ -711,9 +762,9 @@ export default function Dashboard({
                         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelectBranch(b)}
                       >
                         <td className="text-left fw-600">{b}</td>
-                        <td className="text-right fw-600">{fmt(x.total)} ₸</td>
+                        <td className="text-right fw-600">{fmt(x.total)}</td>
                         <td className="text-right">{x.reports}</td>
-                        <td className="text-right text-accent">{fmt(avg)} ₸</td>
+                        <td className="text-right text-accent">{fmt(avg)}</td>
                       </tr>
                     );
                   })}
@@ -721,9 +772,9 @@ export default function Dashboard({
                 <tfoot>
                   <tr className="tfoot-row">
                     <td className="fw-600">Итого</td>
-                    <td className="text-right fw-600">{fmt(totalSupply)} ₸</td>
+                    <td className="text-right fw-600">{fmt(totalSupply)}</td>
                     <td className="text-right fw-600">{agg.global.reportCount}</td>
-                    <td className="text-right fw-600 text-accent">{fmt(avgSupplyPerBranch)} ₸</td>
+                    <td className="text-right fw-600 text-accent">{fmt(avgSupplyPerBranch)}</td>
                   </tr>
                 </tfoot>
               </table>

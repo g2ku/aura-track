@@ -137,6 +137,9 @@ export default function ChangelogModal() {
 
   useEffect(() => {
     if (manualOpen) return;
+    // На маленьких экранах не блокируем интерфейс автопоказом —
+    // «Что нового» доступно вручную из бокового меню.
+    if (window.matchMedia("(max-width: 768px)").matches) return;
     try {
       const lastSeen = localStorage.getItem(STORAGE_KEY);
       if (lastSeen === CURRENT_VERSION) return;

@@ -217,7 +217,7 @@ export default function InventoryView({ canEdit, role, onOpenSession }) {
       {history.length === 0 ? (
         <EmptyState icon="ti-history" title="Пока нет сверок" sub="Сделайте первую сверку, нажав «Сделать сверку» на карточке филиала." />
       ) : (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div className="card table-card inventory-table" style={{ padding: 0, overflow: "hidden" }}>
           <table className="data-table">
             <thead>
               <tr>

@@ -6,19 +6,19 @@ import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 // ─── Словари ──────────────────────────────────────────────────────
 
 const METRICS = [
-  { keys: ["касса", "кассу", "кассы", "выручка", "выручку", "выручки", "деньги", "средств"], value: "cash" },
+  { keys: ["сравн", "сравнить", "разниц", "отлич", "кто лучш", "кто худш", "кто лучше", "кто хуже", "кто больше", "кто меньше", "больше всех", "меньше всех", "рейтинг", "ранжир", "принес", "принесла", "принесли", "какая точк", "какой филиал", "какие точки"], value: "compareBranches" },
+  { keys: ["касс", "выручк", "деньг", "денег", "средств", "заработ"], value: "cash" },
   { keys: ["средний чек", "средняя сумма"], value: "avgCheck" },
   { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж"], value: "checks" },
   { keys: ["товар", "товары", "товаров", "позици", "меню", "напитк", "продукт"], value: "products" },
-  { keys: ["прибыль", "прибылью", "профит"], value: "profit" },
+  { keys: ["прибыл", "профит"], value: "profit" },
   { keys: ["налог", "налога", "налоги"], value: "tax" },
-  { keys: ["маржа", "маржинальност", "рентабельност"], value: "margin" },
+  { keys: ["марж", "рентабельн"], value: "margin" },
   { keys: ["тренд", "динамик", "измени", "рост", "снижен"], value: "trend" },
   { keys: ["прогноз", "прогнозир", "предсказан", "ожидаем"], value: "forecast" },
   { keys: ["день недели", "день", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "будни", "выходн"], value: "weekday" },
   { keys: ["час", "часы", "время", "пик", "утро", "день", "вечер", "ноч"], value: "hourly" },
-  { keys: ["аномали", "отклонени", "подозрительн", "странны"], value: "anomaly" },
-  { keys: ["сравн", "сравнить", "разниц", "отлич", "кто лучш", "кто худш", "кто больше", "кто меньше", "рейтинг", "ранжир"], value: "compareBranches" },
+  { keys: ["аномальн", "аномали", "отклонени", "подозрительн", "странны"], value: "anomaly" },
 ];
 
 const OPERATIONS = [
@@ -31,10 +31,41 @@ const OPERATIONS = [
   { keys: ["измени", "вырос", "упал", "изменилась", "изменился", "рост", "снижение", "динамик"], value: "percentChange" },
   { keys: ["тренд", "динамик", "как менял"], value: "trend" },
   { keys: ["прогноз", "прогнозир", "предсказан", "ожидаем"], value: "forecast" },
-  { keys: ["по дням", "по дням недели", "какой день"], value: "byWeekday" },
+  { keys: ["по дням", "по дням недели", "какой день", "в какой день", "какие дни"], value: "byWeekday" },
   { keys: ["по часам", "в какое время", "пик"], value: "byHour" },
-  { keys: ["аномали", "отклонени", "подозрительн"], value: "anomaly" },
+  { keys: ["аномальн", "аномали", "отклонени", "подозрительн"], value: "anomaly" },
 ];
+
+// Function words and domain terms that must never be parsed as a product
+const STOP_WORDS = new Set([
+  "за", "в", "с", "по", "на", "к", "и", "о", "у", "для", "до", "из", "от", "во",
+  "было", "был", "была", "были", "будет", "сколько", "какая", "какой", "какие",
+  "каких", "каком", "какому", "все", "всех", "всего", "вся", "весь", "всей",
+  "чек", "чеки", "чеков", "чекам", "касса", "кассу", "кассы", "кассе", "кассой",
+  "денег", "деньги", "деньгах", "деньгами", "ип", "ип смагул", "ип бажа", "ип алуа",
+  "смагул", "смагула", "смагулу", "бажа", "бажи", "баже", "алуа", "алуе",
+  "заработал", "заработала", "заработали", "заработать", "выручил", "выручила", "выручили",
+  "налог", "налога", "налоги", "налогов",
+  "выручка", "выручку", "выручки", "выручке", "выручкой",
+  "прибыль", "прибыли", "прибылью",
+  "маржа", "маржи", "марже", "маржинальность", "маржинальности", "рентабельность",
+  "транзакции", "транзакций", "транзакция",
+  "продажи", "продаж", "продажа", "продал", "продали", "продать",
+  "процент", "процентов", "проценты", "упал", "упало", "упала", "вырос", "выросла",
+  "выросло", "росла", "вырастет", "изменилась", "изменился", "динамика", "рост",
+  "снижение", "снизилась",
+  "филиал", "филиалы", "филиалам", "филиала", "филиале", "точка", "точку",
+  "точки", "точек", "точке", "итого", "средн", "средний", "средняя", "среднее",
+  "максимум", "минимум", "сравнение", "сравнить", "сравни", "товар", "товары",
+  "по филиалам", "по филиала",
+  "сегодня", "вчера", "завтра", "месяц", "месяца", "месяце", "месяцы", "неделю",
+  "недели", "недел", "квартал", "день", "дней", "дня", "дни", "год", "года",
+  "человек", "людей", "люди", "покупал", "покупало", "покупают", "купил", "купили",
+  "сейчас", "назад",
+  "привет", "помоги", "спасибо", "пожалуйста", "здравствуй", "пока",
+  "да", "нет", "ок", "хорошо", "плохо", "как дела", "что нового",
+  "показать", "скажи", "расскажи", "объясни", "объяснить",
+]);
 
 // Spot aliases
 const SPOT_ALIASES = {};
@@ -178,6 +209,20 @@ function parsePeriod(text) {
     }
   }
 
+  // "с 1 июня по 10 июня" — месяц прописан словами внутри диапазона
+  const rangeMonths = text.match(/с\s+(\d{1,2})\s*([а-яё]+)\s*по\s+(\d{1,2})\s*([а-яё]+)/);
+  if (rangeMonths) {
+    const [, d1, m1w, d2, m2w] = rangeMonths;
+    const month1 = findMonth(m1w) || findMonth(m2w);
+    const month2 = findMonth(m2w) || findMonth(m1w);
+    if (month1 && month2) {
+      return {
+        from: `${currentYear}-${String(month1).padStart(2, "0")}-${String(d1).padStart(2, "0")}`,
+        to: `${currentYear}-${String(month2).padStart(2, "0")}-${String(d2).padStart(2, "0")}`,
+      };
+    }
+  }
+
   // "за июнь 2026" / "в июне" / "за июнь" — but only if NOT a day+month pattern
   // First check for "N días/дня/день назад" — BEFORE month names
   const daysAgoMatch = text.match(/(\d+)\s*(?:дн[а-я]*\s*(?:назад|тому))/);
@@ -202,11 +247,27 @@ function parsePeriod(text) {
     }
   }
 
+  // "за 2 недели" / "за последние 2 недели" — BEFORE bare "недел" check
+  const weeksMatch = text.match(/за\s+(?:последн\w+\s+)?(\d+)\s*недел/);
+  if (weeksMatch) {
+    const n = parseInt(weeksMatch[1]) * 7;
+    const from = new Date(now.getTime() - (n - 1) * 86400000);
+    return { from: fmtDate(from), to: fmtDate(now) };
+  }
+
   // "за неделю" / "за последнюю неделю" — BEFORE month names
   if (text.includes("недел")) {
     const to = fmtDate(now);
     const from = new Date(now.getTime() - 6 * 86400000);
     return { from: fmtDate(from), to };
+  }
+
+  // "за 14 дней" / "за последние 14 дней" / "за 7 дней"
+  const daysMatch = text.match(/за\s+(?:последн\w+\s+)?(\d+)\s*дн/);
+  if (daysMatch) {
+    const n = parseInt(daysMatch[1]);
+    const from = new Date(now.getTime() - (n - 1) * 86400000);
+    return { from: fmtDate(from), to: fmtDate(now) };
   }
 
   // "за сегодня" / "касса сейчас"
@@ -244,6 +305,18 @@ function parsePeriod(text) {
   // "за год"
   if (text.includes("за год") || text.includes("за весь год")) {
     return { from: `${currentYear}-01-01`, to: `${currentYear}-12-31` };
+  }
+
+  // "за прошлый месяц"
+  if (/(?:прошл\w+\s+месяц|прошлом\s+месяц)/.test(text)) {
+    const prevFirst = new Date(currentYear, currentMonth - 2, 1);
+    const prevLastDay = new Date(currentYear, currentMonth - 1, 0).getDate();
+    const py = prevFirst.getFullYear();
+    const pm = prevFirst.getMonth() + 1;
+    return {
+      from: `${py}-${String(pm).padStart(2, "0")}-01`,
+      to: `${py}-${String(pm).padStart(2, "0")}-${String(prevLastDay).padStart(2, "0")}`,
+    };
   }
 
   // "за июнь 2026" / "в июне" / "за июнь"
@@ -328,6 +401,28 @@ function parseComparisonPeriods(text) {
   const p2 = monthToPeriod(parts[1], extractYear(parts[1]));
   if (p1 && p2) return [p1, p2];
 
+  // Fallback: day keywords — "сегодня и вчера", "вчера и позавчера"
+  function dayKeywordPeriod(part) {
+    if (/сегодня|сейчас/.test(part)) return { from: fmtDate(now), to: fmtDate(now), label: "сегодня" };
+    if (/позавчера/.test(part)) {
+      const d = new Date(now.getTime() - 2 * 86400000);
+      return { from: fmtDate(d), to: fmtDate(d), label: "позавчера" };
+    }
+    if (/вчера/.test(part)) {
+      const d = new Date(now.getTime() - 86400000);
+      return { from: fmtDate(d), to: fmtDate(d), label: "вчера" };
+    }
+    const dm = part.match(/(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})/);
+    if (dm) {
+      const [, d, m, y] = dm;
+      return { from: `${y}-${m}-${d}`, to: `${y}-${m}-${d}`, label: part.trim() };
+    }
+    return null;
+  }
+  const k1 = dayKeywordPeriod(parts[0]);
+  const k2 = dayKeywordPeriod(parts[1]);
+  if (k1 && k2) return [k1, k2];
+
   // Handle year-only comparisons: "2025 и 2026", "2025 год и 2026"
   const yearOnly1 = parts[0].match(/(\d{4})/);
   const yearOnly2 = parts[1].match(/(\d{4})/);
@@ -402,23 +497,12 @@ function parseMetric(text, product) {
   return "cash";
 }
 
-// Words that should NOT be parsed as products
-const NON_PRODUCT_WORDS = new Set([
-  "чек", "чеки", "чеков", "чекам", "касса", "кассу", "кассы", "налог", "налога",
-  "выручка", "выручку", "прибыль", "процент", "процентов", "упал", "вырос",
-  "изменилась", "изменился", "динамика", "рост", "снижение", "все", "всех",
-  "всего", "филиал", "филиалы", "филиалам", "итого", "средн", "средний", "средняя",
-  "максимум", "минимум", "сравнение", "сравнить", "товар", "товары",
-  "по филиалам", "по филиала",
-  "привет", "помоги", "спасибо", "пожалуйста", "здравствуй", "пока",
-  "да", "нет", "ок", "хорошо", "плохо", "как дела", "что нового",
-  "показать", "скажи", "расскажи", "объясни", "объяснить",
-]);
-
 // ─── Парсинг операции ─────────────────────────────────────────────
 
 function parseOperation(text) {
   const lower = text.toLowerCase();
+  // "на сколько выросла/упала" — это сравнение процентов, а не подсчёт
+  if (/(?:на\s+сколько|насколько)\s+(?:вырос|упал|измен|меньше|больше)/.test(lower)) return "percentChange";
   for (const op of OPERATIONS) {
     for (const key of op.keys) {
       if (lower.includes(key)) return op.value;
@@ -448,10 +532,12 @@ function parseProduct(text) {
   for (const pat of patterns) {
     const match = lower.match(pat);
     if (match) {
-      const word = match[1].trim();
-      // Skip if any word in the candidate is a non-product word
-      const words = word.split(/\s+/);
-      if (words.some(w => NON_PRODUCT_WORDS.has(w))) continue;
+      const words = match[1].trim().split(/\s+/);
+      // Strip leading/trailing function words so "за вчера", "было", "продали" don't poison the candidate
+      while (words.length && STOP_WORDS.has(words[0])) words.shift();
+      while (words.length > 1 && STOP_WORDS.has(words[words.length - 1])) words.pop();
+      if (!words.length) continue;
+      const word = words.join(" ");
       // Check aliases again for the extracted word
       for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
         if (word === alias || word.includes(alias)) return canonical;
@@ -466,7 +552,7 @@ function parseProduct(text) {
   const productFirst = lower.match(/^([а-яёa-z]+)\s+за\s/);
   if (productFirst) {
     const word = productFirst[1].trim();
-    if (!NON_PRODUCT_WORDS.has(word)) {
+    if (!STOP_WORDS.has(word)) {
       for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
         if (word === alias) return canonical;
       }
@@ -483,6 +569,24 @@ export async function parseQuestion(text) {
   if (!text || !text.trim()) return null;
 
   const lower = text.toLowerCase();
+
+  // Математика: "сколько будет 2+2*3" / "посчитай 45 / 5" / "420 + 30"
+  const mathLead = lower.match(/(?:сколько\s+будет|посчита[йть]*|вычисли|счита[йть]*|реши)\s+([\d\s+\-*/x.,()]+)/);
+  const mathPure = /^[\d\s+\-*/x.,()]{3,}$/.test(text.trim());
+  if (mathLead || mathPure) {
+    const expr = (mathLead ? mathLead[1] : text).trim();
+    return {
+      metric: "math",
+      operation: "math",
+      spot: { branchId: "all", spotId: "all", posterName: "all" },
+      period: { from: fmtDate(new Date()), to: fmtDate(new Date()) },
+      product: null,
+      ipGroup: null,
+      raw: text,
+      expr,
+    };
+  }
+
   const product = parseProduct(text);
   const ipGroup = parseIPGroup(text);
 
@@ -552,4 +656,35 @@ export function describeParsed(parsed) {
   parts.push(`Период: ${parsed.period.from} — ${parsed.period.to}`);
   if (parsed.period2) parts.push(`Период2: ${parsed.period2.from} — ${parsed.period2.to}`);
   return parts.join(" | ");
+}
+
+// ─── Математика ───────────────────────────────────────────────────
+
+export function evaluateMath(expr) {
+  if (typeof expr !== "string") return null;
+  let s = expr.replace(/x/gi, "*").replace(/,/g, ".").replace(/\s+/g, "");
+  if (!/^[\d+\-*/.()]+$/.test(s)) return null;
+  s = s.replace(/[()]/g, "");
+  if (!/^[\d+\-*/.]+$/.test(s)) return null;
+  const terms = s.split(/(?=[+-])/); // "2+3*4-1" → ["2","+3*4","-1"]
+  let total = 0;
+  for (const term of terms) {
+    const sign = term.startsWith("-") ? -1 : 1;
+    const body = (term.startsWith("+") || term.startsWith("-")) ? term.slice(1) : term;
+    const mulParts = body.split("*");
+    let v = 1;
+    for (const mp of mulParts) {
+      const div = mp.split("/");
+      let x = parseFloat(div[0]);
+      if (Number.isNaN(x)) return null;
+      for (let i = 1; i < div.length; i++) {
+        const d = parseFloat(div[i]);
+        if (Number.isNaN(d) || d === 0) return null;
+        x /= d;
+      }
+      v *= x;
+    }
+    total += sign * v;
+  }
+  return Math.round(total * 100) / 100;
 }

@@ -169,7 +169,7 @@ export default function ProductsView({ docs, agg, userBranch }) {
 
       {/* Детализация товара */}
       {selectedProduct && productDetail && (
-        <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+        <div className="card table-card products-detail">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontWeight: 600, fontSize: 16 }}>
               <i className="ti ti-box" style={{ color: "var(--text-accent)" }} /> {selectedProduct}
@@ -211,7 +211,7 @@ export default function ProductsView({ docs, agg, userBranch }) {
         </div>
       )}
 
-      <div className="card table-card">
+      <div className="card table-card products-table">
         {items.length === 0 ? (
           <div className="empty-mini" style={{ padding: 32, textAlign: "center" }}>
             <i className="ti ti-box-off" aria-hidden="true" style={{ fontSize: 28, display: "block", marginBottom: 6 }} />

@@ -2,6 +2,7 @@ import { lazy, Suspense, Component } from "react";
 import { UnknownBranchFallback, UnknownRouteFallback } from "../components/Fallbacks";
 import { SkeletonDashboard, SkeletonView } from "../components/Skeleton";
 import { isAdmin, isAdminOrManager } from "../auth.jsx";
+import { useAppStore } from "../store/useAppStore";
 
 // ─── Route-level ErrorBoundary ───────────────────────────────────
 // Ловит ошибки lazy-загрузки и рендера конкретного маршрута,
@@ -40,12 +41,11 @@ class RouteErrorBoundary extends Component {
 }
 
 const Dashboard = lazy(() => import("../components/Dashboard"));
+const CashLedger = lazy(() => import("../components/CashLedger"));
 const BranchesView = lazy(() => import("../components/BranchesView"));
 const BranchDetail = lazy(() => import("../components/BranchDetail"));
 const ReportsView = lazy(() => import("../components/ReportsView"));
 const ReportDetailView = lazy(() => import("../components/ReportDetailView"));
-const PaymentsView = lazy(() => import("../components/PaymentsView"));
-const DebtsView = lazy(() => import("../components/DebtsView"));
 const ProductsView = lazy(() => import("../components/ProductsView"));
 const PosterView = lazy(() => import("../components/PosterView"));
 const PosterCompareView = lazy(() => import("../components/PosterCompareView"));
@@ -86,6 +86,7 @@ export function useRouteContent({
 }) {
   const p = route.path;
   const isCurator = role === "curator" && userBranch;
+  const designV2 = useAppStore((s) => s.designV2);
 
   // Curator hidden routes: redirect to dashboard
   if (isCurator && CURATOR_HIDDEN_ROUTES.includes(p)) {
@@ -101,7 +102,16 @@ export function useRouteContent({
   let content;
 
   if (p === "/" || !p) {
-    content = (
+    content = designV2 ? (
+      <CashLedger
+        docs={filteredDocs}
+        agg={filteredAgg}
+        canEdit={canEdit}
+        userBranch={userBranch}
+        onAddReport={() => openModal("upload")}
+        onSelectBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
+      />
+    ) : (
       <Dashboard
         docs={filteredDocs}
         agg={filteredAgg}
@@ -109,8 +119,6 @@ export function useRouteContent({
         userBranch={userBranch}
         onAddReport={() => openModal("upload")}
         onSelectBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
-        onPayBranch={(b) => openModal("branchPay", { branch: b })}
-        onOpenGlobalPayment={() => openModal("globalPay")}
       />
     );
   } else if (p === "/branches") {
@@ -119,7 +127,6 @@ export function useRouteContent({
         docs={filteredDocs}
         canEdit={canEdit}
         onOpen={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
-        onPayBranch={(b) => openModal("branchPay", { branch: b })}
       />
     );
   } else if (p === "/branches/:name") {
@@ -132,7 +139,6 @@ export function useRouteContent({
           docs={filteredDocs}
           canEdit={canEdit}
           onBack={() => route.navigate("/branches")}
-          onPay={(b) => openModal("branchPay", { branch: b })}
         />
       );
     } else {
@@ -169,26 +175,6 @@ export function useRouteContent({
         </div>
       );
     }
-  } else if (p === "/payments") {
-    content = (
-      <PaymentsView
-        docs={filteredDocs}
-        globalPayments={globalPayments}
-        branchesList={filteredAgg.branches}
-        onOpenGlobalPayment={() => openModal("globalPay")}
-      />
-    );
-  } else if (p === "/debts") {
-    content = (
-      <DebtsView
-        docs={filteredDocs}
-        canEdit={canEdit}
-        onPayBranch={(b) => openModal("branchPay", { branch: b })}
-        onOpenBranch={(b) => route.navigate(`/branches/${encodeURIComponent(b)}`)}
-      />
-    );
-  } else if (p === "/taxes") {
-    content = <TaxesView />;
   } else if (p === "/products") {
     content = <ProductsView docs={filteredDocs} agg={filteredAgg} userBranch={userBranch} />;
   } else if (p === "/poster") {
@@ -231,11 +217,11 @@ export function useRouteContent({
   } else if (p === "/cross-dashboard") {
     content = <CrossLocationDashboard agg={agg} />;
   } else if (p === "/cash-recon") {
-    content = <UnknownRouteFallback navigate={route.navigate} />;
+    content = <CashReconciliation />;
   } else if (p === "/profitability") {
     content = <ProfitabilityMatrix />;
   } else if (p === "/waste") {
-    content = <UnknownRouteFallback navigate={route.navigate} />;
+    content = <WasteTracker />;
   } else if (p === "/traffic-heatmap") {
     content = <TrafficHeatmap />;
   } else if (p === "/pnl" && isAdminOrManager()) {

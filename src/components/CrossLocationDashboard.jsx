@@ -117,7 +117,7 @@ export default function CrossLocationDashboard({ agg }) {
     setLoading(false);
   }
 
-  // Объединяем Poster cash + Firestore debts
+  // Объединяем Poster cash + Firestore поставки
   const rows = useMemo(() => {
     const byBranch = agg?.byBranch || {};
     const prevMap = {};
@@ -126,17 +126,13 @@ export default function CrossLocationDashboard({ agg }) {
     }
 
     return cashData.map((spot) => {
-      // Найти对应的 branch key для Firestore долгов
-      let debt = 0;
-      let paid = 0;
-      let total = 0;
+      // Найти соответствующий branch key для Firestore поставок
+      let supplyTotal = 0;
       for (const [branchKey, branchData] of Object.entries(byBranch)) {
         const branchId = branchKey.replace("Aura02_", "").toLowerCase();
         const spotName = (BRANCHES[branchKey]?.spotName || "").toLowerCase();
         if (branchId === String(spot.spotId) || spotName === (spot.spotName || "").toLowerCase()) {
-          debt += branchData.debt || 0;
-          paid += branchData.paid || 0;
-          total += branchData.total || 0;
+          supplyTotal += branchData.total || 0;
         }
       }
 
@@ -153,9 +149,7 @@ export default function CrossLocationDashboard({ agg }) {
         txCount: spot.txCount || 0,
         avgCheck: spot.avgCheck || 0,
         avgPerDay: spot.avgPerDay || 0,
-        debt,
-        paid,
-        supplyTotal: total,
+        supplyTotal,
         changePct: changePct ? Number(changePct) : null,
       };
     });
@@ -177,10 +171,8 @@ export default function CrossLocationDashboard({ agg }) {
       (s, r) => ({
         total: s.total + r.total,
         txCount: s.txCount + r.txCount,
-        debt: s.debt + r.debt,
-        paid: s.paid + r.paid,
       }),
-      { total: 0, txCount: 0, debt: 0, paid: 0 }
+      { total: 0, txCount: 0 }
     );
   }, [rows]);
 
@@ -201,7 +193,6 @@ export default function CrossLocationDashboard({ agg }) {
       { key: "total", label: "Выручка" },
       { key: "txCount", label: "Транзакции" },
       { key: "avgCheck", label: "Средний чек" },
-      { key: "debt", label: "Долг" },
       { key: "changePct", label: "Изменение %" },
     ];
     downloadCsv("cross-location-dashboard", headers, sorted);
@@ -272,88 +263,92 @@ export default function CrossLocationDashboard({ agg }) {
               <div className="cross-loc-summary-label">Всего транзакций</div>
               <div className="cross-loc-summary-value">{totals.txCount.toLocaleString("ru-RU")}</div>
             </div>
-            <div className="cross-loc-summary-card">
-              <div className="cross-loc-summary-label">Общий долг</div>
-              <div className="cross-loc-summary-value" style={{ color: totals.debt > 0 ? "var(--text-danger)" : "var(--text-success)" }}>
-                {fmt(totals.debt)}
-              </div>
-            </div>
           </div>
 
-          {/* Table */}
-          <div className="table-card">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 40 }}>#</th>
-                  <th style={{ cursor: "pointer" }} onClick={() => handleSort("spotName")}>
-                    Точка {sortCol === "spotName" && (sortDir === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th className="text-right" style={{ cursor: "pointer" }} onClick={() => handleSort("total")}>
-                    Выручка {sortCol === "total" && (sortDir === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th className="text-right" style={{ cursor: "pointer" }} onClick={() => handleSort("txCount")}>
-                    Транзакции {sortCol === "txCount" && (sortDir === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th className="text-right" style={{ cursor: "pointer" }} onClick={() => handleSort("avgCheck")}>
-                    Средний чек {sortCol === "avgCheck" && (sortDir === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th className="text-right" style={{ cursor: "pointer" }} onClick={() => handleSort("debt")}>
-                    Долг {sortCol === "debt" && (sortDir === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th className="text-right">Изменение</th>
-                  <th style={{ width: 90 }}>Тренд</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((row, idx) => {
-                  const trend = trendData[row.spotId]?.map((d) => d.total) || [];
-                  const changeColor = row.changePct === null
-                    ? "var(--text-muted)"
-                    : row.changePct >= 0 ? "var(--text-success)" : "var(--text-danger)";
-                  return (
-                    <tr key={row.spotId}>
-                      <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{idx + 1}</td>
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontWeight: 600 }}>{row.spotName}</span>
-                        </div>
-                      </td>
-                      <td className="text-right" style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                        {fmt(row.total)}
-                      </td>
-                      <td className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>
-                        {row.txCount.toLocaleString("ru-RU")}
-                      </td>
-                      <td className="text-right" style={{ color: "var(--text-accent)", fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
-                        {fmt(row.avgCheck)}
-                      </td>
-                      <td className="text-right" style={{ color: row.debt > 0 ? "var(--text-danger)" : "var(--text-success)", fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
-                        {row.debt > 0 ? fmt(row.debt) : "—"}
-                      </td>
-                      <td className="text-right" style={{ color: changeColor, fontWeight: 500, fontSize: 13 }}>
-                        {row.changePct !== null ? `${row.changePct > 0 ? "+" : ""}${row.changePct}%` : "—"}
-                      </td>
-                      <td>
+          {/* Точки — лента как на дашборде */}
+          <div className="cl-zone">
+            <div className="cl-zone-title">
+              <i className="ti ti-building-store" aria-hidden="true" /> Точки · выручка
+              <label className="cl-sort" style={{ marginLeft: "auto" }}>
+                <select
+                  className="form-control"
+                  style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
+                  value={sortCol}
+                  onChange={(e) => {
+                    const col = e.target.value;
+                    if (sortCol === col) setSortDir(sortDir === "asc" ? "desc" : "asc");
+                    else { setSortCol(col); setSortDir("desc"); }
+                  }}
+                  aria-label="Сортировка точек"
+                >
+                  <option value="total">По выручке</option>
+                  <option value="txCount">По чекам</option>
+                  <option value="avgCheck">По среднему чеку</option>
+                  <option value="spotName">По названию</option>
+                </select>
+              </label>
+            </div>
+
+            {sorted.map((row) => {
+              const trend = trendData[row.spotId]?.map((d) => d.total) || [];
+              const changeColor = row.changePct === null
+                ? "var(--text-muted)"
+                : row.changePct >= 0 ? "var(--text-success)" : "var(--text-danger)";
+              return (
+                <div key={row.spotId} className="cl-spot">
+                  <div className="cl-spot-head">
+                    <span className="cl-spot-name-text">{row.spotName}</span>
+                    <div className="cl-spot-cash">
+                      {fmt(row.total)}
+                    </div>
+                  </div>
+                  <div className="cl-line">
+                    <span className="cl-line-label">Транзакции</span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value">{row.txCount.toLocaleString("ru-RU")}</span>
+                  </div>
+                  <div className="cl-line">
+                    <span className="cl-line-label">Средний чек</span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value">{fmt(row.avgCheck)}</span>
+                  </div>
+                  <div className="cl-line">
+                    <span className="cl-line-label">Поставки</span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value">{row.supplyTotal > 0 ? `${fmt(row.supplyTotal)}` : "—"}</span>
+                  </div>
+                  <div className="cl-line">
+                    <span className="cl-line-label">Динамика</span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value" style={{ color: changeColor, fontWeight: 700 }}>
+                      {row.changePct !== null ? `${row.changePct > 0 ? "+" : ""}${row.changePct}%` : "—"}
+                    </span>
+                  </div>
+                  {trend.length > 1 && (
+                    <div className="cl-line">
+                      <span className="cl-line-label">Тренд</span>
+                      <span className="cl-line-dots" />
+                      <span className="cl-line-value">
                         <MiniSparkline data={trend} color={row.changePct !== null && row.changePct >= 0 ? "var(--text-success)" : "var(--text-danger)"} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td></td>
-                  <td style={{ fontWeight: 700 }}>ИТОГО</td>
-                  <td className="text-right" style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(totals.total)}</td>
-                  <td className="text-right" style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{totals.txCount.toLocaleString("ru-RU")}</td>
-                  <td className="text-right" style={{ fontWeight: 700, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums" }}>{fmt(avgCheckTotal)}</td>
-                  <td className="text-right" style={{ fontWeight: 700, color: totals.debt > 0 ? "var(--text-danger)" : "var(--text-success)", fontVariantNumeric: "tabular-nums" }}>{fmt(totals.debt)}</td>
-                  <td></td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <div className="cl-total" style={{ marginTop: 2 }}>
+              <div className="cl-line cl-total-line">
+                <span className="cl-line-label cl-total-label">Итого по точкам</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value cl-total-value">{fmt(totals.total)}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Средний чек · сеть</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmt(avgCheckTotal)}</span>
+              </div>
+            </div>
           </div>
         </>
       )}

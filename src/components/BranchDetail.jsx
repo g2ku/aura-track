@@ -4,11 +4,10 @@
 
 import { useMemo, useState, Suspense, lazy, useEffect } from "react";
 import {
-  aggregateDocs, fmt, pct,
+  aggregateDocs, fmt,
   dateInRange, dateInputToRu,
-  paidForBranch,
 } from "../utils";
-import { Button, Pill } from "../ui";
+import { Button } from "../ui";
 import { formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 import { fetchCashPerDay } from "../poster";
 
@@ -39,7 +38,7 @@ function todayStr() {
 }
 
 
-export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
+export default function BranchDetail({ branch, docs, canEdit, onBack }) {
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
   const spotName = getSpotNameForBranch(branch);
   const resolvedBranch = useMemo(() => {
@@ -107,9 +106,8 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
     for (const d of docs || []) {
       const dateKey = d.date || d.sheetName || "Без даты";
       const t = +(d.totals?.[resolvedBranch] || 0);
-      const paid = paidForBranch(d.payments, resolvedBranch);
-      if (t > 0 || paid > 0) {
-        out.push({ date: dateKey, total: t, paid, debt: Math.max(0, t - paid), doc: d });
+      if (t > 0) {
+        out.push({ date: dateKey, total: t, doc: d });
       }
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
@@ -131,17 +129,6 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
     return m;
   }, [dateFilteredRows]);
 
-  const paidByDate = useMemo(() => {
-    const m = {};
-    dateFilteredRows.forEach((r) => { m[r.date] = r.paid; });
-    return m;
-  }, [dateFilteredRows]);
-
-  const t = branchAgg?.total || 0;
-  const p = branchAgg?.paid || 0;
-  const d = branchAgg?.debt || 0;
-  const pc = pct(p, t);
-  const isPaid = d <= 0 && t > 0;
   const hasDocs = rows.length > 0;
 
   const filteredSupplyTotal = useMemo(() => dateFilteredRows.reduce((s, r) => s + r.total, 0), [dateFilteredRows]);
@@ -164,21 +151,11 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
         <Button variant="outline" icon="ti-arrow-left" onClick={onBack}>
           Назад к филиалам
         </Button>
-        {canEdit && d > 0 && (
-          <Button variant="primary" icon="ti-plus" onClick={() => onPay?.(branch)}>
-            Добавить оплату
-          </Button>
-        )}
       </div>
 
       <div className="branch-detail-title">
         <i className="ti ti-building-store" aria-hidden="true" />
         <h1>{displayName}</h1>
-        {canEdit && hasDocs && (
-          <Pill tone={isPaid ? "paid" : pc >= 50 ? "warn" : "danger"}>
-            {isPaid ? "✓ Оплачено" : `Долг: ${fmt(d)}`}
-          </Pill>
-        )}
       </div>
 
       {/* KPI карточки */}
@@ -313,7 +290,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
                     <BranchLine
                       dates={dates.filter((dd) => dateFilteredRows.some((r) => r.date === dd))}
                       totalsByDate={totalsByDate}
-                      paidByDate={paidByDate}
+                      paidByDate={{}}
                     />
                   )}
                 </Suspense>
@@ -329,36 +306,25 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
                 <tr>
                   <th className="text-left">Дата</th>
                   <th className="text-right">Поставка</th>
-                  <th className="text-right">Оплачено</th>
-                  <th className="text-right">Долг</th>
-                  <th>Прогресс</th>
+                  <th className="text-right">Средний чек</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((r) => {
-                  const rPct = pct(r.paid, r.total);
-                  return (
-                    <tr key={r.date} className="rh">
-                      <td className="fw-600">{r.date}</td>
-                      <td className="text-right">{fmt(r.total)}</td>
-                      <td className="text-right text-success fw-600">{fmt(r.paid)}</td>
-                      <td className={`text-right fw-600 ${r.debt > 0 ? "text-danger" : "text-success"}`}>
-                        {r.debt > 0 ? fmt(r.debt) : "—"}
-                      </td>
-                      <td>
-                        <div className="progress-row">
-                          <div className={`progress progress-thin ${rPct >= 100 ? "success" : rPct >= 50 ? "warn" : ""}`}>
-                            <div className="progress-bar" style={{ width: `${Math.min(100, rPct)}%` }} />
-                          </div>
-                          <span className="progress-text">{rPct.toFixed(0)}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filteredRows.map((r) => (
+                  <tr key={r.date} className="rh">
+                    <td className="fw-600">{r.date}</td>
+                    <td className="text-right fw-600 text-accent">{fmt(r.total)}</td>
+                    <td className="text-right text-muted">
+                      {(() => {
+                        const cashRow = filteredCash.find((c) => c.date === r.date);
+                        return cashRow && cashRow.txCount > 0 ? fmt(Math.round(cashRow.total / cashRow.txCount)) : "—";
+                      })()}
+                    </td>
+                  </tr>
+                ))}
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-center text-muted" style={{ padding: 24 }}>
+                    <td colSpan={3} className="text-center text-muted" style={{ padding: 24 }}>
                       Нет данных за выбранный период
                     </td>
                   </tr>
@@ -370,12 +336,6 @@ export default function BranchDetail({ branch, docs, canEdit, onBack, onPay }) {
                     <td className="fw-600">Итого</td>
                     <td className="text-right fw-600 text-accent">
                       {fmt(filteredRows.reduce((s, r) => s + r.total, 0))}
-                    </td>
-                    <td className="text-right fw-600 text-success">
-                      {fmt(filteredRows.reduce((s, r) => s + r.paid, 0))}
-                    </td>
-                    <td className="text-right fw-600 text-danger">
-                      {fmt(filteredRows.reduce((s, r) => s + r.debt, 0))}
                     </td>
                     <td>—</td>
                   </tr>
