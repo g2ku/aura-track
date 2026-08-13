@@ -378,12 +378,12 @@ export default function CashLedger({
                 const h = Math.max(4, Math.round((d.total / max) * 100));
                 const showLabel = daySeries.length <= 14 || i % 5 === 0 || i === daySeries.length - 1;
                 return (
-                  <div key={d.yyyymmdd} className="day-chart-col" title={`${d.yyyymmdd.slice(8, 10)}.${d.yyyymmdd.slice(5, 7)} · ${fmt(d.total)}`}>
+                  <div key={d.yyyymmdd} className="day-chart-col" title={`${d.yyyymmdd.slice(6, 8)}.${d.yyyymmdd.slice(4, 6)} · ${fmt(d.total)}`}>
                     <div className="day-chart-track">
                       <div className={`day-chart-bar${d.total === max ? " day-chart-bar-max" : ""}`} style={{ height: `${h}%` }} />
                     </div>
                     {showLabel ? (
-                      <span className="day-chart-label">{d.yyyymmdd.slice(8, 10)}.{d.yyyymmdd.slice(5, 7)}</span>
+                      <span className="day-chart-label">{d.yyyymmdd.slice(6, 8)}.{d.yyyymmdd.slice(4, 6)}</span>
                     ) : (
                       <span className="day-chart-label" />
                     )}
