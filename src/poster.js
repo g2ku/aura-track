@@ -381,6 +381,41 @@ export function getCachedDayTotals(dateFrom, dateTo) {
   }
 }
 
+// ─── Кривая выручки за день по часам (для «Сегодня») ────────────────────
+
+const HOURLY_CACHE_TTL = 10 * 60 * 1000;
+
+export async function fetchHourlyCurve(date, opts = {}) {
+  const ymd = toPosterDate(date);
+  if (!ymd) return null;
+  const key = `supply-track.poster.hourly.${ymd}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached && Date.now() - cached.ts < HOURLY_CACHE_TTL) return cached.data;
+    }
+  } catch (_) {}
+  const data = await call("dash.getTransactions", { date_from: ymd, date_to: ymd }, opts);
+  const txs = data?.response || [];
+  const buckets = new Array(24).fill(0);
+  let total = 0;
+  let txCount = 0;
+  for (const tx of txs) {
+    const sum = Number(tx.payed_sum || 0);
+    if (sum <= 0) continue;
+    const ts = Number(tx.date_start || tx.date_close || 0);
+    if (!ts) continue;
+    const h = new Date(ts).getHours();
+    buckets[h] += sum;
+    total += sum;
+    txCount++;
+  }
+  const curve = { buckets, total, txCount };
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: curve })); } catch (_) {}
+  return curve;
+}
+
 // ─── Stale-while-revalidate: отдаём устаревший кэш мгновенно ─────────────
 
 export function getCachedCashBySpot(dateFrom, dateTo) {

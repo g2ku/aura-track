@@ -6,7 +6,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve } from "../poster";
 import { useHashRoute } from "../router";
 import { getSpotNameForBranch, isAdminOrManager, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
@@ -74,6 +74,7 @@ export default function CashLedger({
   const [dateTo, setDateTo] = useState(todayStr());
   const [checkedAt, setCheckedAt] = useState(Date.now());
   const [yesterdayTotal, setYesterdayTotal] = useState(null);
+  const [hourlyCurve, setHourlyCurve] = useState(null);
   const [ipGroups, setIpGroups] = useState([]);
   const [selectedIP, setSelectedIP] = useState("all");
 
@@ -93,11 +94,13 @@ export default function CashLedger({
       if (!quiet) setLoading(true);
       setError("");
       const yesterday = isToday ? fetchCashBySpot(daysAgoStr(1), daysAgoStr(1)) : Promise.resolve(null);
-      const [cashResult, suppliesResult, payResult, yResult] = await Promise.allSettled([
+      const hourly = isToday ? fetchHourlyCurve(dateFrom) : Promise.resolve(null);
+      const [cashResult, suppliesResult, payResult, yResult, hResult] = await Promise.allSettled([
         fetchCashBySpot(dateFrom, dateTo),
         fetchSupplyStatus(null),
         fetchPaymentBreakdown(dateFrom, dateTo),
         yesterday,
+        hourly,
       ]);
       if (cancelled) return;
       if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
@@ -107,6 +110,7 @@ export default function CashLedger({
       if (yResult.status === "fulfilled" && yResult.value) {
         setYesterdayTotal(yResult.value.reduce((s, c) => s + c.total, 0));
       }
+      if (hResult.status === "fulfilled" && hResult.value) setHourlyCurve(hResult.value);
       setCheckedAt(Date.now());
       setLoading(false);
     }
@@ -120,6 +124,7 @@ export default function CashLedger({
     const interval = setInterval(() => {
       fetchCashBySpot(dateFrom, dateTo).then(setCashBySpot).catch(() => {});
       fetchPaymentBreakdown(dateFrom, dateTo).then(setPayBreakdown).catch(() => {});
+      fetchHourlyCurve(dateFrom).then(setHourlyCurve).catch(() => {});
     }, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, [isToday, dateFrom, dateTo]);
@@ -361,6 +366,32 @@ export default function CashLedger({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ─── Касса сегодня · по часам ──────────────────────────────────── */}
+      {isToday && hourlyCurve && hourlyCurve.total > 0 && (
+        <div className="cl-zone">
+          <div className="cl-zone-title">
+            <i className="ti ti-trending-up" aria-hidden="true" /> Касса сегодня · по часам
+            <span className="cl-zone-sub">· обновляется каждые 2 мин</span>
+          </div>
+          <div className="hour-chart">
+            {hourlyCurve.buckets.map((s, h) => {
+              const max = Math.max(...hourlyCurve.buckets, 1);
+              const now = new Date().getHours();
+              const isPast = h <= now;
+              const pct = Math.max(0, Math.round((s / max) * 100));
+              return (
+                <div key={h} className="hour-chart-col" title={`${h}:00–${h + 1}:00 · ${fmt(s)}`}>
+                  <div className="hour-chart-track">
+                    <div className={`hour-chart-bar${s > 0 && isPast ? " on" : ""}${h === now ? " now" : ""}`} style={{ height: `${pct}%` }} />
+                  </div>
+                  <span className="hour-chart-label">{h % 12 === 0 ? 12 : h % 12}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
