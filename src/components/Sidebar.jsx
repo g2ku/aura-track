@@ -181,7 +181,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
         <i className="ti ti-menu-2" aria-hidden="true" />
       </button>
 
-      {open && <div className="sidebar-backdrop" onClick={() => setOpen(false)} />}
+      {open && <div className="sidebar-backdrop open" onClick={() => setOpen(false)} />}
 
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-head">

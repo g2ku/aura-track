@@ -74,14 +74,17 @@ export default function CrossLocationDashboard({ agg }) {
   const dateTo = p.to();
 
   useEffect(() => {
-    loadData();
+    const ref = { cancelled: false };
+    loadData(ref);
+    return () => { ref.cancelled = true; };
   }, [dateFrom, dateTo]);
 
-  async function loadData() {
+  async function loadData(ref) {
     setLoading(true);
     try {
       // Текущий период
       const cash = await fetchCashBySpot(dateFrom, dateTo);
+      if (ref.cancelled) return;
       setCashData(cash);
 
       // Предыдущий период для сравнения
@@ -95,26 +98,37 @@ export default function CrossLocationDashboard({ agg }) {
       const prevFromStr = `${prevFrom.getFullYear()}-${String(prevFrom.getMonth() + 1).padStart(2, "0")}-${String(prevFrom.getDate()).padStart(2, "0")}`;
       const prevToStr = `${prevTo.getFullYear()}-${String(prevTo.getMonth() + 1).padStart(2, "0")}-${String(prevTo.getDate()).padStart(2, "0")}`;
       const prevCash = await fetchCashBySpot(prevFromStr, prevToStr);
+      if (ref.cancelled) return;
       setPrevCashData(prevCash);
 
-      // Тренд: загружаем последние 7 дней для каждой точки
-      const trends = {};
+      // Тренд: последние 7 дней по каждой точке (один запрос на все точки сразу)
       const today = new Date();
+      const trendFrom = new Date(today);
+      trendFrom.setDate(trendFrom.getDate() - 6);
+      const trendFromStr = `${trendFrom.getFullYear()}-${String(trendFrom.getMonth() + 1).padStart(2, "0")}-${String(trendFrom.getDate()).padStart(2, "0")}`;
+      const todayStr2 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const perDay = await fetchCashPerDay(trendFromStr, todayStr2);
+      if (ref.cancelled) return;
+
+      const trends = {};
       for (const spot of cash) {
         const dailyData = [];
         for (let i = 6; i >= 0; i--) {
           const d = new Date(today);
           d.setDate(d.getDate() - i);
+          const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
           const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          dailyData.push({ date: ds, total: 0 });
+          const row = perDay.find((p) => p.spotId === String(spot.spotId) && p.date === ymd);
+          dailyData.push({ date: ds, total: row?.total || 0 });
         }
         trends[spot.spotId] = dailyData;
       }
+      if (ref.cancelled) return;
       setTrendData(trends);
     } catch (e) {
       console.error("[CrossLocation] load error:", e);
     }
-    setLoading(false);
+    if (!ref.cancelled) setLoading(false);
   }
 
   // Объединяем Poster cash + Firestore поставки

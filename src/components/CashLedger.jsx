@@ -74,6 +74,7 @@ export default function CashLedger({
   const [dateTo, setDateTo] = useState(todayStr());
   const [checkedAt, setCheckedAt] = useState(Date.now());
   const [yesterdayTotal, setYesterdayTotal] = useState(null);
+  const [yesterdayHourly, setYesterdayHourly] = useState(null);
   const [hourlyCurve, setHourlyCurve] = useState(null);
   const [ipGroups, setIpGroups] = useState([]);
   const [selectedIP, setSelectedIP] = useState("all");
@@ -95,12 +96,14 @@ export default function CashLedger({
       setError("");
       const yesterday = isToday ? fetchCashBySpot(daysAgoStr(1), daysAgoStr(1)) : Promise.resolve(null);
       const hourly = isToday ? fetchHourlyCurve(dateFrom) : Promise.resolve(null);
-      const [cashResult, suppliesResult, payResult, yResult, hResult] = await Promise.allSettled([
+      const yesterdayHourlyP = isToday ? fetchHourlyCurve(daysAgoStr(1)) : Promise.resolve(null);
+      const [cashResult, suppliesResult, payResult, yResult, hResult, yhResult] = await Promise.allSettled([
         fetchCashBySpot(dateFrom, dateTo),
         fetchSupplyStatus(null),
         fetchPaymentBreakdown(dateFrom, dateTo),
         yesterday,
         hourly,
+        yesterdayHourlyP,
       ]);
       if (cancelled) return;
       if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
@@ -111,6 +114,7 @@ export default function CashLedger({
         setYesterdayTotal(yResult.value.reduce((s, c) => s + c.total, 0));
       }
       if (hResult.status === "fulfilled" && hResult.value) setHourlyCurve(hResult.value);
+      if (yhResult.status === "fulfilled" && yhResult.value) setYesterdayHourly(yhResult.value);
       setCheckedAt(Date.now());
       setLoading(false);
     }
@@ -168,6 +172,14 @@ export default function CashLedger({
 
   const totalCash = useMemo(() => displayCash.reduce((s, c) => s + c.total, 0), [displayCash]);
   const totalTx = useMemo(() => displayCash.reduce((s, c) => s + c.txCount, 0), [displayCash]);
+
+  // Касса «вчера на этот же час» — для честного сравнения с сегодняшней
+  // (ещё не закончившейся) кассой, а не с итогом всего вчерашнего дня.
+  const yesterdaySameTimeTotal = useMemo(() => {
+    if (!yesterdayHourly?.buckets) return null;
+    const nowHour = new Date().getHours();
+    return yesterdayHourly.buckets.slice(0, nowHour + 1).reduce((s, v) => s + v, 0);
+  }, [yesterdayHourly]);
 
   // График кассы по дням — из локального кэша дней (без лишних запросов)
   const daySeries = useMemo(() => {
@@ -230,7 +242,6 @@ export default function CashLedger({
   }
 
   function refresh() {
-    setDateFrom((f) => f);
     fetchCashBySpot(dateFrom, dateTo).then(setCashBySpot).catch(() => {});
     fetchSupplyStatus(null).then(setSupplyStatus).catch(() => {});
     fetchPaymentBreakdown(dateFrom, dateTo).then(setPayBreakdown).catch(() => {});
@@ -317,12 +328,12 @@ export default function CashLedger({
             <span className="cl-line-dots" />
             <span className="cl-line-value">
               {fmt(yesterdayTotal)}
-              {totalCash > 0 && yesterdayTotal > 0 && (
+              {totalCash > 0 && yesterdaySameTimeTotal > 0 && (
                 <span
-                  className={totalCash >= yesterdayTotal ? "delta up" : "delta down"}
-                  title="Сравнение с вчерашней кассой"
+                  className={totalCash >= yesterdaySameTimeTotal ? "delta up" : "delta down"}
+                  title="Сравнение с вчерашней кассой на этот же час — не с итогом всего дня"
                 >
-                  {fmtPct(((totalCash - yesterdayTotal) / yesterdayTotal) * 100)}
+                  {fmtPct(((totalCash - yesterdaySameTimeTotal) / yesterdaySameTimeTotal) * 100)}
                 </span>
               )}
             </span>
@@ -470,7 +481,7 @@ export default function CashLedger({
             </div>
           )}
           {displayCash.map((c) => {
-            const supplyWarn = supplyWarnings.find((w) => w.spotName === c.spotName);
+            const supplyWarn = supplyWarnings.find((w) => String(w.spotId) === String(c.spotId));
             return (
               <div key={c.spotId} className="cl-spot">
                 <div className="cl-spot-head">

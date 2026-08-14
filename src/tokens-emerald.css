@@ -307,6 +307,10 @@
   z-index: 9999;
   pointer-events: none;
 }
+@media (max-width: 768px) {
+  /* Мобильная нижняя навигация (64px) иначе перекрывает тосты. */
+  .toast-viewport { bottom: calc(64px + 20px + env(safe-area-inset-bottom, 0px)); }
+}
 .toast {
   pointer-events: auto;
   display: flex;

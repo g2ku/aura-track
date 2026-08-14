@@ -86,15 +86,14 @@ export default function PnLView({ agg }) {
       cogsMap[spotId] = (cogsMap[spotId] || 0) + cost * (row.qty || 0);
     }
 
-    // Debts from agg
+    // Debts from agg — точное сопоставление по ключу BRANCHES (без
+    // подстрочного поиска, который мог задвоить долг при совпадении имён).
     const debtMap = {};
     if (agg?.byBranch) {
       for (const [branchKey, branchData] of Object.entries(agg.byBranch)) {
-        // Find matching spotId
-        for (const spot of SPOTS) {
-          if (branchKey.includes(spot.name) || branchKey.includes(String(spot.id))) {
-            debtMap[spot.id] = (debtMap[spot.id] || 0) + (branchData.debt || 0);
-          }
+        const spotId = BRANCHES[branchKey]?.spotId;
+        if (spotId) {
+          debtMap[spotId] = (debtMap[spotId] || 0) + (branchData.debt || 0);
         }
       }
     }

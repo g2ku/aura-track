@@ -192,9 +192,17 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
     let items;
     if (methodId === 0) {
       // Способ «Наличные»: наличная часть + карточная часть терминала
-      const cash = Number(tx.payed_cash || 0) / 100;
-      const card = Number(tx.payed_card || 0) / 100;
-      const leftover = sum - cash - card;
+      let cash = Number(tx.payed_cash || 0) / 100;
+      let card = Number(tx.payed_card || 0) / 100;
+      let leftover = sum - cash - card;
+      if (leftover < 0 && cash + card > 0) {
+        // Poster иногда отдаёт cash+card > payed_sum — масштабируем
+        // пропорционально, чтобы способы оплаты не разъезжались с «Итого».
+        const scale = sum / (cash + card);
+        cash *= scale;
+        card *= scale;
+        leftover = 0;
+      }
       items = [];
       if (cash + Math.max(leftover, 0) > 0) items.push([0, cash + Math.max(leftover, 0)]);
       if (card > 0) items.push(["0-card", card]);
@@ -402,7 +410,9 @@ export async function fetchHourlyCurve(date, opts = {}) {
   let total = 0;
   let txCount = 0;
   for (const tx of txs) {
-    const sum = Number(tx.payed_sum || 0);
+    // dash.getTransactions отдаёт суммы в копейках — приводим к валюте
+    // (см. fetchPaymentBreakdown выше, тот же эндпоинт).
+    const sum = Number(tx.payed_sum || 0) / 100;
     if (sum <= 0) continue;
     const ts = Number(tx.date_start || tx.date_close || 0);
     if (!ts) continue;

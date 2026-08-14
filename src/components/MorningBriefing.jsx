@@ -185,12 +185,16 @@ export default function MorningBriefing() {
         {/* Per spot */}
         <div className="card" style={{ padding: 16 }}>
           <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>По точкам</h3>
-          {spotBreakdown.map((spot) => (
-            <div key={spot.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ fontWeight: 500 }}>{spot.name}</span>
-              <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(spot.total)}</span>
-            </div>
-          ))}
+          {spotBreakdown.length === 0 ? (
+            <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Нет данных за вчера</div>
+          ) : (
+            spotBreakdown.map((spot) => (
+              <div key={spot.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ fontWeight: 500 }}>{spot.name}</span>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(spot.total)}</span>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Top products */}
