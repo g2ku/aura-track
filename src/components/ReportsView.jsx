@@ -112,16 +112,6 @@ export default function ReportsView({ docs, agg, canEdit, onOpen, onUpload, onDe
             <span className="strip-label">Сумма поставок</span>
             <span className="strip-val">{fmt(agg.global.total)}</span>
           </div>
-          <div className="strip-item">
-            <i className="ti ti-circle-check" aria-hidden="true" style={{ color: "var(--text-success)" }} />
-            <span className="strip-label">Оплачено</span>
-            <span className="strip-val" style={{ color: "var(--text-success)" }}>{fmt(agg.global.paid)}</span>
-          </div>
-          <div className="strip-item">
-            <i className="ti ti-alert-triangle" aria-hidden="true" style={{ color: agg.global.debt > 0 ? "var(--text-danger)" : "var(--text-success)" }} />
-            <span className="strip-label">Долг</span>
-            <span className="strip-val" style={{ color: agg.global.debt > 0 ? "var(--text-danger)" : "var(--text-success)" }}>{fmt(agg.global.debt)}</span>
-          </div>
         </div>
       )}
 

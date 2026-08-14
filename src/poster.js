@@ -133,6 +133,97 @@ export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
   return perDay;
 }
 
+// ─── Способы оплаты (Kaspi / Halyk / наличные / карточки) ─────────────
+//
+// Классический API Poster не отдаёт разбивку по методам оплаты в
+// transactions.getTransactions — только общая payed_card. Метод
+// dash.getTransactions возвращает payment_method_id на каждый чек:
+//   0 — наличные, 11 — Kaspi, 12 — Halyk (id из кассы, см. PAYMENT_NAMES).
+//
+// ВАЖНО: когда чек закрыт способом «Наличные», а гость платит часть
+// картой терминала barista, Poster в отчёте «Способы оплаты» раскладывает
+// чек на ДВЕ строки: «Наличные» (payed_cash) и «Карточки» (payed_card).
+// Ниже это повторяется: метод 0 рендерится как две строки, чтобы
+// сверяться с Poster один в один. (Kaspi/Halyk считаются целиком по payed.)
+//
+// Названия в API не передаются, поэтому маппинг id→имя задан ниже.
+// Данные кэшируются в памяти на сессию (период-ключ), повторные
+// переключения периодов не перекачивают данные.
+
+const PAYMENT_NAMES = {
+  0: "Наличные",
+  "0-card": "Карточки",
+  11: "Kaspi",
+  12: "Halyk",
+};
+
+export function getPaymentMethodName(id) {
+  return PAYMENT_NAMES[String(id)] || `Оплата #${id}`;
+}
+
+const payBreakdownCache = new Map();
+
+function todayYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) return { bySpot: {}, total: {} };
+
+  // «Сегодня» всегда свежие данные, кэш не используем
+  const isToday = fromP === todayYmd() && toP === todayYmd();
+  const cacheKey = `${fromP}_${toP}`;
+  if (!isToday && payBreakdownCache.has(cacheKey)) return payBreakdownCache.get(cacheKey);
+
+  const data = await call("dash.getTransactions", { dateFrom: fromP, dateTo: toP }, opts);
+
+  const total = {};
+  const bySpot = {};
+  for (const tx of data?.response || []) {
+    // dash.getTransactions отдаёт суммы в копейках (в отличие от
+    // transactions.getTransactions) — приводим к валюте.
+    const sum = Number(tx.payed_sum || 0) / 100;
+    if (sum === 0) continue;
+    const methodId = Number(tx.payment_method_id || 0);
+    const spotId = String(tx.spot_id || "");
+    let items;
+    if (methodId === 0) {
+      // Способ «Наличные»: наличная часть + карточная часть терминала
+      let cash = Number(tx.payed_cash || 0) / 100;
+      let card = Number(tx.payed_card || 0) / 100;
+      let leftover = sum - cash - card;
+      if (leftover < 0 && cash + card > 0) {
+        // Poster иногда отдаёт cash+card > payed_sum — масштабируем
+        // пропорционально, чтобы способы оплаты не разъезжались с «Итого».
+        const scale = sum / (cash + card);
+        cash *= scale;
+        card *= scale;
+        leftover = 0;
+      }
+      items = [];
+      if (cash + Math.max(leftover, 0) > 0) items.push([0, cash + Math.max(leftover, 0)]);
+      if (card > 0) items.push(["0-card", card]);
+      if (items.length === 0) items.push([0, sum]);
+    } else {
+      items = [[methodId, sum]];
+    }
+    for (const [id, value] of items) {
+      total[id] = (total[id] || 0) + value;
+      if (spotId) {
+        if (!bySpot[spotId]) bySpot[spotId] = {};
+        bySpot[spotId][id] = (bySpot[spotId][id] || 0) + value;
+      }
+    }
+  }
+
+  const result = { bySpot, total };
+  if (!isToday) payBreakdownCache.set(cacheKey, result);
+  return result;
+}
+
 // ─── Поставки из Poster (Склад > Поставки) ──────────────────────────────
 
 const SUPPLIES_CACHE_KEY = "supply-track.poster.supplies.v1";
@@ -274,6 +365,65 @@ function setCachedDay(yyyymmdd, payload) {
 
 export function clearPosterCache() {
   try { localStorage.removeItem(CACHE_KEY); } catch (_) {}
+  payBreakdownCache.clear();
+}
+
+// Дневные итоги кассы из локального кэша дней (без запросов к API).
+// Возвращает [{ yyyymmdd, total }] за диапазон или [] если кэша нет.
+export function getCachedDayTotals(dateFrom, dateTo) {
+  try {
+    const fromP = toPosterDate(dateFrom);
+    const toP = toPosterDate(dateTo);
+    if (!fromP || !toP) return [];
+    const cache = readCache();
+    const out = [];
+    for (const yyyymmdd of enumerateDays(fromP, toP)) {
+      const entry = cache[yyyymmdd];
+      if (!entry) continue;
+      const total = Object.values(entry.cashBySpot || {}).reduce((s, v) => s + v, 0);
+      out.push({ yyyymmdd, total });
+    }
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
+
+// ─── Кривая выручки за день по часам (для «Сегодня») ────────────────────
+
+const HOURLY_CACHE_TTL = 10 * 60 * 1000;
+
+export async function fetchHourlyCurve(date, opts = {}) {
+  const ymd = toPosterDate(date);
+  if (!ymd) return null;
+  const key = `supply-track.poster.hourly.${ymd}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached && Date.now() - cached.ts < HOURLY_CACHE_TTL) return cached.data;
+    }
+  } catch (_) {}
+  const data = await call("dash.getTransactions", { date_from: ymd, date_to: ymd }, opts);
+  const txs = data?.response || [];
+  const buckets = new Array(24).fill(0);
+  let total = 0;
+  let txCount = 0;
+  for (const tx of txs) {
+    // dash.getTransactions отдаёт суммы в копейках — приводим к валюте
+    // (см. fetchPaymentBreakdown выше, тот же эндпоинт).
+    const sum = Number(tx.payed_sum || 0) / 100;
+    if (sum <= 0) continue;
+    const ts = Number(tx.date_start || tx.date_close || 0);
+    if (!ts) continue;
+    const h = new Date(ts).getHours();
+    buckets[h] += sum;
+    total += sum;
+    txCount++;
+  }
+  const curve = { buckets, total, txCount };
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: curve })); } catch (_) {}
+  return curve;
 }
 
 // ─── Stale-while-revalidate: отдаём устаревший кэш мгновенно ─────────────

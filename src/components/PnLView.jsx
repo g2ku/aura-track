@@ -86,15 +86,14 @@ export default function PnLView({ agg }) {
       cogsMap[spotId] = (cogsMap[spotId] || 0) + cost * (row.qty || 0);
     }
 
-    // Debts from agg
+    // Debts from agg — точное сопоставление по ключу BRANCHES (без
+    // подстрочного поиска, который мог задвоить долг при совпадении имён).
     const debtMap = {};
     if (agg?.byBranch) {
       for (const [branchKey, branchData] of Object.entries(agg.byBranch)) {
-        // Find matching spotId
-        for (const spot of SPOTS) {
-          if (branchKey.includes(spot.name) || branchKey.includes(String(spot.id))) {
-            debtMap[spot.id] = (debtMap[spot.id] || 0) + (branchData.debt || 0);
-          }
+        const spotId = BRANCHES[branchKey]?.spotId;
+        if (spotId) {
+          debtMap[spotId] = (debtMap[spotId] || 0) + (branchData.debt || 0);
         }
       }
     }
@@ -205,56 +204,60 @@ export default function PnLView({ agg }) {
           <div className="empty-state-title">Загрузка...</div>
         </div>
       ) : (
-        <div className="table-card">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Точка</th>
-                <th className="text-right">Выручка</th>
-                <th className="text-right">Себестоимость</th>
-                <th className="text-right">Валовая</th>
-                <th className="text-right">Налог</th>
-                <th className="text-right">Чистая</th>
-                <th className="text-right">Маржа</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pnlBySpot.map((row) => (
-                <tr key={row.id}>
-                  <td style={{ fontWeight: 600 }}>{row.name}</td>
-                  <td className="text-right">{fmt(row.revenue)}</td>
-                  <td className="text-right">{fmt(Math.round(row.cogs))}</td>
-                  <td className="text-right" style={{ color: row.grossProfit >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
-                    {fmt(Math.round(row.grossProfit))}
-                  </td>
-                  <td className="text-right">{fmt(row.tax)}</td>
-                  <td className="text-right" style={{ color: row.netProfit >= 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
-                    {fmt(Math.round(row.netProfit))}
-                  </td>
-                  <td className="text-right" style={{ fontWeight: 600 }}>
-                    {row.revenue > 0 ? `${row.marginPct.toFixed(1)}%` : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td style={{ fontWeight: 700 }}>ИТОГО</td>
-                <td className="text-right" style={{ fontWeight: 700 }}>{fmt(totals.revenue)}</td>
-                <td className="text-right" style={{ fontWeight: 700 }}>{fmt(Math.round(totals.cogs))}</td>
-                <td className="text-right" style={{ fontWeight: 700, color: totals.grossProfit >= 0 ? "#22c55e" : "#ef4444" }}>
-                  {fmt(Math.round(totals.grossProfit))}
-                </td>
-                <td className="text-right" style={{ fontWeight: 700 }}>{fmt(totals.tax)}</td>
-                <td className="text-right" style={{ fontWeight: 700, color: totals.netProfit >= 0 ? "#22c55e" : "#ef4444" }}>
-                  {fmt(Math.round(totals.netProfit))}
-                </td>
-                <td className="text-right" style={{ fontWeight: 700 }}>
-                  {totals.revenue > 0 ? `${(totals.grossProfit / totals.revenue * 100).toFixed(1)}%` : "—"}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+        <div className="cl-zone">
+          <div className="cl-zone-title"><i className="ti ti-report-money" aria-hidden="true" /> Точки · прибыль</div>
+          {pnlBySpot.map((row) => (
+            <div key={row.id} className="cl-spot">
+              <div className="cl-spot-head">
+                <span className="cl-spot-name-text">{row.name}</span>
+                <div className="cl-spot-cash" style={{ color: row.netProfit >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                  {fmt(Math.round(row.netProfit))}
+                </div>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Выручка</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmt(row.revenue)}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Себестоимость</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmt(Math.round(row.cogs))}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Валовая</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value" style={{ color: row.grossProfit >= 0 ? "var(--text-success)" : "var(--text-danger)", fontWeight: 700 }}>
+                  {fmt(Math.round(row.grossProfit))}
+                </span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Налог · {taxRate}%</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmt(row.tax)}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Маржа</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{row.revenue > 0 ? `${row.marginPct.toFixed(1)}%` : "—"}</span>
+              </div>
+            </div>
+          ))}
+
+          <div className="cl-total" style={{ marginTop: 2 }}>
+            <div className="cl-line cl-total-line">
+              <span className="cl-line-label cl-total-label">Чистая прибыль · сеть</span>
+              <span className="cl-line-dots" />
+              <span className="cl-line-value cl-total-value" style={{ color: totals.netProfit >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                {fmt(Math.round(totals.netProfit))}
+              </span>
+            </div>
+            <div className="cl-line">
+              <span className="cl-line-label">Налог · сеть</span>
+              <span className="cl-line-dots" />
+              <span className="cl-line-value">{fmt(totals.tax)}</span>
+            </div>
+          </div>
         </div>
       )}
     </div>

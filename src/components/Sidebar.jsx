@@ -3,13 +3,13 @@
 
 import { useState, useEffect } from "react";
 import { logout, getUserSpotName, isAdmin, isAdminOrManager } from "../auth.jsx";
+import { useAppStore } from "../store/useAppStore";
 
-const GROUPS = [
+export const GROUPS = [
   {
     id: "stats",
     icon: "ti-chart-bar",
-    label: "Статистика",
-    items: [
+    label: "Статистика",    items: [
       { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Дашборд" },
       { id: "briefing", path: "/briefing", icon: "ti-sun", label: "Сводка дня" },
       { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
@@ -24,16 +24,6 @@ const GROUPS = [
       { id: "products", path: "/products", icon: "ti-packages", label: "Товары" },
       { id: "margin", path: "/margin", icon: "ti-chart-pie", label: "Маржа" },
       { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
-    ],
-  },
-  {
-    id: "finance",
-    icon: "ti-cash",
-    label: "Финансы",
-    items: [
-      { id: "payments", path: "/payments", icon: "ti-wallet", label: "Оплаты" },
-      { id: "debts", path: "/debts", icon: "ti-alert-triangle", label: "Долги" },
-      { id: "taxes", path: "/taxes", icon: "ti-file-invoice", label: "Налоги" },
     ],
   },
   {
@@ -85,9 +75,6 @@ function currentNavId(path) {
   if (path.startsWith("/branches")) return "branches";
   if (path.startsWith("/reports")) return "reports";
   if (path.startsWith("/products")) return "products";
-  if (path.startsWith("/payments")) return "payments";
-  if (path.startsWith("/debts")) return "debts";
-  if (path.startsWith("/taxes")) return "taxes";
   if (path.startsWith("/poster")) return "poster";
   if (path.startsWith("/receipts")) return "receipts";
   if (path.startsWith("/inventory")) return "inventory";
@@ -115,6 +102,19 @@ function groupIdForItem(itemId) {
   return null;
 }
 
+// Видимость пункта по роли/филиалу (общая для Sidebar и BottomNav «Ещё»).
+export function canSeeItemFor(role, isBranch, item) {
+  if (item.adminOnly && !isAdminOrManager()) return false;
+  if (item.managerOnly && !(role === "manager" || role === "admin")) return false;
+  if (isBranch) {
+    if (item.id === "inventory" || item.id === "tickets") return false;
+    if (item.id === "briefing" || item.id === "margin" || item.id === "cross-dashboard" || item.id === "profitability") return false;
+  }
+  if (item.id === "cash-recon" || item.id === "waste") return false;
+  if ((item.id === "pnl" || item.id === "anomalies") && !isAdminOrManager()) return false;
+  return true;
+}
+
 export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate, onOpenFeedback }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(() => {
@@ -126,7 +126,6 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   const activeId = currentNavId(route.path);
   const spotName = getUserSpotName();
   const isBranch = role === "curator";
-  const isManager = role === "manager" || role === "admin";
 
   useEffect(() => { setOpen(false); }, [route.path]);
 
@@ -171,20 +170,10 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   }
 
   function canSeeItem(item) {
-    if (item.adminOnly && !isAdminOrManager()) return false;
-    if (item.managerOnly && !isManager) return false;
-    // Single-branch (curator) restrictions
-    if (isBranch) {
-      if (item.id === "inventory" || item.id === "payments" || item.id === "debts" || item.id === "tickets") return false;
-      // Hide: сводка дня, маржа, налоги, кросс-локации, меню-инжиниринг
-      if (item.id === "briefing" || item.id === "margin" || item.id === "taxes" || item.id === "cross-dashboard" || item.id === "profitability") return false;
-    }
-    // Hide for ALL users: сверка касс, отходы
-    if (item.id === "cash-recon" || item.id === "waste") return false;
-    // P&L и аномалии — только admin/manager
-    if ((item.id === "pnl" || item.id === "anomalies") && !isAdminOrManager()) return false;
-    return true;
+    return canSeeItemFor(role, isBranch, item);
   }
+
+  const designV2 = useAppStore((s) => s.designV2);
 
   return (
     <>
@@ -192,13 +181,14 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
         <i className="ti ti-menu-2" aria-hidden="true" />
       </button>
 
-      {open && <div className="sidebar-backdrop" onClick={() => setOpen(false)} />}
+      {open && <div className="sidebar-backdrop open" onClick={() => setOpen(false)} />}
 
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-head">
           <div className="sidebar-logo">
             <i className="ti ti-coffee" aria-hidden="true" />
             <span>Aura 02 Poster Pro</span>
+            {designV2 && <span className="design-beta-tag">v2</span>}
           </div>
           <button className="icon-btn sidebar-close" onClick={() => setOpen(false)} aria-label="Закрыть меню">
             <i className="ti ti-x" aria-hidden="true" />
