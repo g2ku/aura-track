@@ -6,7 +6,32 @@
     <meta name="theme-color" content="#0f1115" />
     <title>Aura 02 Poster Pro</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css" />
+    <!-- Иконочный шрифт грузится с чужого домена и раньше блокировал рендер
+         страницы (render-blocking <link rel=stylesheet>) — это была основная
+         причина медленного LCP на мобильном (Vercel Speed Insights).
+         preconnect + preload шрифта + неблокирующая загрузка CSS убирают
+         задержку с первого рендера; noscript — фолбэк без JS. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/fonts/tabler-icons.woff2?v3.11.0"
+      crossorigin
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css" />
+    </noscript>
+    <!-- Прогреваем соединение к Firebase заранее — приложение не рендерит
+         контент, пока не получит ответ Auth/Firestore после загрузки JS. -->
+    <link rel="preconnect" href="https://firestore.googleapis.com" />
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" />
   </head>
   <body>
     <div id="root"></div>
