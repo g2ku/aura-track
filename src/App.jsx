@@ -185,12 +185,6 @@ function MainApp() {
         <div className="content">{content}</div>
       </div>
 
-      {designV2 && (
-        <div className="v2-indicator" title="Новый дизайн (beta) — виден только admin">
-          <i className="ti ti-sparkles" aria-hidden="true" /> Дизайн v2 · beta
-        </div>
-      )}
-
       <Suspense fallback={null}>
         <UploadModal
           open={modal?.kind === "upload"}

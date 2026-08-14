@@ -4960,15 +4960,6 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   letter-spacing: 0.02em;
 }
 .design-v2 .fab:hover { background: var(--text-secondary); color: var(--text-invert); }
-.design-v2 .v2-indicator {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  background: transparent;
-  border: 0;
-}
 
 /* ─── 16. Главный экран «Лента кассы» (CashLedger) ──────────────────── */
 .design-v2 .cl-header {
@@ -5647,7 +5638,6 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 @media (max-width: 768px) {
   .design-v2 .sidebar { display: flex; background: var(--surface-1); }
   .design-v2 .hamburger { display: flex; }
-  .design-v2 .v2-indicator { display: none; }
   .design-v2 .content { padding: 52px 14px calc(84px + env(safe-area-inset-bottom, 0px)); }
   .design-v2 .btn { min-height: 44px; }
   .design-v2 .btn-sm { min-height: 36px; }
