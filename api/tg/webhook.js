@@ -60,8 +60,12 @@ async function processUpdate(update) {
   if (!result) return;
 
   if (result.text) {
+    // В форум-группе ответ обязан нести message_thread_id, иначе он уедет
+    // в общую тему вместо той, где написали.
+    const threadId = msg.is_topic_message ? msg.message_thread_id : undefined;
     await sendMessage(msg.chat.id, result.text, {
       reply_parameters: { message_id: msg.message_id, allow_sending_without_reply: true },
+      ...(threadId ? { message_thread_id: threadId } : {}),
     });
   }
 
@@ -69,7 +73,7 @@ async function processUpdate(update) {
   // поздней поставки). Ошибка доставки одного не должна ронять остальные.
   for (const f of result.followUps || []) {
     try {
-      await sendMessage(f.chatId, f.text);
+      await sendMessage(f.chatId, f.text, f.threadId ? { message_thread_id: f.threadId } : {});
     } catch (e) {
       console.error("[tg] followUp failed:", f.chatId, e?.message);
     }

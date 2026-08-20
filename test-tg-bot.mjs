@@ -2,7 +2,7 @@
 // Ни Telegram, ни Firestore не нужны.
 // Запуск: node test-tg-bot.mjs
 
-import { handleMessage, isAllowedChat } from "./api/_lib/commands.js";
+import { handleMessage, isAllowedChat, chatKey } from "./api/_lib/commands.js";
 import { applyEntry, removeEntry, emptyDoc, todayAlmaty } from "./api/_lib/dailyDoc.js";
 import { DEFAULT_CONFIG } from "./api/_lib/store.js";
 
@@ -59,6 +59,12 @@ function message(text, opts = {}) {
     chat: { id: opts.chatId ?? -100500, type: opts.chatType || "group" },
     from: { id: opts.userId ?? 777, first_name: "Айгуль", username: opts.username },
   };
+  // Форум-группа: все темы делят chat.id, различаются message_thread_id
+  if (opts.threadId) {
+    msg.is_topic_message = true;
+    msg.message_thread_id = opts.threadId;
+    msg.chat.is_forum = true;
+  }
   // Фото с подписью: Telegram кладёт текст в caption, поле text отсутствует
   if (opts.asPhoto) {
     msg.photo = [{ file_id: "AgAC", width: 1280, height: 960 }];
@@ -325,7 +331,7 @@ section("Подключение нового чата");
 
   const r = await run(store, "/подключить", { userId: 5, chatId: -222 });
   ok(r && r.text.includes("подключён"), "/подключить работает в НЕподключённом чате");
-  eq(store.config.allowedChats, [-111, -222], "новый чат добавлен");
+  eq(store.config.allowedChats, ["-111", "-222"], "новый чат добавлен");
 
   const help = await run(store, "/помощь", { chatId: -333 });
   ok(help && help.text.includes("Как сдавать"), "команды отвечают из любого чата");
@@ -342,6 +348,78 @@ section("Подключение нового чата");
      "из подключённого чата — принимается");
 }
 
+// ─── Форум-группа с темами ────────────────────────────────────────────
+section("Форум-группа: привязка к теме");
+
+{
+  // Регрессия: в форум-группе все темы имеют один chat.id. Подключение темы
+  // «Накладные» разрешало боту читать и «Долги», и «Переносы» — и он пытался
+  // разобрать как накладную сообщение вроде «Гаг -> Жар Молоко 24уп».
+  const CHAT = -1001234567890;
+  const NAKLADNYE = 45;
+  const PERENOSY = 78;
+
+  eq(chatKey(message("x", { chatId: CHAT, threadId: NAKLADNYE })), `${CHAT}:${NAKLADNYE}`,
+     "ключ темы = чат:тема");
+  eq(chatKey(message("x", { chatId: CHAT })), String(CHAT), "обычная группа = просто чат");
+
+  const store = makeStore();
+  const conn = await run(store, "/подключить", { userId: 5, chatId: CHAT, threadId: NAKLADNYE });
+  ok(conn.text.includes("Тема подключена"), "подключается именно тема");
+  eq(store.config.allowedChats, [`${CHAT}:${NAKLADNYE}`], "в списке ключ темы");
+
+  // Накладная в правильной теме — принимается
+  const good = await run(store, "Абая\nПончики 48шт 40000", { chatId: CHAT, threadId: NAKLADNYE });
+  ok(good && good.text.includes("принято"), "накладная из темы «Накладные» принята");
+
+  // Сообщение из другой темы — игнорируется, даже если похоже на накладную
+  const bad = await run(store, "Гаг Молоко 24 12000", { chatId: CHAT, threadId: PERENOSY });
+  eq(bad, null, "сообщение из темы «Переносы» игнорируется");
+  eq((await store.getDoc(TODAY)).branches, ["Абая"], "Гагарина из чужой темы не записалась");
+}
+
+{
+  // Подключение темы снимает ранее выданное разрешение на весь чат
+  const CHAT = -1001234567890;
+  const store = makeStore({ allowedChats: [CHAT] });
+  const r = await run(store, "/подключить", { userId: 5, chatId: CHAT, threadId: 45 });
+  ok(r.text.includes("только из этой темы"), "предупреждает о сужении до темы");
+  eq(store.config.allowedChats, [`${CHAT}:45`], "общее разрешение снято");
+
+  const other = await run(store, "Абая\nПончики 48шт 40000", { chatId: CHAT, threadId: 99 });
+  eq(other, null, "другие темы больше не принимаются");
+}
+
+{
+  // Старые привязки (весь чат) продолжают работать
+  const CHAT = -100500;
+  const store = makeStore({ allowedChats: [CHAT] });
+  ok(isAllowedChat(store.config, message("x", { chatId: CHAT })), "обычная группа работает");
+  ok(isAllowedChat(store.config, message("x", { chatId: CHAT, threadId: 7 })),
+     "привязка ко всему чату покрывает и темы");
+}
+
+{
+  // /отключить в теме снимает всё для этого чата
+  const CHAT = -1001234567890;
+  const store = makeStore({ allowedChats: [`${CHAT}:45`, CHAT] });
+  const r = await run(store, "/отключить", { userId: 5, chatId: CHAT, threadId: 45 });
+  ok(r.text.includes("Отключено"), "отключение подтверждено");
+  eq(store.config.allowedChats, [], "снята и тема, и общее разрешение");
+}
+
+{
+  // /сюда в теме запоминает тему для отчёта
+  const store = makeStore();
+  await run(store, "/сюда", { userId: 5, chatId: -100777, threadId: 12 });
+  eq(store.config.reportChatId, -100777, "чат отчёта");
+  eq(store.config.reportThreadId, 12, "тема отчёта");
+
+  const store2 = makeStore();
+  await run(store2, "/сюда", { userId: 5, chatId: 555, chatType: "private" });
+  eq(store2.config.reportThreadId, null, "в личке темы нет");
+}
+
 // ─── Несколько чатов ──────────────────────────────────────────────────
 section("Работа в нескольких чатах");
 
@@ -349,10 +427,10 @@ section("Работа в нескольких чатах");
   const store = makeStore();
   await run(store, "/подключить", { userId: 5, chatId: -111 });
   await run(store, "/подключить", { userId: 5, chatId: -222 });
-  eq(store.config.allowedChats, [-111, -222], "оба чата подключены");
+  eq(store.config.allowedChats, ["-111", "-222"], "оба чата подключены");
 
   const dup = await run(store, "/подключить", { userId: 5, chatId: -222 });
-  ok(dup.text.includes("уже подключён"), "повторное подключение не дублирует");
+  ok(dup.text.includes("уже подключено"), "повторное подключение не дублирует");
 
   // накладные из разных чатов попадают в один дневной отчёт
   await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
@@ -362,8 +440,8 @@ section("Работа в нескольких чатах");
   eq(doc.totals, { "Абая": 40000, "Коктем": 5000 }, "суммы из двух чатов сложились");
 
   const off = await run(store, "/отключить", { userId: 5, chatId: -222 });
-  ok(off.text.includes("отключён"), "чат отключается");
-  eq(store.config.allowedChats, [-111], "остался один чат");
+  ok(off.text.includes("Отключено"), "чат отключается");
+  eq(store.config.allowedChats, ["-111"], "остался один чат");
 }
 
 // ─── Отчёт в личку ────────────────────────────────────────────────────
@@ -377,7 +455,7 @@ section("Отчёт в личные сообщения");
 
   // приём накладных при этом остаётся в группе
   await run(store, "/подключить", { userId: 5, chatId: -111 });
-  eq(store.config.allowedChats, [-111], "чат приёма отдельно от чата отчёта");
+  eq(store.config.allowedChats, ["-111"], "чат приёма отдельно от чата отчёта");
 }
 
 // ─── Поздняя поставка после отчёта ────────────────────────────────────

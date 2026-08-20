@@ -93,6 +93,7 @@ const CONFIG_PATH = ["botConfig", "telegram"];
 export const DEFAULT_CONFIG = {
   allowedChats: [],    // чаты, из которых принимаем накладные (/подключить)
   reportChatId: null,  // куда слать автоотчёт — группа или личка (/сюда)
+  reportThreadId: null, // тема форума внутри этого чата, если отчёт идёт в тему
   groupChatId: null,   // устарело, оставлено для миграции старых настроек
   reportTime: "21:00", // время автоотчёта, Asia/Almaty
   reportEnabled: true,
