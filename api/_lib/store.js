@@ -79,7 +79,9 @@ export async function getDoc(date) {
 const CONFIG_PATH = ["botConfig", "telegram"];
 
 export const DEFAULT_CONFIG = {
-  groupChatId: null,   // куда слать автоотчёт (проставляется командой /старт в группе)
+  allowedChats: [],    // чаты, из которых принимаем накладные (/подключить)
+  reportChatId: null,  // куда слать автоотчёт — группа или личка (/сюда)
+  groupChatId: null,   // устарело, оставлено для миграции старых настроек
   reportTime: "21:00", // время автоотчёта, Asia/Almaty
   reportEnabled: true,
   paused: false,       // приём накладных приостановлен
@@ -90,7 +92,16 @@ export const DEFAULT_CONFIG = {
 
 export async function getConfig() {
   const snap = await getDb().collection(CONFIG_PATH[0]).doc(CONFIG_PATH[1]).get();
-  return { ...DEFAULT_CONFIG, ...(snap.exists ? snap.data() : {}) };
+  return normalizeConfig({ ...DEFAULT_CONFIG, ...(snap.exists ? snap.data() : {}) });
+}
+
+// Раньше был один groupChatId и на приём, и на отчёт. Переносим его в новые
+// поля на лету, чтобы уже работающий бот не пришлось перенастраивать руками.
+export function normalizeConfig(cfg) {
+  const out = { ...cfg };
+  if (!out.allowedChats?.length && out.groupChatId) out.allowedChats = [out.groupChatId];
+  if (out.reportChatId == null && out.groupChatId) out.reportChatId = out.groupChatId;
+  return out;
 }
 
 export async function setConfig(patch) {

@@ -14,6 +14,7 @@ export const GROUPS = [
       { id: "briefing", path: "/briefing", icon: "ti-sun", label: "Сводка дня" },
       { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
       { id: "receipts", path: "/receipts", icon: "ti-receipt", label: "Чеки" },
+      { id: "reports", path: "/reports", icon: "ti-file-description", label: "Отчёты" },
     ],
   },
   {

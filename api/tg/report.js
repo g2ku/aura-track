@@ -37,8 +37,9 @@ export default async function handler(req, res) {
       res.status(200).json({ ok: true, skipped: "автоотчёт выключен" });
       return;
     }
-    if (!config.groupChatId) {
-      res.status(200).json({ ok: true, skipped: "чат не задан — выполните /сюда в группе" });
+    const target = config.reportChatId ?? config.groupChatId;
+    if (!target) {
+      res.status(200).json({ ok: true, skipped: "чат не задан — выполните /сюда" });
       return;
     }
 
@@ -60,7 +61,7 @@ export default async function handler(req, res) {
     }
 
     const doc = await getDoc(date);
-    await sendMessage(config.groupChatId, formatReport(doc));
+    await sendMessage(target, formatReport(doc));
     if (!force) await setConfig({ lastReportDate: date });
 
     res.status(200).json({ ok: true, sent: true, date, items: doc.items?.length || 0 });
