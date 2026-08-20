@@ -9,7 +9,7 @@
 //   FIREBASE_SERVICE_ACCOUNT  — JSON сервисного аккаунта одной строкой
 
 import { getConfig, setConfig, getDoc, appendEntry, undoEntry, markUpdateSeen } from "../_lib/store.js";
-import { handleMessage, isAllowedChat } from "../_lib/commands.js";
+import { handleMessage } from "../_lib/commands.js";
 import { sendMessage, authorName } from "../_lib/telegram.js";
 
 export default async function handler(req, res) {
@@ -47,8 +47,6 @@ async function processUpdate(update) {
   }
 
   const config = await getConfig();
-
-  if (!isAllowedChat(config, msg)) return;
 
   const store = { getDoc, appendEntry, undoEntry, setConfig };
   const result = await handleMessage(msg, {

@@ -209,8 +209,14 @@ export async function handleMessage(msg, ctx) {
   const config = ctx.config;
   const command = parseCommand(text);
   if (command) {
+    // Команды принимаем из любого чата: иначе /подключить нельзя было бы
+    // выполнить в новом чате — он ведь ещё не подключён. Доступ к опасным
+    // командам всё равно ограничен проверкой админа.
     return handleCommand(command, { ...ctx, msg, config });
   }
+
+  // Накладные — только из подключённых чатов.
+  if (!isAllowedChat(config, msg)) return null;
 
   if (config.paused) return null;
 
