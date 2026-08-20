@@ -7,7 +7,7 @@
 
 import { parseInvoiceMessage } from "./tgParser.js";
 import { BRANCHES } from "./branches.js";
-import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml } from "./dailyDoc.js";
+import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs } from "./dailyDoc.js";
 import { parseCommand } from "./telegram.js";
 
 const HELP = `<b>Как сдавать накладные</b>
@@ -24,6 +24,7 @@ const HELP = `<b>Как сдавать накладные</b>
 <b>Команды</b>
 /отчет — сводка за сегодня
 /отчет 2026-08-14 — за конкретный день
+/отчет 14 дней — за период (можно «неделя», «2 недели», «месяц», «вчера»)
 /отмена — убрать мою последнюю накладную
 /филиалы — список филиалов
 /помощь — эта справка`;
@@ -44,6 +45,51 @@ function isAdmin(config, userId) {
   // деплоя никто не сможет назначить первого администратора.
   if (!config.admins?.length) return true;
   return config.admins.includes(userId);
+}
+
+function shiftDate(ymd, days) {
+  const d = new Date(ymd + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// «7», «7 дней», «неделя», «2 недели», «месяц», «вчера»,
+// «2026-08-01 2026-08-14» → { from, to, label } | null
+function parsePeriodArg(arg, today) {
+  const a = String(arg || "").trim().toLowerCase();
+  if (!a) return null;
+
+  // Явный диапазон из двух дат
+  const two = a.split(/\s+/).filter(Boolean);
+  if (two.length === 2) {
+    const f = parseDateArg(two[0]);
+    const t = parseDateArg(two[1]);
+    if (f && t) {
+      const [from, to] = f <= t ? [f, t] : [t, f];
+      return { from, to, label: `Накладные ${formatDateRu(from)} — ${formatDateRu(to)}` };
+    }
+  }
+
+  if (/^вчера$/.test(a)) {
+    const y = shiftDate(today, -1);
+    return { from: y, to: y, label: `Накладные за ${formatDateRu(y)}` };
+  }
+
+  let days = null;
+  if (/^(неделя|неделю)$/.test(a)) days = 7;
+  else if (/^(месяц|месяца)$/.test(a)) days = 30;
+  else {
+    const weeks = a.match(/^(\d+)\s*(недел[юияей]+)$/);
+    if (weeks) days = Number(weeks[1]) * 7;
+    else {
+      const dm = a.match(/^(\d+)\s*(д|дн|дней|день|дня|days?)?$/);
+      if (dm) days = Number(dm[1]);
+    }
+  }
+  if (!days || days < 1 || days > 366) return null;
+
+  const from = shiftDate(today, -(days - 1));
+  return { from, to: today, label: `Накладные за ${days} дн. (${formatDateRu(from)} — ${formatDateRu(today)})` };
 }
 
 function parseDateArg(arg) {
@@ -78,9 +124,28 @@ async function handleCommand({ cmd, args }, ctx) {
     case "отчет":
     case "отчёт":
     case "report": {
-      const date = parseDateArg(args) || todayAlmaty();
-      const doc = await store.getDoc(date);
-      return { text: formatReport(doc) };
+      const today = todayAlmaty();
+
+      // Одна конкретная дата
+      const single = parseDateArg(args);
+      if (single) return { text: formatReport(await store.getDoc(single)) };
+
+      // Период: «/отчет 14 дней», «/отчет 2 недели», «/отчет вчера»
+      const period = parsePeriodArg(args, today);
+      if (period) {
+        if (!store.getDocsRange) return { text: "Отчёт за период недоступен." };
+        const docs = await store.getDocsRange(period.from, period.to);
+        const merged = mergeDocs(docs, period.from);
+        const days = docs.length;
+        const note = days
+          ? `\nДней с накладными: ${days}`
+          : "";
+        return { text: formatReport(merged, { title: period.label }) + note };
+      }
+
+      if (args) return { text: "Не понял период. Примеры: /отчет, /отчет вчера, /отчет 14 дней, /отчет 2 недели, /отчет 2026-08-01 2026-08-14" };
+
+      return { text: formatReport(await store.getDoc(today)) };
     }
 
     case "отмена":

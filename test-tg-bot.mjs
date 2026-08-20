@@ -42,6 +42,12 @@ function makeStore(initialConfig = {}) {
       if (removed) docs.set(date, next);
       return { doc: next, removed };
     },
+    async getDocsRange(from, to) {
+      return [...docs.entries()]
+        .filter(([d]) => d >= from && d <= to)
+        .sort((a, z) => (a[0] < z[0] ? -1 : 1))
+        .map(([, v]) => v);
+    },
     async setConfig(patch) { config = { ...config, ...patch }; return config; },
   };
 }
@@ -160,6 +166,49 @@ section("Отчёт по команде");
 
   const rDotted = await run(store, "/отчет 01.01.2020");
   ok(rDotted.text.includes("накладных нет"), "дата в формате ДД.ММ.ГГГГ тоже понимается");
+}
+
+// ─── Отчёт за период ──────────────────────────────────────────────────
+section("Отчёт за период");
+
+{
+  const store = makeStore();
+  // раскладываем накладные по трём разным дням
+  const d0 = TODAY;
+  const d1 = new Date(TODAY + "T00:00:00Z"); d1.setUTCDate(d1.getUTCDate() - 1);
+  const d2 = new Date(TODAY + "T00:00:00Z"); d2.setUTCDate(d2.getUTCDate() - 5);
+  const day1 = d1.toISOString().slice(0, 10);
+  const day5 = d2.toISOString().slice(0, 10);
+
+  store._docs.set(d0, applyEntry(null, { id: "a", ts: 1, date: d0, branch: "Абая", items: [{ name: "Пончики", qty: 10, sum: 10000 }] }));
+  store._docs.set(day1, applyEntry(null, { id: "b", ts: 1, date: day1, branch: "Абая", items: [{ name: "Пончики", qty: 5, sum: 5000 }] }));
+  store._docs.set(day5, applyEntry(null, { id: "c", ts: 1, date: day5, branch: "Дубай", items: [{ name: "Латте", qty: 3, sum: 3000 }] }));
+
+  const r7 = await run(store, "/отчет 7 дней");
+  ok(r7.text.includes("Пончики"), "за 7 дней: есть товар");
+  ok(r7.text.includes("Латте"), "за 7 дней: попал и товар пятидневной давности");
+  ok(r7.text.includes("18 000"), "за 7 дней: суммы всех дней сложились");
+  ok(r7.text.includes("Дней с накладными: 3"), "показано число дней с данными");
+
+  const r2 = await run(store, "/отчет 2 дня");
+  ok(r2.text.includes("15 000"), "за 2 дня: только два последних дня");
+  ok(!r2.text.includes("Латте"), "за 2 дня: старый товар не попал");
+
+  const rw = await run(store, "/отчет 2 недели");
+  ok(rw.text.includes("14 дн."), "«2 недели» = 14 дней");
+
+  const rWeek = await run(store, "/отчет неделя");
+  ok(rWeek.text.includes("7 дн."), "«неделя» = 7 дней");
+
+  const rY = await run(store, "/отчет вчера");
+  ok(rY.text.includes("5 000") && !rY.text.includes("10 000"), "«вчера» — только вчерашний день");
+
+  const rRange = await run(store, `/отчет ${day5} ${day1}`);
+  ok(rRange.text.includes("Латте"), "явный диапазон дат работает");
+  ok(!rRange.text.includes("Дней с накладными: 3"), "в диапазон вошли не все дни");
+
+  const rBad = await run(store, "/отчет позавчера");
+  ok(rBad.text.includes("Не понял период"), "непонятный период — подсказка");
 }
 
 // ─── Справка и филиалы ────────────────────────────────────────────────

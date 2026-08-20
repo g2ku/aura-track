@@ -180,10 +180,15 @@ export function formatDateRu(date) {
 // строки переносятся и таблица становится нечитаемой.
 export function formatReport(doc, opts = {}) {
   const maxWidth = opts.maxWidth || 42;
-  const header = `📋 Накладные за ${formatDateRu(doc.date)}`;
+  const header = opts.title
+    ? `📋 ${opts.title}`
+    : `📋 Накладные за ${formatDateRu(doc.date)}`;
 
   if (!doc.items?.length) {
-    return `${header}\n\nЗа сегодня накладных нет.`;
+    // Дата/период уже названы в заголовке — здесь только факт отсутствия,
+    // иначе на запрос за прошлый год бот отвечал бы «за сегодня».
+    const when = opts.title ? "За этот период" : "За этот день";
+    return `${header}\n\n${when} накладных нет.`;
   }
 
   const branches = doc.branches;
@@ -208,7 +213,7 @@ export function formatReport(doc, opts = {}) {
       branches.map((b) => pad(fmtCompact(doc.totals[b] || 0), colW, true)).join("") +
       pad(fmtCompact(grandTotal(doc)), colW, true));
 
-    return `${header}\n\n<pre>${escapeHtml(lines.join("\n"))}</pre>\nВсего за день: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
+    return `${header}\n\n<pre>${escapeHtml(lines.join("\n"))}</pre>\nВсего ${opts.title ? "за период" : "за день"}: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
   }
 
   // Вертикальная раскладка — когда филиалов много
@@ -221,7 +226,7 @@ export function formatReport(doc, opts = {}) {
     blocks.push(`<b>${escapeHtml(br)}</b> — ${fmtInt(doc.totals[br] || 0)} ₸\n<pre>${escapeHtml(rows.join("\n"))}</pre>`);
   }
 
-  return `${header}\n\n${blocks.join("\n")}\nВсего за день: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
+  return `${header}\n\n${blocks.join("\n")}\nВсего ${opts.title ? "за период" : "за день"}: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
 }
 
 export function escapeHtml(s) {
@@ -244,4 +249,42 @@ export function formatAck(entry, docAfter) {
     `Итого по накладной: <b>${fmtInt(sum)} ₸</b>`,
     `Всего по точке за день: ${fmtInt(docAfter.totals[entry.branch] || 0)} ₸`,
   ].join("\n");
+}
+
+// ─── Сводка за период ────────────────────────────────────────────────
+
+// Перечислить даты от from до to включительно (обе в формате YYYY-MM-DD).
+export function enumerateDates(from, to) {
+  const out = [];
+  const d = new Date(from + "T00:00:00Z");
+  const end = new Date(to + "T00:00:00Z");
+  while (d <= end) {
+    out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+// Сложить несколько дневных документов в один — для отчёта за период.
+export function mergeDocs(docs, label) {
+  const merged = emptyDoc(label);
+  for (const doc of docs) {
+    for (const it of doc?.items || []) {
+      const key = normalizeProductName(it.name);
+      if (!key) continue;
+      let row = merged.items.find((r) => normalizeProductName(r.name) === key);
+      if (!row) {
+        row = { name: it.name, amounts: {}, qty: {} };
+        merged.items.push(row);
+      }
+      for (const [br, v] of Object.entries(it.amounts || {})) {
+        row.amounts[br] = (row.amounts[br] || 0) + (+v || 0);
+      }
+      for (const [br, v] of Object.entries(it.qty || {})) {
+        row.qty[br] = (row.qty[br] || 0) + (+v || 0);
+      }
+    }
+    merged.entries.push(...(doc?.entries || []));
+  }
+  return recompute(merged);
 }
