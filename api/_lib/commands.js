@@ -268,7 +268,9 @@ async function handleCommand({ cmd, args }, ctx) {
 // ─── Основной обработчик сообщения ───────────────────────────────────
 
 export async function handleMessage(msg, ctx) {
-  const text = msg.text || "";
+  // Фото с подписью: Telegram кладёт текст в caption, а не в text.
+  // Ребята присылают накладные именно так, поэтому читаем оба поля.
+  const text = msg.text || msg.caption || "";
   if (!text.trim()) return null;
 
   const config = ctx.config;

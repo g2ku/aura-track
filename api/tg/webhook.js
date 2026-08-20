@@ -38,7 +38,9 @@ export default async function handler(req, res) {
 
 async function processUpdate(update) {
   const msg = update?.message || update?.edited_message;
-  if (!msg || !msg.text) return;
+  // Накладную часто присылают фотографией с подписью — тогда текст лежит
+  // в caption, а не в text, и сообщение нельзя пропускать.
+  if (!msg || !(msg.text || msg.caption)) return;
 
   // Один и тот же update может прийти дважды — считаем его только раз.
   if (update.update_id != null) {
