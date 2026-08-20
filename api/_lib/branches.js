@@ -14,7 +14,8 @@ export const BRANCHES = [
   { key: "Aura02_OBI",       name: "OBI",       spotId: "3",  aliases: ["оби", "obi"] },
   { key: "Aura02_Abaya",     name: "Абая",      spotId: "4",  aliases: ["абая", "абай", "abaya"] },
   { key: "Aura02_Koktem",    name: "Коктем",    spotId: "7",  aliases: ["коктем", "кок", "koktem"] },
-  { key: "Aura02_Dubai",     name: "Дубай",     spotId: "9",  aliases: ["дубай", "дуб", "dubai"] },
+  // «Бауманская»/«баума» — как точку называют в чатах; на сайте она «Дубай».
+  { key: "Aura02_Dubai",     name: "Дубай",     spotId: "9",  aliases: ["дубай", "дуб", "dubai", "бауманская", "бауманка", "баума", "баум", "bauman"] },
   { key: "Aura02_Atakent",   name: "Атакент",   spotId: "10", aliases: ["атакент", "атак", "atakent"] },
   { key: "Aura02_Rams",      name: "Рамс",      spotId: "11", aliases: ["рамс", "rams"] },
 ];

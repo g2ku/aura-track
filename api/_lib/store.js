@@ -9,7 +9,7 @@
 
 import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { applyEntry, removeEntry, docIdFor, emptyDoc } from "./dailyDoc.js";
+import { applyEntry, removeEntry, docIdFor, emptyDoc, enumerateDates } from "./dailyDoc.js";
 
 let _db = null;
 
@@ -71,6 +71,18 @@ export async function undoEntry(date, entryId) {
 export async function getDoc(date) {
   const snap = await docRef(date).get();
   return snap.exists ? snap.data() : emptyDoc(date);
+}
+
+// Прочитать дневные документы за диапазон дат.
+// Идём по конкретным id, а не запросом с фильтром: id детерминированные,
+// поэтому не нужен составной индекс Firestore.
+export async function getDocsRange(from, to) {
+  const dates = enumerateDates(from, to);
+  if (!dates.length) return [];
+  const db = getDb();
+  const refs = dates.map((d) => db.collection("documents").doc(docIdFor(d)));
+  const snaps = await db.getAll(...refs);
+  return snaps.filter((s) => s.exists).map((s) => s.data());
 }
 
 // ─── Настройки бота ──────────────────────────────────────────────────
