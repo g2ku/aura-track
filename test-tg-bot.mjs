@@ -54,12 +54,19 @@ function makeStore(initialConfig = {}) {
 
 let msgId = 0;
 function message(text, opts = {}) {
-  return {
+  const msg = {
     message_id: ++msgId,
     chat: { id: opts.chatId ?? -100500, type: opts.chatType || "group" },
     from: { id: opts.userId ?? 777, first_name: "Айгуль", username: opts.username },
-    text,
   };
+  // Фото с подписью: Telegram кладёт текст в caption, поле text отсутствует
+  if (opts.asPhoto) {
+    msg.photo = [{ file_id: "AgAC", width: 1280, height: 960 }];
+    if (text) msg.caption = text;
+  } else {
+    msg.text = text;
+  }
+  return msg;
 }
 
 async function run(store, text, opts = {}) {
@@ -96,6 +103,34 @@ section("Приём накладных");
   eq(doc.totals["Гагарина"], 25000, "итог по Гагариной");
   eq(doc.items.find((i) => i.name.toLowerCase() === "пончики").amounts,
      { "Абая": 40000, "Гагарина": 20000 }, "товар собран по двум точкам");
+}
+
+// ─── Накладная фотографией с подписью ─────────────────────────────────
+section("Фото с подписью");
+
+{
+  // Ребята присылают накладную фоткой, а текст пишут подписью к ней —
+  // Telegram кладёт его в caption, и раньше такие сообщения терялись.
+  const store = makeStore();
+  const r = await run(store, "Абая\nПончики - 48шт - 40000", { asPhoto: true });
+  ok(r && r.text.includes("принято"), "накладная в подписи к фото принята");
+  eq((await store.getDoc(TODAY)).totals, { "Абая": 40000 }, "записана в базу");
+}
+
+{
+  // Альбом: подпись есть только у одного фото, остальные — без текста
+  const store = makeStore();
+  eq(await run(store, "", { asPhoto: true }), null, "фото без подписи — молчим");
+  const r = await run(store, "гаг Латте 10шт 5000", { asPhoto: true });
+  ok(r && r.text.includes("принято"), "фото с подписью в том же альбоме принято");
+  eq((await store.getDoc(TODAY)).totals, { "Гагарина": 5000 }, "записан только один раз");
+}
+
+{
+  // Команда в подписи к фото тоже должна работать
+  const store = makeStore();
+  const r = await run(store, "/отчет", { asPhoto: true });
+  ok(r && r.text.includes("Накладные за"), "команда в подписи к фото работает");
 }
 
 // ─── Молчание на обычных сообщениях ───────────────────────────────────
