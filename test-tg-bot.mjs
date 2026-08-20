@@ -204,7 +204,7 @@ section("Настройки");
   ok(bad.text.includes("Некорректное") || bad.text.includes("Формат"), "плохое время отклонено");
 
   await run(store, "/сюда", { userId: 5, chatId: -42 });
-  eq(store.config.groupChatId, -42, "чат для отчёта запомнен");
+  eq(store.config.reportChatId, -42, "чат для отчёта запомнен");
 }
 
 // ─── Тихий режим ──────────────────────────────────────────────────────
@@ -221,12 +221,69 @@ section("Тихий режим");
 section("Доступ по чатам");
 
 {
-  const bound = { groupChatId: -100500 };
-  ok(isAllowedChat(bound, message("привет", { chatId: -100500 })), "своя группа — принимаем");
+  const bound = { allowedChats: [-100500, -200600] };
+  ok(isAllowedChat(bound, message("привет", { chatId: -100500 })), "первый подключённый чат");
+  ok(isAllowedChat(bound, message("привет", { chatId: -200600 })), "второй подключённый чат");
   ok(!isAllowedChat(bound, message("привет", { chatId: -999 })), "чужая группа — игнорируем");
-  ok(isAllowedChat(bound, message("привет", { chatId: 55, chatType: "private" })), "личка админа — принимаем");
-  ok(isAllowedChat({ groupChatId: null }, message("привет", { chatId: -777 })),
-     "пока группа не привязана — принимаем отовсюду");
+  ok(isAllowedChat(bound, message("привет", { chatId: 55, chatType: "private" })), "личка — принимаем");
+  ok(isAllowedChat({ allowedChats: [] }, message("привет", { chatId: -777 })),
+     "пока ни один чат не подключён — принимаем отовсюду");
+}
+
+// ─── Несколько чатов ──────────────────────────────────────────────────
+section("Работа в нескольких чатах");
+
+{
+  const store = makeStore();
+  await run(store, "/подключить", { userId: 5, chatId: -111 });
+  await run(store, "/подключить", { userId: 5, chatId: -222 });
+  eq(store.config.allowedChats, [-111, -222], "оба чата подключены");
+
+  const dup = await run(store, "/подключить", { userId: 5, chatId: -222 });
+  ok(dup.text.includes("уже подключён"), "повторное подключение не дублирует");
+
+  // накладные из разных чатов попадают в один дневной отчёт
+  await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
+  await run(store, "Коктем\nЛатте 10шт 5000", { chatId: -222 });
+  const doc = await store.getDoc(TODAY);
+  eq(doc.branches, ["Абая", "Коктем"], "оба филиала из разных чатов — в одном отчёте");
+  eq(doc.totals, { "Абая": 40000, "Коктем": 5000 }, "суммы из двух чатов сложились");
+
+  const off = await run(store, "/отключить", { userId: 5, chatId: -222 });
+  ok(off.text.includes("отключён"), "чат отключается");
+  eq(store.config.allowedChats, [-111], "остался один чат");
+}
+
+// ─── Отчёт в личку ────────────────────────────────────────────────────
+section("Отчёт в личные сообщения");
+
+{
+  const store = makeStore();
+  const r = await run(store, "/сюда", { userId: 5, chatId: 777, chatType: "private" });
+  ok(r.text.includes("личные сообщения"), "бот подтверждает отправку в личку");
+  eq(store.config.reportChatId, 777, "отчёт нацелен на личку");
+
+  // приём накладных при этом остаётся в группе
+  await run(store, "/подключить", { userId: 5, chatId: -111 });
+  eq(store.config.allowedChats, [-111], "чат приёма отдельно от чата отчёта");
+}
+
+// ─── Поздняя поставка после отчёта ────────────────────────────────────
+section("Поздняя поставка после отчёта");
+
+{
+  const store = makeStore({ reportChatId: 999, lastReportDate: TODAY });
+  const r = await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
+  ok(r.followUps?.length === 1, "досылается обновлённый отчёт");
+  eq(r.followUps[0].chatId, 999, "обновление уходит в чат отчёта");
+  ok(r.followUps[0].text.includes("Поздняя поставка"), "помечено как поздняя поставка");
+  ok(r.followUps[0].text.includes("Пончики"), "в обновлении есть новая позиция");
+}
+
+{
+  const store = makeStore({ reportChatId: 999, lastReportDate: "2000-01-01" });
+  const r = await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
+  ok(!r.followUps?.length, "если отчёт за сегодня ещё не слали — ничего не досылаем");
 }
 
 // ─── Итог ─────────────────────────────────────────────────────────────

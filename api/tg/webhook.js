@@ -57,9 +57,21 @@ async function processUpdate(update) {
     authorName: authorName(msg.from),
   });
 
-  if (!result?.text) return;
+  if (!result) return;
 
-  await sendMessage(msg.chat.id, result.text, {
-    reply_parameters: { message_id: msg.message_id, allow_sending_without_reply: true },
-  });
+  if (result.text) {
+    await sendMessage(msg.chat.id, result.text, {
+      reply_parameters: { message_id: msg.message_id, allow_sending_without_reply: true },
+    });
+  }
+
+  // Догоняющие сообщения в другие чаты (например, обновлённый отчёт после
+  // поздней поставки). Ошибка доставки одного не должна ронять остальные.
+  for (const f of result.followUps || []) {
+    try {
+      await sendMessage(f.chatId, f.text);
+    } catch (e) {
+      console.error("[tg] followUp failed:", f.chatId, e?.message);
+    }
+  }
 }

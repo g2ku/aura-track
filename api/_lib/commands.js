@@ -34,7 +34,10 @@ const ADMIN_HELP = `
 /пауза — приостановить приём накладных
 /продолжить — возобновить приём
 /время 21:00 — время автоотчёта
-/сюда — слать автоотчёт в этот чат`;
+/сюда — слать автоотчёт в этот чат (можно в личку)
+/подключить — принимать накладные из этого чата
+/отключить — перестать принимать отсюда
+/чаты — список подключённых чатов`;
 
 function isAdmin(config, userId) {
   // Пока список админов пуст, настройки доступны всем: иначе после первого
@@ -107,10 +110,11 @@ async function handleCommand({ cmd, args }, ctx) {
           "<b>Настройки бота</b>",
           `Приём накладных: ${config.paused ? "⏸ на паузе" : "✅ включён"}`,
           `Автоотчёт: ${config.reportEnabled ? "✅ включён" : "⛔️ выключен"} в ${escapeHtml(config.reportTime)}`,
-          `Чат для отчёта: ${config.groupChatId ? `<code>${config.groupChatId}</code>` : "не задан — команда /сюда"}`,
+          `Чат для отчёта: ${config.reportChatId ? `<code>${config.reportChatId}</code>` : "не задан — команда /сюда"}`,
+          `Чатов для приёма: ${config.allowedChats?.length || 0}${config.allowedChats?.length ? "" : " (принимаю отовсюду)"} — /чаты`,
           `Администраторы: ${config.admins?.length ? config.admins.join(", ") : "не заданы (настройки открыты всем)"}`,
           "",
-          "Изменить: /пауза, /продолжить, /время 21:00, /сюда, /админ",
+          "Изменить: /пауза, /продолжить, /время, /сюда, /подключить, /админ",
         ].join("\n"),
       };
     }
@@ -144,8 +148,42 @@ async function handleCommand({ cmd, args }, ctx) {
     case "сюда":
     case "here": {
       if (!isAdmin(config, userId)) return { text: "Только администратор." };
-      await store.setConfig({ groupChatId: msg.chat.id });
-      return { text: "📍 Автоотчёт буду присылать в этот чат." };
+      await store.setConfig({ reportChatId: msg.chat.id });
+      const where = msg.chat.type === "private" ? "в личные сообщения" : "в этот чат";
+      return { text: `📍 Автоотчёт буду присылать ${where}.` };
+    }
+
+    case "подключить":
+    case "connect": {
+      if (!isAdmin(config, userId)) return { text: "Только администратор." };
+      const list = new Set(config.allowedChats || []);
+      if (list.has(msg.chat.id)) return { text: "Этот чат уже подключён." };
+      list.add(msg.chat.id);
+      await store.setConfig({ allowedChats: [...list] });
+      return { text: `✅ Чат подключён — принимаю отсюда накладные.\nПодключено чатов: ${list.size}` };
+    }
+
+    case "отключить":
+    case "disconnect": {
+      if (!isAdmin(config, userId)) return { text: "Только администратор." };
+      const off = new Set(config.allowedChats || []);
+      if (!off.has(msg.chat.id)) return { text: "Этот чат и так не подключён." };
+      off.delete(msg.chat.id);
+      await store.setConfig({ allowedChats: [...off] });
+      return { text: "⛔️ Чат отключён — накладные отсюда больше не принимаю." };
+    }
+
+    case "чаты":
+    case "chats": {
+      if (!isAdmin(config, userId)) return { text: "Только администратор." };
+      const chats = config.allowedChats || [];
+      const lines = chats.length
+        ? chats.map((id) => `• <code>${id}</code>${id === config.reportChatId ? " — сюда идёт отчёт" : ""}`)
+        : ["Ни один чат не подключён — принимаю отовсюду."];
+      const extra = config.reportChatId && !chats.includes(config.reportChatId)
+        ? `\nОтчёт уходит в <code>${config.reportChatId}</code> (отдельно от чатов приёма)`
+        : "";
+      return { text: `<b>Подключённые чаты</b>\n${lines.join("\n")}${extra}` };
     }
 
     case "админ":
@@ -210,17 +248,31 @@ export async function handleMessage(msg, ctx) {
     ? `\n⚠️ ${escapeHtml(parsed.warnings.join("; "))}`
     : "";
 
-  if (config.ackMode === "silent") return null;
-  return { text: formatAck(entry, docAfter) + warn };
+  // Дневной отчёт за сегодня уже ушёл, а поставка пришла позже — досылаем
+  // обновлённый отчёт, иначе у получателя осталась бы неполная картина дня.
+  const followUps = [];
+  if (config.lastReportDate === date && config.reportChatId) {
+    followUps.push({
+      chatId: config.reportChatId,
+      text: `🔄 <b>Поздняя поставка — отчёт обновлён</b>\n\n${formatReport(docAfter)}`,
+    });
+  }
+
+  if (config.ackMode === "silent") {
+    return followUps.length ? { text: null, followUps } : null;
+  }
+  return { text: formatAck(entry, docAfter) + warn, followUps };
 }
 
-// Бота могли добавить в посторонний чат — принимаем только из привязанной
-// группы и из личных переписок (там сидят админы). Пока группа не привязана
-// командой /сюда, принимаем отовсюду, иначе первую привязку сделать негде.
+// Бота могли добавить в посторонний чат. Принимаем из личных переписок
+// (там админы) и из чатов, подключённых командой /подключить. Пока не
+// подключён ни один чат — принимаем отовсюду, иначе первое подключение
+// сделать было бы негде.
 export function isAllowedChat(config, msg) {
   if (msg?.chat?.type === "private") return true;
-  if (!config?.groupChatId) return true;
-  return msg?.chat?.id === config.groupChatId;
+  const list = config?.allowedChats || [];
+  if (!list.length) return true;
+  return list.includes(msg?.chat?.id);
 }
 
 export { HELP, isAdmin, parseDateArg };
