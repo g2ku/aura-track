@@ -85,6 +85,7 @@ export const DEFAULT_CONFIG = {
   paused: false,       // приём накладных приостановлен
   admins: [],          // telegram user id, кому можно менять настройки
   ackMode: "reply",    // reply — отвечать на каждую накладную, silent — молча
+  lastReportDate: null, // дата последнего автоотчёта — чтобы не слать дважды
 };
 
 export async function getConfig() {

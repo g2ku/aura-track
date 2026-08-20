@@ -1,14 +1,14 @@
 // Автоотчёт за день. Дёргается Vercel Cron по расписанию из vercel.json.
 //
-// Расписание в vercel.json стоит ежечасное, а конкретный час берётся из
-// настроек бота (/время). Так время отчёта меняется без передеплоя.
-// Если тариф Vercel не разрешает ежечасный cron — поставь в vercel.json
-// "0 16 * * *" (16:00 UTC = 21:00 в Алматы), тогда /время станет справочным.
+// Логика «отправить, если сегодня ещё не отправляли и время уже наступило»
+// вместо точного совпадения часа: так отчёт уходит и при ежечасном cron
+// (тариф Pro), и при ежедневном (тариф Hobby), и не теряется, если cron
+// сработал с задержкой. Дата последней отправки хранится в настройках.
 //
 // Ручной запуск: GET /api/tg/report?force=1  (с заголовком Authorization,
 // если задан CRON_SECRET)
 
-import { getConfig, getDoc } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc } from "../_lib/store.js";
 import { formatReport, todayAlmaty } from "../_lib/dailyDoc.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -42,17 +42,26 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Сверяем только час: cron может сработать не ровно в :00.
-    const nowHM = almatyHourMinute();
-    const wantHour = String(config.reportTime || "21:00").split(":")[0];
-    if (!force && nowHM.split(":")[0] !== wantHour) {
-      res.status(200).json({ ok: true, skipped: `не время (сейчас ${nowHM}, отчёт в ${config.reportTime})` });
-      return;
+    const date = todayAlmaty();
+
+    if (!force) {
+      // Уже отправляли сегодня — второй раз не шлём.
+      if (config.lastReportDate === date) {
+        res.status(200).json({ ok: true, skipped: `отчёт за ${date} уже отправлен` });
+        return;
+      }
+      // Время ещё не наступило.
+      const nowHM = almatyHourMinute();
+      const wantHM = String(config.reportTime || "21:00");
+      if (nowHM < wantHM) {
+        res.status(200).json({ ok: true, skipped: `рано (сейчас ${nowHM}, отчёт в ${wantHM})` });
+        return;
+      }
     }
 
-    const date = todayAlmaty();
     const doc = await getDoc(date);
     await sendMessage(config.groupChatId, formatReport(doc));
+    if (!force) await setConfig({ lastReportDate: date });
 
     res.status(200).json({ ok: true, sent: true, date, items: doc.items?.length || 0 });
   } catch (e) {
