@@ -213,37 +213,61 @@ async function handleCommand({ cmd, args }, ctx) {
     case "сюда":
     case "here": {
       if (!isAdmin(config, userId)) return { text: "Только администратор." };
-      await store.setConfig({ reportChatId: msg.chat.id });
-      const where = msg.chat.type === "private" ? "в личные сообщения" : "в этот чат";
+      const threadId = msg.is_topic_message ? msg.message_thread_id ?? null : null;
+      await store.setConfig({ reportChatId: msg.chat.id, reportThreadId: threadId });
+      const where = msg.chat.type === "private"
+        ? "в личные сообщения"
+        : threadId ? "в эту тему" : "в этот чат";
       return { text: `📍 Автоотчёт буду присылать ${where}.` };
     }
 
     case "подключить":
     case "connect": {
       if (!isAdmin(config, userId)) return { text: "Только администратор." };
-      const list = new Set(config.allowedChats || []);
-      if (list.has(msg.chat.id)) return { text: "Этот чат уже подключён." };
-      list.add(msg.chat.id);
+      const key = chatKey(msg);
+      const list = new Set((config.allowedChats || []).map(String));
+      if (list.has(key)) return { text: "Здесь уже подключено." };
+
+      // Подключают конкретную тему форума, а весь чат был разрешён раньше —
+      // снимаем общее разрешение, иначе бот продолжит читать другие темы.
+      const wholeChat = String(msg.chat.id);
+      const narrowed = key !== wholeChat && list.delete(wholeChat);
+
+      list.add(key);
       await store.setConfig({ allowedChats: [...list] });
-      return { text: `✅ Чат подключён — принимаю отсюда накладные.\nПодключено чатов: ${list.size}` };
+
+      const where = key === wholeChat ? "Чат подключён" : "Тема подключена";
+      const note = narrowed
+        ? "\n⚠️ Раньше был подключён весь чат — теперь принимаю накладные только из этой темы."
+        : "";
+      return { text: `✅ ${where} — принимаю отсюда накладные.\nПодключено: ${list.size}${note}` };
     }
 
     case "отключить":
     case "disconnect": {
       if (!isAdmin(config, userId)) return { text: "Только администратор." };
-      const off = new Set(config.allowedChats || []);
-      if (!off.has(msg.chat.id)) return { text: "Этот чат и так не подключён." };
-      off.delete(msg.chat.id);
+      const off = new Set((config.allowedChats || []).map(String));
+      const key = chatKey(msg);
+      const wholeChat = String(msg.chat.id);
+      // Снимаем и точечную привязку темы, и общую по чату — иначе «отключил,
+      // а бот всё равно отвечает».
+      const removed = off.delete(key) | off.delete(wholeChat);
+      if (!removed) return { text: "Здесь и так не подключено." };
       await store.setConfig({ allowedChats: [...off] });
-      return { text: "⛔️ Чат отключён — накладные отсюда больше не принимаю." };
+      return { text: "⛔️ Отключено — накладные отсюда больше не принимаю." };
     }
 
     case "чаты":
     case "chats": {
       if (!isAdmin(config, userId)) return { text: "Только администратор." };
-      const chats = config.allowedChats || [];
+      const chats = (config.allowedChats || []).map(String);
       const lines = chats.length
-        ? chats.map((id) => `• <code>${id}</code>${id === config.reportChatId ? " — сюда идёт отчёт" : ""}`)
+        ? chats.map((id) => {
+            const isTopic = id.includes(":");
+            const label = isTopic ? "тема" : "весь чат";
+            const here = id === chatKey(msg) ? " ← вы здесь" : "";
+            return `• <code>${id}</code> — ${label}${here}`;
+          })
         : ["Ни один чат не подключён — принимаю отовсюду."];
       const extra = config.reportChatId && !chats.includes(config.reportChatId)
         ? `\nОтчёт уходит в <code>${config.reportChatId}</code> (отдельно от чатов приёма)`
@@ -327,6 +351,7 @@ export async function handleMessage(msg, ctx) {
   if (config.lastReportDate === date && config.reportChatId) {
     followUps.push({
       chatId: config.reportChatId,
+      threadId: config.reportThreadId ?? null,
       text: `🔄 <b>Поздняя поставка — отчёт обновлён</b>\n\n${formatReport(docAfter)}`,
     });
   }
@@ -337,15 +362,30 @@ export async function handleMessage(msg, ctx) {
   return { text: formatAck(entry, docAfter) + warn, followUps };
 }
 
+// В форум-группе все темы делят один chat.id и различаются только
+// message_thread_id. Поэтому ключ подключения — «чат:тема» для сообщений
+// из темы и просто «чат» для обычных групп. Иначе подключение темы
+// «Накладные» разрешало бы боту и «Долги», и «Переносы».
+export function chatKey(msg) {
+  const id = msg?.chat?.id;
+  if (msg?.is_topic_message && msg?.message_thread_id) {
+    return `${id}:${msg.message_thread_id}`;
+  }
+  return String(id);
+}
+
 // Бота могли добавить в посторонний чат. Принимаем из личных переписок
-// (там админы) и из чатов, подключённых командой /подключить. Пока не
+// (там админы) и из чатов/тем, подключённых командой /подключить. Пока не
 // подключён ни один чат — принимаем отовсюду, иначе первое подключение
 // сделать было бы негде.
+//
+// Запись без темы («-100500») означает «весь чат целиком» — так работают
+// обычные группы и так же продолжают работать привязки, сделанные раньше.
 export function isAllowedChat(config, msg) {
   if (msg?.chat?.type === "private") return true;
-  const list = config?.allowedChats || [];
+  const list = (config?.allowedChats || []).map(String);
   if (!list.length) return true;
-  return list.includes(msg?.chat?.id);
+  return list.includes(chatKey(msg)) || list.includes(String(msg?.chat?.id));
 }
 
 export { HELP, isAdmin, parseDateArg };

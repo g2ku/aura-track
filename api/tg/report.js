@@ -61,7 +61,8 @@ export default async function handler(req, res) {
     }
 
     const doc = await getDoc(date);
-    await sendMessage(target, formatReport(doc));
+    const thread = config.reportThreadId;
+    await sendMessage(target, formatReport(doc), thread ? { message_thread_id: thread } : {});
     if (!force) await setConfig({ lastReportDate: date });
 
     res.status(200).json({ ok: true, sent: true, date, items: doc.items?.length || 0 });
