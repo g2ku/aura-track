@@ -5680,3 +5680,291 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
     transition-duration: 0.01ms !important;
   }
 }
+/* ═══════════════════════════════════════════════════════════════════════
+   ЛЕНТА ПОСТАВОК (ReportsView)
+
+   Мир «Термолента»: страница читается как одна непрерывная лента чека.
+   Карточек нет намеренно — их рамки и отступы съедают горизонталь, а на
+   телефоне каждый пиксель ширины нужен под цифры. Разделение — перфорацией.
+
+   Колонок тоже нет: матрица «товар × филиал» на узком экране едет вбок.
+   Вместо неё строка чека «название ······ количество · сумма».
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.dl-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+
+.dl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.dl-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.dl-title {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+/* ─── Управление ─────────────────────────────────────────────────────── */
+.dl-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.dl-lens { display: flex; gap: 2px; }
+.dl-lens-btn {
+  padding: 7px 14px;
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  min-height: 36px;
+}
+.dl-lens-btn.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--text-invert, var(--bg));
+}
+.dl-periods { display: flex; gap: 2px; }
+.dl-period-btn {
+  padding: 7px 10px;
+  background: none;
+  border: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  min-height: 36px;
+  border-bottom: 2px solid transparent;
+}
+.dl-period-btn.active {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.dl-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+}
+.dl-search > i { color: var(--text-muted); font-size: 16px; flex-shrink: 0; }
+.dl-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  padding: 11px 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.dl-search-clear {
+  border: 0; background: none; cursor: pointer;
+  color: var(--text-muted); padding: 4px; display: flex;
+}
+
+/* ─── Итоговая строка ────────────────────────────────────────────────── */
+.dl-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+  margin-bottom: 4px;
+}
+.dl-summary-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex: none;
+}
+.dl-summary-total {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+/* ─── День ───────────────────────────────────────────────────────────── */
+.dl-day { padding: 16px 0 4px; border-bottom: 1px dashed var(--border-strong); }
+.dl-day:last-of-type { border-bottom: 0; }
+
+.dl-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.dl-day-date {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.dl-day-total {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ─── Строка чека ────────────────────────────────────────────────────── */
+.dl-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 0;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+  min-height: 42px;
+}
+.dl-caret {
+  flex: none;
+  font-size: 14px;
+  color: var(--text-muted);
+  align-self: center;
+}
+.dl-line.open .dl-caret { color: var(--text); }
+.dl-label {
+  flex: none;
+  max-width: 55%;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dl-line.open .dl-label { font-weight: 800; }
+
+/* Точечный лидер — тот же приём, что на «Кассе по точкам» */
+.dl-dots {
+  flex: 1 1 auto;
+  min-width: 12px;
+  height: 1.1em;
+  align-self: baseline;
+  background-image: radial-gradient(circle, var(--border-strong) 0.09em, transparent 0.12em);
+  background-size: 0.5em 0.3em;
+  background-repeat: repeat-x;
+  background-position: 0 calc(100% - 3px);
+}
+
+.dl-qty {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.dl-value {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+/* ─── Позиции внутри точки ───────────────────────────────────────────── */
+.dl-items {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 2px 0 6px 22px;
+  border-left: 1px dashed var(--border-strong);
+  margin-left: 7px;
+}
+.dl-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.dl-item-name {
+  flex: none;
+  max-width: 50%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dl-item .dl-value { font-weight: 600; color: var(--text-secondary); }
+
+/* ─── Действия по дню ────────────────────────────────────────────────── */
+.dl-day-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 6px 0 12px;
+}
+.dl-link {
+  border: 0;
+  background: none;
+  padding: 6px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-accent);
+  cursor: pointer;
+  min-height: 32px;
+}
+.dl-link-danger { color: var(--text-danger); }
+
+/* ─── Пусто ──────────────────────────────────────────────────────────── */
+.dl-empty {
+  text-align: center;
+  padding: 56px 20px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  margin-top: 16px;
+}
+.dl-empty > i { font-size: 30px; color: var(--text-muted); display: block; margin-bottom: 10px; }
+.dl-empty-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.dl-empty-sub { font-size: 13px; color: var(--text-muted); }
+
+@media (max-width: 768px) {
+  .dl-title { font-size: 22px; }
+  .dl-controls { gap: 6px; }
+  .dl-lens-btn { flex: 1; text-align: center; padding: 7px 10px; }
+  .dl-lens { flex: 1; }
+  .dl-periods { width: 100%; justify-content: flex-start; }
+  .dl-label { max-width: 46%; }
+  .dl-item-name { max-width: 44%; }
+  .dl-items { padding-left: 16px; }
+}
