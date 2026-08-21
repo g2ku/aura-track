@@ -6,8 +6,8 @@
 // в тестах подставляется поддельное хранилище.
 
 import { parseInvoiceMessage } from "./tgParser.js";
-import { BRANCHES } from "./branches.js";
-import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt } from "./dailyDoc.js";
+import { BRANCHES, branchNamesFor, matchIpGroup } from "./branches.js";
+import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
 import { parseCommand } from "./telegram.js";
 
 const HELP = `<b>Как сдавать накладные</b>
@@ -28,6 +28,7 @@ const HELP = `<b>Как сдавать накладные</b>
 /отмена — убрать мою последнюю накладную
 /записи — список накладных за сегодня с номерами
 /удалить 2 — удалить накладную по номеру из /записи
+/ип — три отчёта по юрлицам (/ип смагул, /ип 7 дней)
 /филиалы — список филиалов
 /помощь — эта справка`;
 
@@ -40,7 +41,8 @@ const ADMIN_HELP = `
 /сюда — слать автоотчёт в этот чат (можно в личку)
 /подключить — принимать накладные из этого чата
 /отключить — перестать принимать отсюда
-/чаты — список подключённых чатов`;
+/чаты — список подключённых чатов
+/ответы реакция|текст|тихо — как подтверждать накладные`;
 
 function isAdmin(config, userId) {
   // Пока список админов пуст, настройки доступны всем: иначе после первого
@@ -148,6 +150,81 @@ async function handleCommand({ cmd, args }, ctx) {
       if (args) return { text: "Не понял период. Примеры: /отчет, /отчет вчера, /отчет 14 дней, /отчет 2 недели, /отчет 2026-08-01 2026-08-14" };
 
       return { text: formatReport(await store.getDoc(today)) };
+    }
+
+    // Отчёты по юрлицам. Каждое ИП уходит ОТДЕЛЬНЫМ сообщением — так его
+    // можно переслать своему бухгалтеру, не вырезая куски из общего.
+    case "ип":
+    case "ip": {
+      const groups = await store.getIpGroups?.();
+      if (!groups?.length) return { text: "Группы ИП не настроены." };
+
+      const today = todayAlmaty();
+      const parts = String(args).trim().split(/\s+/).filter(Boolean);
+
+      // Первый токен может быть названием ИП — тогда остальное это период
+      let picked = null;
+      let rest = parts;
+      if (parts.length) {
+        const g = matchIpGroup(groups, parts[0]);
+        if (g) { picked = g; rest = parts.slice(1); }
+      }
+      const restStr = rest.join(" ");
+
+      // Период: тот же разбор, что и у /отчет
+      let from = today, to = today, title = null;
+      const single = parseDateArg(restStr);
+      if (single) {
+        from = to = single;
+        title = `за ${formatDateRu(single)}`;
+      } else if (restStr) {
+        const period = parsePeriodArg(restStr, today);
+        if (!period) {
+          return { text: "Не понял период. Примеры: /ип, /ип смагул, /ип 7 дней, /ип бажа 14 дней" };
+        }
+        from = period.from; to = period.to;
+        title = period.label.replace(/^Накладные /, "");
+      } else {
+        title = `за ${formatDateRu(today)}`;
+      }
+
+      const docs = from === to
+        ? [await store.getDoc(from)]
+        : await (store.getDocsRange?.(from, to) ?? []);
+      const merged = mergeDocs(docs, from);
+
+      const targets = picked ? [picked] : groups;
+      const blocks = targets.map((g) => {
+        const names = branchNamesFor(g);
+        const slice = filterByBranches(merged, names);
+        return {
+          text: formatReport(slice, {
+            title: `${g.name} — ${title}`,
+            footer: from === to ? "за день" : "за период",
+          }),
+          total: grandTotal(slice),
+        };
+      });
+
+      // Первый блок — ответом, остальные догоняющими сообщениями в тот же чат
+      const [first, ...others] = blocks;
+      const followUps = others.map((b) => ({
+        chatId: msg.chat.id,
+        threadId: msg.is_topic_message ? msg.message_thread_id ?? null : null,
+        text: b.text,
+      }));
+
+      // Общий итог по всем ИП — только когда показываем все
+      if (!picked) {
+        const sum = blocks.reduce((s, b) => s + b.total, 0);
+        followUps.push({
+          chatId: msg.chat.id,
+          threadId: msg.is_topic_message ? msg.message_thread_id ?? null : null,
+          text: `Σ <b>Всего по всем ИП ${escapeHtml(title)}: ${fmtInt(sum)} ₸</b>`,
+        });
+      }
+
+      return { text: first.text, followUps };
     }
 
     case "отмена":
@@ -343,6 +420,19 @@ async function handleCommand({ cmd, args }, ctx) {
       return { text: `<b>Подключённые чаты</b>\n${lines.join("\n")}${extra}` };
     }
 
+    case "ответы":
+    case "ack": {
+      if (!isAdmin(config, userId)) return { text: "Только администратор." };
+      const modes = { реакция: "reaction", текст: "reply", тихо: "silent" };
+      const m = modes[String(args).trim().toLowerCase()];
+      if (!m) {
+        const now = { reaction: "реакция", reply: "текст", silent: "тихо" }[config.ackMode] || config.ackMode;
+        return { text: `Сейчас: <b>${now}</b>\n\n/ответы реакция — ставить 👍 на накладную\n/ответы текст — подтверждать разбором текстом\n/ответы тихо — не отвечать вовсе` };
+      }
+      await store.setConfig({ ackMode: m });
+      return { text: `✅ Режим ответов: <b>${String(args).trim().toLowerCase()}</b>` };
+    }
+
     case "админ":
     case "admin": {
       if (!isAdmin(config, userId)) return { text: "Только администратор." };
@@ -427,6 +517,14 @@ export async function handleMessage(msg, ctx) {
   if (config.ackMode === "silent") {
     return followUps.length ? { text: null, followUps } : null;
   }
+
+  // По умолчанию бот не пишет в чат, а вешает реакцию на сообщение бариста:
+  // при десятке накладных в день переписка иначе тонет в подтверждениях.
+  // Разбор текстом остаётся, если что-то не так, — там он и нужен.
+  if (config.ackMode !== "reply" && !parsed.warnings.length) {
+    return { text: null, reaction: "👍", followUps };
+  }
+
   return { text: formatAck(entry, docAfter) + warn, followUps };
 }
 

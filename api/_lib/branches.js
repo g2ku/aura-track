@@ -73,3 +73,35 @@ export function matchBranchPrefix(line) {
   }
   return null;
 }
+
+// ─── Группы ИП ───────────────────────────────────────────────────────
+//
+// Значения по умолчанию повторяют DEFAULT_GROUPS из src/ipGroups.js.
+// Боевой источник — документ settings/ipGroups в Firestore: его правит
+// админка «Группы ИП» на сайте, и бот читает оттуда же, чтобы состав
+// групп в боте и на сайте не разъезжался.
+
+export const DEFAULT_IP_GROUPS = [
+  { id: "ip_smagul", name: "ИП Смагул", branches: ["Aura02_Dubai", "Aura02_Zharokova", "Aura02_Gagarina", "Aura02_Abaya", "Aura02_OBI"] },
+  { id: "ip_baja",   name: "ИП Бажа",   branches: ["Aura02_Atakent", "Aura02_Koktem"] },
+  { id: "ip_alua",   name: "ИП Алуа",   branches: ["Aura02_Rams"] },
+];
+
+const BY_KEY = new Map(BRANCHES.map((x) => [x.key, x.name]));
+
+// «Aura02_Dubai» → «Дубай». Неизвестные ключи отбрасываем.
+export function branchNamesFor(group) {
+  return (group?.branches || []).map((k) => BY_KEY.get(k)).filter(Boolean);
+}
+
+// Поиск группы по тому, как её назовут в команде: «смагул», «ип бажа», «alua».
+export function matchIpGroup(groups, text) {
+  const key = normalizeKey(text);
+  if (!key) return null;
+  return groups.find((g) => {
+    const full = normalizeKey(g.name);          // «ипсмагул»
+    const short = full.replace(/^ип/, "");      // «смагул»
+    const id = normalizeKey(g.id).replace(/^ip/, "");
+    return key === full || key === short || key === id;
+  }) || null;
+}

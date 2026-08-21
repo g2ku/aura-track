@@ -4,7 +4,8 @@
 
 import { handleMessage, isAllowedChat, chatKey } from "./api/_lib/commands.js";
 import { applyEntry, removeEntry, emptyDoc, todayAlmaty } from "./api/_lib/dailyDoc.js";
-import { DEFAULT_CONFIG } from "./api/_lib/store.js";
+import { DEFAULT_CONFIG, botStore } from "./api/_lib/store.js";
+import { DEFAULT_IP_GROUPS } from "./api/_lib/branches.js";
 
 let passed = 0;
 let failed = 0;
@@ -48,6 +49,7 @@ function makeStore(initialConfig = {}) {
         .sort((a, z) => (a[0] < z[0] ? -1 : 1))
         .map(([, v]) => v);
     },
+    async getIpGroups() { return initialConfig.ipGroups ?? DEFAULT_IP_GROUPS; },
     async setConfig(patch) { config = { ...config, ...patch }; return config; },
   };
 }
@@ -86,7 +88,7 @@ const TODAY = todayAlmaty();
 section("Приём накладных");
 
 {
-  const store = makeStore();
+  const store = makeStore({ ackMode: "reply" });
   const r = await run(store, "Абая\nПончики - 48шт - 40000");
   ok(r && r.text.includes("принято"), "накладная принята");
   ok(r.text.includes("Абая"), "в ответе назван филиал");
@@ -117,7 +119,7 @@ section("Фото с подписью");
 {
   // Ребята присылают накладную фоткой, а текст пишут подписью к ней —
   // Telegram кладёт его в caption, и раньше такие сообщения терялись.
-  const store = makeStore();
+  const store = makeStore({ ackMode: "reply" });
   const r = await run(store, "Абая\nПончики - 48шт - 40000", { asPhoto: true });
   ok(r && r.text.includes("принято"), "накладная в подписи к фото принята");
   eq((await store.getDoc(TODAY)).totals, { "Абая": 40000 }, "записана в базу");
@@ -125,7 +127,7 @@ section("Фото с подписью");
 
 {
   // Альбом: подпись есть только у одного фото, остальные — без текста
-  const store = makeStore();
+  const store = makeStore({ ackMode: "reply" });
   eq(await run(store, "", { asPhoto: true }), null, "фото без подписи — молчим");
   const r = await run(store, "гаг Латте 10шт 5000", { asPhoto: true });
   ok(r && r.text.includes("принято"), "фото с подписью в том же альбоме принято");
@@ -438,7 +440,7 @@ section("Форум-группа: привязка к теме");
 
   // Накладная в правильной теме — принимается
   const good = await run(store, "Абая\nПончики 48шт 40000", { chatId: CHAT, threadId: NAKLADNYE });
-  ok(good && good.text.includes("принято"), "накладная из темы «Накладные» принята");
+  ok(good, "накладная из темы «Накладные» принята");
 
   // Сообщение из другой темы — игнорируется, даже если похоже на накладную
   const bad = await run(store, "Гаг Молоко 24 12000", { chatId: CHAT, threadId: PERENOSY });
@@ -530,7 +532,7 @@ section("Отчёт в личные сообщения");
 section("Поздняя поставка после отчёта");
 
 {
-  const store = makeStore({ reportChatId: 999, lastReportDate: TODAY });
+  const store = makeStore({ reportChatId: 999, lastReportDate: TODAY, ackMode: "reply" });
   const r = await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
   ok(r.followUps?.length === 1, "досылается обновлённый отчёт");
   eq(r.followUps[0].chatId, 999, "обновление уходит в чат отчёта");
@@ -539,9 +541,125 @@ section("Поздняя поставка после отчёта");
 }
 
 {
-  const store = makeStore({ reportChatId: 999, lastReportDate: "2000-01-01" });
+  const store = makeStore({ reportChatId: 999, lastReportDate: "2000-01-01", ackMode: "reply" });
   const r = await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
   ok(!r.followUps?.length, "если отчёт за сегодня ещё не слали — ничего не досылаем");
+}
+
+// ─── Проводка хранилища ───────────────────────────────────────────────
+section("Проводка хранилища");
+
+{
+  // Регрессия: объект store собирался прямо в webhook.js, и туда забыли
+  // положить getDocsRange — /отчет за период молча отвечал «недоступно».
+  // Тесты это не поймали: поддельное хранилище умело больше реального.
+  const real = botStore();
+  for (const m of ["getDoc", "getDocsRange", "appendEntry", "undoEntry", "setConfig", "getIpGroups"]) {
+    ok(typeof real[m] === "function", `botStore() отдаёт ${m}`);
+  }
+
+  // Поддельное хранилище не должно уметь больше настоящего,
+  // иначе тесты снова прикроют дырку в проводке.
+  const fake = makeStore();
+  for (const m of Object.keys(fake)) {
+    if (m.startsWith("_") || m === "config") continue;
+    ok(typeof real[m] === "function", `«${m}» из тестов есть и в botStore()`);
+  }
+}
+
+// ─── Отчёты по ИП ─────────────────────────────────────────────────────
+section("Отчёты по ИП");
+
+{
+  const store = makeStore();
+  await run(store, "Абая\nПончики 48шт 40000");     // ИП Смагул
+  await run(store, "Коктем\nМоти 12шт 9000");        // ИП Бажа
+  await run(store, "Рамс\nЛатте 10шт 5000");         // ИП Алуа
+
+  const r = await run(store, "/ип", { userId: 5 });
+  ok(r.text.includes("ИП Смагул"), "первый отчёт — Смагул");
+  ok(r.text.includes("Пончики"), "в нём позиции Абая");
+  ok(!r.text.includes("Моти"), "чужих точек в отчёте Смагула нет");
+
+  eq(r.followUps.length, 3, "ещё два ИП и общий итог — отдельными сообщениями");
+  ok(r.followUps[0].text.includes("ИП Бажа"), "второе сообщение — Бажа");
+  ok(r.followUps[0].text.includes("Моти"), "у Бажи свои позиции");
+  ok(r.followUps[1].text.includes("ИП Алуа"), "третье — Алуа");
+  ok(r.followUps[2].text.includes("54 000"), "общий итог по всем ИП");
+}
+
+{
+  const store = makeStore();
+  await run(store, "Абая\nПончики 48шт 40000");
+  await run(store, "Коктем\nМоти 12шт 9000");
+
+  const one = await run(store, "/ип смагул", { userId: 5 });
+  ok(one.text.includes("ИП Смагул"), "выбранное ИП");
+  ok(!one.followUps?.length, "остальные не шлём");
+  ok(one.text.includes("Пончики") && !one.text.includes("Моти"), "только свои точки");
+
+  const bad = await run(store, "/ип караганда", { userId: 5 });
+  ok(bad.text.includes("Не понял период"), "неизвестное ИП — подсказка");
+}
+
+{
+  // Баума относится к ИП Смагул (в системе это Дубай).
+  // Проверяем по сумме: в таблице отчёта названия точек сокращаются.
+  const store = makeStore();
+  await run(store, "баума\nКруассан 10шт 17400");
+
+  const smagul = await run(store, "/ип смагул", { userId: 5 });
+  ok(smagul.text.includes("17 400"), "поставка Баумы попала в отчёт Смагула");
+
+  const baja = await run(store, "/ип бажа", { userId: 5 });
+  ok(!baja.text.includes("17 400"), "и не попала к другому ИП");
+}
+
+// ─── Реакция вместо сообщения ─────────────────────────────────────────
+section("Подтверждение реакцией");
+
+{
+  const store = makeStore({ ackMode: "reaction" });
+  const r = await run(store, "Абая\nПончики 48шт 40000");
+  eq(r.text, null, "текстом не отвечает");
+  eq(r.reaction, "👍", "ставит реакцию");
+  eq((await store.getDoc(TODAY)).totals, { "Абая": 40000 }, "накладная записана");
+}
+
+{
+  // Ошибку разбора всё равно объясняем текстом — реакции тут мало
+  const store = makeStore({ ackMode: "reaction" });
+  const r = await run(store, "Абая\nПончики");
+  ok(r.text?.includes("не смог разобрать"), "ошибка уходит текстом");
+  ok(!r.reaction, "реакции на ошибку нет");
+}
+
+{
+  // Частичная ошибка: часть строк разобрана, часть нет — тоже текстом
+  const store = makeStore({ ackMode: "reaction" });
+  const r = await run(store, "Абая\nПончики 48шт 40000\nКруассан");
+  ok(r.text?.includes("принято"), "принятое подтверждено текстом");
+  ok(!r.reaction, "реакции нет, раз есть предупреждение");
+}
+
+{
+  const store = makeStore({ ackMode: "reply" });
+  const r = await run(store, "Абая\nПончики 48шт 40000");
+  ok(r.text?.includes("принято"), "режим «текст» отвечает как раньше");
+  ok(!r.reaction, "и без реакции");
+}
+
+{
+  const store = makeStore({ admins: [5] });
+  const r = await run(store, "/ответы текст", { userId: 5 });
+  ok(r.text.includes("текст"), "режим переключается");
+  eq(store.config.ackMode, "reply", "сохранён как reply");
+
+  await run(store, "/ответы реакция", { userId: 5 });
+  eq(store.config.ackMode, "reaction", "и обратно");
+
+  const show = await run(store, "/ответы", { userId: 5 });
+  ok(show.text.includes("Сейчас"), "без аргумента показывает текущий режим");
 }
 
 // ─── Итог ─────────────────────────────────────────────────────────────

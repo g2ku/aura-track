@@ -10,6 +10,7 @@
 import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { applyEntry, removeEntry, docIdFor, emptyDoc, enumerateDates } from "./dailyDoc.js";
+import { DEFAULT_IP_GROUPS } from "./branches.js";
 
 let _db = null;
 
@@ -85,6 +86,19 @@ export async function getDocsRange(from, to) {
   return snaps.filter((s) => s.exists).map((s) => s.data());
 }
 
+// Группы ИП. Источник — settings/ipGroups, тот же документ, который правит
+// админка на сайте. Если его ещё нет, отдаём значения по умолчанию.
+export async function getIpGroups() {
+  try {
+    const snap = await getDb().collection("settings").doc("ipGroups").get();
+    const groups = snap.exists ? snap.data()?.groups : null;
+    if (Array.isArray(groups) && groups.length) return groups;
+  } catch (e) {
+    console.error("[bot] не смог прочитать группы ИП:", e?.message);
+  }
+  return DEFAULT_IP_GROUPS;
+}
+
 // ─── Настройки бота ──────────────────────────────────────────────────
 // Лежат в отдельной коллекции, чтобы админ мог менять поведение без деплоя.
 
@@ -99,7 +113,10 @@ export const DEFAULT_CONFIG = {
   reportEnabled: true,
   paused: false,       // приём накладных приостановлен
   admins: [],          // telegram user id, кому можно менять настройки
-  ackMode: "reply",    // reply — отвечать на каждую накладную, silent — молча
+  // reaction — вешать 👍 на сообщение (по умолчанию: чат не засоряется),
+  // reply — отвечать разбором текстом, silent — не отвечать вовсе.
+  // Ошибка разбора всегда уходит текстом, в любом режиме кроме silent.
+  ackMode: "reaction",
   lastReportDate: null, // дата последнего автоотчёта — чтобы не слать дважды
 };
 
@@ -133,4 +150,11 @@ export async function markUpdateSeen(updateId) {
   } catch {
     return false; // документ уже существует — апдейт обработан раньше
   }
+}
+
+// Полный набор операций, который передаётся в commands.js.
+// Собирается ЗДЕСЬ, а не в вебхуке: иначе легко забыть добавить сюда новый
+// метод, и команда тихо отвалится в проде, пройдя все тесты.
+export function botStore() {
+  return { getDoc, getDocsRange, appendEntry, undoEntry, setConfig, getIpGroups };
 }
