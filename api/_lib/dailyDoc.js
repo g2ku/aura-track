@@ -149,13 +149,10 @@ function fmtInt(n) {
   return Math.round(n).toLocaleString("ru-RU").replace(/ /g, " ");
 }
 
-// Компактно для узких столбцов: 40000 → «40к», 40500 → «40.5к»
-function fmtCompact(n) {
+// Ячейка таблицы: точная сумма, прочерк вместо нуля.
+function fmtCell(n) {
   const v = Math.round(n);
-  if (v === 0) return "—";
-  if (Math.abs(v) < 1000) return String(v);
-  const k = v / 1000;
-  return (Number.isInteger(k) ? String(k) : k.toFixed(1)) + "к";
+  return v === 0 ? "—" : fmtInt(v);
 }
 
 function shortBranch(name) {
@@ -179,7 +176,7 @@ export function formatDateRu(date) {
 // экрана — переключаемся на вертикальную раскладку по филиалам, иначе
 // строки переносятся и таблица становится нечитаемой.
 export function formatReport(doc, opts = {}) {
-  const maxWidth = opts.maxWidth || 42;
+  const maxWidth = opts.maxWidth || 62;
   const header = opts.title
     ? `📋 ${opts.title}`
     : `📋 Накладные за ${formatDateRu(doc.date)}`;
@@ -193,7 +190,9 @@ export function formatReport(doc, opts = {}) {
 
   const branches = doc.branches;
   const nameW = 12;
-  const colW = 7;
+  // Колонка вмещает «1 234 567». Точные суммы важнее компактности:
+  // округление до «12.2к» скрывало реальные цифры накладной.
+  const colW = 10;
   const tableWidth = nameW + (branches.length + 1) * colW;
 
   if (tableWidth <= maxWidth) {
@@ -203,15 +202,15 @@ export function formatReport(doc, opts = {}) {
 
     for (const it of doc.items) {
       const row = pad(it.name, nameW) +
-        branches.map((b) => pad(fmtCompact(it.amounts[b] || 0), colW, true)).join("") +
-        pad(fmtCompact(rowTotal(it)), colW, true);
+        branches.map((b) => pad(fmtCell(it.amounts[b] || 0), colW, true)).join("") +
+        pad(fmtCell(rowTotal(it)), colW, true);
       lines.push(row);
     }
 
     lines.push("─".repeat(Math.min(tableWidth, maxWidth)));
     lines.push(pad("Итого", nameW) +
-      branches.map((b) => pad(fmtCompact(doc.totals[b] || 0), colW, true)).join("") +
-      pad(fmtCompact(grandTotal(doc)), colW, true));
+      branches.map((b) => pad(fmtCell(doc.totals[b] || 0), colW, true)).join("") +
+      pad(fmtCell(grandTotal(doc)), colW, true));
 
     return `${header}\n\n<pre>${escapeHtml(lines.join("\n"))}</pre>\nВсего ${opts.title ? "за период" : "за день"}: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
   }
