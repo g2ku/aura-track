@@ -9,6 +9,7 @@ import { parseInvoiceMessage } from "./tgParser.js";
 import { BRANCHES, branchNamesFor, matchIpGroup } from "./branches.js";
 import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
 import { parseCommand } from "./telegram.js";
+import { applyCatalog } from "./products.js";
 
 const HELP = `<b>Как сдавать накладные</b>
 
@@ -29,6 +30,7 @@ const HELP = `<b>Как сдавать накладные</b>
 /записи — список накладных за сегодня с номерами
 /удалить 2 — удалить накладную по номеру из /записи
 /ип — три отчёта по юрлицам (/ип смагул, /ип 7 дней)
+/товары — справочник названий
 /филиалы — список филиалов
 /помощь — эта справка`;
 
@@ -42,7 +44,8 @@ const ADMIN_HELP = `
 /подключить — принимать накладные из этого чата
 /отключить — перестать принимать отсюда
 /чаты — список подключённых чатов
-/ответы реакция|текст|тихо — как подтверждать накладные`;
+/ответы реакция|текст|тихо — как подтверждать накладные
+/переименовать старое &gt; новое — поправить название товара`;
 
 function isAdmin(config, userId) {
   // Пока список админов пуст, настройки доступны всем: иначе после первого
@@ -433,6 +436,49 @@ async function handleCommand({ cmd, args }, ctx) {
       return { text: `✅ Режим ответов: <b>${String(args).trim().toLowerCase()}</b>` };
     }
 
+    case "товары":
+    case "products": {
+      const list = (await store.getProducts?.()) || [];
+      if (!list.length) return { text: "Справочник пуст — он наполнится сам, как пойдут накладные." };
+      const sorted = [...list].sort((a, b) => a.localeCompare(b, "ru"));
+      return {
+        text: [
+          `<b>Товары в справочнике</b> — ${sorted.length}`,
+          "",
+          sorted.map((n) => `• ${escapeHtml(n)}`).join("\n"),
+          "",
+          "Поправить название: <code>/переименовать старое &gt; новое</code>",
+        ].join("\n"),
+      };
+    }
+
+    case "переименовать":
+    case "rename": {
+      if (!isAdmin(config, userId)) return { text: "Только администратор." };
+      const m = String(args).split(/\s*(?:>|→|-&gt;|&gt;)\s*/);
+      if (m.length !== 2 || !m[0].trim() || !m[1].trim()) {
+        return { text: "Формат: <code>/переименовать кукисы &gt; Кукис</code>" };
+      }
+      const from = m[0].trim();
+      const to = m[1].trim();
+
+      const list = (await store.getProducts?.()) || [];
+      const idx = list.findIndex((n) => n.toLowerCase() === from.toLowerCase());
+      if (idx === -1) return { text: `«${escapeHtml(from)}» в справочнике нет. Посмотреть — /товары` };
+
+      const next = list.filter((_, i) => i !== idx);
+      if (!next.some((n) => n.toLowerCase() === to.toLowerCase())) next.push(to);
+      await store.saveProducts?.(next);
+
+      return {
+        text: [
+          `✏️ <b>${escapeHtml(from)}</b> → <b>${escapeHtml(to)}</b>`,
+          "Новые накладные пойдут под новым названием.",
+          "Уже записанные отчёты не меняются.",
+        ].join("\n"),
+      };
+    }
+
     case "админ":
     case "admin": {
       if (!isAdmin(config, userId)) return { text: "Только администратор." };
@@ -469,7 +515,8 @@ export async function handleMessage(msg, ctx) {
 
   if (config.paused) return null;
 
-  const parsed = parseInvoiceMessage(text);
+  const today = todayAlmaty();
+  const parsed = parseInvoiceMessage(text, today);
 
   // Филиал не распознан — это обычное сообщение в группе, молчим.
   if (!parsed.branch) return null;
@@ -485,7 +532,36 @@ export async function handleMessage(msg, ctx) {
     };
   }
 
-  const date = todayAlmaty();
+  // Накладную часто скидывают на следующий день, указав дату в строке
+  // филиала: «Жар 21.08». Пишем в тот день, а не в сегодняшний.
+  let date = today;
+  let backdated = false;
+
+  if (parsed.date && parsed.date !== today) {
+    if (parsed.date > today) {
+      return { text: `⚠️ Дата <b>${formatDateRu(parsed.date)}</b> ещё не наступила. Проверьте число.` };
+    }
+    const limit = shiftDate(today, -60);
+    if (parsed.date < limit) {
+      return {
+        text: [
+          `⚠️ Дата <b>${formatDateRu(parsed.date)}</b> старше 60 дней — похоже на опечатку.`,
+          "Если она верна, напишите её полностью с годом.",
+        ].join("\n"),
+      };
+    }
+    date = parsed.date;
+    backdated = true;
+  }
+
+  // Приводим названия к каноническим: «кукисы» → «Кукис». Иначе в отчёте
+  // копятся дубли одного товара и сводка за месяц становится нечитаемой.
+  const catalog = (await ctx.store.getProducts?.()) || [];
+  const fixed = applyCatalog(parsed.items, catalog);
+  if (fixed.added.length && ctx.store.saveProducts) {
+    await ctx.store.saveProducts([...catalog, ...fixed.added]);
+  }
+
   const entry = {
     id: `${msg.chat.id}:${msg.message_id}`,
     ts: Date.now(),
@@ -493,7 +569,7 @@ export async function handleMessage(msg, ctx) {
     branch: parsed.branch,
     author: ctx.authorName || "",
     authorId: msg.from?.id ?? null,
-    items: parsed.items,
+    items: fixed.items,
     raw: text,
   };
 
@@ -506,11 +582,14 @@ export async function handleMessage(msg, ctx) {
   // Дневной отчёт за сегодня уже ушёл, а поставка пришла позже — досылаем
   // обновлённый отчёт, иначе у получателя осталась бы неполная картина дня.
   const followUps = [];
-  if (config.lastReportDate === date && config.reportChatId) {
+  // День уже закрыт (накладная задним числом) либо отчёт за сегодня уже ушёл —
+  // в обоих случаях досылаем обновлённый отчёт за ТУ дату.
+  const dayClosed = backdated || config.lastReportDate === date;
+  if (dayClosed && config.reportChatId) {
     followUps.push({
       chatId: config.reportChatId,
       threadId: config.reportThreadId ?? null,
-      text: `🔄 <b>Поздняя поставка — отчёт обновлён</b>\n\n${formatReport(docAfter)}`,
+      text: `🔄 <b>Отчёт за ${formatDateRu(date)} обновлён</b>\n\n${formatReport(docAfter)}`,
     });
   }
 
@@ -521,11 +600,23 @@ export async function handleMessage(msg, ctx) {
   // По умолчанию бот не пишет в чат, а вешает реакцию на сообщение бариста:
   // при десятке накладных в день переписка иначе тонет в подтверждениях.
   // Разбор текстом остаётся, если что-то не так, — там он и нужен.
-  if (config.ackMode !== "reply" && !parsed.warnings.length) {
+  // Реакция — только для сегодняшних накладных без замечаний. Молчаливая
+  // галочка на записи в чужой день скрыла бы ошибку в дате.
+  // Исправление названия показываем всегда: подмена товара молча — это
+  // ровно та ошибка, которую потом не найти.
+  const fixes = fixed.corrections.length
+    ? "\n" + fixed.corrections.map((f) => `✏️ «${escapeHtml(f.from)}» → <b>${escapeHtml(f.to)}</b>`).join("\n")
+    : "";
+
+  if (config.ackMode !== "reply" && !parsed.warnings.length && !backdated && !fixes) {
     return { text: null, reaction: "👍", followUps };
   }
 
-  return { text: formatAck(entry, docAfter) + warn, followUps };
+  const when = backdated
+    ? `\n📅 Записано на <b>${formatDateRu(date)}</b>${date === shiftDate(today, -1) ? " (вчера)" : ""}`
+    : "";
+
+  return { text: formatAck(entry, docAfter) + fixes + when + warn, followUps };
 }
 
 // В форум-группе все темы делят один chat.id и различаются только

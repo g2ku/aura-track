@@ -26,9 +26,11 @@ function section(t) { console.log(`\n📋 ${t}`); }
 function makeStore(initialConfig = {}) {
   const docs = new Map();
   let config = { ...DEFAULT_CONFIG, ...initialConfig };
+  let products = initialConfig.products ? [...initialConfig.products] : [];
   return {
     _docs: docs,
     get config() { return config; },
+    get products() { return products; },
     async getDoc(date) { return docs.get(date) || emptyDoc(date); },
     async appendEntry(entry) {
       const next = applyEntry(docs.get(entry.date) || null, entry);
@@ -50,6 +52,8 @@ function makeStore(initialConfig = {}) {
         .map(([, v]) => v);
     },
     async getIpGroups() { return initialConfig.ipGroups ?? DEFAULT_IP_GROUPS; },
+    async getProducts() { return products; },
+    async saveProducts(names) { products = names; return names; },
     async setConfig(patch) { config = { ...config, ...patch }; return config; },
   };
 }
@@ -536,7 +540,7 @@ section("Поздняя поставка после отчёта");
   const r = await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
   ok(r.followUps?.length === 1, "досылается обновлённый отчёт");
   eq(r.followUps[0].chatId, 999, "обновление уходит в чат отчёта");
-  ok(r.followUps[0].text.includes("Поздняя поставка"), "помечено как поздняя поставка");
+  ok(r.followUps[0].text.includes("обновлён"), "отчёт помечен как обновлённый");
   ok(r.followUps[0].text.includes("Пончики"), "в обновлении есть новая позиция");
 }
 
@@ -544,6 +548,132 @@ section("Поздняя поставка после отчёта");
   const store = makeStore({ reportChatId: 999, lastReportDate: "2000-01-01", ackMode: "reply" });
   const r = await run(store, "Абая\nПончики 48шт 40000", { chatId: -111 });
   ok(!r.followUps?.length, "если отчёт за сегодня ещё не слали — ничего не досылаем");
+}
+
+// ─── Накладная задним числом ──────────────────────────────────────────
+section("Накладная задним числом");
+
+const YESTERDAY = (() => {
+  const d = new Date(TODAY + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+})();
+const dmy = (iso) => { const [y, m, d] = iso.split("-"); return `${d}.${m}`; };
+
+{
+  // Бариста забыл вчера и скинул сегодня, указав дату — как они и пишут
+  const store = makeStore();
+  const r = await run(store, `Жар ${dmy(YESTERDAY)}\nКукис 46шт 16100`);
+
+  eq((await store.getDoc(YESTERDAY)).totals, { "Жароково": 16100 }, "записано во вчерашний день");
+  eq((await store.getDoc(TODAY)).items.length, 0, "в сегодняшний не попало");
+
+  ok(!r.reaction, "задним числом реакцией не подтверждаем");
+  ok(r.text.includes("Записано на"), "дата названа явно");
+  ok(r.text.includes("вчера"), "и помечено, что это вчера");
+}
+
+{
+  // Дата отдельной строкой
+  const store = makeStore();
+  await run(store, `Жар\n${dmy(YESTERDAY)}\nКукис 46шт 16100`);
+  eq((await store.getDoc(YESTERDAY)).totals, { "Жароково": 16100 }, "дата отдельной строкой тоже работает");
+}
+
+{
+  // Без даты — сегодня, и реакция как обычно
+  const store = makeStore();
+  const r = await run(store, "Жар\nКукис 46шт 16100");
+  eq(r.reaction, "👍", "сегодняшняя — реакцией");
+  eq((await store.getDoc(TODAY)).totals, { "Жароково": 16100 }, "записано сегодня");
+}
+
+{
+  // Будущее не принимаем
+  const store = makeStore();
+  const future = (() => {
+    const d = new Date(TODAY + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + 3);
+    return d.toISOString().slice(0, 10);
+  })();
+  const r = await run(store, `Жар ${future.slice(8)}.${future.slice(5,7)}.${future.slice(0,4)}\nКукис 46шт 16100`);
+  ok(r.text.includes("ещё не наступила"), "дата из будущего отклонена");
+  eq((await store.getDoc(future)).items.length, 0, "ничего не записано");
+}
+
+{
+  // Слишком старая дата — вероятная опечатка
+  const store = makeStore();
+  const r = await run(store, "Жар 01.01.2020\nКукис 46шт 16100");
+  ok(r.text.includes("старше 60 дней"), "старая дата отклонена");
+}
+
+{
+  // Отчёт за прошедший день пересылается заново
+  const store = makeStore({ reportChatId: 999 });
+  const r = await run(store, `Жар ${dmy(YESTERDAY)}\nКукис 46шт 16100`);
+  eq(r.followUps.length, 1, "досылается обновлённый отчёт");
+  ok(r.followUps[0].text.includes("обновлён"), "помечен как обновление");
+  ok(r.followUps[0].text.includes(dmy(YESTERDAY).replace(".", ".")), "за нужную дату");
+}
+
+// ─── Справочник товаров ───────────────────────────────────────────────
+section("Автоисправление названий");
+
+{
+  const store = makeStore({ products: ["Кукис", "Молоко"], ackMode: "reply" });
+  const r = await run(store, "Жар\nкукисы 46шт 16100");
+  ok(r.text.includes("Кукис"), "название приведено к каноническому");
+  ok(r.text.includes("✏️"), "исправление показано");
+  eq((await store.getDoc(TODAY)).items[0].name, "Кукис", "в базе каноническое название");
+}
+
+{
+  // Исправление всегда видно — даже в режиме реакции
+  const store = makeStore({ products: ["Кукис"] });
+  const r = await run(store, "Жар\nкукисы 46шт 16100");
+  ok(!r.reaction, "при исправлении реакции мало");
+  ok(r.text.includes("«кукисы»"), "видно, что было");
+  ok(r.text.includes("Кукис"), "и что стало");
+}
+
+{
+  // Новое название пополняет справочник
+  const store = makeStore({ products: ["Кукис"] });
+  const r = await run(store, "Жар\nБрауни 8шт 7800");
+  eq(r.reaction, "👍", "новое название — не исправление, реакции достаточно");
+  ok(store.products.includes("Брауни"), "добавлено в справочник");
+}
+
+{
+  // Разные товары не склеиваются
+  const store = makeStore({ products: ["Мон", "Кола 0.5"] });
+  await run(store, "Жар\nМоти 12шт 9000");
+  await run(store, "Жар\nКола 1.5 6шт 3000");
+  const names = (await store.getDoc(TODAY)).items.map((i) => i.name).sort();
+  eq(names, ["Кола 1.5", "Моти"], "«Моти»≠«Мон», «Кола 1.5»≠«Кола 0.5»");
+}
+
+{
+  const store = makeStore({ products: ["Кукис", "Молоко"] });
+  const r = await run(store, "/товары", { userId: 5 });
+  ok(r.text.includes("Кукис") && r.text.includes("Молоко"), "справочник показан");
+
+  const empty = await run(makeStore(), "/товары", { userId: 5 });
+  ok(empty.text.includes("пуст"), "пустой справочник");
+}
+
+{
+  const store = makeStore({ products: ["кукисы"], admins: [5] });
+  const r = await run(store, "/переименовать кукисы > Кукис", { userId: 5 });
+  ok(r.text.includes("Кукис"), "переименование подтверждено");
+  eq(store.products, ["Кукис"], "в справочнике новое название");
+
+  const no = await run(store, "/переименовать неттакого > Что-то", { userId: 5 });
+  ok(no.text.includes("нет"), "неизвестный товар");
+
+  const bad = await run(store, "/переименовать абракадабра", { userId: 5 });
+  ok(bad.text.includes("Формат"), "без разделителя — подсказка");
 }
 
 // ─── Проводка хранилища ───────────────────────────────────────────────
@@ -554,7 +684,7 @@ section("Проводка хранилища");
   // положить getDocsRange — /отчет за период молча отвечал «недоступно».
   // Тесты это не поймали: поддельное хранилище умело больше реального.
   const real = botStore();
-  for (const m of ["getDoc", "getDocsRange", "appendEntry", "undoEntry", "setConfig", "getIpGroups"]) {
+  for (const m of ["getDoc", "getDocsRange", "appendEntry", "undoEntry", "setConfig", "getIpGroups", "getProducts", "saveProducts"]) {
     ok(typeof real[m] === "function", `botStore() отдаёт ${m}`);
   }
 
@@ -562,7 +692,7 @@ section("Проводка хранилища");
   // иначе тесты снова прикроют дырку в проводке.
   const fake = makeStore();
   for (const m of Object.keys(fake)) {
-    if (m.startsWith("_") || m === "config") continue;
+    if (m.startsWith("_") || m === "config" || m === "products") continue;
     ok(typeof real[m] === "function", `«${m}» из тестов есть и в botStore()`);
   }
 }

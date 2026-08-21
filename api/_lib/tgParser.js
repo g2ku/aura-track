@@ -30,6 +30,35 @@ const CURRENCY = /^(тенге|тнг|тг|₸|kzt)\.?$/i;
 // за 1 мая, а «40.000» (разделитель тысяч) — за дату.
 const DATE_TOKEN = /^(\d{1,2})[.\-/](\d{2})(?:[.\-/](\d{2}|\d{4}))?$/;
 
+// «21.08» / «21.08.26» / «21.08.2026» → «2026-08-21».
+// Год не написан — берём текущий; если так получается будущее (написали
+// «31.12» второго января), значит имелся в виду прошлый год.
+export function parseDateToken(token, today) {
+  const m = String(token).match(DATE_TOKEN);
+  if (!m) return null;
+
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+
+  const explicitYear = m[3] != null;
+  let year = explicitYear
+    ? (Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]))
+    : Number(String(today).slice(0, 4));
+
+  const iso = (y) => `${y}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  // 31 апреля и подобное — не дата
+  const valid = (s) => {
+    const d = new Date(s + "T00:00:00Z");
+    return !isNaN(d) && d.toISOString().slice(0, 10) === s;
+  };
+
+  let out = iso(year);
+  if (!explicitYear && out > today) out = iso(year - 1);
+  return valid(out) ? out : null;
+}
+
 function looksLikeDate(t) {
   const m = String(t).match(DATE_TOKEN);
   if (!m) return false;
@@ -200,8 +229,8 @@ export function parseItemLine(line) {
 }
 
 // Разбор целого сообщения → { ok, branch, items, warnings }
-export function parseInvoiceMessage(text) {
-  const result = { ok: false, branch: null, items: [], warnings: [] };
+export function parseInvoiceMessage(text, today = null) {
+  const result = { ok: false, branch: null, date: null, items: [], warnings: [] };
 
   const src = String(text || "").trim();
   if (!src) {
@@ -213,10 +242,27 @@ export function parseInvoiceMessage(text) {
   const itemLines = [];
 
   for (const line of lines) {
+    // Дата отдельной строкой: «Жар \n 21.08 \n Кукис ...»
+    if (today && result.branch !== null && result.date === null) {
+      const solo = parseDateToken(line.trim(), today);
+      if (solo) { result.date = solo; continue; }
+    }
+
     const bm = matchBranchPrefix(line);
     if (bm && result.branch === null) {
       result.branch = bm.branch;
-      if (bm.rest) itemLines.push(bm.rest);
+      // Дату ищем ТОЛЬКО в строке филиала: в строках позиций она
+      // двусмысленна («кр френч 21.08 4800» — что здесь дата, что сумма).
+      let rest = bm.rest;
+      if (today && rest) {
+        const words = rest.split(/\s+/);
+        const idx = words.findIndex((w) => parseDateToken(w, today));
+        if (idx !== -1) {
+          result.date = parseDateToken(words[idx], today);
+          rest = words.filter((_, i) => i !== idx).join(" ").trim();
+        }
+      }
+      if (rest) itemLines.push(rest);
       continue;
     }
     // Второй филиал в том же сообщении — не поддерживаем: одна накладная =

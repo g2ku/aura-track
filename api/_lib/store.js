@@ -99,6 +99,27 @@ export async function getIpGroups() {
   return DEFAULT_IP_GROUPS;
 }
 
+// Справочник товаров: settings/products. Наполняется сам — незнакомое
+// название становится каноническим, похожие потом подтягиваются к нему.
+export async function getProducts() {
+  try {
+    const snap = await getDb().collection("settings").doc("products").get();
+    const names = snap.exists ? snap.data()?.names : null;
+    return Array.isArray(names) ? names : [];
+  } catch (e) {
+    console.error("[bot] не смог прочитать справочник товаров:", e?.message);
+    return [];
+  }
+}
+
+export async function saveProducts(names) {
+  await getDb().collection("settings").doc("products").set(
+    { names, updatedAt: Date.now() },
+    { merge: true }
+  );
+  return names;
+}
+
 // ─── Настройки бота ──────────────────────────────────────────────────
 // Лежат в отдельной коллекции, чтобы админ мог менять поведение без деплоя.
 
@@ -156,5 +177,5 @@ export async function markUpdateSeen(updateId) {
 // Собирается ЗДЕСЬ, а не в вебхуке: иначе легко забыть добавить сюда новый
 // метод, и команда тихо отвалится в проде, пройдя все тесты.
 export function botStore() {
-  return { getDoc, getDocsRange, appendEntry, undoEntry, setConfig, getIpGroups };
+  return { getDoc, getDocsRange, appendEntry, undoEntry, setConfig, getIpGroups, getProducts, saveProducts };
 }
