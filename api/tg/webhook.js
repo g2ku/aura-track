@@ -8,9 +8,9 @@
 //   TELEGRAM_WEBHOOK_SECRET   — произвольная строка, ею подписывается вебхук
 //   FIREBASE_SERVICE_ACCOUNT  — JSON сервисного аккаунта одной строкой
 
-import { getConfig, setConfig, getDoc, appendEntry, undoEntry, markUpdateSeen } from "../_lib/store.js";
+import { getConfig, markUpdateSeen, botStore } from "../_lib/store.js";
 import { handleMessage } from "../_lib/commands.js";
-import { sendMessage, authorName } from "../_lib/telegram.js";
+import { sendMessage, setMessageReaction, authorName } from "../_lib/telegram.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -50,7 +50,7 @@ async function processUpdate(update) {
 
   const config = await getConfig();
 
-  const store = { getDoc, appendEntry, undoEntry, setConfig };
+  const store = botStore();
   const result = await handleMessage(msg, {
     store,
     config,
@@ -58,6 +58,22 @@ async function processUpdate(update) {
   });
 
   if (!result) return;
+
+  // Накладная принята — вешаем реакцию вместо сообщения, чтобы не засорять
+  // чат. Если реакция не прошла (старый клиент, слишком старое сообщение),
+  // откатываемся на текст: иначе бариста не поймёт, приняли накладную или нет.
+  if (result.reaction && !result.text) {
+    try {
+      await setMessageReaction(msg.chat.id, msg.message_id, result.reaction);
+    } catch (e) {
+      console.error("[tg] реакция не поставилась:", e?.message);
+      const threadId = msg.is_topic_message ? msg.message_thread_id : undefined;
+      await sendMessage(msg.chat.id, "✅ Принято", {
+        reply_parameters: { message_id: msg.message_id, allow_sending_without_reply: true },
+        ...(threadId ? { message_thread_id: threadId } : {}),
+      });
+    }
+  }
 
   if (result.text) {
     // В форум-группе ответ обязан нести message_thread_id, иначе он уедет

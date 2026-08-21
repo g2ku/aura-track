@@ -48,3 +48,13 @@ export function parseCommand(text) {
   if (!m) return null;
   return { cmd: m[1].toLowerCase(), args: (m[2] || "").trim() };
 }
+
+// Реакция на сообщение вместо ответа текстом. Бот может держать только одну
+// реакцию, и только из списка, разрешённого Telegram — «👍» в нём есть.
+export function setMessageReaction(chatId, messageId, emoji) {
+  return tgCall("setMessageReaction", {
+    chat_id: chatId,
+    message_id: messageId,
+    reaction: [{ type: "emoji", emoji }],
+  });
+}

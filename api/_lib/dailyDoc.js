@@ -212,7 +212,7 @@ export function formatReport(doc, opts = {}) {
       branches.map((b) => pad(fmtCell(doc.totals[b] || 0), colW, true)).join("") +
       pad(fmtCell(grandTotal(doc)), colW, true));
 
-    return `${header}\n\n<pre>${escapeHtml(lines.join("\n"))}</pre>\nВсего ${opts.title ? "за период" : "за день"}: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
+    return `${header}\n\n<pre>${escapeHtml(lines.join("\n"))}</pre>\nВсего ${opts.footer || (opts.title ? "за период" : "за день")}: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
   }
 
   // Вертикальная раскладка — когда филиалов много
@@ -225,7 +225,7 @@ export function formatReport(doc, opts = {}) {
     blocks.push(`<b>${escapeHtml(br)}</b> — ${fmtInt(doc.totals[br] || 0)} ₸\n<pre>${escapeHtml(rows.join("\n"))}</pre>`);
   }
 
-  return `${header}\n\n${blocks.join("\n")}\nВсего ${opts.title ? "за период" : "за день"}: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
+  return `${header}\n\n${blocks.join("\n")}\nВсего ${opts.footer || (opts.title ? "за период" : "за день")}: <b>${fmtInt(grandTotal(doc))} ₸</b>`;
 }
 
 export function escapeHtml(s) {
@@ -286,4 +286,25 @@ export function mergeDocs(docs, label) {
     merged.entries.push(...(doc?.entries || []));
   }
   return recompute(merged);
+}
+
+// Срез документа по подмножеству филиалов — основа отчёта по одному ИП.
+export function filterByBranches(doc, allowed) {
+  const set = new Set(allowed || []);
+  const out = emptyDoc(doc?.date || "");
+  out.items = (doc?.items || [])
+    .map((it) => {
+      const amounts = {};
+      const qty = {};
+      for (const [br, v] of Object.entries(it.amounts || {})) {
+        if (set.has(br) && +v) amounts[br] = +v;
+      }
+      for (const [br, v] of Object.entries(it.qty || {})) {
+        if (set.has(br) && +v) qty[br] = +v;
+      }
+      return Object.keys(amounts).length ? { name: it.name, amounts, qty } : null;
+    })
+    .filter(Boolean);
+  out.entries = (doc?.entries || []).filter((e) => set.has(e.branch));
+  return recompute(out);
 }
