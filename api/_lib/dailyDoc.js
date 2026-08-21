@@ -145,7 +145,7 @@ export function grandTotal(doc) {
 
 // ─── Форматирование отчёта для Telegram ──────────────────────────────
 
-function fmtInt(n) {
+export function fmtInt(n) {
   return Math.round(n).toLocaleString("ru-RU").replace(/ /g, " ");
 }
 

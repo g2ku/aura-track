@@ -192,6 +192,74 @@ section("Отмена накладной");
   ok(rAdmin.text.includes("Отменена"), "админ может отменить любую");
 }
 
+// ─── Выборочное удаление ──────────────────────────────────────────────
+section("Список записей и выборочное удаление");
+
+{
+  const store = makeStore();
+  await run(store, "Абая\nПончики 48шт 40000", { userId: 1, username: "barista1" });
+  await run(store, "Коктем\nМоти 12шт 9000", { userId: 2, username: "barista2" });
+  await run(store, "Атакент\nКруассан 14шт 12200", { userId: 1 });
+
+  const list = await run(store, "/записи", { userId: 5 });
+  ok(list.text.includes("1."), "список пронумерован");
+  ok(list.text.includes("Абая") && list.text.includes("Коктем") && list.text.includes("Атакент"),
+     "перечислены все три записи");
+  ok(list.text.includes("40 000"), "показана сумма");
+  ok(list.text.includes("Пончики"), "показаны позиции");
+
+  // удаляем среднюю — именно ту, а не последнюю
+  const del = await run(store, "/удалить 2", { userId: 5 });
+  ok(del.text.includes("Удалена запись №2"), "подтверждение удаления");
+  ok(del.text.includes("Коктем"), "названа удалённая точка");
+
+  const doc = await store.getDoc(TODAY);
+  eq(doc.branches, ["Абая", "Атакент"], "Коктем исчез, остальные на месте");
+  eq(doc.totals, { "Абая": 40000, "Атакент": 12200 }, "суммы пересчитаны");
+  eq(doc.entries.length, 2, "в журнале две записи");
+}
+
+{
+  const store = makeStore();
+  const empty = await run(store, "/записи", { userId: 5 });
+  ok(empty.text.includes("записей нет"), "пустой день");
+
+  const noArg = await run(store, "/удалить", { userId: 5 });
+  ok(noArg.text.includes("Укажите номер"), "без номера — подсказка");
+
+  const noSuch = await run(store, "/удалить 7", { userId: 5 });
+  ok(noSuch.text.includes("нет"), "несуществующий номер");
+}
+
+{
+  // Чужую запись обычный пользователь удалить не может
+  const store = makeStore({ admins: [999] });
+  await run(store, "Абая\nПончики 48шт 40000", { userId: 1 });
+
+  const denied = await run(store, "/удалить 1", { userId: 2 });
+  ok(denied.text.includes("только администратор"), "чужую запись не удалить");
+  eq((await store.getDoc(TODAY)).entries.length, 1, "запись на месте");
+
+  const own = await run(store, "/удалить 1", { userId: 1 });
+  ok(own.text.includes("Удалена"), "свою запись автор удаляет сам");
+}
+
+{
+  // Удаление за прошлую дату
+  const store = makeStore();
+  const past = "2026-08-01";
+  store._docs.set(past, applyEntry(null, {
+    id: "old", ts: 1, date: past, branch: "Абая",
+    items: [{ name: "Пончики", qty: 5, sum: 5000 }],
+  }));
+  const list = await run(store, `/записи ${past}`, { userId: 5 });
+  ok(list.text.includes("01.08.2026"), "список за прошлую дату");
+
+  const del = await run(store, `/удалить 1 ${past}`, { userId: 5 });
+  ok(del.text.includes("Удалена"), "удаление за прошлую дату");
+  eq((await store.getDoc(past)).entries.length, 0, "запись убрана");
+}
+
 // ─── Отчёт ────────────────────────────────────────────────────────────
 section("Отчёт по команде");
 

@@ -7,7 +7,7 @@
 
 import { parseInvoiceMessage } from "./tgParser.js";
 import { BRANCHES } from "./branches.js";
-import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs } from "./dailyDoc.js";
+import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt } from "./dailyDoc.js";
 import { parseCommand } from "./telegram.js";
 
 const HELP = `<b>Как сдавать накладные</b>
@@ -26,6 +26,8 @@ const HELP = `<b>Как сдавать накладные</b>
 /отчет 2026-08-14 — за конкретный день
 /отчет 14 дней — за период (можно «неделя», «2 недели», «месяц», «вчера»)
 /отмена — убрать мою последнюю накладную
+/записи — список накладных за сегодня с номерами
+/удалить 2 — удалить накладную по номеру из /записи
 /филиалы — список филиалов
 /помощь — эта справка`;
 
@@ -163,7 +165,73 @@ async function handleCommand({ cmd, args }, ctx) {
 
       const sum = last.items.reduce((s, i) => s + i.sum, 0);
       return {
-        text: `↩️ Отменена накладная <b>${escapeHtml(last.branch)}</b> на ${sum.toLocaleString("ru-RU")} ₸ (${last.items.length} поз.)`,
+        text: `↩️ Отменена накладная <b>${escapeHtml(last.branch)}</b> на ${fmtInt(sum)} ₸ (${last.items.length} поз.)`,
+      };
+    }
+
+    // Нумерованный список записей — чтобы удалить конкретную, а не последнюю.
+    case "записи":
+    case "список":
+    case "entries": {
+      const date = parseDateArg(args) || todayAlmaty();
+      const doc = await store.getDoc(date);
+      const entries = doc.entries || [];
+      if (!entries.length) return { text: `За ${formatDateRu(date)} записей нет.` };
+
+      const lines = entries.map((e, i) => {
+        const s = e.items.reduce((acc, x) => acc + (x.sum || 0), 0);
+        const items = e.items
+          .map((x) => `${x.name}${x.qty != null ? ` ${x.qty}шт` : ""} — ${fmtInt(x.sum || 0)} ₸`)
+          .join("; ");
+        const who = e.author ? ` · ${escapeHtml(e.author)}` : "";
+        return `<b>${i + 1}.</b> ${escapeHtml(e.branch)} — <b>${fmtInt(s)} ₸</b>${who}\n     ${escapeHtml(items)}`;
+      });
+
+      return {
+        text: [
+          `<b>Записи за ${formatDateRu(date)}</b>`,
+          "",
+          lines.join("\n"),
+          "",
+          "Удалить одну: <code>/удалить 2</code>",
+        ].join("\n"),
+      };
+    }
+
+    // Удаление конкретной записи по номеру из /записи.
+    case "удалить":
+    case "delete": {
+      const parts = String(args).trim().split(/\s+/).filter(Boolean);
+      const n = Number(parts[0]);
+      const date = parseDateArg(parts[1]) || todayAlmaty();
+
+      if (!Number.isInteger(n) || n < 1) {
+        return { text: "Укажите номер записи: <code>/удалить 2</code>\nПосмотреть список — /записи" };
+      }
+
+      const doc = await store.getDoc(date);
+      const entries = doc.entries || [];
+      const target = entries[n - 1];
+      if (!target) {
+        return { text: `Записи №${n} за ${formatDateRu(date)} нет. Список — /записи` };
+      }
+
+      // Свою запись может убрать автор, чужую — только администратор.
+      if (!isAdmin(config, userId) && target.authorId !== userId) {
+        return { text: "Удалять чужие записи может только администратор." };
+      }
+
+      const { removed } = await store.undoEntry(date, target.id);
+      if (!removed) return { text: "Не получилось удалить — запись уже удалена." };
+
+      const s = target.items.reduce((acc, x) => acc + (x.sum || 0), 0);
+      const names = target.items.map((x) => x.name).join(", ");
+      return {
+        text: [
+          `🗑 Удалена запись №${n} за ${formatDateRu(date)}`,
+          `<b>${escapeHtml(target.branch)}</b> — ${fmtInt(s)} ₸`,
+          escapeHtml(names),
+        ].join("\n"),
       };
     }
 

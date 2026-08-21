@@ -23,6 +23,21 @@ const SERVICE_WORD = /^(сумм[аы]|итого|всего|на|по)$/i;
 const QTY_UNIT = /^(шт\.?|штук[иа]?|pcs|ед\.?)$/i;
 const QTY_ATTACHED = /^(\d+(?:[.,]\d+)?)\s*(?:шт\.?|штук[иа]?|pcs|ед\.?)$/i;
 const CURRENCY = /^(тенге|тнг|тг|₸|kzt)\.?$/i;
+// Дата внутри накладной — не сумма. «атакент 21.08 кр френч» иначе
+// записывался как 21 ₸.
+//
+// Второй блок обязан быть ровно двузначным: иначе «Кола 1.5» приняли бы
+// за 1 мая, а «40.000» (разделитель тысяч) — за дату.
+const DATE_TOKEN = /^(\d{1,2})[.\-/](\d{2})(?:[.\-/](\d{2}|\d{4}))?$/;
+
+function looksLikeDate(t) {
+  const m = String(t).match(DATE_TOKEN);
+  if (!m) return false;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  return day >= 1 && day <= 31 && month >= 1 && month <= 12;
+}
+
 // Валюта может быть приклеена к числу: «12200тг», «40ктг», «5000₸».
 // parseMoney это разбирает, но токен нужно сначала признать числом.
 const MONEY_TOKEN = /^\d[\d.,]*\s*[кk]?\s*(?:тенге|тнг|тг|₸|kzt)?\.?$/i;
@@ -106,6 +121,9 @@ export function parseItemLine(line) {
 
   for (const t of tokens) {
     if (SEPARATOR.test(t)) continue;
+
+    // Дата — служебная пометка: не сумма, не количество и не часть названия
+    if (looksLikeDate(t)) continue;
 
     // «48шт» одним токеном
     const attached = t.match(QTY_ATTACHED);
