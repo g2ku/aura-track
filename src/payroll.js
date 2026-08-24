@@ -187,15 +187,18 @@ export function calcRow(row) {
   );
 }
 
-// Полный расчёт по филиалу.
+// Полный расчёт по ОДНОМУ филиалу.
 //
-// offsetSurplus — вычитать излишки из недостачи (по умолчанию да: в сообщении
-// куратора обе секции идут вместе с пометкой «списать со всех одинаково»).
-export function calcPayroll({ staff, shortageRows, surplusRows, offsetSurplus = true }) {
-  const sum = (rows) => rows.reduce((s, r) => s + (r.sum || 0), 0);
-  const shortageSum = sum(shortageRows || []);
-  const surplusSum = sum(surplusRows || []);
-  const net = Math.max(0, offsetSurplus ? shortageSum - surplusSum : shortageSum);
+// Недостача делится только между теми, кто работал на этой точке: недостача
+// Жароково не может попасть в зарплату Абая. Поэтому функция ничего не знает
+// про остальные филиалы и вызывается для каждого отдельно.
+//
+// Излишки НЕ уменьшают недостачу — считаем и показываем их отдельно.
+export function calcPayroll({ staff, shortageRows, surplusRows }) {
+  const sum = (rows) => (rows || []).reduce((s, r) => s + (r.sum || 0), 0);
+  const shortageSum = sum(shortageRows);
+  const surplusSum = sum(surplusRows);
+  const net = shortageSum;
 
   // Делим на тех, кто работал и не исключён вручную.
   const charged = (staff || []).filter((s) => !s.excluded && +s.hours > 0);
@@ -217,9 +220,35 @@ export function calcPayroll({ staff, shortageRows, surplusRows, offsetSurplus = 
     perPerson,
     chargedCount: charged.length,
     roundingDiff: net - distributed,
+    hoursSum: Math.round(rows.reduce((s, r) => s + (+r.hours || 0), 0) * 100) / 100,
     rows,
     payout: rows.reduce((s, r) => s + Math.max(0, r.total), 0),
     total: rows.reduce((s, r) => s + r.total, 0),
     negative: rows.filter((r) => r.total < 0),
+  };
+}
+
+// ─── Свод по всем филиалам недели ────────────────────────────────────
+
+// Каждый филиал уже посчитан сам по себе — здесь только складываем.
+// Филиал, который заблокирован (нет цены или ставки), в суммы не входит,
+// иначе итог недели выглядел бы готовым, будучи неполным.
+export function summarize(blocks) {
+  const ready = (blocks || []).filter((b) => b.result);
+  const add = (fn) => ready.reduce((s, b) => s + fn(b.result), 0);
+
+  return {
+    branches: (blocks || []).length,
+    readyCount: ready.length,
+    blockedCount: (blocks || []).length - ready.length,
+    people: add((r) => r.rows.length),
+    hours: Math.round(add((r) => r.hoursSum) * 100) / 100,
+    shortage: add((r) => r.shortageSum),
+    surplus: add((r) => r.surplusSum),
+    payout: add((r) => r.payout),
+    total: add((r) => r.total),
+    negative: ready.flatMap((b) =>
+      b.result.negative.map((n) => ({ ...n, branch: b.name }))
+    ),
   };
 }

@@ -6056,10 +6056,6 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .pr-qty { flex: none; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
 .pr-fix { font-size: 12px; color: var(--text-accent); }
 
-.pr-toggle {
-  display: inline-flex; align-items: center; gap: 8px; padding: 8px 0;
-  font-size: 13px; color: var(--text-secondary); cursor: pointer;
-}
 .pr-net { padding-top: 10px; border-top: 1px solid var(--border-strong); margin-top: 8px; }
 
 .pr-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
@@ -6085,8 +6081,65 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   font-family: var(--font-mono); font-size: 13px;
 }
 .pr-cell:focus { outline: none; border-color: var(--border-accent); }
+/* Стрелки number-инпутов съедали половину узкой ячейки и шумели в таблице */
+.pr-cell::-webkit-outer-spin-button,
+.pr-cell::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pr-cell { -moz-appearance: textfield; appearance: textfield; }
+.pr-cell-rate { width: 64px; }
+
+/* Ввод следующего филиала */
+.pr-paste-foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 0;
+}
+.pr-hint { font-size: 12px; color: var(--text-muted); max-width: 62ch; }
+.pr-hint b { color: var(--text-secondary); font-weight: 700; }
+.pr-hint code {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-accent);
+}
+
+.pr-block-note {
+  margin-left: auto; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.pr-sum-branch {
+  font-weight: 700; color: var(--text); text-decoration: none;
+  border-bottom: 1px dashed var(--border-strong); cursor: pointer;
+}
+.pr-sum-branch:hover { color: var(--text-accent); border-bottom-color: var(--border-accent); }
+.pr-line-total {
+  font-weight: 800; font-size: 16px; padding-top: 10px; margin-top: 4px;
+  border-top: 1px solid var(--border-strong);
+}
+
+/* Филиал — отдельный лист. Разделяет не рамка, а жирная линия сверху:
+   в «Термоленте» глубина только линиями. */
+.pr-branch { padding: 22px 0 6px; border-top: 2px solid var(--border-strong); margin-top: 14px; }
+.pr-branch-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px;
+}
+.pr-branch-name {
+  font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--text);
+}
+.pr-branch-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-top: 2px;
+}
+.pr-branch-right { display: flex; align-items: center; gap: 10px; }
+.pr-branch-payout {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 15px; font-weight: 800; white-space: nowrap;
+}
+
+.pr-blocking {
+  padding: 12px 14px; margin-bottom: 14px;
+  border: 1px dashed var(--border-danger); border-radius: var(--radius);
+}
+.pr-block-title-danger { color: var(--text-danger); }
+.pr-blocking .pr-block-sub { margin-bottom: 8px; }
 
 @media (max-width: 768px) {
   .pr-title { font-size: 22px; }
   .pr-price-input { flex: 1 1 140px; }
+  .pr-branch-name { font-size: 15px; }
+  .pr-line-total { font-size: 15px; }
 }
