@@ -56,6 +56,7 @@ export const GROUPS = [
       { id: "waste", path: "/waste", icon: "ti-trash", label: "Отходы" },
       { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта" },
       { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L" },
+      { id: "payroll", path: "/payroll", icon: "ti-cash-banknote", label: "Зарплатный проект", adminOnly: true },
       { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки" },
       { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии" },
     ],
@@ -89,6 +90,7 @@ function currentNavId(path) {
   if (path.startsWith("/waste")) return "waste";
   if (path.startsWith("/traffic-heatmap")) return "traffic-heatmap";
   if (path.startsWith("/pnl")) return "pnl";
+  if (path.startsWith("/payroll")) return "payroll";
   if (path.startsWith("/replenish")) return "replenish";
   if (path.startsWith("/anomalies")) return "anomalies";
   if (path.startsWith("/briefing")) return "briefing";
@@ -113,6 +115,8 @@ export function canSeeItemFor(role, isBranch, item) {
   }
   if (item.id === "cash-recon" || item.id === "waste") return false;
   if ((item.id === "pnl" || item.id === "anomalies") && !isAdminOrManager()) return false;
+  // Зарплата — только админ: там ставки и выплаты по всем людям
+  if (item.id === "payroll" && !isAdmin()) return false;
   return true;
 }
 
