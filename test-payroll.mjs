@@ -1,7 +1,7 @@
 // test-payroll.mjs — разбор сообщения инвентаризации и расчёт зарплаты.
 // Запуск: node test-payroll.mjs
 
-import { parseInventoryMessage, priceItems, calcRow, calcPayroll } from "./src/payroll.js";
+import { parseInventoryMessage, priceItems, calcRow, calcPayroll, summarize } from "./src/payroll.js";
 import { matchBranch } from "./api/_lib/branches.js";
 
 let passed = 0, failed = 0;
@@ -145,22 +145,23 @@ section("Расчёт по филиалу");
 
   eq(r.shortageSum, 7000, "сумма недостач");
   eq(r.surplusSum, 2000, "сумма излишков");
-  eq(r.net, 5000, "излишки уменьшают недостачу");
-  eq(r.perPerson, 1000, "делится на пятерых одинаково");
+  eq(r.net, 7000, "излишки НЕ уменьшают недостачу");
+  eq(r.perPerson, 1400, "7000 делится на пятерых одинаково");
   eq(r.chargedCount, 5, "все пятеро работали");
-  eq(r.rows.every((x) => x.shortage === 1000), true, "у всех одинаковая доля");
-  eq(r.rows[0].total, 1100 * 60 - 1000, "ЗП Рафа");
+  eq(r.rows.every((x) => x.shortage === 1400), true, "у всех одинаковая доля");
+  eq(r.rows[0].total, 1100 * 60 - 1400, "ЗП Рафа");
+  eq(r.hoursSum, 238, "часы филиала");
 }
 
 {
-  // Излишки могут не зачитываться — переключатель
+  // Излишки не зачитываются ни при каких аргументах: в листе они справочные
   const r = calcPayroll({
     staff: [{ id: "a", name: "A", rate: 1000, hours: 10 }],
     shortageRows: [{ sum: 7000 }],
-    surplusRows: [{ sum: 2000 }],
-    offsetSurplus: false,
+    surplusRows: [{ sum: 9000 }],
   });
-  eq(r.net, 7000, "без зачёта излишков");
+  eq(r.net, 7000, "излишки больше недостачи ничего не меняют");
+  eq(r.rows[0].shortage, 7000, "доля равна полной недостаче");
 }
 
 {
@@ -217,6 +218,70 @@ section("Расчёт по филиалу");
   eq(r.negative[0].total, -4730, "его баланс");
   eq(r.payout, 10000, "к выплате — без минусов");
   eq(r.total, 5270, "общий баланс — с минусами");
+}
+
+// ─── Филиалы не смешиваются ───────────────────────────────────────────
+section("Изоляция филиалов");
+
+{
+  // Главное правило: недостача Жароково не должна попасть в зарплату Абая.
+  const zhar = calcPayroll({
+    staff: [
+      { id: "raf", name: "Раф", rate: 1000, hours: 10 },
+      { id: "kat", name: "Катя", rate: 1000, hours: 10 },
+    ],
+    shortageRows: [{ sum: 10000 }],
+    surplusRows: [],
+  });
+  const abay = calcPayroll({
+    staff: [{ id: "dsh", name: "Даша", rate: 1000, hours: 10 }],
+    shortageRows: [],
+    surplusRows: [],
+  });
+
+  eq(zhar.perPerson, 5000, "10 000 делится на двоих из Жароково");
+  eq(abay.perPerson, 0, "на Абая недостачи нет");
+  eq(abay.rows[0].shortage, 0, "Даше чужая недостача не начислена");
+  eq(abay.rows[0].total, 10000, "её ЗП — ровно ставка × часы");
+
+  const blocks = [
+    { name: "Жароково", result: zhar },
+    { name: "Абая", result: abay },
+  ];
+  const t = summarize(blocks);
+  eq(t.branches, 2, "два филиала в своде");
+  eq(t.people, 3, "трое суммарно");
+  eq(t.hours, 30, "часы сложены");
+  eq(t.shortage, 10000, "недостача только у одного филиала");
+  eq(t.payout, zhar.payout + abay.payout, "к выплате — сумма филиалов");
+  eq(t.blockedCount, 0, "все филиалы посчитаны");
+}
+
+{
+  // Филиал без цены в итог недели не входит: иначе сумма выглядит готовой
+  const t = summarize([
+    { name: "Готовый", result: calcPayroll({
+      staff: [{ id: "a", name: "A", rate: 1000, hours: 10 }],
+      shortageRows: [], surplusRows: [],
+    }) },
+    { name: "Без цены", result: null },
+  ]);
+  eq(t.branches, 2, "оба филиала в листе");
+  eq(t.readyCount, 1, "посчитан один");
+  eq(t.blockedCount, 1, "второй заблокирован");
+  eq(t.payout, 10000, "в сумму вошёл только посчитанный");
+}
+
+{
+  // Минусы в своде подписаны филиалом — иначе непонятно, чей это долг
+  const t = summarize([
+    { name: "Коктем", result: calcPayroll({
+      staff: [{ id: "b", name: "B", rate: 1000, hours: 0, debt: 4730 }],
+      shortageRows: [], surplusRows: [],
+    }) },
+  ]);
+  eq(t.negative.length, 1, "минус найден");
+  eq(t.negative[0].branch, "Коктем", "у минуса есть филиал");
 }
 
 console.log("\n══════════════════════════════════════════════════");

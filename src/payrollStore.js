@@ -47,20 +47,32 @@ export async function saveStaff(staff) {
 }
 
 // ─── Посчитанные недели ──────────────────────────────────────────────
+//
+// Лист недели — ОДИН документ на период, внутри все филиалы. Так же, как в
+// экселе: один лист «03.08-09.08», в нём все точки. Иначе неделя расползается
+// по документам и «Сохранить» перестаёт быть сохранением листа целиком.
 
-export function periodId(branch, period) {
+export const PAYROLL_COLLECTION = "payroll";
+
+export function periodId(period, year = new Date().getFullYear()) {
   const p = period ? `${period.from}_${period.to}` : "без-периода";
-  return `${p}__${branch || "все"}`.replace(/[/\\]/g, "-");
+  // Год в id: «15.08_22.08» повторяется каждый год и затирал бы прошлый лист.
+  return `${year}__${p}`.replace(/[/\\]/g, "-");
 }
 
 export async function savePayroll(id, data) {
-  await setDoc(doc(getDb(), "payroll", id), { ...data, updatedAt: Date.now() });
+  await setDoc(doc(getDb(), PAYROLL_COLLECTION, id), { ...data, updatedAt: Date.now() });
   return id;
+}
+
+export async function loadPayroll(id) {
+  const snap = await getDoc(doc(getDb(), PAYROLL_COLLECTION, id));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
 export async function loadPayrollList() {
   try {
-    const q = query(collection(getDb(), "payroll"), orderBy("updatedAt", "desc"));
+    const q = query(collection(getDb(), PAYROLL_COLLECTION), orderBy("updatedAt", "desc"));
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (e) {
