@@ -5968,3 +5968,125 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .dl-item-name { max-width: 44%; }
   .dl-items { padding-left: 16px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ЗАРПЛАТНЫЙ ПРОЕКТ (PayrollView)
+   Тот же мир «Термолента»: точечные лидеры, моноширинные цифры.
+   Таблица расчёта — единственное место с колонками: она правится вручную,
+   и строка на человека читается только в сетке.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.pr-wrap { max-width: 1100px; margin: 0 auto; padding-bottom: 40px; }
+
+.pr-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 18px;
+}
+.pr-kicker {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;
+}
+.pr-title { font-size: 26px; font-weight: 800; letter-spacing: -0.025em; color: var(--text); }
+
+.pr-label {
+  display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;
+}
+.pr-textarea {
+  width: 100%; padding: 12px 14px; border: 1px dashed var(--border-strong);
+  border-radius: var(--radius); background: var(--surface-1); color: var(--text);
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.5; resize: vertical;
+}
+.pr-textarea:focus { outline: none; border-color: var(--border-accent); border-style: solid; }
+
+.pr-summary {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 12px 0;
+  border-top: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong);
+  margin: 14px 0;
+}
+.pr-summary-item {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-secondary);
+}
+.pr-bad { color: var(--text-danger); font-weight: 700; }
+
+.pr-note { padding: 14px 0; font-size: 13px; color: var(--text-muted); }
+.pr-warn {
+  padding: 10px 12px; margin-bottom: 14px;
+  border: 1px dashed var(--border-warn); border-radius: var(--radius);
+  font-size: 13px; color: var(--text-warning);
+}
+.pr-warn > div { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
+
+.pr-block { padding: 18px 0; border-top: 1px dashed var(--border-strong); }
+.pr-block-blocking { border-top-color: var(--border-danger); }
+.pr-block-title {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text); margin-bottom: 6px;
+}
+.pr-block-blocking .pr-block-title { color: var(--text-danger); }
+.pr-block-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; max-width: 62ch; }
+
+.pr-price-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 0; }
+.pr-price-name { flex: 1 1 160px; font-size: 14px; font-weight: 600; }
+.pr-price-input {
+  flex: 0 0 180px; min-height: 38px; padding: 6px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--surface-1); color: var(--text); font-size: 14px;
+}
+
+.pr-items { margin-bottom: 14px; }
+.pr-items-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-muted); padding: 6px 0;
+}
+.pr-line { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; font-size: 14px; }
+.pr-line-strong { font-weight: 800; }
+.pr-line-dim { color: var(--text-muted); font-size: 13px; }
+.pr-dots {
+  flex: 1 1 auto; min-width: 12px; height: 1.1em; align-self: baseline;
+  background-image: radial-gradient(circle, var(--border-strong) 0.09em, transparent 0.12em);
+  background-size: 0.5em 0.3em; background-repeat: repeat-x;
+  background-position: 0 calc(100% - 3px);
+}
+.pr-line > span:last-child {
+  flex: none; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700;
+}
+.pr-qty { flex: none; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.pr-fix { font-size: 12px; color: var(--text-accent); }
+
+.pr-toggle {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 0;
+  font-size: 13px; color: var(--text-secondary); cursor: pointer;
+}
+.pr-net { padding-top: 10px; border-top: 1px solid var(--border-strong); margin-top: 8px; }
+
+.pr-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
+.pr-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px; }
+.pr-table th {
+  text-align: right; padding: 8px 8px; font-size: 10px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-strong); white-space: nowrap;
+}
+.pr-table th:first-child { text-align: left; }
+.pr-table td { padding: 5px 8px; border-bottom: 1px dashed var(--border); }
+.pr-name { font-weight: 700; white-space: nowrap; }
+.pr-num {
+  text-align: right; font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.pr-total { font-weight: 800; }
+.pr-row-neg .pr-total { color: var(--text-danger); }
+.pr-cell {
+  width: 74px; padding: 5px 6px; text-align: right;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-1); color: var(--text);
+  font-family: var(--font-mono); font-size: 13px;
+}
+.pr-cell:focus { outline: none; border-color: var(--border-accent); }
+
+@media (max-width: 768px) {
+  .pr-title { font-size: 22px; }
+  .pr-price-input { flex: 1 1 140px; }
+}

@@ -66,6 +66,7 @@ const ProfitabilityMatrix = lazy(() => import("../components/ProfitabilityMatrix
 const WasteTracker = lazy(() => import("../components/WasteTracker"));
 const TrafficHeatmap = lazy(() => import("../components/TrafficHeatmap"));
 const PnLView = lazy(() => import("../components/PnLView"));
+const PayrollView = lazy(() => import("../components/PayrollView.jsx"));
 const AutoReplenishmentAlerts = lazy(() => import("../components/AutoReplenishmentAlerts"));
 const AnomalyDetection = lazy(() => import("../components/AnomalyDetection"));
 const MorningBriefing = lazy(() => import("../components/MorningBriefing"));
@@ -144,6 +145,8 @@ export function useRouteContent({
     } else {
       content = <UnknownBranchFallback name={name} onBack={() => route.navigate("/branches")} />;
     }
+  } else if (p === "/payroll") {
+    content = <PayrollView />;
   } else if (p === "/reports") {
     content = (
       <ReportsView
