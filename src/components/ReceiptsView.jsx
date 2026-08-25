@@ -4,11 +4,11 @@
 // Фильтры: поиск, филиал, период.
 // Детали чека: раскрывается по клику — список товаров.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchReceipts, clearPosterCache } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { useUserBranch, getSpotNameForBranch, BRANCHES } from "../auth.jsx";
+import { useUserBranch, getSpotNameForBranch, spotNameByPosterId, BRANCHES } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -64,7 +64,9 @@ export default function ReceiptsView() {
   const userBranch = useUserBranch();
   const userSpotName = getSpotNameForBranch(userBranch);
 
-  const [from, setFrom] = useState(daysAgo(6));
+  // Сегодня, а не неделя: на этот экран приходят с дашборда посмотреть,
+  // что бариста готовит прямо сейчас в зависшем чеке.
+  const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -77,7 +79,20 @@ export default function ReceiptsView() {
   const [expandedId, setExpandedId] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all"); // all | open | closed
 
-  async function load(e) {
+  const loadRef = useRef(null);
+
+  // Экран грузится сам при открытии — как дашборд. Раньше он встречал
+  // пустотой и кнопкой «Загрузить», хотя ответ на вопрос «что там висит»
+  // нужен сразу.
+  useEffect(() => {
+    loadRef.current?.(null, { silent: true });
+    return () => abortRef.current?.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // silent — автозагрузка при открытии экрана: тост о ней не нужен,
+  // он всплывал бы при каждом заходе.
+  async function load(e, { silent = false } = {}) {
     e?.preventDefault?.();
     if (loading) return;
     setError(null);
@@ -96,10 +111,15 @@ export default function ReceiptsView() {
         onProgress: ({ done, total }) => setProgress({ done, total }),
       });
       setData(result);
-      toast({
-        tone: "success",
-        message: `Готово: ${result.transactionsCount} чеков · ${result.daysCount} дн.`,
-      });
+      if (!silent) {
+        const open = result.openCount
+          ? ` · открытых ${result.openCount}`
+          : "";
+        toast({
+          tone: "success",
+          message: `Готово: ${result.transactionsCount} чеков · ${result.daysCount} дн.${open}`,
+        });
+      }
     } catch (e) {
       if (e?.name === "AbortError") return;
       setError({ message: e.message });
@@ -110,6 +130,8 @@ export default function ReceiptsView() {
       abortRef.current = null;
     }
   }
+
+  loadRef.current = load;
 
   function cancel() {
     abortRef.current?.abort();
@@ -133,7 +155,7 @@ export default function ReceiptsView() {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       // Поиск
       if (q) {
-        const searchStr = `${r.id} ${r.waiter} ${r.spotName}`.toLowerCase();
+        const searchStr = `${r.id} ${r.waiter} ${r.spotName} ${spotNameByPosterId(r.spotId, "")}`.toLowerCase();
         if (!searchStr.includes(q)) return false;
       }
       return true;
@@ -167,7 +189,8 @@ export default function ReceiptsView() {
     if (!data) return [];
     const map = new Map();
     for (const r of data.receipts) {
-      if (!map.has(r.spotId)) map.set(r.spotId, r.spotName);
+      // Poster отдаёт латиницу (Abaya, Zharokova) — на сайте везде русские
+      if (!map.has(r.spotId)) map.set(r.spotId, spotNameByPosterId(r.spotId, r.spotName));
     }
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], "ru"));
   }, [data]);
@@ -345,7 +368,7 @@ export default function ReceiptsView() {
         <div className="card empty-state" style={{ marginTop: 16 }}>
           <i className="ti ti-receipt" />
           <div className="empty-state-title">Загрузите чеки</div>
-          <div className="empty-state-sub">Выберите период и нажмите «Загрузить».</div>
+          <div className="empty-state-sub">За выбранный период чеков нет.</div>
         </div>
       )}
     </div>
@@ -377,7 +400,7 @@ function ReceiptRow({ r, expanded, onToggle }) {
         <td style={{ fontVariantNumeric: "tabular-nums" }}>{r.id}</td>
         <td style={{ fontWeight: 500 }}>{r.waiter || "—"}</td>
         <td style={{ color: "var(--text-secondary)" }}>
-          {r.spotName?.replace(/^Aura02[_-]?/i, "") || r.spotId}
+          {spotNameByPosterId(r.spotId, r.spotName?.replace(/^Aura02[_-]?/i, ""))}
         </td>
         <td style={{ fontVariantNumeric: "tabular-nums" }}>{formatDateTime(r.dateOpen)}</td>
         <td style={{ fontVariantNumeric: "tabular-nums", color: r.dateClose ? "var(--text-primary)" : "var(--text-muted)" }}>
