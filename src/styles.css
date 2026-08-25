@@ -5577,7 +5577,10 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .design-v2 .receipts-table th:nth-child(4),
   .design-v2 .receipts-table th:nth-child(5),
   .design-v2 .receipts-table th:nth-child(7),
-  .design-v2 .receipts-table td:nth-child(1),
+  /* Строка с составом чека — одна ячейка на всю ширину, и по счёту она
+     тоже первая. Без исключения её прятало вместе с колонкой «№»: чек
+     раскрывался, но на телефоне ничего не появлялось. */
+  .design-v2 .receipts-table td:nth-child(1):not(.receipt-details),
   .design-v2 .receipts-table td:nth-child(4),
   .design-v2 .receipts-table td:nth-child(5),
   .design-v2 .receipts-table td:nth-child(7) { display: none; }
