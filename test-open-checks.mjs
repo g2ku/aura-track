@@ -21,7 +21,7 @@ function section(t) { console.log(`\n📋 ${t}`); }
 // просто импортировать, без вырезания функций из большого файла.
 import {
   collectOpenChecks, collectLastOrders, groupOpenChecks,
-  isOpenCheck, isEmptyCheck, OPEN_CHECK_STUCK_MIN,
+  isOpenCheck, isEmptyCheck, OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN,
 } from "./src/openChecks.js";
 
 const MIN = 60 * 1000;
@@ -153,6 +153,45 @@ ok(!isEmptyCheck({ sum: 1190 }), "с заказом — не пустой");
   const withOrder = items.filter((i) => !isEmptyCheck(i));
   eq(withOrder.length, 1, "в списке с суммами — только чек с заказом");
   eq(groupOpenChecks(withOrder)[0].sum, 1190, "сумма не разбавлена нулём");
+}
+
+section("Тишина видна на каждой точке");
+
+ok(QUIET_SPOT_MIN > OPEN_CHECK_STUCK_MIN,
+   "порог тишины выше, чем у зависшего чека: днём кофейня спокойно стоит четверть часа");
+
+{
+  // Данные о последней продаже нужны и там, где открытых чеков нет вовсе
+  const rows = [closed("1", "9", 128400, 0), closed("2", "7", 46100, 52)];
+  const r = collectOpenChecks(rows);
+  eq(r.count, 0, "открытых чеков нет");
+  const last = collectLastOrders(rows);
+  eq(Object.keys(last).sort(), ["7", "9"], "но последние продажи известны по обеим точкам");
+}
+
+{
+  // Считается один раз и отдаётся наружу, а не пересчитывается на каждую строку
+  const poster = readFileSync("src/poster.js", "utf8");
+  ok(/const lastOrderBySpot = collectLastOrders\(data\?\.response \|\| \[\]\);/.test(poster),
+     "последние продажи считаются один раз на ответ");
+  ok(/collectOpenChecks\(data\?\.response \|\| \[\], lastOrderBySpot\)/.test(poster),
+     "и передаются в разбор открытых чеков, а не считаются там заново");
+  ok(/const result = \{ bySpot, total, openChecks, lastOrderBySpot \};/.test(poster),
+     "отдаются наружу отдельным полем, не спрятанные внутрь openChecks");
+
+  const cl = readFileSync("src/components/CashLedger.jsx", "utf8");
+  ok(/Последний заказ/.test(cl), "строка есть в карточке точки");
+  ok(/сегодня не было/.test(cl), "точка без единой продажи названа прямо");
+  ok(/только что/.test(cl), "свежая продажа не показывается как «0 мин назад»");
+  ok(/mins >= QUIET_SPOT_MIN/.test(cl), "подсветка по порогу тишины, а не по порогу зависшего чека");
+}
+
+{
+  // Подсветка на значении строки требует более точного селектора:
+  // .design-v2 .cl-line-value перебивает одиночный класс и молча съедает цвет.
+  const css = readFileSync("src/styles.css", "utf8");
+  ok(/\.design-v2 \.cl-line-value\.cl-open-stuck/.test(css),
+     "у подсветки значения хватает специфичности против .design-v2 .cl-line-value");
 }
 
 section("Чеки одного бариста собираются в строку");

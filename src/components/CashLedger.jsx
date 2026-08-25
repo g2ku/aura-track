@@ -6,7 +6,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
 import { useHashRoute } from "../router";
 import { getSpotNameForBranch, isAdmin, isAdminOrManager, spotNameByPosterId, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
@@ -255,6 +255,14 @@ export default function CashLedger({
       bySpot: src.bySpot,
     };
   }, [payBreakdown, displayCash]);
+
+  // Когда на точке последний раз что-то продали. Живёт отдельно от
+  // открытых чеков: тишину надо видеть и на точке, где ничего не открыто.
+  const lastOrders = useMemo(() => {
+    if (!isAdmin() || !isToday) return null;
+    const m = payBreakdown?.lastOrderBySpot;
+    return m && Object.keys(m).length ? m : null;
+  }, [payBreakdown, isToday]);
 
   const paymentMethods = useMemo(() => {
     if (!payBreakdown) return [];
@@ -681,6 +689,24 @@ export default function CashLedger({
                   <span className="cl-line-dots" />
                   <span className="cl-line-value">{fmt(c.avgCheck)}</span>
                 </div>
+                {lastOrders && (() => {
+                  const ts = lastOrders[String(c.spotId)];
+                  const mins = ts ? Math.max(0, Math.round((Date.now() - ts) / 60000)) : null;
+                  const quiet = mins == null || mins >= QUIET_SPOT_MIN;
+                  return (
+                    <div className="cl-line">
+                      <span className="cl-line-label">Последний заказ</span>
+                      <span className="cl-line-dots" />
+                      <span className={`cl-line-value${quiet ? " cl-open-stuck" : ""}`}>
+                        {mins == null
+                          ? "сегодня не было"
+                          : mins < 1
+                            ? "только что"
+                            : `${fmtAge(mins)} назад`}
+                      </span>
+                    </div>
+                  );
+                })()}
                 {openChecks?.bySpot?.[String(c.spotId)]?.count > 0 && (
                   <div className="cl-line">
                     <span className="cl-line-label">

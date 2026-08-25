@@ -5976,6 +5976,9 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
    они однотипные, и колонки читаются взглядом сверху вниз. Лидеры через
    всю ширину экрана в таком списке только мешают. */
 .cl-open-stuck { color: var(--text-warning); font-weight: 700; }
+/* На значении строки одного класса мало: .design-v2 .cl-line-value задаёт
+   цвет с большей специфичностью и молча съедает подсветку. */
+.design-v2 .cl-line-value.cl-open-stuck { color: var(--text-warning); font-weight: 700; }
 
 .oc-head, .oc-row {
   display: grid;
