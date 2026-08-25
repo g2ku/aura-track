@@ -117,6 +117,9 @@ export function canSeeItemFor(role, isBranch, item) {
   if ((item.id === "pnl" || item.id === "anomalies") && !isAdminOrManager()) return false;
   // Зарплата — только админ: там ставки и выплаты по всем людям
   if (item.id === "payroll" && !isAdmin()) return false;
+  // Пользователи — тоже только админ: роли раздаёт он, и правила Firestore
+  // разрешают запись сюда только ему. Управляющему страница бы не работала.
+  if (item.id === "admin-users" && !isAdmin()) return false;
   return true;
 }
 
