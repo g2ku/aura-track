@@ -7,7 +7,7 @@
 // Запуск: node test-receipts.mjs
 
 import { readFileSync } from "node:fs";
-import { msToPosterTime } from "./src/poster.js";
+import { msToPosterTime, toPosterDate, openCheckWindow } from "./src/poster.js";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -68,18 +68,42 @@ section("Один ответ dash на всё");
   ok(/if \(!r\.waiter\) r\.waiter =/.test(body), "имя дописывается только там, где его нет");
 }
 
+section("Формат даты не теряется по дороге");
+
+{
+  // toPosterDate вызывался на своём же выходе и молча отдавал пустую
+  // строку — запрос уходил без дат, открытые чеки переставали находиться,
+  // и никакой ошибки при этом не было.
+  eq(toPosterDate("2026-08-25"), "20260825", "обычный формат приводится");
+  eq(toPosterDate("20260825"), "20260825", "уже приведённая дата не ломается");
+  eq(toPosterDate(toPosterDate("2026-08-25")), "20260825", "повторное приведение безопасно");
+  eq(toPosterDate("2026/8/5"), "20260805", "слэши и однозначные числа");
+  eq(toPosterDate("мусор"), "", "мусор — пустая строка");
+  eq(toPosterDate(""), "", "пусто остаётся пустым");
+}
+
 section("Открытые чеки не тянут весь период");
 
 {
   // dash.getTransactions весит 0,65 МБ за день и 27,8 МБ за месяц.
   // Забытый чек живёт день-два, поэтому смотрим только хвост периода.
-  const fn = poster.slice(poster.indexOf("export async function fetchReceipts"));
-  const body = fn.slice(0, fn.indexOf("\n}\n"));
-  ok(/const openFrom = maxYmdDate\(/.test(body), "начало окна поиска ограничено");
-  ok(/fetchDashTransactions\(openFrom, dateTo, opts\)/.test(body),
-     "dash запрашивается за хвост, а не за весь период");
-  ok(!/fetchDashTransactions\(dateFrom, dateTo/.test(body),
-     "полный период за открытыми чеками больше не качается");
+  eq(openCheckWindow("2026-08-25", "2026-08-25"), { from: "20260825", to: "20260825" },
+     "один день — окно в один день");
+  eq(openCheckWindow("2026-07-26", "2026-08-25"), { from: "20260824", to: "20260825" },
+     "месяц — смотрим только последние двое суток");
+  eq(openCheckWindow("2026-08-24", "2026-08-25"), { from: "20260824", to: "20260825" },
+     "начало периода не перепрыгиваем");
+  eq(openCheckWindow("", "2026-08-25"), null, "без даты окна нет");
+
+  // Главное: то, что вернуло окно, принимающая сторона обязана понять
+  const w = openCheckWindow("2026-07-26", "2026-08-25");
+  eq(toPosterDate(w.from), w.from, "начало окна уже в формате Poster");
+  eq(toPosterDate(w.to), w.to, "и конец тоже");
+  ok(/^\d{8}$/.test(w.from) && /^\d{8}$/.test(w.to), "обе даты восьмизначные");
+
+  // Границы месяца и года
+  eq(openCheckWindow("2026-01-01", "2026-03-01").from, "20260228", "февраль 2026 — 28 дней");
+  eq(openCheckWindow("2025-12-01", "2026-01-01").from, "20251231", "переход через год");
 }
 
 section("Открытые — наверх");
