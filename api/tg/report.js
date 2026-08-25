@@ -8,7 +8,7 @@
 // Ручной запуск: GET /api/tg/report?force=1  (с заголовком Authorization,
 // если задан CRON_SECRET)
 
-import { getConfig, setConfig, getDoc } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, purgeSeen } from "../_lib/store.js";
 import { formatReport, todayAlmaty } from "../_lib/dailyDoc.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -30,16 +30,25 @@ export default async function handler(req, res) {
 
   const force = String(req.query?.force || "") === "1";
 
+  // Заодно подчищаем защиту от повторов: она нужна на минуты, а хранилась
+  // вечно. Ошибка тут не должна мешать отчёту — он важнее уборки.
+  let purged = 0;
+  try {
+    purged = await purgeSeen();
+  } catch (e) {
+    console.warn("[tg] не смог почистить botSeen:", e?.message);
+  }
+
   try {
     const config = await getConfig();
 
     if (!config.reportEnabled && !force) {
-      res.status(200).json({ ok: true, skipped: "автоотчёт выключен" });
+      res.status(200).json({ ok: true, purged, skipped: "автоотчёт выключен" });
       return;
     }
     const target = config.reportChatId ?? config.groupChatId;
     if (!target) {
-      res.status(200).json({ ok: true, skipped: "чат не задан — выполните /сюда" });
+      res.status(200).json({ ok: true, purged, skipped: "чат не задан — выполните /сюда" });
       return;
     }
 
@@ -48,14 +57,14 @@ export default async function handler(req, res) {
     if (!force) {
       // Уже отправляли сегодня — второй раз не шлём.
       if (config.lastReportDate === date) {
-        res.status(200).json({ ok: true, skipped: `отчёт за ${date} уже отправлен` });
+        res.status(200).json({ ok: true, purged, skipped: `отчёт за ${date} уже отправлен` });
         return;
       }
       // Время ещё не наступило.
       const nowHM = almatyHourMinute();
       const wantHM = String(config.reportTime || "21:00");
       if (nowHM < wantHM) {
-        res.status(200).json({ ok: true, skipped: `рано (сейчас ${nowHM}, отчёт в ${wantHM})` });
+        res.status(200).json({ ok: true, purged, skipped: `рано (сейчас ${nowHM}, отчёт в ${wantHM})` });
         return;
       }
     }
@@ -65,7 +74,7 @@ export default async function handler(req, res) {
     await sendMessage(target, formatReport(doc), thread ? { message_thread_id: thread } : {});
     if (!force) await setConfig({ lastReportDate: date });
 
-    res.status(200).json({ ok: true, sent: true, date, items: doc.items?.length || 0 });
+    res.status(200).json({ ok: true, purged, sent: true, date, items: doc.items?.length || 0 });
   } catch (e) {
     console.error("[tg] report failed:", e?.message);
     res.status(500).json({ ok: false, error: e?.message });

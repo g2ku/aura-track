@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { subscribeTickets } from "../firebase";
-import { getUserLogin } from "../auth.jsx";
+import { getUserLogin, getCurrentUid } from "../auth.jsx";
 
 const STATUS_LABELS = {
   open: { label: "Ожидает ответа", color: "var(--text-accent)", icon: "ti-clock" },
@@ -12,11 +12,14 @@ export default function MyTicketsView() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const login = getUserLogin();
+  const uid = getCurrentUid();
 
   useEffect(() => {
     const unsub = subscribeTickets(
       (items) => {
-        setTickets(items.filter(t => t.author === login));
+        // По uid — надёжно; по имени — для обращений, созданных до того,
+        // как uid начали записывать.
+        setTickets(items.filter((t) => (t.authorUid ? t.authorUid === uid : t.author === login)));
         setLoading(false);
       },
       () => setLoading(false)

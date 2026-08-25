@@ -170,13 +170,10 @@ ok(QUIET_SPOT_MIN > OPEN_CHECK_STUCK_MIN,
 }
 
 {
-  // Считается один раз и отдаётся наружу, а не пересчитывается на каждую строку
   const poster = readFileSync("src/poster.js", "utf8");
-  ok(/const lastOrderBySpot = collectLastOrders\(data\?\.response \|\| \[\]\);/.test(poster),
-     "последние продажи считаются один раз на ответ");
-  ok(/collectOpenChecks\(data\?\.response \|\| \[\], lastOrderBySpot\)/.test(poster),
-     "и передаются в разбор открытых чеков, а не считаются там заново");
-  ok(/const result = \{ bySpot, total, openChecks, lastOrderBySpot \};/.test(poster),
+  ok(/collectOpenChecks\(merged\.openRows, merged\.lastOrder\)/.test(poster),
+     "последние продажи передаются в разбор открытых чеков, а не считаются там заново");
+  ok(/lastOrderBySpot: merged\.lastOrder/.test(poster),
      "отдаются наружу отдельным полем, не спрятанные внутрь openChecks");
 
   const cl = readFileSync("src/components/CashLedger.jsx", "utf8");
