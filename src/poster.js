@@ -173,10 +173,26 @@ function todayYmd() {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Чек, висящий открытым дольше этого, — уже не «делают напиток».
+export const OPEN_CHECK_STUCK_MIN = 15;
+
+// Открытые чеки: заказ пробит, но не закрыт.
+//
+// Именно из-за них касса на сайте кажется отстающей: пока бариста делает
+// напиток, чек висит открытым и в оплаченную сумму не попадает. В замере
+// это были 1–3 минуты — ровно та задержка, которую видно глазом.
+//
+// Достаём из ТОГО ЖЕ ответа dash.getTransactions, который и так нужен для
+// разбивки по оплатам: отдельный запрос за этим ходить незачем.
+// Признак — status «1» (у закрытых «2») и date_close «0».
+export function isOpenCheck(tx) {
+  return String(tx?.status) === "1";
+}
+
 export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
-  if (!fromP || !toP) return { bySpot: {}, total: {} };
+  if (!fromP || !toP) return { bySpot: {}, total: {}, openChecks: emptyOpenChecks() };
 
   // «Сегодня» всегда свежие данные, кэш не используем
   const isToday = fromP === todayYmd() && toP === todayYmd();
@@ -187,6 +203,8 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
 
   const total = {};
   const bySpot = {};
+  const openChecks = collectOpenChecks(data?.response || []);
+
   for (const tx of data?.response || []) {
     // dash.getTransactions отдаёт суммы в копейках (в отличие от
     // transactions.getTransactions) — приводим к валюте.
@@ -224,9 +242,56 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
     }
   }
 
-  const result = { bySpot, total };
+  const result = { bySpot, total, openChecks };
   if (!isToday) payBreakdownCache.set(cacheKey, result);
   return result;
+}
+
+function emptyOpenChecks() {
+  return { count: 0, sum: 0, stuck: 0, bySpot: {}, items: [] };
+}
+
+// name в dash.getTransactions — это сотрудник: он однозначно соответствует
+// user_id (на выборке за день — 9 пар на 9 бариста). Поэтому по открытому
+// чеку сразу видно, кто его держит.
+function collectOpenChecks(rows) {
+  const out = emptyOpenChecks();
+  const now = Date.now();
+
+  for (const tx of rows) {
+    if (!isOpenCheck(tx)) continue;
+
+    const sum = Number(tx.sum || 0) / 100;
+    const startedAt = Number(tx.date_start || tx.date_start_new || 0) || null;
+    const minutes = startedAt ? Math.max(0, Math.round((now - startedAt) / 60000)) : null;
+    const spotId = String(tx.spot_id || "");
+
+    out.count++;
+    out.sum += sum;
+    if (minutes != null && minutes >= OPEN_CHECK_STUCK_MIN) out.stuck++;
+
+    if (spotId) {
+      if (!out.bySpot[spotId]) out.bySpot[spotId] = { count: 0, sum: 0, stuck: 0 };
+      out.bySpot[spotId].count++;
+      out.bySpot[spotId].sum += sum;
+      if (minutes != null && minutes >= OPEN_CHECK_STUCK_MIN) out.bySpot[spotId].stuck++;
+    }
+
+    out.items.push({
+      id: String(tx.transaction_id || ""),
+      spotId,
+      sum,
+      waiter: tx.name || "",
+      guests: Number(tx.guests_count || 0),
+      startedAt,
+      minutes,
+    });
+  }
+
+  // Сверху — самые давние: ради них всё и затевалось.
+  out.items.sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0));
+  out.sum = Math.round(out.sum);
+  return out;
 }
 
 // ─── Поставки из Poster (Склад > Поставки) ──────────────────────────────
@@ -474,75 +539,6 @@ export function getCachedCashBySpot(dateFrom, dateTo) {
       v.avgCheck = v.txCount > 0 ? Math.round(v.total / v.txCount) : 0;
     }
     return Object.values(bySpot).sort((a, b) => b.total - a.total);
-  } catch (_) {
-    return null;
-  }
-}
-
-// ─── Prefetch: предзагрузка данных при старте приложения ────────────────
-
-const PREFETCH_KEY = "supply-track.poster.prefetch";
-const PREFETCH_TTL = 30 * 60 * 1000; // 30 min — не чаще раза в 30 мин
-
-let prefetchInFlight = null;
-
-export function prefetchCashBySpot(dateFrom, dateTo, opts = {}) {
-  if (prefetchInFlight) return prefetchInFlight;
-
-  // Проверяем, не делали ли мы prefetch недавно
-  try {
-    const raw = localStorage.getItem(PREFETCH_KEY);
-    if (raw) {
-      const cached = JSON.parse(raw);
-      if (cached && Date.now() - cached.ts < PREFETCH_TTL) {
-        return Promise.resolve(cached.data);
-      }
-    }
-  } catch (_) {}
-
-  prefetchInFlight = fetchPosterSales(dateFrom, dateTo, opts)
-    .then((result) => {
-      // Агрегируем по филиалам через cashBySpot (payment-based)
-      const bySpot = {};
-      const spotNames = {};
-      for (const row of result.rows) {
-        spotNames[row.spotId] = row.spotName;
-      }
-      for (const [spotId, total] of Object.entries(result.cashBySpot || {})) {
-        bySpot[spotId] = { spotId, spotName: spotNames[spotId] || `Филиал #${spotId}`, total, txCount: 0 };
-      }
-      for (const [spotId, count] of Object.entries(result.txBySpot || {})) {
-        if (!bySpot[spotId]) {
-          bySpot[spotId] = { spotId, spotName: spotNames[spotId] || `Филиал #${spotId}`, total: 0, txCount: 0 };
-        }
-        bySpot[spotId].txCount = count;
-      }
-      const daysCount = result.daysCount || 1;
-      for (const v of Object.values(bySpot)) {
-        v.daysCount = daysCount;
-        v.avgPerDay = daysCount > 0 ? Math.round(v.total / daysCount) : 0;
-        v.avgCheck = v.txCount > 0 ? Math.round(v.total / v.txCount) : 0;
-      }
-      const cash = Object.values(bySpot).sort((a, b) => b.total - a.total);
-
-      try {
-        localStorage.setItem(PREFETCH_KEY, JSON.stringify({ ts: Date.now(), data: cash }));
-      } catch (_) {}
-
-      return cash;
-    })
-    .finally(() => { prefetchInFlight = null; });
-
-  return prefetchInFlight;
-}
-
-export function getCachedPrefetch() {
-  try {
-    const raw = localStorage.getItem(PREFETCH_KEY);
-    if (!raw) return null;
-    const cached = JSON.parse(raw);
-    if (!cached || Date.now() - cached.ts > PREFETCH_TTL) return null;
-    return cached.data;
   } catch (_) {
     return null;
   }

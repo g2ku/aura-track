@@ -9,7 +9,6 @@ import { usePayments } from "./hooks/usePayments";
 import { useReports } from "./hooks/useReports";
 import { useRouteContent } from "./hooks/useRouteContent";
 import { resolveDesignV2 } from "./designV2";
-import { prefetchCashBySpot } from "./poster";
 
 import Sidebar from "./components/Sidebar";
 import BottomNav from "./components/BottomNav";
@@ -119,16 +118,6 @@ function MainApp() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  // Prefetch кассы при загрузке приложения — данные будут готовы к моменту открытия дашборда
-  useEffect(() => {
-    if (!userBranch || role === "curator") return;
-    const d = new Date();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const today = `${d.getFullYear()}-${m}-${day}`;
-    prefetchCashBySpot(today, today).catch(() => {});
-  }, [userBranch, role]);
 
   useEffect(() => {
     const handler = (e) => {

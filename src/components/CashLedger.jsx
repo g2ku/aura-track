@@ -6,7 +6,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN } from "../poster";
 import { useHashRoute } from "../router";
 import { getSpotNameForBranch, isAdminOrManager, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
@@ -47,6 +47,19 @@ function fmtPct(change) {
 function fmtClock(ts) {
   const d = new Date(ts);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// За месяц забытых чеков может набраться много — показываем самые давние,
+// остальное сворачиваем в одну строку.
+const OPEN_CHECK_LIST_LIMIT = 20;
+
+// «7 мин», «1 ч 37 мин» — сколько чек уже висит открытым
+function fmtAge(minutes) {
+  if (minutes == null) return "—";
+  if (minutes < 60) return `${minutes} мин`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} ч ${m} мин` : `${h} ч`;
 }
 
 const CHIPS = [
@@ -191,6 +204,30 @@ export default function CashLedger({
   }, [dateFrom, dateTo, cashBySpot, isToday]);
 
   // Способы оплаты: агрегируем по отфильтрованным точкам
+  // Открытые чеки — те, из-за которых касса и кажется отстающей: заказ
+  // пробит, напиток делают, деньги ещё не проведены. Показываем в том же
+  // разрезе филиалов, что и всю кассу.
+  const openChecks = useMemo(() => {
+    const src = payBreakdown?.openChecks;
+    if (!src || !src.count) return null;
+    const allowed = new Set(displayCash.map((c) => String(c.spotId)));
+    const items = src.items.filter((i) => allowed.has(i.spotId));
+    if (!items.length) return null;
+    return {
+      items,
+      count: items.length,
+      sum: Math.round(items.reduce((s, i) => s + i.sum, 0)),
+      stuck: items.filter((i) => i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN).length,
+      bySpot: src.bySpot,
+    };
+  }, [payBreakdown, displayCash]);
+
+  const spotNameById = useMemo(() => {
+    const m = {};
+    for (const c of displayCash) m[String(c.spotId)] = c.spotName.replace(/^Aura02[_-]?/i, "") || c.spotName;
+    return m;
+  }, [displayCash]);
+
   const paymentMethods = useMemo(() => {
     if (!payBreakdown) return [];
     const spotIds = new Set(displayCash.map((c) => String(c.spotId)));
@@ -347,6 +384,18 @@ export default function CashLedger({
             </span>
           </div>
         )}
+        {openChecks && (
+          <div className="cl-line">
+            <span className="cl-line-label">
+              Открыто чеков · {openChecks.count}
+              {openChecks.stuck > 0 && (
+                <span className="cl-open-stuck"> · {openChecks.stuck} висит</span>
+              )}
+            </span>
+            <span className="cl-line-dots" />
+            <span className="cl-line-value">{fmt(openChecks.sum)}</span>
+          </div>
+        )}
         <div className="cl-line">
           <span className="cl-line-label">Средняя касса · точка</span>
           <span className="cl-line-dots" />
@@ -363,6 +412,41 @@ export default function CashLedger({
           </span>
         </div>
       </div>
+
+      {/* ─── Открытые чеки ──────────────────────────────────────────── */}
+      {openChecks && (
+        <div className="cl-zone">
+          <div className="cl-zone-title">
+            <i className="ti ti-receipt-off" aria-hidden="true" /> Открытые чеки
+            <span className="cl-zone-sub">· не попадают в кассу, пока не закрыты</span>
+          </div>
+          {openChecks.items.slice(0, OPEN_CHECK_LIST_LIMIT).map((i) => {
+            const stuck = i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN;
+            return (
+              <div key={i.id} className={`cl-line${stuck ? " cl-open-stuck-row" : ""}`}>
+                <span className="cl-line-label">
+                  {i.waiter || "—"}
+                  <span className="cl-open-spot"> · {spotNameById[i.spotId] || i.spotId}</span>
+                </span>
+                <span className="cl-line-dots" />
+                <span className="cl-open-age">{fmtAge(i.minutes)}</span>
+                <span className="cl-line-value">{i.sum > 0 ? fmt(i.sum) : "пусто"}</span>
+              </div>
+            );
+          })}
+          {openChecks.items.length > OPEN_CHECK_LIST_LIMIT && (
+            <div className="cl-line">
+              <span className="cl-line-label" style={{ color: "var(--text-muted)" }}>
+                и ещё {openChecks.items.length - OPEN_CHECK_LIST_LIMIT}
+              </span>
+              <span className="cl-line-dots" />
+              <span className="cl-line-value">
+                {fmt(openChecks.items.slice(OPEN_CHECK_LIST_LIMIT).reduce((s, i) => s + i.sum, 0))}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ─── Способы оплаты (Poster) ────────────────────────────────── */}
       {paymentMethods.length > 0 && totalCash > 0 && (
@@ -517,6 +601,18 @@ export default function CashLedger({
                   <span className="cl-line-dots" />
                   <span className="cl-line-value">{fmt(c.avgCheck)}</span>
                 </div>
+                {openChecks?.bySpot?.[String(c.spotId)]?.count > 0 && (
+                  <div className="cl-line">
+                    <span className="cl-line-label">
+                      Открыто · {openChecks.bySpot[String(c.spotId)].count}
+                      {openChecks.bySpot[String(c.spotId)].stuck > 0 && (
+                        <span className="cl-open-stuck"> · {openChecks.bySpot[String(c.spotId)].stuck} висит</span>
+                      )}
+                    </span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value">{fmt(openChecks.bySpot[String(c.spotId)].sum)}</span>
+                  </div>
+                )}
                 {payBySpot[c.spotId] && (
                   <>
                     <div className="cl-sub-label"><i className="ti ti-credit-card" aria-hidden="true" /> Оплаты</div>

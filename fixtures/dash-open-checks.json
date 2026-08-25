@@ -1,0 +1,214 @@
+{
+ "_": "Срез настоящего ответа dash.getTransactions за 25.08.2026. Оставлены только поля, которые читает collectOpenChecks: важна форма — все значения строками, суммы в копейках, date_close «0» у открытых.",
+ "response": [
+  {
+   "transaction_id": "653811",
+   "spot_id": "10",
+   "status": "1",
+   "date_start": "1787643795314",
+   "date_close": "0",
+   "sum": "0",
+   "payed_sum": "0",
+   "name": "Ринат П.М",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653810",
+   "spot_id": "9",
+   "status": "1",
+   "date_start": "1787643780496",
+   "date_close": "0",
+   "sum": "139000",
+   "payed_sum": "0",
+   "name": "Виктория «pod system”",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653809",
+   "spot_id": "4",
+   "status": "1",
+   "date_start": "1787643765291",
+   "date_close": "0",
+   "sum": "330000",
+   "payed_sum": "0",
+   "name": "Сабина",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653808",
+   "spot_id": "4",
+   "status": "1",
+   "date_start": "1787643734423",
+   "date_close": "0",
+   "sum": "264000",
+   "payed_sum": "0",
+   "name": "Сабина",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653807",
+   "spot_id": "4",
+   "status": "1",
+   "date_start": "1787643709385",
+   "date_close": "0",
+   "sum": "311000",
+   "payed_sum": "0",
+   "name": "Сабина",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653806",
+   "spot_id": "10",
+   "status": "1",
+   "date_start": "1787643692088",
+   "date_close": "0",
+   "sum": "125000",
+   "payed_sum": "0",
+   "name": "Ринат П.М",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653805",
+   "spot_id": "11",
+   "status": "1",
+   "date_start": "1787643606835",
+   "date_close": "0",
+   "sum": "119000",
+   "payed_sum": "0",
+   "name": "Алина",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653803",
+   "spot_id": "1",
+   "status": "1",
+   "date_start": "1787643567390",
+   "date_close": "0",
+   "sum": "0",
+   "payed_sum": "0",
+   "name": "Диана",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653802",
+   "spot_id": "9",
+   "status": "1",
+   "date_start": "1787643552634",
+   "date_close": "0",
+   "sum": "264000",
+   "payed_sum": "0",
+   "name": "Виктория «pod system”",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653801",
+   "spot_id": "2",
+   "status": "1",
+   "date_start": "1787643444298",
+   "date_close": "0",
+   "sum": "109000",
+   "payed_sum": "0",
+   "name": "Раф Эво",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653798",
+   "spot_id": "3",
+   "status": "1",
+   "date_start": "1787643315727",
+   "date_close": "0",
+   "sum": "0",
+   "payed_sum": "0",
+   "name": "Алуа райы",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653787",
+   "spot_id": "7",
+   "status": "1",
+   "date_start": "1787642860757",
+   "date_close": "0",
+   "sum": "0",
+   "payed_sum": "0",
+   "name": "Адият",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653785",
+   "spot_id": "4",
+   "status": "1",
+   "date_start": "1787642690903",
+   "date_close": "0",
+   "sum": "99000",
+   "payed_sum": "0",
+   "name": "Сабина",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653681",
+   "spot_id": "10",
+   "status": "1",
+   "date_start": "1787638192829",
+   "date_close": "0",
+   "sum": "125000",
+   "payed_sum": "0",
+   "name": "Ринат П.М",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653800",
+   "spot_id": "10",
+   "status": "2",
+   "date_start": "1787643396026",
+   "date_close": "1787643692065",
+   "sum": "129000",
+   "payed_sum": "129000",
+   "name": "Ринат П.М",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653804",
+   "spot_id": "11",
+   "status": "2",
+   "date_start": "1787643585070",
+   "date_close": "1787643606818",
+   "sum": "119000",
+   "payed_sum": "119000",
+   "name": "Алина",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653784",
+   "spot_id": "11",
+   "status": "2",
+   "date_start": "1787642654675",
+   "date_close": "1787643585054",
+   "sum": "291000",
+   "payed_sum": "291000",
+   "name": "Алина",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653769",
+   "spot_id": "1",
+   "status": "2",
+   "date_start": "1787641809699",
+   "date_close": "1787643571894",
+   "sum": "278000",
+   "payed_sum": "250200",
+   "name": "Диана",
+   "guests_count": "1"
+  },
+  {
+   "transaction_id": "653799",
+   "spot_id": "1",
+   "status": "2",
+   "date_start": "1787643335755",
+   "date_close": "1787643567354",
+   "sum": "130000",
+   "payed_sum": "117000",
+   "name": "Диана",
+   "guests_count": "1"
+  }
+ ]
+}
