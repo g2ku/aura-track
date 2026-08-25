@@ -8,6 +8,11 @@
 // Чек, висящий открытым дольше этого, — уже не «делают напиток».
 export const OPEN_CHECK_STUCK_MIN = 15;
 
+// Столько минут без единой продажи — точка уже подозрительно тихая.
+// Порог отдельный и выше: днём кофейня спокойно стоит четверть часа без
+// заказов, и подсвечивать это как проблему значило бы кричать впустую.
+export const QUIET_SPOT_MIN = 30;
+
 // Открытые чеки: заказ пробит, но не закрыт.
 //
 // Именно из-за них касса на сайте кажется отстающей: пока бариста делает
@@ -75,7 +80,7 @@ export function groupOpenChecks(items) {
 }
 
 export function emptyOpenChecks() {
-  return { count: 0, sum: 0, stuck: 0, bySpot: {}, items: [], lastOrderBySpot: {} };
+  return { count: 0, sum: 0, stuck: 0, bySpot: {}, items: [] };
 }
 
 // Пустой чек — открыт, но ничего не пробито. Это не зависшие деньги, а
@@ -88,9 +93,10 @@ export function isEmptyCheck(item) {
 // name в dash.getTransactions — это сотрудник: он однозначно соответствует
 // user_id (на выборке за день — 9 пар на 9 бариста). Поэтому по открытому
 // чеку сразу видно, кто его держит.
-export function collectOpenChecks(rows) {
+// lastOrderBySpot приходит снаружи: он нужен и сам по себе, для строки
+// «последний заказ» в карточке точки, а считать его дважды незачем.
+export function collectOpenChecks(rows, lastOrderBySpot = collectLastOrders(rows)) {
   const out = emptyOpenChecks();
-  out.lastOrderBySpot = collectLastOrders(rows);
   const now = Date.now();
 
   for (const tx of rows) {
@@ -114,7 +120,7 @@ export function collectOpenChecks(rows) {
 
     // Сколько на этой точке нет заказов. Если сегодня не закрыли ни одного
     // чека, берём возраст самого открытого — большего мы всё равно не знаем.
-    const lastOrderAt = out.lastOrderBySpot[spotId] || null;
+    const lastOrderAt = lastOrderBySpot[spotId] || null;
     const silentFor = lastOrderAt
       ? Math.max(0, Math.round((now - lastOrderAt) / 60000))
       : minutes;

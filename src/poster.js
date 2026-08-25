@@ -24,11 +24,14 @@
 
 import {
   OPEN_CHECK_STUCK_MIN, isOpenCheck, isEmptyCheck,
-  collectLastOrders, collectOpenChecks, groupOpenChecks, emptyOpenChecks,
+  QUIET_SPOT_MIN, collectLastOrders, collectOpenChecks, groupOpenChecks, emptyOpenChecks,
 } from "./openChecks.js";
 
 // Реэкспорт: экраны берут это из poster.js вместе с остальными данными
-export { OPEN_CHECK_STUCK_MIN, isOpenCheck, isEmptyCheck, collectLastOrders, groupOpenChecks };
+export {
+  OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN,
+  isOpenCheck, isEmptyCheck, collectLastOrders, groupOpenChecks,
+};
 
 const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 // В dev проксирует Vite (/api/poster/* -> joinposter.com/api/*).
@@ -184,7 +187,7 @@ function todayYmd() {
 export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
-  if (!fromP || !toP) return { bySpot: {}, total: {}, openChecks: emptyOpenChecks() };
+  if (!fromP || !toP) return { bySpot: {}, total: {}, openChecks: emptyOpenChecks(), lastOrderBySpot: {} };
 
   // «Сегодня» всегда свежие данные, кэш не используем
   const isToday = fromP === todayYmd() && toP === todayYmd();
@@ -195,7 +198,8 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
 
   const total = {};
   const bySpot = {};
-  const openChecks = collectOpenChecks(data?.response || []);
+  const lastOrderBySpot = collectLastOrders(data?.response || []);
+  const openChecks = collectOpenChecks(data?.response || [], lastOrderBySpot);
 
   for (const tx of data?.response || []) {
     // dash.getTransactions отдаёт суммы в копейках (в отличие от
@@ -234,7 +238,7 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
     }
   }
 
-  const result = { bySpot, total, openChecks };
+  const result = { bySpot, total, openChecks, lastOrderBySpot };
   if (!isToday) payBreakdownCache.set(cacheKey, result);
   return result;
 }
