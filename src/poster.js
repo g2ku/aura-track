@@ -35,7 +35,7 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const PER_PAGE = 200;          // max для transactions.getTransactions
 const DAY_CONCURRENCY = 4;    // параллельных дней за раз
 
-function buildUrl(method, params = {}) {
+function buildUrl(method, params = {}, opts = {}) {
   const qs = new URLSearchParams();
   qs.set("format", "json");
   // Токен НЕ передаём — прокси подставляет его серверно
@@ -43,6 +43,11 @@ function buildUrl(method, params = {}) {
     if (v === undefined || v === null || v === "") continue;
     qs.set(k, String(v));
   }
+  // Явное «Обновить» должно пробивать кэш Vercel. Без уникального
+  // параметра URL остаётся прежним, и кнопка возвращает тот же ответ из
+  // кэша — то есть не делает ничего. Прокси эту метку срезает и отдаёт
+  // ответ с no-store, чтобы разовые URL не оседали в кэше.
+  if (opts.fresh) qs.set("_fresh", String(Date.now()));
   return `${BASE}/${method}?${qs.toString()}`;
 }
 
@@ -365,6 +370,13 @@ function setCachedDay(yyyymmdd, payload) {
 
 export function clearPosterCache() {
   try { localStorage.removeItem(CACHE_KEY); } catch (_) {}
+  // Кривая по часам лежит отдельными ключами со своим сроком в 10 минут.
+  // Без этого «Обновить» освежал цифры, а график оставался прежним.
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("supply-track.poster.hourly.")) localStorage.removeItem(k);
+    }
+  } catch (_) {}
   payBreakdownCache.clear();
 }
 
@@ -397,13 +409,16 @@ export async function fetchHourlyCurve(date, opts = {}) {
   const ymd = toPosterDate(date);
   if (!ymd) return null;
   const key = `supply-track.poster.hourly.${ymd}`;
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      const cached = JSON.parse(raw);
-      if (cached && Date.now() - cached.ts < HOURLY_CACHE_TTL) return cached.data;
-    }
-  } catch (_) {}
+  // opts.fresh — нажали «Обновить»: местный кэш в этот момент только мешает.
+  if (!opts.fresh) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached && Date.now() - cached.ts < HOURLY_CACHE_TTL) return cached.data;
+      }
+    } catch (_) {}
+  }
   const data = await call("dash.getTransactions", { date_from: ymd, date_to: ymd }, opts);
   const txs = data?.response || [];
   const buckets = new Array(24).fill(0);
@@ -1158,7 +1173,7 @@ async function mapWithProgress(items, limit, fn, onProgress) {
 }
 
 async function call(method, params = {}, opts = {}) {
-  const url = buildUrl(method, params);
+  const url = buildUrl(method, params, opts);
   let res;
   try {
     res = await fetch(url, {
