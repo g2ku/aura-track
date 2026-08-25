@@ -6051,6 +6051,124 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   «СКОРО БУДЕТ» — открытые чеки для тех, кому их пока не показываем.
+   Терминал, который печатает строку и никак не доводит сборку до конца.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ocs { margin-top: 12px; display: flex; justify-content: center; }
+
+.ocs-screen {
+  width: 100%; max-width: 620px;
+  padding: 20px 20px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+/* Три «кнопки» окна — чтобы блок читался как терминал, а не как ошибка */
+.ocs-dots { display: flex; gap: 6px; margin-bottom: 16px; }
+.ocs-dots span {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--border-strong);
+  animation: ocs-blink 2.4s ease-in-out infinite;
+}
+.ocs-dots span:nth-child(2) { animation-delay: 0.3s; }
+.ocs-dots span:nth-child(3) { animation-delay: 0.6s; }
+@keyframes ocs-blink { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+.ocs-line { display: flex; align-items: baseline; gap: 8px; }
+.ocs-prompt { flex: none; color: var(--text-accent); font-family: var(--font-mono); font-weight: 700; }
+
+/* Печать: ширина от 0 до 52ch — ровно по числу символов строки.
+   Именно ch, а не проценты: при 100% блок растягивается на всю строку и
+   каретка убегает в дальний край вместо того, чтобы идти за текстом.
+   Строка не переносится, поэтому размер шрифта резиновый — иначе на
+   узком экране она вылезала бы за край. */
+.ocs-type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 2.1vw, 15px);
+  color: var(--text);
+  width: 0;
+  /* flex-shrink по умолчанию 1 и сжимал блок УЖЕ анимируемой ширины —
+     конец фразы обрезался и никогда не появлялся целиком. */
+  flex: none;
+  animation: ocs-typing 4.2s steps(52, end) infinite;
+}
+@keyframes ocs-typing {
+  0%   { width: 0; }
+  55%  { width: 52ch; }
+  92%  { width: 52ch; }
+  100% { width: 0; }   /* стирается теми же шагами — как будто забэкспейсили */
+}
+
+.ocs-caret {
+  flex: none; width: 2px; height: 1.05em;
+  background: var(--text-accent);
+  animation: ocs-caret 1s steps(2, start) infinite;
+}
+@keyframes ocs-caret { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* Полоса, которая честно никуда не доезжает */
+.ocs-bar {
+  margin-top: 18px; height: 4px; border-radius: 999px;
+  background: var(--border); overflow: hidden;
+}
+.ocs-bar span {
+  display: block; height: 100%; width: 0;
+  border-radius: 999px; background: var(--text-accent);
+  animation: ocs-progress 4.2s ease-in-out infinite;
+}
+@keyframes ocs-progress {
+  0%   { width: 4%; }
+  40%  { width: 61%; }
+  62%  { width: 78%; }
+  80%  { width: 86%; }
+  95%  { width: 88%; }
+  100% { width: 4%; }
+}
+
+/* Три статуса сменяют друг друга на одном месте */
+.ocs-status {
+  position: relative; margin-top: 12px; height: 1.4em;
+  font-size: 12px; color: var(--text-muted);
+}
+.ocs-status span {
+  position: absolute; inset: 0;
+  opacity: 0;
+  animation: ocs-status 4.2s ease-in-out infinite;
+}
+.ocs-status span:nth-child(2) { animation-delay: 1.4s; }
+.ocs-status span:nth-child(3) { animation-delay: 2.8s; }
+@keyframes ocs-status {
+  0%, 33%  { opacity: 1; }
+  40%, 100% { opacity: 0; }
+}
+
+/* На узком экране 52 символа в строку не влезают ни при каком читаемом
+   размере. Печатать нечего — показываем фразу целиком, в несколько строк;
+   каретка и полоса продолжают жить. */
+@media (max-width: 560px) {
+  .ocs-type {
+    width: auto; max-width: 100%;
+    white-space: normal; animation: none;
+  }
+  .ocs-line { align-items: flex-start; }
+}
+
+/* Кому анимация мешает — показываем то же самое неподвижно */
+@media (prefers-reduced-motion: reduce) {
+  .ocs-type { width: 52ch; animation: none; }
+  .ocs-caret, .ocs-dots span, .ocs-bar span { animation: none; }
+  .ocs-bar span { width: 88%; }
+  .ocs-status span { animation: none; opacity: 0; }
+  .ocs-status span:first-child { opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    ЗАРПЛАТНЫЙ ПРОЕКТ (PayrollView)
    Тот же мир «Термолента»: точечные лидеры, моноширинные цифры.
    Таблица расчёта — единственное место с колонками: она правится вручную,

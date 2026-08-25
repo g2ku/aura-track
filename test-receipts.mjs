@@ -88,6 +88,50 @@ section("Экран грузится сам");
      "уход с экрана отменяет запрос");
 }
 
+section("Открытые чеки — только админу");
+
+{
+  ok(/const canSeeOpen = isAdmin\(\);/.test(view), "признак доступа считается один раз");
+  ok(/includeOpen: canSeeOpen/.test(view), "не админу открытые чеки даже не запрашиваются");
+  ok(/\{canSeeOpen && <Kpi label="Открыто"/.test(view), "счётчик открытых спрятан");
+  ok(/!canSeeOpen && statusFilter === "open" && <OpenChecksSoon \/>/.test(view),
+     "вместо таблицы показывается заглушка");
+  ok(/!\(!canSeeOpen && statusFilter === "open"\)/.test(view),
+     "сама таблица в этом случае не рисуется");
+
+  // Данные не должны доезжать до браузера того, кому их не покажут
+  ok(/if \(opts\.includeOpen === false\) throw \{ skip: true \};/.test(poster),
+     "запрос за открытыми чеками пропускается на стороне загрузки");
+  ok(/if \(!e\?\.skip\) console\.warn/.test(poster),
+     "намеренный пропуск не пишется в лог как ошибка");
+}
+
+section("Заглушка вместо сухого «нет доступа»");
+
+{
+  ok(/Равиль жестко программирует чтобы были открытые чеки/.test(view), "текст на месте");
+
+  const css = readFileSync("src/styles.css", "utf8");
+  ok(/@keyframes ocs-typing/.test(css), "строка печатается");
+  ok(/@keyframes ocs-caret/.test(css), "каретка мигает");
+  ok(/@keyframes ocs-progress/.test(css), "полоса ползёт");
+  ok(/@keyframes ocs-status/.test(css), "статусы сменяются");
+
+  // Длина шагов печати должна совпадать с длиной фразы, иначе строка
+  // допечатывается не до конца или дёргается в конце.
+  const phrase = "Равиль жестко программирует чтобы были открытые чеки";
+  const steps = css.match(/animation: ocs-typing [\d.]+s steps\((\d+), end\)/);
+  ok(steps, "у печати задано число шагов");
+  eq(Number(steps?.[1]), phrase.length, `шагов печати ровно по числу символов (${phrase.length})`);
+  ok(new RegExp(`width: ${phrase.length}ch`).test(css), "ширина доводится до полной длины фразы");
+
+  // flex-shrink по умолчанию сжимал блок уже анимируемой ширины
+  ok(/flex: none;\n  animation: ocs-typing/.test(css), "блок печати не сжимается флексом");
+
+  ok(/prefers-reduced-motion/.test(css.slice(css.indexOf(".ocs "))),
+     "для тех, кому анимация мешает, есть неподвижный вариант");
+}
+
 section("Названия точек — по-русски");
 
 ok(/spotNameByPosterId/.test(view), "экран переводит spotId в русское имя");

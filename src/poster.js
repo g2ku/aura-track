@@ -879,8 +879,12 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
   // Открытые чеки приходят из другого места и с отдельным запросом за
   // составом. Ошибка там не должна ронять весь экран: закрытые чеки
   // важнее и уже загружены.
+  // Открытые чеки видит только админ, поэтому и запрос за ними делаем
+  // только для него: лишние 650 КБ незачем, да и данным незачем доезжать
+  // до браузера того, кому их не покажут.
   let openReceipts = [];
   try {
+    if (opts.includeOpen === false) throw { skip: true };
     const dashRows = await fetchDashTransactions(dateFrom, dateTo, opts);
 
     // transactions.getTransactions имени бариста не отдаёт — колонка
@@ -897,7 +901,7 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
     openReceipts = await fetchOpenReceipts(dateFrom, dateTo, opts, dashRows);
   } catch (e) {
     if (e?.name === "AbortError") throw e;
-    console.warn("[poster] открытые чеки не догрузились:", e?.message);
+    if (!e?.skip) console.warn("[poster] открытые чеки не догрузились:", e?.message);
   }
   allReceipts.push(...openReceipts);
 
