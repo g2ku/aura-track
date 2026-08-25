@@ -719,6 +719,82 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
 
 // ─── Чеки (полный список транзакций) ──────────────────────────────────
 // Один запрос на весь период + пагинация вместо N запросов по дням.
+// Открытые чеки с составом.
+//
+// transactions.getTransactions открытые чеки НЕ отдаёт — там вообще нет
+// поля status, и все записи уже закрыты. Открытые видит только
+// dash.getTransactions, но состав в нём не приходит, поэтому товары по
+// каждому чеку добираем отдельным запросом dash.getTransactionProducts.
+// Их немного (обычно десяток), запрос лёгкий — 700 байт, полсекунды.
+// Сырые строки dash.getTransactions за период. Из одного ответа берём и
+// открытые чеки, и имена бариста для закрытых — качать 650 КБ дважды незачем.
+export async function fetchDashTransactions(dateFrom, dateTo, opts = {}) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) return [];
+  const data = await call("dash.getTransactions", { date_from: fromP, date_to: toP }, opts);
+  return data?.response || [];
+}
+
+export async function fetchOpenReceipts(dateFrom, dateTo, opts = {}, rows = null) {
+  const [spots, dashRows] = await Promise.all([
+    getSpots(opts),
+    rows || fetchDashTransactions(dateFrom, dateTo, opts),
+  ]);
+
+  const open = dashRows.filter(isOpenCheck);
+  if (!open.length) return [];
+
+  return mapWithLimit(open, 5, async (tx) => {
+    let products = [];
+    try {
+      const pd = await call(
+        "dash.getTransactionProducts",
+        { transaction_id: tx.transaction_id },
+        opts,
+      );
+      products = (pd?.response || []).map((p) => ({
+        // Модификатор — часть заказа: «Капучино 350 · Обычное, Minas 2 шота».
+        // Без него непонятно, что именно готовят.
+        name: [p.product_name, p.modificator_name].filter(Boolean).join(" · "),
+        qty: Number(p.num || 0),
+        sum: Number(p.product_sum || p.payed_sum || 0) / 100,
+      }));
+    } catch (_) {
+      // Состав не дошёл — сам чек всё равно показываем: время и точка важнее.
+    }
+
+    const spotId = String(tx.spot_id || "");
+    const spot = spots[spotId] || {};
+    return {
+      id: tx.transaction_id,
+      spotId,
+      spotName: spot.name || spotId,
+      waiter: tx.name || "",
+      // Экран ждёт «ГГГГ-ММ-ДД ЧЧ:ММ:СС», а dash отдаёт миллисекунды
+      dateOpen: msToPosterTime(tx.date_start || tx.date_start_new),
+      dateClose: "",
+      sum: Number(tx.sum || 0) / 100,
+      discount: Number(tx.discount || 0) / 100,
+      profit: 0,
+      status: "open",
+      fiscalization: null,
+      products,
+      paymentTypes: [],
+    };
+  });
+}
+
+// Экран чеков ждёт «ГГГГ-ММ-ДД ЧЧ:ММ:СС» (так отдаёт transactions.getTransactions),
+// а dash приходит в миллисекундах. Экспортируем ради теста.
+export function msToPosterTime(ms) {
+  const n = Number(ms);
+  if (!n) return "";
+  const d = new Date(n);
+  const p = (v) => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
@@ -800,7 +876,34 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
     });
   }
 
+  // Открытые чеки приходят из другого места и с отдельным запросом за
+  // составом. Ошибка там не должна ронять весь экран: закрытые чеки
+  // важнее и уже загружены.
+  let openReceipts = [];
+  try {
+    const dashRows = await fetchDashTransactions(dateFrom, dateTo, opts);
+
+    // transactions.getTransactions имени бариста не отдаёт — колонка
+    // «Официант» у закрытых чеков стояла пустой. В dash оно есть, и мы
+    // этот ответ и так уже скачали ради открытых чеков.
+    const waiterById = new Map();
+    for (const t of dashRows) {
+      if (t.name) waiterById.set(String(t.transaction_id), t.name);
+    }
+    for (const r of allReceipts) {
+      if (!r.waiter) r.waiter = waiterById.get(String(r.id)) || "";
+    }
+
+    openReceipts = await fetchOpenReceipts(dateFrom, dateTo, opts, dashRows);
+  } catch (e) {
+    if (e?.name === "AbortError") throw e;
+    console.warn("[poster] открытые чеки не догрузились:", e?.message);
+  }
+  allReceipts.push(...openReceipts);
+
   allReceipts.sort((a, b) => {
+    // Открытые — наверх: ради них сюда и заходят с дашборда.
+    if ((a.status === "open") !== (b.status === "open")) return a.status === "open" ? -1 : 1;
     if (a.dateOpen > b.dateOpen) return -1;
     if (a.dateOpen < b.dateOpen) return 1;
     return 0;
@@ -809,6 +912,7 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
   return {
     receipts: allReceipts,
     transactionsCount,
+    openCount: openReceipts.length,
     daysCount: days.length,
   };
 }
