@@ -190,6 +190,25 @@ export async function markUpdateSeen(updateId) {
   }
 }
 
+// Записи о виденных апдейтах нужны только для защиты от повторной
+// доставки, а Telegram повторяет в пределах минут. Через сутки они —
+// мёртвый груз, который иначе копился бы вечно: по документу на каждое
+// сообщение в подключённых чатах.
+export async function purgeSeen(olderThanMs = 24 * 60 * 60 * 1000, limit = 400) {
+  const cutoff = Date.now() - olderThanMs;
+  const snap = await getDb()
+    .collection("botSeen")
+    .where("ts", "<", cutoff)
+    .limit(limit)
+    .get();
+  if (snap.empty) return 0;
+
+  const batch = getDb().batch();
+  snap.docs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+  return snap.size;
+}
+
 // Полный набор операций, который передаётся в commands.js.
 // Собирается ЗДЕСЬ, а не в вебхуке: иначе легко забыть добавить сюда новый
 // метод, и команда тихо отвалится в проде, пройдя все тесты.

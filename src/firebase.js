@@ -433,6 +433,10 @@ export async function submitTicket({ title, description, author, authorBranch })
     title,
     description,
     author,
+    // Имя автора совпадает у тёзок и меняется при переименовании, поэтому
+    // «Мои обращения» отбирали свои ненадёжно. Записываем uid: по нему же
+    // потом можно будет закрыть чужие обращения правилами Firestore.
+    authorUid: auth?.currentUser?.uid || null,
     authorBranch: authorBranch || null,
     status: "open", // open | approved | rejected
     response: null,

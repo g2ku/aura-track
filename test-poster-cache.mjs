@@ -155,6 +155,49 @@ section("Разбивка по оплатам считается по дням �
   }
 }
 
+section("Кэш продаж вытесняет старые дни");
+
+{
+  // Поддельный localStorage с маленьким лимитом — проверяем и вытеснение,
+  // и поведение при переполнении.
+  const store = new Map();
+  const LIMIT = 4000;
+  globalThis.localStorage = {
+    getItem: (k) => store.get(k) ?? null,
+    setItem: (k, v) => { if (v.length > LIMIT) throw new Error("QuotaExceededError"); store.set(k, v); },
+    removeItem: (k) => store.delete(k),
+  };
+
+  const src = readFileSync("src/poster.js", "utf8");
+  const a = src.indexOf("const CACHE_KEY");
+  const b = src.indexOf("export function clearPosterCache");
+  const mod = src.slice(a, b).replace(/^function (setCachedDay|readCache)/gm, "export function $1");
+  const { setCachedDay } = await import("data:text/javascript," + encodeURIComponent(mod));
+
+  const KEY = "supply-track.poster.salesByDay.v14";
+  const hours = (h) => Date.now() - h * 3600 * 1000;
+
+  store.set(KEY, JSON.stringify({
+    "20260101": { ts: hours(40), rowsBySpot: {} },   // просрочен (TTL 12 ч)
+    "20260824": { ts: hours(1), rowsBySpot: {} },    // свежий
+  }));
+  setCachedDay("20260825", { rowsBySpot: {} });
+
+  const after = JSON.parse(store.get(KEY));
+  ok(!after["20260101"], "просроченный день удалён, а не просто перестал читаться");
+  ok(after["20260824"], "свежий день на месте");
+  ok(after["20260825"], "новый день записан");
+
+  // Переполнение: кэш не должен остаться забитым и бесполезным навсегда
+  setCachedDay("20260826", { rowsBySpot: { x: "я".repeat(5000) } });
+  const kept = store.get(KEY);
+  ok(!kept || JSON.parse(kept) , "после переполнения кэш в рабочем состоянии");
+  ok(!kept || Object.keys(JSON.parse(kept)).length <= 1,
+     "кэш начат заново, а не остался переполненным");
+
+  delete globalThis.localStorage;
+}
+
 section("Кэш дней не растёт вечно");
 
 {

@@ -197,6 +197,12 @@ export function getUserBranch() {
   return meta.branch || null;
 }
 
+// uid текущего пользователя — по нему «Мои обращения» отбирают свои
+// надёжнее, чем по имени: тёзки и переименования его не путают.
+export function getCurrentUid() {
+  return getCachedMeta()?.uid || null;
+}
+
 export function getUserLogin() {
   const meta = getCachedMeta();
   return meta?.email || null;

@@ -505,8 +505,26 @@ function setCachedDay(yyyymmdd, payload) {
     const raw = localStorage.getItem(CACHE_KEY);
     const cache = raw ? (JSON.parse(raw) || {}) : {};
     cache[yyyymmdd] = { ts: Date.now(), ...payload };
+
+    // Просроченные дни надо УДАЛЯТЬ, а не просто переставать читать.
+    // Иначе объект растёт с каждым просмотренным днём, упирается в лимит
+    // localStorage (около 5 МБ), setItem начинает бросать — исключение
+    // проглатывается ниже, и кэш молча перестаёт работать совсем.
+    for (const [day, entry] of Object.entries(cache)) {
+      if (day !== yyyymmdd && Date.now() - (entry?.ts || 0) > CACHE_TTL_MS) {
+        delete cache[day];
+      }
+    }
+
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch (_) {}
+  } catch (_) {
+    // Место кончилось даже после чистки — начинаем кэш заново, иначе он
+    // так и останется забитым и бесполезным.
+    try {
+      localStorage.removeItem(CACHE_KEY);
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ [yyyymmdd]: { ts: Date.now(), ...payload } }));
+    } catch (_) {}
+  }
 }
 
 export function clearPosterCache() {

@@ -6,6 +6,7 @@ import { handleMessage, isAllowedChat, chatKey } from "./api/_lib/commands.js";
 import { applyEntry, removeEntry, emptyDoc, todayAlmaty } from "./api/_lib/dailyDoc.js";
 import { DEFAULT_CONFIG, botStore } from "./api/_lib/store.js";
 import { DEFAULT_IP_GROUPS } from "./api/_lib/branches.js";
+import { readFileSync } from "node:fs";
 
 let passed = 0;
 let failed = 0;
@@ -993,6 +994,25 @@ section("Правка сообщения вместо переотправки")
   ok(r.text.includes("Записано на"), "дата показана явно");
   const todayDoc = await store.getDoc(TODAY);
   eq(todayDoc.entries.length, 0, "в сегодня не попало");
+}
+
+// ─── Уборка защиты от повторов ────────────────────────────────────────
+section("botSeen не копится вечно");
+
+{
+  const store = await import("./api/_lib/store.js");
+  const report = readFileSync("api/tg/report.js", "utf8");
+
+  ok(typeof store.purgeSeen === "function", "чистка есть в хранилище");
+  ok(/purgeSeen\(\)/.test(report), "ночной крон её вызывает");
+  ok(/catch \(e\) \{[\s\S]{0,200}не смог почистить botSeen/.test(report),
+     "ошибка уборки не мешает отчёту — он важнее");
+
+  const src = readFileSync("api/_lib/store.js", "utf8");
+  ok(/\.where\("ts", "<", cutoff\)/.test(src), "удаляются именно старые записи");
+  ok(/\.limit\(limit\)/.test(src), "за раз удаляется ограниченная пачка");
+  ok(/olderThanMs = 24 \* 60 \* 60 \* 1000/.test(src),
+     "срок — сутки: Telegram повторяет доставку в пределах минут");
 }
 
 console.log("\n══════════════════════════════════════════════════");
