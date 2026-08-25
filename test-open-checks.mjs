@@ -268,25 +268,42 @@ section("Пустые показываются отдельным блоком")
      "точка названа раньше бариста");
 }
 
-section("Видно только админу");
+section("Открытые чеки — по одному переключателю");
 
-// Гейт стоит один раз — там, где openChecks вычисляется. Если кто-то
-// добавит новое место показа, оно погаснет само: данных просто не будет.
-for (const file of ["src/components/Dashboard.jsx", "src/components/CashLedger.jsx"]) {
-  const src = readFileSync(file, "utf8");
-  const at = src.indexOf("const openChecks = useMemo(");
-  ok(at !== -1, `${file}: openChecks вычисляется через useMemo`);
-  const head = src.slice(at, at + 400);
-  ok(/if \(!isAdmin\(\)\) return null;/.test(head),
-     `${file}: не админ — открытых чеков нет вовсе`);
-  ok(/import \{[^}]*\bisAdmin\b[^}]*\} from "\.\.\/auth\.jsx"/.test(src),
-     `${file}: isAdmin импортирован`);
+{
+  // Аудиторию этой группы меняли уже дважды. Чтобы не ходить каждый раз
+  // по четырём местам в трёх файлах, доступ считается одной функцией.
+  const auth = readFileSync("src/auth.jsx", "utf8");
+  ok(/export function canSeeOpenChecks\(\)/.test(auth), "переключатель есть");
+  ok(/canSeeOpenChecks\(\)\s*\{\s*return isAdminOrManager\(\);/.test(auth),
+     "сейчас обкатывают админ и управляющие, кураторам не показываем");
 
-  // К сырым данным обращается ровно одно место — то, что за гейтом.
-  // Разметка читает только openChecks, иначе гейт можно обойти по недосмотру.
-  const raw = src.match(/payBreakdown[?.]*\.openChecks/g) || [];
-  ok(raw.length === 1,
-     `${file}: к payBreakdown.openChecks обращаются один раз, за гейтом (нашли ${raw.length})`);
+  for (const file of ["src/components/Dashboard.jsx", "src/components/CashLedger.jsx"]) {
+    const src = readFileSync(file, "utf8");
+    const at = src.indexOf("const openChecks = useMemo(");
+    ok(at !== -1, `${file}: openChecks вычисляется через useMemo`);
+    ok(/if \(!canSeeOpenChecks\(\)\) return null;/.test(src.slice(at, at + 400)),
+       `${file}: без доступа открытых чеков нет вовсе`);
+
+    // К сырым данным обращается ровно одно место — то, что за гейтом
+    const raw = src.match(/payBreakdown[?.]*\.openChecks/g) || [];
+    ok(raw.length === 1,
+       `${file}: к payBreakdown.openChecks обращаются один раз, за гейтом (нашли ${raw.length})`);
+
+    ok(!/if \(!isAdmin\(\)\) return null;/.test(src),
+       `${file}: проверок роли в обход переключателя не осталось`);
+  }
+
+  const rv = readFileSync("src/components/ReceiptsView.jsx", "utf8");
+  ok(/const canSeeOpen = canSeeOpenChecks\(\);/.test(rv), "экран чеков спрашивает тот же переключатель");
+  ok(/includeOpen: canSeeOpen/.test(rv), "без доступа открытые чеки даже не запрашиваются");
+  ok(/\{canSeeOpen && <Kpi label="Открыто"/.test(rv), "счётчик открытых спрятан");
+  ok(/!canSeeOpen && statusFilter === "open" && <OpenChecksSoon \/>/.test(rv),
+     "вместо таблицы показывается заглушка");
+
+  const poster = readFileSync("src/poster.js", "utf8");
+  ok(/if \(opts\.includeOpen === false\) throw \{ skip: true \};/.test(poster),
+     "запрос за открытыми чеками пропускается на стороне загрузки");
 }
 
 section("Касса не ждёт остальные модули дашборда");

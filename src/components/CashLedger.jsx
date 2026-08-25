@@ -8,7 +8,7 @@ import { fmt } from "../utils";
 import { useToast } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
 import { useHashRoute } from "../router";
-import { getSpotNameForBranch, getUserSpotId, isAdmin, isAdminOrManager, spotNameByPosterId, useRole } from "../auth.jsx";
+import { canSeeOpenChecks, getSpotNameForBranch, getUserSpotId, isAdminOrManager, spotNameByPosterId, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useAppStore } from "../store/useAppStore";
@@ -224,7 +224,7 @@ export default function CashLedger({
   const openChecks = useMemo(() => {
     // Пока только админу: по открытым чекам видно, кто именно держит заказ,
     // и на этом легко построить неверные выводы о смене.
-    if (!isAdmin()) return null;
+    if (!canSeeOpenChecks()) return null;
     const src = payBreakdown?.openChecks;
     if (!src || !src.count) return null;
     const allowed = new Set(displayCash.map((c) => String(c.spotId)));
@@ -265,7 +265,7 @@ export default function CashLedger({
   // Когда на точке последний раз что-то продали. Живёт отдельно от
   // открытых чеков: тишину надо видеть и на точке, где ничего не открыто.
   const lastOrders = useMemo(() => {
-    if (!isAdmin() || !isToday) return null;
+    if (!canSeeOpenChecks() || !isToday) return null;
     const m = payBreakdown?.lastOrderBySpot;
     return m && Object.keys(m).length ? m : null;
   }, [payBreakdown, isToday]);

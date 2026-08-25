@@ -129,7 +129,8 @@ section("Экран грузится сам");
 section("Открытые чеки — только админу");
 
 {
-  ok(/const canSeeOpen = isAdmin\(\);/.test(view), "признак доступа считается один раз");
+  ok(/const canSeeOpen = canSeeOpenChecks\(\);/.test(view),
+     "доступ спрашивается у общего переключателя, а не проверяется роль на месте");
   ok(/includeOpen: canSeeOpen/.test(view), "не админу открытые чеки даже не запрашиваются");
   ok(/\{canSeeOpen && <Kpi label="Открыто"/.test(view), "счётчик открытых спрятан");
   ok(/!canSeeOpen && statusFilter === "open" && <OpenChecksSoon \/>/.test(view),
