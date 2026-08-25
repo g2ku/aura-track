@@ -471,7 +471,7 @@ function ReceiptRow({ r, expanded, onToggle }) {
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={9} style={{ padding: 0 }}>
+          <td className="receipt-details" colSpan={9} style={{ padding: 0 }}>
             <div style={{ padding: "10px 16px", background: "var(--bg-elevated)", borderTop: "1px solid var(--border)" }}>
               {r.status === "open" && timeSinceOpen && (
                 <div style={{
