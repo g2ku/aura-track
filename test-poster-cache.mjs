@@ -12,6 +12,10 @@ import { readFileSync } from "node:fs";
 let passed = 0, failed = 0;
 const failures = [];
 function ok(c, l) { c ? passed++ : (failed++, failures.push(`  ❌ ${l}`)); }
+function eq(a, e, l) {
+  const x = JSON.stringify(a), y = JSON.stringify(e);
+  if (x === y) passed++; else { failed++; failures.push(`  ❌ ${l}\n      получили: ${x}\n      ждали:    ${y}`); }
+}
 function section(t) { console.log(`\n📋 ${t}`); }
 
 // 25 августа 2026, 10 утра по Алматы
@@ -71,6 +75,97 @@ const client = readFileSync("src/poster.js", "utf8");
 ok(/opts\.fresh.*qs\.set\("_fresh"/s.test(client), "buildUrl добавляет метку по opts.fresh");
 ok(/buildUrl\(method, params, opts\)/.test(client), "call передаёт opts в buildUrl");
 ok(/if \(!opts\.fresh\) \{/.test(client), "кривая по часам при «Обновить» берётся заново");
+
+// ─── Свод по дням ─────────────────────────────────────────────────────
+section("Разбивка по оплатам считается по дням и складывается");
+
+{
+  const { aggregatePayDay, mergePayDays, dayOfRow } = await import("./src/poster.js");
+
+  const at = (y, m, d, hh) => String(new Date(y, m - 1, d, hh).getTime());
+  // Форма dash: строки, суммы в копейках
+  const tx = (spot, methodId, payed, extra = {}) => ({
+    spot_id: spot, status: "2", payment_method_id: String(methodId),
+    payed_sum: String(payed), payed_cash: "0", payed_card: String(payed),
+    date_close: at(2026, 8, 24, 12), ...extra,
+  });
+
+  eq(dayOfRow({ date_close: at(2026, 8, 24, 23) }), "20260824", "день берётся по времени закрытия");
+  eq(dayOfRow({ date_close: "0", date_start: at(2026, 8, 25, 9) }), "20260825",
+     "у открытого чека — по времени открытия");
+  eq(dayOfRow({}), null, "без времени дня нет");
+
+  {
+    // Kaspi (11) и прочие методы различаются только по payment_method_id —
+    // ради него и качается тяжёлый ответ
+    const day = aggregatePayDay([tx("4", 11, 139000), tx("4", 12, 100000), tx("9", 11, 50000)]);
+    eq(day.total, { 11: 1890, 12: 1000 }, "суммы разложены по способам оплаты");
+    eq(day.bySpot["4"], { 11: 1390, 12: 1000 }, "и по точкам");
+    eq(day.openRows, [], "закрытые чеки в открытые не попали");
+  }
+
+  {
+    // Способ «Наличные» разбивается на наличную и карточную часть терминала
+    const day = aggregatePayDay([
+      { spot_id: "4", status: "2", payment_method_id: "0", payed_sum: "100000",
+        payed_cash: "40000", payed_card: "60000", date_close: at(2026, 8, 24, 12) },
+    ]);
+    eq(day.total, { 0: 400, "0-card": 600 }, "наличные и карта терминала разделены");
+  }
+
+  {
+    // Poster иногда отдаёт cash+card больше payed_sum — иначе способы
+    // оплаты разъезжаются с «Итого»
+    const day = aggregatePayDay([
+      { spot_id: "4", status: "2", payment_method_id: "0", payed_sum: "100000",
+        payed_cash: "80000", payed_card: "80000", date_close: at(2026, 8, 24, 12) },
+    ]);
+    const sum = Object.values(day.total).reduce((s, v) => s + v, 0);
+    eq(Math.round(sum), 1000, "сумма способов совпадает с оплаченным");
+  }
+
+  {
+    // Открытые чеки хранятся сырыми: их возраст считается от «сейчас»,
+    // в кэше он бы застыл
+    const open = { spot_id: "4", status: "1", sum: "50000", payed_sum: "0",
+                   date_close: "0", date_start: at(2026, 8, 25, 10), name: "Сабина" };
+    const day = aggregatePayDay([open, tx("4", 11, 139000)]);
+    eq(day.openRows.length, 1, "открытый чек сохранён строкой");
+    ok(day.openRows[0].date_start, "со временем старта, а не с посчитанным возрастом");
+    eq(day.total, { 11: 1390 }, "в суммы оплат он не попал");
+  }
+
+  {
+    // Дни складываются: ради этого кэш и заведён
+    const d1 = aggregatePayDay([tx("4", 11, 100000, { date_close: at(2026, 8, 23, 12) })]);
+    const d2 = aggregatePayDay([tx("4", 11, 50000), tx("9", 12, 30000)]);
+    const m = mergePayDays([d1, d2]);
+    eq(m.total, { 11: 1500, 12: 300 }, "итоги дней сложены");
+    eq(m.bySpot["4"], { 11: 1500 }, "по точке тоже");
+    eq(mergePayDays([d1, null, undefined, d2]).total, m.total, "дырки в кэше не ломают свод");
+    eq(mergePayDays([]).total, {}, "пустой период");
+  }
+
+  {
+    // Последний заказ — самый свежий по всем дням
+    const d1 = aggregatePayDay([tx("4", 11, 1000, { date_close: at(2026, 8, 23, 12) })]);
+    const d2 = aggregatePayDay([tx("4", 11, 1000, { date_close: at(2026, 8, 24, 18) })]);
+    const m = mergePayDays([d1, d2]);
+    eq(m.lastOrder["4"], Number(at(2026, 8, 24, 18)), "берётся самая поздняя продажа");
+  }
+}
+
+section("Кэш дней не растёт вечно");
+
+{
+  const poster = readFileSync("src/poster.js", "utf8");
+  ok(/const PAY_DAY_TTL = /.test(poster), "у дневного кэша есть срок");
+  ok(/if \(Date\.now\(\) - \(c\.ts \|\| 0\) > PAY_DAY_TTL\) delete toSave\[d\];/.test(poster),
+     "просроченные дни удаляются, а не просто перестают читаться");
+  ok(/delete toSave\[today\]/.test(poster), "сегодняшний день в кэш не кладётся");
+  ok(/const need = days\.filter\(\(d\) => d === today \|\| opts\.fresh \|\| stale\(d\)\)/.test(poster),
+     "качаются только недостающие дни");
+}
 
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }

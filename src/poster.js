@@ -184,33 +184,62 @@ export function getPaymentMethodName(id) {
   return PAYMENT_NAMES[String(id)] || `Оплата #${id}`;
 }
 
-const payBreakdownCache = new Map();
 
 function todayYmd() {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
-  const fromP = toPosterDate(dateFrom);
-  const toP = toPosterDate(dateTo);
-  if (!fromP || !toP) return { bySpot: {}, total: {}, openChecks: emptyOpenChecks(), lastOrderBySpot: {} };
+// Разбивка по способам оплаты — с кэшем по дням.
+//
+// dash.getTransactions весит 0,65 МБ за день и 27,8 МБ за месяц (замерено
+// на проде). Раньше при выборе «30 дней» эти 28 МБ качались заново каждый
+// раз. Прошедший день уже не изменится, поэтому его итог кладём в
+// localStorage: повторный заход тянет только сегодняшний день.
+//
+// Отказаться от тяжёлого метода нельзя: payment_method_id есть только в
+// нём, а именно по нему различаются Kaspi и прочие способы оплаты —
+// в transactions.getTransactions этого поля нет вовсе.
+const PAY_DAY_KEY = "supply-track.poster.payByDay.v1";
+const PAY_DAY_TTL = 30 * 24 * 60 * 60 * 1000;
 
-  // «Сегодня» всегда свежие данные, кэш не используем
-  const isToday = fromP === todayYmd() && toP === todayYmd();
-  const cacheKey = `${fromP}_${toP}`;
-  if (!isToday && payBreakdownCache.has(cacheKey)) return payBreakdownCache.get(cacheKey);
+function readPayDays() {
+  try {
+    const raw = localStorage.getItem(PAY_DAY_KEY);
+    const c = raw ? JSON.parse(raw) : null;
+    return c && typeof c === "object" ? c : {};
+  } catch (_) {
+    return {};
+  }
+}
 
-  const data = await call("dash.getTransactions", { dateFrom: fromP, dateTo: toP }, opts);
+function writePayDays(cache) {
+  try {
+    localStorage.setItem(PAY_DAY_KEY, JSON.stringify(cache));
+  } catch (_) {
+    // Место кончилось — работаем без кэша, это не повод падать
+  }
+}
 
+// Местная дата строки dash: у закрытых берём время закрытия, у открытых —
+// открытия. Часовой пояс браузерный, он же алматинский.
+export function dayOfRow(tx) {
+  const ms = Number(tx.date_close) || Number(tx.date_start) || Number(tx.date_start_new) || 0;
+  if (!ms) return null;
+  const d = new Date(ms);
+  const p = (v) => String(v).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+}
+
+// Свод одного дня: суммы по способам оплаты и сырые открытые чеки.
+// Открытые храним строками, а не разобранными: их возраст считается от
+// «сейчас», и в кэше он бы застыл.
+export function aggregatePayDay(rows) {
   const total = {};
   const bySpot = {};
-  const lastOrderBySpot = collectLastOrders(data?.response || []);
-  const openChecks = collectOpenChecks(data?.response || [], lastOrderBySpot);
 
-  for (const tx of data?.response || []) {
-    // dash.getTransactions отдаёт суммы в копейках (в отличие от
-    // transactions.getTransactions) — приводим к валюте.
+  for (const tx of rows) {
+    // dash отдаёт суммы в копейках, в отличие от transactions.getTransactions
     const sum = Number(tx.payed_sum || 0) / 100;
     if (sum === 0) continue;
     const methodId = Number(tx.payment_method_id || 0);
@@ -245,11 +274,101 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
     }
   }
 
-  const result = { bySpot, total, openChecks, lastOrderBySpot };
-  if (!isToday) payBreakdownCache.set(cacheKey, result);
-  return result;
+  return {
+    total,
+    bySpot,
+    openRows: rows.filter(isOpenCheck),
+    lastOrder: collectLastOrders(rows),
+  };
 }
 
+export function mergePayDays(days) {
+  const total = {};
+  const bySpot = {};
+  const lastOrder = {};
+  const openRows = [];
+
+  for (const d of days) {
+    if (!d) continue;
+    for (const [id, v] of Object.entries(d.total || {})) total[id] = (total[id] || 0) + v;
+    for (const [spot, methods] of Object.entries(d.bySpot || {})) {
+      if (!bySpot[spot]) bySpot[spot] = {};
+      for (const [id, v] of Object.entries(methods)) bySpot[spot][id] = (bySpot[spot][id] || 0) + v;
+    }
+    for (const [spot, ts] of Object.entries(d.lastOrder || {})) {
+      if (ts > (lastOrder[spot] || 0)) lastOrder[spot] = ts;
+    }
+    openRows.push(...(d.openRows || []));
+  }
+
+  return { total, bySpot, lastOrder, openRows };
+}
+
+export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) {
+    return { bySpot: {}, total: {}, openChecks: emptyOpenChecks(), lastOrderBySpot: {} };
+  }
+
+  const days = enumerateDays(fromP, toP);
+  const today = todayYmd();
+  const cache = readPayDays();
+
+  // Сегодня всегда заново: день ещё дописывается. Остальное — из кэша,
+  // если он там есть и не протух.
+  const stale = (d) => {
+    const c = cache[d];
+    return !c || Date.now() - (c.ts || 0) > PAY_DAY_TTL;
+  };
+  const need = days.filter((d) => d === today || opts.fresh || stale(d));
+
+  if (need.length) {
+    // Один запрос на весь недостающий отрезок — так же, как грузятся продажи
+    const data = await call(
+      "dash.getTransactions",
+      { dateFrom: need[0], dateTo: need[need.length - 1] },
+      opts,
+    );
+    const byDay = new Map(need.map((d) => [d, []]));
+    const lastDay = need[need.length - 1];
+    for (const tx of data?.response || []) {
+      const d = dayOfRow(tx);
+      if (byDay.has(d)) {
+        byDay.get(d).push(tx);
+      } else if (isOpenCheck(tx)) {
+        // Открытый чек Poster отдаёт независимо от дат — на живых данных
+        // нашёлся такой, висящий с позапрошлой недели. По календарю он не
+        // из запрошенных дней, но потерять его нельзя: ровно ради таких
+        // забытых чеков список и нужен.
+        byDay.get(lastDay).push(tx);
+      }
+      // Закрытые чеки вне окна отбрасываем: Poster их и не должен отдавать,
+      // а если отдал — это чужой день, и в итог периода он не входит.
+    }
+    for (const [d, rows] of byDay) {
+      const agg = aggregatePayDay(rows);
+      cache[d] = { ts: Date.now(), ...agg };
+    }
+    // Сегодняшний день в кэше не держим — завтра он станет вчерашним и
+    // всё равно будет перезаписан, а до тех пор только мешал бы.
+    const toSave = { ...cache };
+    delete toSave[today];
+    // Заодно выкидываем всё, что старше срока: иначе объект растёт вечно
+    for (const [d, c] of Object.entries(toSave)) {
+      if (Date.now() - (c.ts || 0) > PAY_DAY_TTL) delete toSave[d];
+    }
+    writePayDays(toSave);
+  }
+
+  const merged = mergePayDays(days.map((d) => cache[d]));
+  return {
+    bySpot: merged.bySpot,
+    total: merged.total,
+    lastOrderBySpot: merged.lastOrder,
+    openChecks: collectOpenChecks(merged.openRows, merged.lastOrder),
+  };
+}
 
 // ─── Поставки из Poster (Склад > Поставки) ──────────────────────────────
 
@@ -401,7 +520,7 @@ export function clearPosterCache() {
       if (k.startsWith("supply-track.poster.hourly.")) localStorage.removeItem(k);
     }
   } catch (_) {}
-  payBreakdownCache.clear();
+  try { localStorage.removeItem(PAY_DAY_KEY); } catch (_) {}
 }
 
 // Дневные итоги кассы из локального кэша дней (без запросов к API).
