@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchReceipts, clearPosterCache } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { useUserBranch, getSpotNameForBranch, spotNameByPosterId, BRANCHES } from "../auth.jsx";
+import { useUserBranch, getSpotNameForBranch, spotNameByPosterId, isAdmin, BRANCHES } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -79,6 +79,9 @@ export default function ReceiptsView() {
   const [expandedId, setExpandedId] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all"); // all | open | closed
 
+  // Открытые чеки — только админу, как на дашборде и в кассе.
+  const canSeeOpen = isAdmin();
+
   const loadRef = useRef(null);
 
   // Экран грузится сам при открытии — как дашборд. Раньше он встречал
@@ -108,6 +111,7 @@ export default function ReceiptsView() {
     try {
       const result = await fetchReceipts(from, to, {
         signal: ctrl.signal,
+        includeOpen: canSeeOpen,
         onProgress: ({ done, total }) => setProgress({ done, total }),
       });
       setData(result);
@@ -269,7 +273,7 @@ export default function ReceiptsView() {
           <div className="card" style={{ padding: 14, marginTop: 16 }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 24, fontSize: 14 }}>
               <Kpi label="Всего чеков" value={summary.count} />
-              <Kpi label="Открыто" value={summary.openCount} accent={summary.openCount > 0} />
+              {canSeeOpen && <Kpi label="Открыто" value={summary.openCount} accent={summary.openCount > 0} />}
               <Kpi label="Оплачено" value={fmt(summary.totalSum)} accent />
               <Kpi label="Скидки" value={fmt(summary.totalDiscount)} />
               <Kpi label="Прибыль" value={fmt(summary.totalProfit)} />
@@ -324,7 +328,11 @@ export default function ReceiptsView() {
             </div>
           </div>
 
+          {/* Открытые чеки просит посмотреть не админ */}
+          {!canSeeOpen && statusFilter === "open" && <OpenChecksSoon />}
+
           {/* Таблица чеков */}
+          {!(!canSeeOpen && statusFilter === "open") && (
           <div className="card table-card receipts-table" style={{ marginTop: 12 }}>
             <div style={{ overflowX: "auto" }}>
               <table className="data-table" style={{ width: "100%", fontSize: 13 }}>
@@ -361,6 +369,7 @@ export default function ReceiptsView() {
               </table>
             </div>
           </div>
+          )}
         </>
       )}
 
@@ -371,6 +380,34 @@ export default function ReceiptsView() {
           <div className="empty-state-sub">За выбранный период чеков нет.</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Заглушка для тех, кому открытые чеки пока не показываем.
+// Скучное «нет доступа» здесь было бы обидно: пусть лучше будет шутка.
+function OpenChecksSoon() {
+  return (
+    <div className="ocs" role="status">
+      <div className="ocs-screen">
+        <div className="ocs-dots" aria-hidden="true">
+          <span /><span /><span />
+        </div>
+
+        <div className="ocs-line">
+          <span className="ocs-prompt">$</span>
+          <span className="ocs-type">Равиль жестко программирует чтобы были открытые чеки</span>
+          <span className="ocs-caret" aria-hidden="true" />
+        </div>
+
+        <div className="ocs-bar" aria-hidden="true"><span /></div>
+
+        <div className="ocs-status" aria-hidden="true">
+          <span>компилирую чеки…</span>
+          <span>уговариваю Poster…</span>
+          <span>осталось совсем чуть-чуть…</span>
+        </div>
+      </div>
     </div>
   );
 }
