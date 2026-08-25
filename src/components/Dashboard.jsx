@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, clearPosterCache, getCachedCashBySpot } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, clearPosterCache, getCachedCashBySpot, OPEN_CHECK_STUCK_MIN } from "../poster";
 import { getSpotNameForBranch, isAdmin, isAdminOrManager } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
@@ -271,6 +271,22 @@ export default function Dashboard({
     const diff = Math.round((b - a) / 86400000) + 1;
     return diff > 0 ? diff : 1;
   }, [dateFrom, dateTo]);
+  // Открытые чеки: заказ пробит, деньги ещё не проведены. Пока их не видно,
+  // касса выглядит отстающей — по замеру это 1–3 минуты на каждый чек.
+  const openChecks = useMemo(() => {
+    const src = payBreakdown?.openChecks;
+    if (!src || !src.count) return null;
+    const allowed = new Set(displayCashBySpot.map((c) => String(c.spotId)));
+    const items = src.items.filter((i) => allowed.has(i.spotId));
+    if (!items.length) return null;
+    return {
+      count: items.length,
+      sum: Math.round(items.reduce((s, i) => s + i.sum, 0)),
+      stuck: items.filter((i) => i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN).length,
+      oldest: items[0],
+    };
+  }, [payBreakdown, displayCashBySpot]);
+
   const avgCashPerDay = displayCashBySpot.length > 0 ? Math.round(totalCash / daysInPeriod) : 0;
   const avgCheck = totalTx > 0 ? Math.round(totalCash / totalTx) : 0;
 
@@ -532,6 +548,22 @@ export default function Dashboard({
               <div className="kpi-info">
                 <div className="kpi-label">Общая касса</div>
                 <div className="kpi-value">{fmt(totalCash)}</div>
+                {openChecks && (
+                  <div
+                    className="kpi-sub"
+                    title={
+                      openChecks.stuck > 0
+                        ? `${openChecks.stuck} чек(ов) открыты дольше ${OPEN_CHECK_STUCK_MIN} мин — подробности на вкладке «Касса»`
+                        : "Заказы пробиты, но ещё не закрыты — в кассу попадут после оплаты"
+                    }
+                  >
+                    <i className="ti ti-receipt-off" aria-hidden="true" />
+                    {" "}открыто {openChecks.count} на {fmt(openChecks.sum)}
+                    {openChecks.stuck > 0 && (
+                      <span className="cl-open-stuck"> · {openChecks.stuck} висит</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div className="kpi-card kpi-indigo">

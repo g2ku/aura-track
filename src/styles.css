@@ -5969,6 +5969,17 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .dl-items { padding-left: 16px; }
 }
 
+/* Открытые чеки: заказ пробит, деньги не проведены. Долго висящий чек —
+   не «делают напиток», а забыли или что-то не так, поэтому он подсвечен. */
+.cl-open-stuck { color: var(--text-warning); font-weight: 700; }
+.cl-open-stuck-row .cl-line-label { color: var(--text-warning); }
+.cl-open-spot { color: var(--text-muted); font-weight: 400; }
+/* Отступ даёт gap самой строки — margin здесь удвоил бы его */
+.cl-open-age {
+  flex: none; font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted); white-space: nowrap;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    ЗАРПЛАТНЫЙ ПРОЕКТ (PayrollView)
    Тот же мир «Термолента»: точечные лидеры, моноширинные цифры.
