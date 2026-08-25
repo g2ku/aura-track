@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
-    "serve": "vite build && node server.js"
+    "serve": "vite build && node server.js",
+    "test": "node run-tests.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
