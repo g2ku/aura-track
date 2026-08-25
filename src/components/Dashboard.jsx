@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, clearPosterCache, getCachedCashBySpot, OPEN_CHECK_STUCK_MIN } from "../poster";
-import { getSpotNameForBranch, isAdmin, isAdminOrManager } from "../auth.jsx";
+import { canSeeOpenChecks, getSpotNameForBranch, isAdminOrManager } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import DrinkRating from "./DrinkRating";
@@ -294,7 +294,7 @@ export default function Dashboard({
   const openChecks = useMemo(() => {
     // Пока только админу: по открытым чекам видно, кто именно держит заказ,
     // и на этом легко построить неверные выводы о смене.
-    if (!isAdmin()) return null;
+    if (!canSeeOpenChecks()) return null;
     const src = payBreakdown?.openChecks;
     if (!src || !src.count) return null;
     const allowed = new Set(displayCashBySpot.map((c) => String(c.spotId)));

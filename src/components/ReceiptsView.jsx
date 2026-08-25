@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchReceipts, clearPosterCache } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { useUserBranch, getSpotNameForBranch, spotNameByPosterId, isAdmin, BRANCHES } from "../auth.jsx";
+import { canSeeOpenChecks, useUserBranch, getSpotNameForBranch, spotNameByPosterId, BRANCHES } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -80,7 +80,7 @@ export default function ReceiptsView() {
   const [statusFilter, setStatusFilter] = useState("all"); // all | open | closed
 
   // Открытые чеки — только админу, как на дашборде и в кассе.
-  const canSeeOpen = isAdmin();
+  const canSeeOpen = canSeeOpenChecks();
 
   const loadRef = useRef(null);
 
