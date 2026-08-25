@@ -4,6 +4,7 @@ import { Button } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, clearPosterCache, getCachedCashBySpot } from "../poster";
 import { getSpotNameForBranch, isAdmin, isAdminOrManager } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
+import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import DrinkRating from "./DrinkRating";
 
 function greeting(now = new Date()) {
@@ -57,6 +58,8 @@ export default function Dashboard({
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
   const [refreshKey, setRefreshKey] = useState(0);
+  // Нажатие «Обновить» → следующая загрузка идёт мимо кэша Vercel.
+  const freshRef = useRef(false);
   const [ipGroups, setIpGroups] = useState([]);
   const [selectedIP, setSelectedIP] = useState("all");
 
@@ -77,10 +80,14 @@ export default function Dashboard({
     async function load() {
       setPosterLoading(true);
       setPosterError("");
+      // fresh взводит только кнопка «Обновить»: обычная загрузка должна
+      // пользоваться кэшем, иначе каждый заход тянет мегабайт заново.
+      const opts = { fresh: freshRef.current };
+      freshRef.current = false;
       const [cashResult, suppliesResult, payResult] = await Promise.allSettled([
-        fetchCashBySpot(dateFrom, dateTo),
-        fetchSupplyStatus(null),
-        fetchPaymentBreakdown(dateFrom, dateTo),
+        fetchCashBySpot(dateFrom, dateTo, opts),
+        fetchSupplyStatus(null, opts),
+        fetchPaymentBreakdown(dateFrom, dateTo, opts),
       ]);
       if (!cancelled) {
         if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
@@ -95,21 +102,16 @@ export default function Dashboard({
     return () => { cancelled = true; };
   }, [dateFrom, dateTo, refreshKey]);
 
-  // Автообновление кассы каждые 2 минуты для «сегодня»
-  useEffect(() => {
-    if (!isToday) return;
-    const interval = setInterval(async () => {
-      try {
-        const [cash, pay] = await Promise.allSettled([
-          fetchCashBySpot(dateFrom, dateTo),
-          fetchPaymentBreakdown(dateFrom, dateTo),
-        ]);
-        if (cash.status === "fulfilled") setCashBySpot(cash.value);
-        if (pay.status === "fulfilled") setPayBreakdown(pay.value);
-      } catch (_) {}
-    }, 2 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [isToday, dateFrom, dateTo]);
+  // Касса за сегодня обновляется, пока вкладку видно, и сразу при возврате
+  // к ней. Раньше вкладка, провисевшая час, показывала цифру часовой давности.
+  useLiveRefresh(isToday, async () => {
+    const [cash, pay] = await Promise.allSettled([
+      fetchCashBySpot(dateFrom, dateTo),
+      fetchPaymentBreakdown(dateFrom, dateTo),
+    ]);
+    if (cash.status === "fulfilled") setCashBySpot(cash.value);
+    if (pay.status === "fulfilled") setPayBreakdown(pay.value);
+  });
 
   // Load IP groups for admin/manager filter
   useEffect(() => {
@@ -508,7 +510,7 @@ export default function Dashboard({
               </button>
             ))}
             <button className="btn btn-out" style={{ padding: "4px 10px", fontSize: 12 }}
-              onClick={() => { clearPosterCache(); setRefreshKey(k => k + 1); }}
+              onClick={() => { clearPosterCache(); freshRef.current = true; setRefreshKey(k => k + 1); }}
               title="Обновить данные Poster">
               <i className="ti ti-refresh" /> Обновить
             </button>

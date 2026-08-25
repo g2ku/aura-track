@@ -6,10 +6,11 @@
 import { useMemo, useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache } from "../poster";
 import { useHashRoute } from "../router";
 import { getSpotNameForBranch, isAdminOrManager, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
+import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useAppStore } from "../store/useAppStore";
 import { canSeeItemFor } from "./Sidebar";
 
@@ -122,16 +123,18 @@ export default function CashLedger({
     return () => { cancelled = true; };
   }, [dateFrom, dateTo]);
 
-  // Автообновление каждые 2 минуты для «сегодня»
-  useEffect(() => {
-    if (!isToday) return;
-    const interval = setInterval(() => {
-      fetchCashBySpot(dateFrom, dateTo).then(setCashBySpot).catch(() => {});
-      fetchPaymentBreakdown(dateFrom, dateTo).then(setPayBreakdown).catch(() => {});
-      fetchHourlyCurve(dateFrom).then(setHourlyCurve).catch(() => {});
-    }, 2 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [isToday, dateFrom, dateTo]);
+  // Обновляемся, пока вкладку видно, и сразу при возврате к ней.
+  useLiveRefresh(isToday, async () => {
+    const [cash, pay, hourly] = await Promise.allSettled([
+      fetchCashBySpot(dateFrom, dateTo),
+      fetchPaymentBreakdown(dateFrom, dateTo),
+      fetchHourlyCurve(dateFrom),
+    ]);
+    if (cash.status === "fulfilled") setCashBySpot(cash.value);
+    if (pay.status === "fulfilled") setPayBreakdown(pay.value);
+    if (hourly.status === "fulfilled" && hourly.value) setHourlyCurve(hourly.value);
+    setCheckedAt(Date.now());
+  });
 
   
   const displayCash = useMemo(() => {
@@ -242,9 +245,14 @@ export default function CashLedger({
   }
 
   function refresh() {
-    fetchCashBySpot(dateFrom, dateTo).then(setCashBySpot).catch(() => {});
-    fetchSupplyStatus(null).then(setSupplyStatus).catch(() => {});
-    fetchPaymentBreakdown(dateFrom, dateTo).then(setPayBreakdown).catch(() => {});
+    // Явное нажатие идёт мимо кэша: иначе кнопка возвращает тот же ответ,
+    // что и минуту назад, и «Обновлено» — неправда.
+    const opts = { fresh: true };
+    clearPosterCache();
+    fetchCashBySpot(dateFrom, dateTo, opts).then(setCashBySpot).catch(() => {});
+    fetchSupplyStatus(null, opts).then(setSupplyStatus).catch(() => {});
+    fetchPaymentBreakdown(dateFrom, dateTo, opts).then(setPayBreakdown).catch(() => {});
+    if (isToday) fetchHourlyCurve(dateFrom, opts).then(setHourlyCurve).catch(() => {});
     setCheckedAt(Date.now());
     toast({ tone: "success", icon: "ti-refresh", title: "Обновлено", message: `Проверка в ${fmtClock(Date.now())}` });
   }
