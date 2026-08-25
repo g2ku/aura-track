@@ -6,23 +6,35 @@
 // в тестах подставляется поддельное хранилище.
 
 import { parseInvoiceMessage } from "./tgParser.js";
-import { BRANCHES, branchNamesFor, matchIpGroup } from "./branches.js";
+import { BRANCHES, branchNamesFor, matchIpGroup, matchBranch } from "./branches.js";
 import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
 import { parseCommand } from "./telegram.js";
 import { applyCatalog } from "./products.js";
 
 const HELP = `<b>Как сдавать накладные</b>
 
-Просто напишите в группу:
+Один раз напишите, откуда вы:
+<pre>/я абая</pre>
 
-<pre>Абая
-Пончики - 48шт - 40000
+Дальше просто присылайте, что привезли:
+<pre>Пончики 48шт 40000
 Круассан 20шт 15000</pre>
 
-Филиал можно сокращать: <code>абая</code>, <code>гаг</code>, <code>жар</code>, <code>оби</code>.
-Суммы: <code>40000</code>, <code>40 000</code>, <code>40к</code>, <code>40к тенге</code>.
+<b>Чтобы печатать меньше</b>
+• Товар можно сокращать: <code>пон 48 40к</code> → Пончики.
+  Если сокращение подходит нескольким — бот переспросит.
+• Несколько позиций в одну строку через запятую:
+  <code>пон 48 40к, кру 20 15к</code>
+• Суммы: <code>40000</code>, <code>40 000</code>, <code>40к</code>, <code>12200тг</code>
+• «шт», тире и «тенге» можно не писать.
+• Забыли вчера — допишите словом: <code>вчера</code> первой строкой.
+• Ошиблись — просто <b>исправьте своё сообщение</b>, бот перезапишет.
+
+Накладную можно слать фотографией — текст пишите подписью к фото.
+Принял — поставит 👍. Если не поставил, значит не понял и написал почему.
 
 <b>Команды</b>
+/я абая — привязать себя к филиалу (/я — посмотреть, /я нет — убрать)
 /отчет — сводка за сегодня
 /отчет 2026-08-14 — за конкретный день
 /отчет 14 дней — за период (можно «неделя», «2 недели», «месяц», «вчера»)
@@ -45,7 +57,9 @@ const ADMIN_HELP = `
 /отключить — перестать принимать отсюда
 /чаты — список подключённых чатов
 /ответы реакция|текст|тихо — как подтверждать накладные
-/переименовать старое &gt; новое — поправить название товара`;
+/переименовать старое &gt; новое — поправить название товара
+/это абая — закрепить эту тему за филиалом
+/люди — кто к какому филиалу привязан`;
 
 function isAdmin(config, userId) {
   // Пока список админов пуст, настройки доступны всем: иначе после первого
@@ -120,6 +134,96 @@ async function handleCommand({ cmd, args }, ctx) {
     case "помощь": {
       const extra = isAdmin(config, userId) ? ADMIN_HELP : "";
       return { text: HELP + extra };
+    }
+
+    // Бариста один раз говорит, откуда он, и больше не пишет филиал.
+    // Это самая частая экономия: филиал повторяется в каждом сообщении.
+    case "я":
+    case "me": {
+      if (!userId) return { text: "Не вижу, кто пишет." };
+      const arg = args.trim();
+
+      if (!arg) {
+        const cur = config.people?.[String(userId)];
+        return {
+          text: cur
+            ? `Вы записаны как <b>${escapeHtml(cur)}</b>.\nСменить: <code>/я коктем</code>. Убрать: <code>/я нет</code>.`
+            : `Филиал не привязан.\nНапишите <code>/я абая</code> — и в накладных филиал можно будет не указывать.`,
+        };
+      }
+
+      if (/^(нет|сброс|убрать|off)$/i.test(arg)) {
+        const people = { ...(config.people || {}) };
+        delete people[String(userId)];
+        await store.setConfig({ people });
+        return { text: "Привязка убрана. Теперь пишите филиал в накладной." };
+      }
+
+      const branch = matchBranch(arg);
+      if (!branch) {
+        return { text: `Не знаю филиал «${escapeHtml(arg)}». Список: /филиалы` };
+      }
+      await store.setConfig({
+        people: { ...(config.people || {}), [String(userId)]: branch },
+        peopleNames: { ...(config.peopleNames || {}), [String(userId)]: ctx.authorName || "" },
+      });
+      return {
+        text: [
+          `✅ Записал: вы с <b>${escapeHtml(branch)}</b>.`,
+          "",
+          "Теперь накладную можно слать без филиала:",
+          "<pre>Пончики 48шт 40000</pre>",
+        ].join("\n"),
+      };
+    }
+
+    case "люди":
+    case "people": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const people = Object.entries(config.people || {});
+      const topics = Object.entries(config.topics || {});
+      if (!people.length && !topics.length) {
+        return { text: "Привязок нет. Бариста ставит свою командой <code>/я абая</code>." };
+      }
+      const lines = [];
+      if (people.length) {
+        lines.push("<b>Бариста</b>");
+        for (const [id, branch] of people) {
+          const who = config.peopleNames?.[id] || `id ${id}`;
+          lines.push(`• ${escapeHtml(who)} — <b>${escapeHtml(branch)}</b>`);
+        }
+      }
+      if (topics.length) {
+        lines.push("", "<b>Темы и чаты</b>");
+        for (const [key, branch] of topics) lines.push(`• <code>${escapeHtml(key)}</code> — ${escapeHtml(branch)}`);
+      }
+      return { text: lines.join("\n") };
+    }
+
+    // Отдельная тема под точку: всё, что там пишут, — накладные этой точки.
+    case "это":
+    case "topic": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const key = chatKey(msg);
+      const arg = args.trim();
+
+      if (/^(нет|сброс|убрать|off)$/i.test(arg)) {
+        const topics = { ...(config.topics || {}) };
+        delete topics[key];
+        await store.setConfig({ topics });
+        return { text: "Тема больше не закреплена за филиалом." };
+      }
+
+      const branch = matchBranch(arg);
+      if (!branch) {
+        return {
+          text: arg
+            ? `Не знаю филиал «${escapeHtml(arg)}». Список: /филиалы`
+            : `Напишите, за каким филиалом закрепить тему: <code>/это абая</code>`,
+        };
+      }
+      await store.setConfig({ topics: { ...(config.topics || {}), [key]: branch } });
+      return { text: `✅ Эта тема закреплена за <b>${escapeHtml(branch)}</b>. Филиал в накладных можно не писать.` };
     }
 
     case "филиалы":
@@ -518,14 +622,41 @@ export async function handleMessage(msg, ctx) {
   const today = todayAlmaty();
   const parsed = parseInvoiceMessage(text, today);
 
-  // Филиал не распознан — это обычное сообщение в группе, молчим.
-  if (!parsed.branch) return null;
+  // Филиал берём из сообщения, а если его там нет — из привязки бариста
+  // или темы. Написанное явно всегда важнее: курьер может сдать накладную
+  // за соседнюю точку из своей темы.
+  const bound = boundBranch(config, msg);
+  const branch = parsed.branch || bound;
+  const implicit = !parsed.branch;
+  const hasItems = parsed.items.length > 0;
 
-  if (!parsed.ok) {
+  // «филиал не распознан» — забота этой функции, а не бариста: если филиал
+  // берётся из привязки, показывать такое предупреждение незачем.
+  const warnings = parsed.warnings.filter((w) => w !== "филиал не распознан");
+
+  if (!branch) {
+    // Похоже на накладную, но непонятно чью — подсказываем, как это
+    // починить раз и навсегда. На обычную болтовню не срабатывает:
+    // нужна хотя бы одна позиция с суммой.
+    if (!hasItems) return null;
     return {
       text: [
-        `⚠️ <b>${escapeHtml(parsed.branch)}</b> — не смог разобрать накладную.`,
-        parsed.warnings.length ? escapeHtml(parsed.warnings.join("; ")) : "",
+        "⚠️ Не понял, какой это филиал.",
+        "",
+        "Напишите один раз <code>/я абая</code> — и филиал больше указывать не придётся.",
+        "Либо ставьте его первой строкой: <code>Абая</code>",
+      ].join("\n"),
+    };
+  }
+
+  if (!hasItems) {
+    // Филиал взят из привязки, а сумм в сообщении нет — это разговор в
+    // чате, а не сломанная накладная. Молчим.
+    if (implicit) return null;
+    return {
+      text: [
+        `⚠️ <b>${escapeHtml(branch)}</b> — не смог разобрать накладную.`,
+        warnings.length ? escapeHtml(warnings.join("; ")) : "",
         "",
         "Формат: <code>Пончики - 48шт - 40000</code>",
       ].filter(Boolean).join("\n"),
@@ -558,6 +689,22 @@ export async function handleMessage(msg, ctx) {
   // копятся дубли одного товара и сводка за месяц становится нечитаемой.
   const catalog = (await ctx.store.getProducts?.()) || [];
   const fixed = applyCatalog(parsed.items, catalog);
+
+  // Сокращение подошло нескольким товарам. Угадать — значит тихо записать
+  // не тот товар, поэтому спрашиваем и накладную не принимаем.
+  if (fixed.ambiguous.length) {
+    return {
+      text: [
+        "⚠️ Непонятно, какой товар:",
+        ...fixed.ambiguous.map(
+          (a) => `• «${escapeHtml(a.from)}» — ${a.options.map((o) => `<b>${escapeHtml(o)}</b>`).join(" или ")}`
+        ),
+        "",
+        "Допишите пару букв и пришлите ещё раз.",
+      ].join("\n"),
+    };
+  }
+
   if (fixed.added.length && ctx.store.saveProducts) {
     await ctx.store.saveProducts([...catalog, ...fixed.added]);
   }
@@ -566,17 +713,21 @@ export async function handleMessage(msg, ctx) {
     id: `${msg.chat.id}:${msg.message_id}`,
     ts: Date.now(),
     date,
-    branch: parsed.branch,
+    branch,
     author: ctx.authorName || "",
     authorId: msg.from?.id ?? null,
     items: fixed.items,
     raw: text,
   };
 
-  const docAfter = await ctx.store.appendEntry(entry);
+  const docAfter = await ctx.store.appendEntry(entry, {
+    // Правка могла перенести накладную в другой день («дописали вчера») —
+    // тогда старую версию надо убрать из сегодняшнего дня.
+    removeFrom: msg.edited === true || msg.edit_date ? today : null,
+  });
 
-  const warn = parsed.warnings.length
-    ? `\n⚠️ ${escapeHtml(parsed.warnings.join("; "))}`
+  const warn = warnings.length
+    ? `\n⚠️ ${escapeHtml(warnings.join("; "))}`
     : "";
 
   // Дневной отчёт за сегодня уже ушёл, а поставка пришла позже — досылаем
@@ -604,11 +755,14 @@ export async function handleMessage(msg, ctx) {
   // галочка на записи в чужой день скрыла бы ошибку в дате.
   // Исправление названия показываем всегда: подмена товара молча — это
   // ровно та ошибка, которую потом не найти.
-  const fixes = fixed.corrections.length
-    ? "\n" + fixed.corrections.map((f) => `✏️ «${escapeHtml(f.from)}» → <b>${escapeHtml(f.to)}</b>`).join("\n")
+  // Показываем и сокращения, и опечатки — но текстовый ответ вынуждают
+  // только опечатки: сокращение бариста написал осознанно.
+  const shown = [...fixed.corrections, ...fixed.expansions];
+  const fixes = shown.length
+    ? "\n" + shown.map((f) => `✏️ «${escapeHtml(f.from)}» → <b>${escapeHtml(f.to)}</b>`).join("\n")
     : "";
 
-  if (config.ackMode !== "reply" && !parsed.warnings.length && !backdated && !fixes) {
+  if (config.ackMode !== "reply" && !warnings.length && !backdated && !fixed.corrections.length) {
     return { text: null, reaction: "👍", followUps };
   }
 
@@ -623,6 +777,15 @@ export async function handleMessage(msg, ctx) {
 // message_thread_id. Поэтому ключ подключения — «чат:тема» для сообщений
 // из темы и просто «чат» для обычных групп. Иначе подключение темы
 // «Накладные» разрешало бы боту и «Долги», и «Переносы».
+// Филиал, закреплённый за автором сообщения или за темой.
+// Сначала человек: он всегда с одной точки, а тему могут делить все.
+export function boundBranch(config, msg) {
+  const byUser = msg?.from?.id != null ? config?.people?.[String(msg.from.id)] : null;
+  if (byUser) return byUser;
+  const topics = config?.topics || {};
+  return topics[chatKey(msg)] || topics[String(msg?.chat?.id)] || null;
+}
+
 export function chatKey(msg) {
   const id = msg?.chat?.id;
   if (msg?.is_topic_message && msg?.message_thread_id) {
