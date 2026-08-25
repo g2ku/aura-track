@@ -14,14 +14,24 @@ export function useAppData({ docs, userBranch, period }) {
     return docs.filter(d => branchFilter(d.branches || []));
   }, [docs, branchFilter]);
 
-  const agg = useMemo(() => aggregateDocs(branchDocs), [branchDocs]);
+  // Тот же предикат, что отбирает накладные, отсекает и чужие суммы
+  // внутри них: документ дня общий на все точки.
+  const keepBranch = useMemo(
+    () => (branchFilter ? (b) => branchFilter([b]) : null),
+    [branchFilter],
+  );
+
+  const agg = useMemo(() => aggregateDocs(branchDocs, keepBranch), [branchDocs, keepBranch]);
 
   const filteredDocs = useMemo(
     () => filterDocsByPeriod(branchDocs, periodToFilter(period)),
     [branchDocs, period]
   );
 
-  const filteredAgg = useMemo(() => aggregateDocs(filteredDocs), [filteredDocs]);
+  const filteredAgg = useMemo(
+    () => aggregateDocs(filteredDocs, keepBranch),
+    [filteredDocs, keepBranch],
+  );
 
   return { branchDocs, agg, filteredDocs, filteredAgg };
 }

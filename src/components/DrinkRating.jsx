@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { fetchPosterSales } from "../poster";
-import { getSpotNameForBranch, useUserBranch } from "../auth.jsx";
+import { spotNameByPosterId, getSpotNameForBranch, useUserBranch } from "../auth.jsx";
 
 const PREVIEW_N = 5;
 
@@ -85,7 +85,7 @@ export default function DrinkRating({ dateFrom, dateTo }) {
             <div key={branch.spotId} className="card drink-rating-card">
               <div className="drink-rating-head">
                 <i className="ti ti-building-store" style={{ color: "var(--text-accent)" }} />
-                <span className="drink-rating-branch">{branch.spotName.replace(/^Aura02[_-]?/i, "")}</span>
+                <span className="drink-rating-branch">{spotNameByPosterId(branch.spotId, branch.spotName.replace(/^Aura02[_-]?/i, ""))}</span>
                 <span className="drink-rating-total">{branch.totalQty} шт.</span>
               </div>
               <div className="drink-rating-list">
@@ -127,7 +127,7 @@ export default function DrinkRating({ dateFrom, dateTo }) {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <i className="ti ti-building-store" style={{ color: "var(--text-accent)", fontSize: 20 }} />
                 <div>
-                  <div className="modal-title">{modalBranch.spotName.replace(/^Aura02[_-]?/i, "")}</div>
+                  <div className="modal-title">{spotNameByPosterId(modalBranch.spotId, modalBranch.spotName.replace(/^Aura02[_-]?/i, ""))}</div>
                   <div className="modal-sub" style={{ fontSize: 12 }}>{modalBranch.totalQty} шт. · {modalBranch.items.length} позиций</div>
                 </div>
               </div>

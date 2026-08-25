@@ -1,6 +1,7 @@
 // DebtsView — общие долги, по филиалам, по периоду, по товарам.
 
 import { useMemo, useState } from "react";
+import { branchScope, useUserBranch } from "../auth.jsx";
 import {
   aggregateDocs, fmt, pct,
   dateInputToRu, dateInRange,
@@ -16,7 +17,8 @@ const TABS = [
 ];
 
 export default function DebtsView({ docs, canEdit, onPayBranch, onOpenBranch }) {
-  const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  const scopeBranch = branchScope(useUserBranch());
+  const agg = useMemo(() => aggregateDocs(docs, scopeBranch), [docs, scopeBranch]);
   const [tab, setTab] = useState("overview");
   const [periodFrom, setPeriodFrom] = useState("");
   const [periodTo, setPeriodTo] = useState("");

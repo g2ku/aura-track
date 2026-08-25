@@ -8,7 +8,7 @@ import {
   dateInRange, dateInputToRu,
 } from "../utils";
 import { Button } from "../ui";
-import { formatBranchName, getSpotNameForBranch } from "../auth.jsx";
+import { branchScope, useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 import { fetchCashPerDay } from "../poster";
 
 const BranchLine = lazy(() => import("./charts/BranchLine"));
@@ -39,7 +39,8 @@ function todayStr() {
 
 
 export default function BranchDetail({ branch, docs, canEdit, onBack }) {
-  const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  const scopeBranch = branchScope(useUserBranch());
+  const agg = useMemo(() => aggregateDocs(docs, scopeBranch), [docs, scopeBranch]);
   const spotName = getSpotNameForBranch(branch);
   const resolvedBranch = useMemo(() => {
     if (agg.byBranch[branch]) return branch;

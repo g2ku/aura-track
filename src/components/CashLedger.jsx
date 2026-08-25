@@ -8,7 +8,7 @@ import { fmt } from "../utils";
 import { useToast } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
 import { useHashRoute } from "../router";
-import { getSpotNameForBranch, isAdmin, isAdminOrManager, spotNameByPosterId, useRole } from "../auth.jsx";
+import { getSpotNameForBranch, getUserSpotId, isAdmin, isAdminOrManager, spotNameByPosterId, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useAppStore } from "../store/useAppStore";
@@ -110,6 +110,9 @@ export default function CashLedger({
   const role = useRole();
   const spotName = getSpotNameForBranch(userBranch);
   const isBranch = !!userBranch;
+  // Куратор видит только свою точку — и в сводных числах тоже, а не
+  // только в списке филиалов.
+  const mySpotId = getUserSpotId();
 
   useEffect(() => {
     let cancelled = false;
@@ -117,8 +120,8 @@ export default function CashLedger({
       if (!quiet) setLoading(true);
       setError("");
       const yesterday = isToday ? fetchCashBySpot(daysAgoStr(1), daysAgoStr(1)) : Promise.resolve(null);
-      const hourly = isToday ? fetchHourlyCurve(dateFrom) : Promise.resolve(null);
-      const yesterdayHourlyP = isToday ? fetchHourlyCurve(daysAgoStr(1)) : Promise.resolve(null);
+      const hourly = isToday ? fetchHourlyCurve(dateFrom, { spotId: mySpotId }) : Promise.resolve(null);
+      const yesterdayHourlyP = isToday ? fetchHourlyCurve(daysAgoStr(1), { spotId: mySpotId }) : Promise.resolve(null);
       const [cashResult, suppliesResult, payResult, yResult, hResult, yhResult] = await Promise.allSettled([
         fetchCashBySpot(dateFrom, dateTo),
         fetchSupplyStatus(null),
@@ -133,7 +136,10 @@ export default function CashLedger({
       if (suppliesResult.status === "fulfilled") setSupplyStatus(suppliesResult.value);
       if (payResult.status === "fulfilled") setPayBreakdown(payResult.value);
       if (yResult.status === "fulfilled" && yResult.value) {
-        setYesterdayTotal(yResult.value.reduce((s, c) => s + c.total, 0));
+        const rows = mySpotId
+          ? yResult.value.filter((c) => String(c.spotId) === String(mySpotId))
+          : yResult.value;
+        setYesterdayTotal(rows.reduce((s, c) => s + c.total, 0));
       }
       if (hResult.status === "fulfilled" && hResult.value) setHourlyCurve(hResult.value);
       if (yhResult.status === "fulfilled" && yhResult.value) setYesterdayHourly(yhResult.value);
@@ -149,7 +155,7 @@ export default function CashLedger({
     const [cash, pay, hourly] = await Promise.allSettled([
       fetchCashBySpot(dateFrom, dateTo),
       fetchPaymentBreakdown(dateFrom, dateTo),
-      fetchHourlyCurve(dateFrom),
+      fetchHourlyCurve(dateFrom, { spotId: mySpotId }),
     ]);
     if (cash.status === "fulfilled") setCashBySpot(cash.value);
     if (pay.status === "fulfilled") setPayBreakdown(pay.value);
@@ -208,7 +214,7 @@ export default function CashLedger({
   // График кассы по дням — из локального кэша дней (без лишних запросов)
   const daySeries = useMemo(() => {
     if (isToday) return [];
-    return getCachedDayTotals(dateFrom, dateTo);
+    return getCachedDayTotals(dateFrom, dateTo, mySpotId);
   }, [dateFrom, dateTo, cashBySpot, isToday]);
 
   // Способы оплаты: агрегируем по отфильтрованным точкам
@@ -325,7 +331,7 @@ export default function CashLedger({
     fetchCashBySpot(dateFrom, dateTo, opts).then(setCashBySpot).catch(() => {});
     fetchSupplyStatus(null, opts).then(setSupplyStatus).catch(() => {});
     fetchPaymentBreakdown(dateFrom, dateTo, opts).then(setPayBreakdown).catch(() => {});
-    if (isToday) fetchHourlyCurve(dateFrom, opts).then(setHourlyCurve).catch(() => {});
+    if (isToday) fetchHourlyCurve(dateFrom, { ...opts, spotId: mySpotId }).then(setHourlyCurve).catch(() => {});
     setCheckedAt(Date.now());
     toast({ tone: "success", icon: "ti-refresh", title: "Обновлено", message: `Проверка в ${fmtClock(Date.now())}` });
   }
@@ -671,7 +677,7 @@ export default function CashLedger({
                     onClick={() => onSelectBranch(c.spotName)}
                   >
                     <span className="cl-spot-name-text">
-                      {c.spotName.replace(/^Aura02[_-]?/i, "") || c.spotName}
+                      {spotNameByPosterId(c.spotId, c.spotName.replace(/^Aura02[_-]?/i, ""))}
                     </span>
                     <i className="ti ti-chevron-right" style={{ fontSize: 14, color: "var(--text-muted)" }} aria-hidden="true" />
                   </button>
@@ -768,7 +774,7 @@ export default function CashLedger({
           <div key={`${w.spotId}-${i}`} className="cl-attention-item">
             <span className="stamp stamp-warn"><i className="ti ti-truck" aria-hidden="true" /> Поставка</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <b>{w.spotName.replace(/^Aura02[_-]?/i, "") || w.spotName}</b> — {w.lastSupplyDate || "нет данных"}, {w.daysSinceLastSupply} дн.
+              <b>{spotNameByPosterId(w.spotId, w.spotName.replace(/^Aura02[_-]?/i, ""))}</b> — {w.lastSupplyDate || "нет данных"}, {w.daysSinceLastSupply} дн.
             </span>
           </div>
         ))}
