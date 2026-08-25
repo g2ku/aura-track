@@ -64,7 +64,14 @@ function buildUrl(method, params = {}, opts = {}) {
 
 export function toPosterDate(input) {
   if (!input) return "";
-  const m = String(input).match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  const raw = String(input).trim();
+
+  // Уже в формате Poster — отдаём как есть. Без этого функция молча
+  // возвращала пустую строку на собственном же выходе, и запрос уходил
+  // без дат: открытые чеки переставали находиться, а ошибки не было.
+  if (/^\d{8}$/.test(raw)) return raw;
+
+  const m = raw.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
   if (!m) return "";
   return `${m[1]}${m[2].padStart(2, "0")}${m[3].padStart(2, "0")}`;
 }
@@ -734,8 +741,18 @@ function shiftYmd(ymd, days) {
   return d.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-function maxYmdDate(a, b) {
-  return a > b ? a : b;
+// Окно поиска открытых чеков: хвост периода, но не раньше его начала.
+//
+// Отдельной функцией, чтобы это можно было проверить тестом. В прошлый
+// раз расчёт жил внутри загрузки, тест смотрел на него регуляркой по
+// исходнику — и не заметил, что на выходе получается формат, который
+// принимающая сторона не понимает.
+export function openCheckWindow(dateFrom, dateTo, tailDays = 1) {
+  const from = toPosterDate(dateFrom);
+  const to = toPosterDate(dateTo);
+  if (!from || !to) return null;
+  const tail = shiftYmd(to, -tailDays);
+  return { from: from > tail ? from : tail, to };
 }
 
 export async function fetchDashTransactions(dateFrom, dateTo, opts = {}) {
@@ -899,8 +916,8 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
     // Открытые чеки ищем только в хвосте периода. dash.getTransactions
     // тяжёлый — 0,65 МБ за день, 27,8 МБ за месяц, — а забытый чек живёт
     // день-два, не месяц. За «30 дней» это разница между 1,3 МБ и 27,8.
-    const openFrom = maxYmdDate(toPosterDate(dateFrom), shiftYmd(toPosterDate(dateTo), -1));
-    const dashRows = await fetchDashTransactions(openFrom, dateTo, opts);
+    const win = openCheckWindow(dateFrom, dateTo);
+    const dashRows = win ? await fetchDashTransactions(win.from, win.to, opts) : [];
 
     // transactions.getTransactions имени бариста не отдаёт — колонка
     // «Официант» у закрытых чеков стояла пустой. В dash оно есть, и мы
