@@ -84,18 +84,36 @@ export default function Dashboard({
       // пользоваться кэшем, иначе каждый заход тянет мегабайт заново.
       const opts = { fresh: freshRef.current };
       freshRef.current = false;
-      const [cashResult, suppliesResult, payResult] = await Promise.allSettled([
-        fetchCashBySpot(dateFrom, dateTo, opts),
-        fetchSupplyStatus(null, opts),
-        fetchPaymentBreakdown(dateFrom, dateTo, opts),
-      ]);
-      if (!cancelled) {
-        if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
-        else setPosterError("Кассы: " + (cashResult.reason?.message || "Ошибка"));
-        if (suppliesResult.status === "fulfilled") setSupplyStatus(suppliesResult.value);
-        else setPosterError(prev => prev ? prev + "; Поставки: " + (suppliesResult.reason?.message || "Ошибка") : "Поставки: " + (suppliesResult.reason?.message || "Ошибка"));
-        if (payResult.status === "fulfilled") setPayBreakdown(payResult.value);
-      }
+
+      // Касса показывается СРАЗУ, как пришла, и не ждёт поставок с
+      // оплатами. Раньше все три запроса ждали друг друга через
+      // Promise.allSettled, и самый медленный задерживал главную цифру
+      // на экране.
+      const cash = fetchCashBySpot(dateFrom, dateTo, opts)
+        .then((v) => {
+          if (cancelled) return;
+          setCashBySpot(v);
+          setPosterLoading(false);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setPosterError("Кассы: " + (e?.message || "Ошибка"));
+          setPosterLoading(false);
+        });
+
+      const supplies = fetchSupplyStatus(null, opts)
+        .then((v) => { if (!cancelled) setSupplyStatus(v); })
+        .catch((e) => {
+          if (cancelled) return;
+          const msg = "Поставки: " + (e?.message || "Ошибка");
+          setPosterError((prev) => (prev ? prev + "; " + msg : msg));
+        });
+
+      const pay = fetchPaymentBreakdown(dateFrom, dateTo, opts)
+        .then((v) => { if (!cancelled) setPayBreakdown(v); })
+        .catch(() => {});
+
+      await Promise.allSettled([cash, supplies, pay]);
       if (!cancelled) setPosterLoading(false);
     }
     load();

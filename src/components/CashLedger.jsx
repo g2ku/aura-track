@@ -6,9 +6,9 @@
 import { useMemo, useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, groupOpenChecks } from "../poster";
 import { useHashRoute } from "../router";
-import { getSpotNameForBranch, isAdmin, isAdminOrManager, useRole } from "../auth.jsx";
+import { getSpotNameForBranch, isAdmin, isAdminOrManager, spotNameByPosterId, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useAppStore } from "../store/useAppStore";
@@ -52,6 +52,14 @@ function fmtClock(ts) {
 // За месяц забытых чеков может набраться много — показываем самые давние,
 // остальное сворачиваем в одну строку.
 const OPEN_CHECK_LIST_LIMIT = 20;
+
+// 1 чек, 2 чека, 5 чеков — иначе в списке висит «5 чека»
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
 
 // «7 мин», «1 ч 37 мин» — сколько чек уже висит открытым
 function fmtAge(minutes) {
@@ -218,18 +226,13 @@ export default function CashLedger({
     if (!items.length) return null;
     return {
       items,
+      groups: groupOpenChecks(items),
       count: items.length,
       sum: Math.round(items.reduce((s, i) => s + i.sum, 0)),
       stuck: items.filter((i) => i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN).length,
       bySpot: src.bySpot,
     };
   }, [payBreakdown, displayCash]);
-
-  const spotNameById = useMemo(() => {
-    const m = {};
-    for (const c of displayCash) m[String(c.spotId)] = c.spotName.replace(/^Aura02[_-]?/i, "") || c.spotName;
-    return m;
-  }, [displayCash]);
 
   const paymentMethods = useMemo(() => {
     if (!payBreakdown) return [];
@@ -423,29 +426,52 @@ export default function CashLedger({
             <i className="ti ti-receipt-off" aria-hidden="true" /> Открытые чеки
             <span className="cl-zone-sub">· не попадают в кассу, пока не закрыты</span>
           </div>
-          {openChecks.items.slice(0, OPEN_CHECK_LIST_LIMIT).map((i) => {
-            const stuck = i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN;
+
+          <div className="oc-head">
+            <span>Бариста · точка</span>
+            <span className="oc-head-right">висит</span>
+            <span className="oc-head-right">сумма</span>
+          </div>
+
+          {openChecks.groups.slice(0, OPEN_CHECK_LIST_LIMIT).map((g) => {
+            const stuck = g.oldest != null && g.oldest >= OPEN_CHECK_STUCK_MIN;
             return (
-              <div key={i.id} className={`cl-line${stuck ? " cl-open-stuck-row" : ""}`}>
-                <span className="cl-line-label">
-                  {i.waiter || "—"}
-                  <span className="cl-open-spot"> · {spotNameById[i.spotId] || i.spotId}</span>
+              <div
+                key={g.key}
+                className={`oc-row${stuck ? " oc-row-stuck" : ""}`}
+                title={g.count > 1 ? `Чеки: ${g.ages.map(fmtAge).join(", ")}` : undefined}
+              >
+                <span className="oc-who">
+                  <span className="oc-name">{g.waiter || "без имени"}</span>
+                  <span className="oc-spot">{spotNameByPosterId(g.spotId)}</span>
                 </span>
-                <span className="cl-line-dots" />
-                <span className="cl-open-age">{fmtAge(i.minutes)}</span>
-                <span className="cl-line-value">{i.sum > 0 ? fmt(i.sum) : "пусто"}</span>
+                <span className="oc-count-cell">
+                  {g.count > 1 && (
+                    <span className="oc-count">{g.count} {plural(g.count, "чек", "чека", "чеков")}</span>
+                  )}
+                </span>
+                <span className="oc-age">{fmtAge(g.oldest)}</span>
+                <span className="oc-sum">{g.sum > 0 ? fmt(g.sum) : "—"}</span>
               </div>
             );
           })}
-          {openChecks.items.length > OPEN_CHECK_LIST_LIMIT && (
-            <div className="cl-line">
-              <span className="cl-line-label" style={{ color: "var(--text-muted)" }}>
-                и ещё {openChecks.items.length - OPEN_CHECK_LIST_LIMIT}
+
+          {openChecks.groups.length > OPEN_CHECK_LIST_LIMIT && (
+            <div className="oc-row oc-row-more">
+              <span className="oc-who">
+                <span className="oc-name">и ещё {openChecks.groups.length - OPEN_CHECK_LIST_LIMIT}</span>
               </span>
-              <span className="cl-line-dots" />
-              <span className="cl-line-value">
-                {fmt(openChecks.items.slice(OPEN_CHECK_LIST_LIMIT).reduce((s, i) => s + i.sum, 0))}
+              <span className="oc-count-cell" />
+              <span className="oc-age" />
+              <span className="oc-sum">
+                {fmt(openChecks.groups.slice(OPEN_CHECK_LIST_LIMIT).reduce((s, g) => s + g.sum, 0))}
               </span>
+            </div>
+          )}
+
+          {openChecks.stuck > 0 && (
+            <div className="oc-note">
+              Оранжевым — открыто дольше {OPEN_CHECK_STUCK_MIN} мин: столько напиток не делают.
             </div>
           )}
         </div>

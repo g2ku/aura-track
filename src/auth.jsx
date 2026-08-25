@@ -40,6 +40,15 @@ for (const [id, cfg] of Object.entries(BRANCHES)) {
   NAME_TO_BRANCH[cfg.spotName.toLowerCase()] = id;
 }
 
+// Poster отдаёт названия точек латиницей (Abaya, Zharokova), а на сайте
+// везде русские. Переводим по spotId — он общий и не меняется.
+const NAME_BY_SPOT_ID = {};
+for (const cfg of Object.values(BRANCHES)) NAME_BY_SPOT_ID[cfg.spotId] = cfg.spotName;
+
+export function spotNameByPosterId(spotId, fallback = "") {
+  return NAME_BY_SPOT_ID[String(spotId)] || fallback || String(spotId);
+}
+
 export function formatBranchName(branch) {
   if (!branch) return branch;
   return BRANCH_TO_NAME[branch] || branch.replace(/^Aura02[_-]?/i, "");

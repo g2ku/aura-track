@@ -30,6 +30,13 @@ const body =
 const { collectOpenChecks, isOpenCheck, OPEN_CHECK_STUCK_MIN } =
   await import("data:text/javascript," + encodeURIComponent(body));
 
+// Группировка лежит рядом и тоже чистая
+const gFrom = src.indexOf("export function groupOpenChecks");
+const gTo = src.indexOf("function emptyOpenChecks");
+const { groupOpenChecks } = await import(
+  "data:text/javascript," + encodeURIComponent(src.slice(gFrom, gTo))
+);
+
 const MIN = 60 * 1000;
 const ago = (m) => String(Date.now() - m * MIN);
 
@@ -113,6 +120,66 @@ try {
   failed++; failures.push(`  ❌ слепок живого ответа не прочитался: ${e.message}`);
 }
 
+section("Чеки одного бариста собираются в строку");
+
+{
+  // В плоском списке чеки одного человека разбросаны по всему экрану —
+  // непонятно, кто именно тормозит. Схлопываем в одну строку.
+  const items = [
+    { spotId: "4", waiter: "Сабина", sum: 1190, minutes: 72 },
+    { spotId: "4", waiter: "Сабина", sum: 890, minutes: 5 },
+    { spotId: "2", waiter: "Раф Эво", sum: 1190, minutes: 28 },
+    { spotId: "7", waiter: "Адият", sum: 0, minutes: 38 },
+  ];
+  const g = groupOpenChecks(items);
+
+  eq(g.length, 3, "четыре чека — три строки");
+  eq(g.map((x) => x.waiter), ["Сабина", "Адият", "Раф Эво"], "сверху те, у кого висит дольше");
+
+  const sabina = g[0];
+  eq(sabina.count, 2, "у Сабины два чека в одной строке");
+  eq(sabina.sum, 2080, "суммы её чеков сложены");
+  eq(sabina.oldest, 72, "показываем самый давний, а не средний");
+  eq(sabina.ages, [72, 5], "возраст каждого — для подсказки");
+}
+
+{
+  // Один и тот же человек на РАЗНЫХ точках — разные строки: иначе
+  // непонятно, где именно висит.
+  const g = groupOpenChecks([
+    { spotId: "4", waiter: "Сабина", sum: 100, minutes: 5 },
+    { spotId: "9", waiter: "Сабина", sum: 200, minutes: 9 },
+  ]);
+  eq(g.length, 2, "одно имя на двух точках не склеивается");
+  eq(g[0].spotId, "9", "первой — та точка, где висит дольше");
+}
+
+{
+  const g = groupOpenChecks([{ spotId: "4", waiter: "", sum: 0, minutes: null }]);
+  eq(g.length, 1, "чек без имени и без времени не теряется");
+  eq(g[0].oldest, null, "возраст не выдуман");
+}
+
+eq(groupOpenChecks([]), [], "пустой список");
+
+section("Названия точек — по-русски");
+
+{
+  // Poster отдаёт латиницу (Abaya, Zharokova), на сайте везде русские имена.
+  const auth = readFileSync("src/auth.jsx", "utf8");
+  ok(/export function spotNameByPosterId/.test(auth), "есть перевод spotId → русское имя");
+  const cl = readFileSync("src/components/CashLedger.jsx", "utf8");
+  ok(/spotNameByPosterId\(g\.spotId\)/.test(cl), "список открытых чеков им пользуется");
+
+  // Смотрим ровно блок открытых чеков: ниже по файлу идут карточки
+  // филиалов, там имя из Poster на своём месте.
+  const zoneFrom = cl.indexOf("Открытые чеки");
+  const zoneTo = cl.indexOf("Способы оплаты", zoneFrom);
+  const zone = cl.slice(zoneFrom, zoneTo);
+  ok(zoneTo > zoneFrom, "блок открытых чеков найден");
+  ok(!/spotName/.test(zone), "латинские имена из Poster в список не просачиваются");
+}
+
 section("Видно только админу");
 
 // Гейт стоит один раз — там, где openChecks вычисляется. Если кто-то
@@ -132,6 +199,41 @@ for (const file of ["src/components/Dashboard.jsx", "src/components/CashLedger.j
   const raw = src.match(/payBreakdown[?.]*\.openChecks/g) || [];
   ok(raw.length === 1,
      `${file}: к payBreakdown.openChecks обращаются один раз, за гейтом (нашли ${raw.length})`);
+}
+
+section("Касса не ждёт остальные модули дашборда");
+
+{
+  // Замер на проде: menu.getProducts — 4,6 МБ и 3,4 с, а индекс из него
+  // весит 15 КБ. Без сохранения он качался при каждой перезагрузке, и
+  // касса всё это время ждала: разбор продаж начинается с меню.
+  const poster = readFileSync("src/poster.js", "utf8");
+  ok(/const MENU_KEY = /.test(poster), "индекс меню сохраняется между заходами");
+  ok(/localStorage\.setItem\(MENU_KEY/.test(poster), "и пишется в localStorage");
+  ok(/if \(!opts\.fresh\) \{\s*const saved = readMenuCache\(\);/.test(poster),
+     "«Обновить» подтягивает новые названия товаров мимо кэша");
+  ok(/removeItem\(MENU_KEY\)/.test(poster), "clearPosterCache сбрасывает и меню");
+
+  const dash = readFileSync("src/components/Dashboard.jsx", "utf8");
+  // Комментарии убираем: в них упоминается и Promise.allSettled, и всё
+  // остальное, за что тест иначе цепляется вместо самого кода.
+  const code = dash.replace(/\/\/[^\n]*/g, "");
+  const load = code.slice(code.indexOf("async function load("), code.indexOf("load();"));
+
+  // Главная гарантия: касса рисуется по своему промису, а не после всех.
+  ok(/fetchCashBySpot\([^)]*\)\s*\n?\s*\.then\(/.test(load),
+     "касса ставится в состояние своим .then, а не после Promise.allSettled");
+  ok(/setPosterLoading\(false\);\s*\}\)/.test(load),
+     "загрузка снимается сразу по приходу кассы");
+
+  const allAt = load.indexOf("Promise.allSettled");
+  const cashAt = load.indexOf("setCashBySpot");
+  ok(cashAt !== -1 && (allAt === -1 || cashAt < allAt),
+     "касса выставляется ДО общего ожидания, а не внутри него");
+
+  // Поставки и оплаты не должны блокировать кассу своими ошибками
+  ok(/fetchSupplyStatus\([^)]*\)\s*\n?\s*\.then\(/.test(load), "поставки грузятся отдельно");
+  ok(/fetchPaymentBreakdown\([^)]*\)\s*\n?\s*\.then\(/.test(load), "оплаты грузятся отдельно");
 }
 
 console.log("\n══════════════════════════════════════════════════");
