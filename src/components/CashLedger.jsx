@@ -6,7 +6,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, groupOpenChecks } from "../poster";
+import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
 import { useHashRoute } from "../router";
 import { getSpotNameForBranch, isAdmin, isAdminOrManager, spotNameByPosterId, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
@@ -224,9 +224,31 @@ export default function CashLedger({
     const allowed = new Set(displayCash.map((c) => String(c.spotId)));
     const items = src.items.filter((i) => allowed.has(i.spotId));
     if (!items.length) return null;
+    // Пустой чек — это не зависшие деньги, а тишина на точке. Считаем и
+    // показываем его отдельно, иначе он разбавляет список настоящих
+    // открытых заказов нулями.
+    const withOrder = items.filter((i) => !isEmptyCheck(i));
+    const empty = items.filter(isEmptyCheck);
+
+    // Пустые собираем по точке, а не по бариста: важно, ГДЕ не продают.
+    const emptyBySpot = [];
+    for (const i of empty) {
+      let row = emptyBySpot.find((r) => r.spotId === i.spotId);
+      if (!row) {
+        row = { spotId: i.spotId, waiters: [], silentFor: i.silentFor ?? i.minutes, count: 0 };
+        emptyBySpot.push(row);
+      }
+      row.count++;
+      if (i.waiter && !row.waiters.includes(i.waiter)) row.waiters.push(i.waiter);
+      const s = i.silentFor ?? i.minutes;
+      if (s != null && (row.silentFor == null || s > row.silentFor)) row.silentFor = s;
+    }
+    emptyBySpot.sort((a, b) => (b.silentFor ?? -1) - (a.silentFor ?? -1));
+
     return {
       items,
-      groups: groupOpenChecks(items),
+      groups: groupOpenChecks(withOrder),
+      emptyBySpot,
       count: items.length,
       sum: Math.round(items.reduce((s, i) => s + i.sum, 0)),
       stuck: items.filter((i) => i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN).length,
@@ -427,11 +449,13 @@ export default function CashLedger({
             <span className="cl-zone-sub">· не попадают в кассу, пока не закрыты</span>
           </div>
 
-          <div className="oc-head">
-            <span>Бариста · точка</span>
-            <span className="oc-head-right">висит</span>
-            <span className="oc-head-right">сумма</span>
-          </div>
+          {openChecks.groups.length > 0 && (
+            <div className="oc-head">
+              <span>Бариста · точка</span>
+              <span className="oc-head-right">висит</span>
+              <span className="oc-head-right">сумма</span>
+            </div>
+          )}
 
           {openChecks.groups.slice(0, OPEN_CHECK_LIST_LIMIT).map((g) => {
             const stuck = g.oldest != null && g.oldest >= OPEN_CHECK_STUCK_MIN;
@@ -469,9 +493,36 @@ export default function CashLedger({
             </div>
           )}
 
-          {openChecks.stuck > 0 && (
+          {openChecks.stuck > 0 && openChecks.groups.length > 0 && (
             <div className="oc-note">
               Оранжевым — открыто дольше {OPEN_CHECK_STUCK_MIN} мин: столько напиток не делают.
+            </div>
+          )}
+
+          {openChecks.emptyBySpot.length > 0 && (
+            <div className="oc-empty">
+              <div className="oc-empty-title">
+                Чек открыт, но ничего не пробито
+              </div>
+              {openChecks.emptyBySpot.map((r) => {
+                const quiet = r.silentFor != null && r.silentFor >= OPEN_CHECK_STUCK_MIN;
+                return (
+                  <div key={r.spotId} className={`oc-row oc-row-empty${quiet ? " oc-row-stuck" : ""}`}>
+                    <span className="oc-who">
+                      <span className="oc-name">{spotNameByPosterId(r.spotId)}</span>
+                      <span className="oc-spot">{r.waiters.join(", ") || "без имени"}</span>
+                    </span>
+                    <span className="oc-count-cell">
+                      {r.count > 1 && (
+                        <span className="oc-count">{r.count} {plural(r.count, "чек", "чека", "чеков")}</span>
+                      )}
+                    </span>
+                    <span className="oc-quiet">
+                      нет заказов {fmtAge(r.silentFor)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

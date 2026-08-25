@@ -17,33 +17,20 @@ function eq(a, e, l) {
 }
 function section(t) { console.log(`\n📋 ${t}`); }
 
-// Модуль тянет за собой браузерное окружение, поэтому берём из него только
-// разбор открытых чеков — он чистый и от DOM не зависит.
-const src = readFileSync("src/poster.js", "utf8");
-const from = src.indexOf("export const OPEN_CHECK_STUCK_MIN");
-const to = src.indexOf("export async function fetchPaymentBreakdown");
-const helpers = src.slice(src.indexOf("function emptyOpenChecks"));
-const body =
-  src.slice(from, to) +
-  helpers.slice(0, helpers.indexOf("\n}\n", helpers.indexOf("out.sum = Math.round")) + 3) +
-  "\nexport { collectOpenChecks, emptyOpenChecks };";
-const { collectOpenChecks, isOpenCheck, OPEN_CHECK_STUCK_MIN } =
-  await import("data:text/javascript," + encodeURIComponent(body));
-
-// Группировка лежит рядом и тоже чистая
-const gFrom = src.indexOf("export function groupOpenChecks");
-const gTo = src.indexOf("function emptyOpenChecks");
-const { groupOpenChecks } = await import(
-  "data:text/javascript," + encodeURIComponent(src.slice(gFrom, gTo))
-);
+// Логика открытых чеков живёт отдельным модулем без сети и DOM — можно
+// просто импортировать, без вырезания функций из большого файла.
+import {
+  collectOpenChecks, collectLastOrders, groupOpenChecks,
+  isOpenCheck, isEmptyCheck, OPEN_CHECK_STUCK_MIN,
+} from "./src/openChecks.js";
 
 const MIN = 60 * 1000;
 const ago = (m) => String(Date.now() - m * MIN);
 
 // Форма — ровно как отдаёт dash.getTransactions: строки, суммы в копейках
-const closed = (id, spot, payed) => ({
+const closed = (id, spot, payed, minutesAgo = 5) => ({
   transaction_id: id, spot_id: spot, status: "2",
-  date_close: "1787640000000", payed_sum: String(payed), sum: String(payed), name: "Раф Эво",
+  date_close: ago(minutesAgo), payed_sum: String(payed), sum: String(payed), name: "Раф Эво",
 });
 const open = (id, spot, sum, minutes, waiter = "Сабина") => ({
   transaction_id: id, spot_id: spot, status: "1",
@@ -120,6 +107,54 @@ try {
   failed++; failures.push(`  ❌ слепок живого ответа не прочитался: ${e.message}`);
 }
 
+section("Пустой чек — это тишина на точке, а не деньги в воздухе");
+
+ok(isEmptyCheck({ sum: 0 }), "нулевая сумма — пустой");
+ok(isEmptyCheck({}), "чек без суммы — пустой");
+ok(!isEmptyCheck({ sum: 1190 }), "с заказом — не пустой");
+
+{
+  // Когда на точке в последний раз ЗАКРЫЛИ чек
+  const last = collectLastOrders([
+    closed("1", "4", 90000, 40),
+    closed("2", "4", 50000, 6),   // свежее — его и берём
+    closed("3", "7", 30000, 52),
+    open("4", "4", 0, 3),          // открытый в счёт не идёт
+  ]);
+  const minutesAgo = (ts) => Math.round((Date.now() - ts) / MIN);
+  eq(minutesAgo(last["4"]), 6, "берём самый свежий закрытый чек точки");
+  eq(minutesAgo(last["7"]), 52, "на тихой точке — 52 минуты назад");
+  eq(last["9"], undefined, "точка без продаж в списке не появляется");
+}
+
+{
+  // «Нет заказов N минут» считается от последней продажи, а не от того,
+  // когда бариста открыл пустой чек: это разные вещи.
+  const r = collectOpenChecks([
+    closed("c1", "7", 30000, 52),
+    open("o1", "7", 0, 3, "Адият"),
+  ]);
+  eq(r.items[0].minutes, 3, "чек открыт 3 минуты назад");
+  eq(r.items[0].silentFor, 52, "а заказов нет уже 52 минуты");
+}
+
+{
+  // Точка вообще без продаж за день: большего, чем возраст чека, не знаем
+  const r = collectOpenChecks([open("o1", "3", 0, 26, "Алуа райы")]);
+  eq(r.items[0].silentFor, 26, "без закрытых чеков берём возраст открытого");
+}
+
+{
+  // Пустые не должны разбавлять список настоящих открытых заказов
+  const items = collectOpenChecks([
+    open("a", "4", 119000, 8, "Сабина"),
+    open("b", "4", 0, 3, "Сабина"),
+  ]).items;
+  const withOrder = items.filter((i) => !isEmptyCheck(i));
+  eq(withOrder.length, 1, "в списке с суммами — только чек с заказом");
+  eq(groupOpenChecks(withOrder)[0].sum, 1190, "сумма не разбавлена нулём");
+}
+
 section("Чеки одного бариста собираются в строку");
 
 {
@@ -178,6 +213,23 @@ section("Названия точек — по-русски");
   const zone = cl.slice(zoneFrom, zoneTo);
   ok(zoneTo > zoneFrom, "блок открытых чеков найден");
   ok(!/spotName/.test(zone), "латинские имена из Poster в список не просачиваются");
+}
+
+section("Пустые показываются отдельным блоком");
+
+{
+  const cl = readFileSync("src/components/CashLedger.jsx", "utf8");
+  ok(/const empty = items\.filter\(isEmptyCheck\)/.test(cl), "пустые отделяются от остальных");
+  ok(/groupOpenChecks\(withOrder\)/.test(cl), "в основной список идут только чеки с заказом");
+  ok(/нет заказов \{fmtAge\(r\.silentFor\)\}/.test(cl), "формулировка — про отсутствие заказов");
+  ok(/emptyBySpot/.test(cl), "пустые сгруппированы по точке, а не по бариста");
+
+  // В блоке пустых — точка на первом месте: важно ГДЕ не продают
+  const from = cl.indexOf("oc-empty-title");
+  const to = cl.indexOf("</div>", cl.indexOf("oc-quiet"));
+  const block = cl.slice(from, to);
+  ok(block.indexOf("spotNameByPosterId") < block.indexOf("r.waiters"),
+     "точка названа раньше бариста");
 }
 
 section("Видно только админу");
