@@ -1,30 +1,132 @@
-rules_version='2'
+rules_version = '2';
+
+// Правила доступа к Firestore для Aura 02.
+//
+// Что здесь важно понимать:
+//
+// 1. Сервер (Telegram-бот, `api/`) ходит через Admin SDK и правила ОБХОДИТ.
+//    Всё, что ниже, — только про браузер. Поэтому коллекции бота
+//    (`botConfig`, `botSeen`, `settings/products`) клиенту закрыты наглухо:
+//    ему они не нужны, а в botConfig лежат привязки и настройки рассылки.
+//
+// 2. Роль берётся из `users/{uid}.role` — "admin" | "manager" | "curator".
+//    get() внутри правил сам правила не проверяет, рекурсии нет.
+//
+// 3. Регистрация на сайте ставит роль "curator" в коде формы, но на это
+//    нельзя полагаться: в Firestore можно писать и мимо сайта. Поэтому
+//    роль в момент создания профиля проверяется правилом, а менять её
+//    себе нельзя вовсе.
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Публичные данные — только чтение для всех
-    match /public/{document} {
-      allow read: if true;
-      allow write: if false;
+
+    // ─── Кто это ──────────────────────────────────────────────────────
+
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Данные пользователей
+    function profilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    // Профиля может не быть (аккаунт завели, метаданные не создали) —
+    // тогда роли нет, и человек остаётся на правах обычного сотрудника.
+    function role() {
+      return signedIn() && exists(profilePath())
+        ? get(profilePath()).data.role
+        : '';
+    }
+
+    function isAdmin() {
+      return role() == 'admin';
+    }
+
+    // Админ и управляющий: видят сеть целиком, правят накладные.
+    function isStaff() {
+      return role() in ['admin', 'manager'];
+    }
+
+    // ─── Пользователи ─────────────────────────────────────────────────
+
     match /users/{uid} {
-      allow read: if request.auth != null;
-      // Can create own profile; can update only own profile (except admins via Admin SDK)
-      allow create: if request.auth != null && request.auth.uid == uid;
-      allow update: if request.auth != null && request.auth.uid == uid;
-      // Delete only via Admin SDK
-      allow delete: if false;
+      // Свой профиль читает каждый — на нём держится вход.
+      // Чужие — только админ и управляющий (экран «Пользователи»).
+      allow read: if signedIn() && (request.auth.uid == uid || isStaff());
+
+      // Создать можно только свой профиль и только куратором. Без этого
+      // любой, кто прошёл регистрацию, выписал бы себе роль админа.
+      allow create: if signedIn()
+                    && request.auth.uid == uid
+                    && request.resource.data.role == 'curator';
+
+      // Роли и филиалы раздаёт только админ. Управляющий сюда не допущен
+      // намеренно: правом менять роли он выписал бы себе админа.
+      // Свой профиль на сайте никто не редактирует, поэтому послаблений нет.
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin();
     }
 
-    // Настройки — чтение для авторизованных, запись для авторизованных
+    // ─── Накладные и отчёты ───────────────────────────────────────────
+    //
+    // Читают все сотрудники: дашборды и сводки считаются по сети целиком,
+    // а фильтр по своему филиалу живёт на клиенте.
+    //
+    // Удаление отделено намеренно: оно необратимо и стирает день целиком.
+
+    match /documents/{docId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn();
+      allow delete: if isStaff();
+    }
+
+    // ─── Рабочие справочники и агрегаты сайта ─────────────────────────
+    // meta/recipes, meta/inventories, meta/waste, meta/cash-reconciliation,
+    // meta/global-payments. Инвентаризацию ведут кураторы, поэтому пишут все.
+
+    match /meta/{docId} {
+      allow read, write: if signedIn();
+    }
+
+    // ─── Настройки ────────────────────────────────────────────────────
+    //
+    // payrollPrices и payrollStaff — ставки и цены, по которым считается
+    // зарплата. Это деньги людей, их видит только админ, как и саму вкладку.
+    // products — справочник Telegram-бота, браузеру не нужен.
+
     match /settings/{docId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if isAdmin()
+                  || (signedIn()
+                      && !(docId in ['payrollPrices', 'payrollStaff', 'products']));
+
+      allow write: if isAdmin()
+                   || (isStaff() && docId == 'margin');
     }
 
-    // Рабочие данные — только серверный доступ (через Admin SDK)
+    // ─── Зарплатные листы ─────────────────────────────────────────────
+    // Ставки и выплаты по всем людям сети.
+
+    match /payroll/{sheetId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ─── Обращения ────────────────────────────────────────────────────
+    //
+    // Ленту видят все сотрудники: экран «Мои обращения» отбирает свои по
+    // автору уже на клиенте, отдельного поля с uid в документе нет.
+    // Отвечать и менять статус может только управляющий или админ.
+
+    match /tickets/{ticketId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // ─── Всё остальное ────────────────────────────────────────────────
+    // Сюда попадают botConfig и botSeen — с ними работает только сервер.
+
     match /{document=**} {
       allow read, write: if false;
     }
