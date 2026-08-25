@@ -247,6 +247,44 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
   return result;
 }
 
+// Один и тот же бариста на одной точке легко держит два-три чека разом.
+// В плоском списке они разбросаны, и понять «кто именно тормозит» трудно —
+// поэтому схлопываем в одну строку: сколько чеков, самый давний, общая сумма.
+export function groupOpenChecks(items) {
+  const map = new Map();
+
+  for (const i of items || []) {
+    const key = `${i.spotId}|${i.waiter}`;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key,
+        spotId: i.spotId,
+        waiter: i.waiter,
+        count: 0,
+        sum: 0,
+        oldest: i.minutes ?? null,
+        ages: [],
+      };
+      map.set(key, g);
+    }
+    g.count++;
+    g.sum += i.sum;
+    g.ages.push(i.minutes);
+    if (i.minutes != null && (g.oldest == null || i.minutes > g.oldest)) g.oldest = i.minutes;
+  }
+
+  const groups = [...map.values()];
+  for (const g of groups) {
+    g.sum = Math.round(g.sum);
+    // Внутри группы — от давних к свежим, для подсказки при наведении.
+    g.ages.sort((a, b) => (b ?? -1) - (a ?? -1));
+  }
+  // Сверху те, у кого висит дольше всех: ради них список и нужен.
+  groups.sort((a, b) => (b.oldest ?? -1) - (a.oldest ?? -1));
+  return groups;
+}
+
 function emptyOpenChecks() {
   return { count: 0, sum: 0, stuck: 0, bySpot: {}, items: [] };
 }
@@ -435,6 +473,8 @@ function setCachedDay(yyyymmdd, payload) {
 
 export function clearPosterCache() {
   try { localStorage.removeItem(CACHE_KEY); } catch (_) {}
+  try { localStorage.removeItem(MENU_KEY); } catch (_) {}
+  menuCache.data = null;
   // Кривая по часам лежит отдельными ключами со своим сроком в 10 минут.
   // Без этого «Обновить» освежал цифры, а график оставался прежним.
   try {
@@ -575,8 +615,37 @@ export async function getSpots(opts = {}) {
 //   modification_id — "0"/None/0
 // Нормализуем ключ индекса к строке "id:mid" и сразу строим оба варианта.
 const menuCache = { data: null, promise: null };
+// Справочник товаров живёт в localStorage, а не только в памяти вкладки.
+//
+// menu.getProducts отдаёт 4,6 МБ и идёт 3,4 секунды, а нужен из этого ответа
+// индекс «id → название» размером 15 КБ. Без сохранения эти 4,6 МБ качались
+// заново при КАЖДОЙ перезагрузке страницы — и касса всё это время ждала,
+// потому что разбор продаж начинается с меню.
+const MENU_KEY = "supply-track.poster.menuIndex.v1";
+const MENU_TTL_MS = 12 * 60 * 60 * 1000;
+
+function readMenuCache() {
+  try {
+    const raw = localStorage.getItem(MENU_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw);
+    if (!c?.idx || Date.now() - (c.ts || 0) > MENU_TTL_MS) return null;
+    return c.idx;
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function getMenuIndex(opts = {}) {
   if (menuCache.data) return menuCache.data;
+  // «Обновить» должен подтянуть и новые названия товаров.
+  if (!opts.fresh) {
+    const saved = readMenuCache();
+    if (saved) {
+      menuCache.data = saved;
+      return saved;
+    }
+  }
   if (menuCache.promise) return menuCache.promise;
   menuCache.promise = (async () => {
     const data = await call("menu.getProducts", {}, opts);
@@ -591,6 +660,7 @@ export async function getMenuIndex(opts = {}) {
       if (mid === "0") idx[pid] = name;
     }
     menuCache.data = idx;
+    try { localStorage.setItem(MENU_KEY, JSON.stringify({ ts: Date.now(), idx })); } catch (_) {}
     return idx;
   })();
   try {
