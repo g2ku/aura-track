@@ -113,6 +113,27 @@ try {
   failed++; failures.push(`  ❌ слепок живого ответа не прочитался: ${e.message}`);
 }
 
+section("Видно только админу");
+
+// Гейт стоит один раз — там, где openChecks вычисляется. Если кто-то
+// добавит новое место показа, оно погаснет само: данных просто не будет.
+for (const file of ["src/components/Dashboard.jsx", "src/components/CashLedger.jsx"]) {
+  const src = readFileSync(file, "utf8");
+  const at = src.indexOf("const openChecks = useMemo(");
+  ok(at !== -1, `${file}: openChecks вычисляется через useMemo`);
+  const head = src.slice(at, at + 400);
+  ok(/if \(!isAdmin\(\)\) return null;/.test(head),
+     `${file}: не админ — открытых чеков нет вовсе`);
+  ok(/import \{[^}]*\bisAdmin\b[^}]*\} from "\.\.\/auth\.jsx"/.test(src),
+     `${file}: isAdmin импортирован`);
+
+  // К сырым данным обращается ровно одно место — то, что за гейтом.
+  // Разметка читает только openChecks, иначе гейт можно обойти по недосмотру.
+  const raw = src.match(/payBreakdown[?.]*\.openChecks/g) || [];
+  ok(raw.length === 1,
+     `${file}: к payBreakdown.openChecks обращаются один раз, за гейтом (нашли ${raw.length})`);
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

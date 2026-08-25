@@ -8,7 +8,7 @@ import { fmt } from "../utils";
 import { useToast } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN } from "../poster";
 import { useHashRoute } from "../router";
-import { getSpotNameForBranch, isAdminOrManager, useRole } from "../auth.jsx";
+import { getSpotNameForBranch, isAdmin, isAdminOrManager, useRole } from "../auth.jsx";
 import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useAppStore } from "../store/useAppStore";
@@ -208,6 +208,9 @@ export default function CashLedger({
   // пробит, напиток делают, деньги ещё не проведены. Показываем в том же
   // разрезе филиалов, что и всю кассу.
   const openChecks = useMemo(() => {
+    // Пока только админу: по открытым чекам видно, кто именно держит заказ,
+    // и на этом легко построить неверные выводы о смене.
+    if (!isAdmin()) return null;
     const src = payBreakdown?.openChecks;
     if (!src || !src.count) return null;
     const allowed = new Set(displayCash.map((c) => String(c.spotId)));
