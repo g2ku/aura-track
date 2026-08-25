@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { aggregateDocs, fmt, pct } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot } from "../poster";
-import { useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
+import { branchScope, useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -29,8 +29,9 @@ const SORT_OPTIONS = [
 ];
 
 export default function BranchesView({ docs, canEdit, onOpen }) {
-  const agg = useMemo(() => aggregateDocs(docs), [docs]);
   const userBranch = useUserBranch();
+  const scopeBranch = branchScope(userBranch);
+  const agg = useMemo(() => aggregateDocs(docs, scopeBranch), [docs, scopeBranch]);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("total");
   const [cashBySpot, setCashBySpot] = useState([]);

@@ -33,7 +33,11 @@ export const tagStyle = (t) => {
 //   dates:     string[] (отсортированы по возрастанию),
 //   branches:  string[] (уникальные, отсортированы по убыванию total),
 // }
-export function aggregateDocs(docs) {
+// keepBranch — оставить только один филиал. Дневной документ содержит все
+// точки сразу, поэтому куратору мало отфильтровать сами накладные: без
+// этого в его «Всего поставок» попадали чужие суммы из тех же документов.
+export function aggregateDocs(docs, keepBranch = null) {
+  const mine = typeof keepBranch === "function" ? keepBranch : () => true;
   const byBranch = {};
   const byDate = {};
   const byProduct = {};
@@ -49,6 +53,7 @@ export function aggregateDocs(docs) {
     // Подсчёт поставки (totals берём, если есть; иначе считаем из items)
     const totals = d.totals || {};
     for (const b of d.branches || []) {
+      if (!mine(b)) continue;
       const t = +totals[b] || 0;
       byBranch[b] = byBranch[b] || { total: 0, paid: 0, debt: 0, reports: 0, dates: [] };
       byBranch[b].total += t;
@@ -69,6 +74,7 @@ export function aggregateDocs(docs) {
       const itemBranches = new Set();
       let hasPositive = false;
       for (const b of Object.keys(amounts)) {
+        if (!mine(b)) continue;
         const v = +amounts[b] || 0;
         itemTotal += v;
         if (v !== 0) itemBranches.add(b);
@@ -89,9 +95,11 @@ export function aggregateDocs(docs) {
     // Сначала убедимся, что byBranch содержит записи для всех филиалов
     // с платежами (даже если их нет в d.branches[] — случай удалённой ветки).
     for (const b of Object.keys(payments)) {
+      if (!mine(b)) continue;
       byBranch[b] = byBranch[b] || { total: 0, paid: 0, debt: 0, reports: 0, dates: [] };
     }
     for (const b of Object.keys(payments)) {
+      if (!mine(b)) continue;
       const hist = payments[b]?.history || [];
       const manualPaid = hist.reduce((s, h) => s + (+h.amount || 0), 0);
       const globalPaid = +(payments[b]?.globalAlloc || 0);

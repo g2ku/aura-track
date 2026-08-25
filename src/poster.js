@@ -78,15 +78,19 @@ export function toPosterDate(input) {
 
 
 export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
-  const result = await fetchPosterSales(dateFrom, dateTo, opts);
+  // Денежные цифры не зависят от названий товаров, поэтому 4,6 МБ меню
+  // здесь не ждём: на дашборде касса появляется первой.
+  const result = await fetchPosterSales(dateFrom, dateTo, { ...opts, withProducts: false });
   console.log("[poster] fetchCashBySpot rows:", result.rows?.length, "days:", result.daysCount, "tx:", result.transactionsCount);
   const bySpot = {};
 
   // Use tx.payed_sum-based cashBySpot — matches Poster's "Оплачено" exactly
   const cashBySpot = result.cashBySpot || {};
-  const spotNames = {};
-  for (const row of result.rows) {
-    spotNames[row.spotId] = row.spotName;
+  // Имена точек приходят из справочника: товарных строк без меню нет,
+  // а раньше имя вытаскивалось именно из них.
+  const spotNames = { ...(result.spotNames || {}) };
+  for (const row of result.rows || []) {
+    if (row.spotName) spotNames[row.spotId] = row.spotName;
   }
   for (const [spotId, total] of Object.entries(cashBySpot)) {
     bySpot[spotId] = { spotId, spotName: spotNames[spotId] || `Филиал #${spotId}`, total, txCount: 0 };
@@ -479,10 +483,13 @@ function writeCache(cache) {
   } catch (_) {}
 }
 
-function getCachedDay(yyyymmdd) {
+// needProducts — нужны ли названия товаров. День, сохранённый ради одних
+// денежных цифр, для них не годится: имён там нет.
+function getCachedDay(yyyymmdd, needProducts = true) {
   const cache = readCache();
   const entry = cache[yyyymmdd];
   if (!entry) return null;
+  if (needProducts && entry.hasProducts === false) return null;
   // Сегодняшний день — не кэшируем (всегда свежие данные)
   const today = new Date();
   const todayYMD = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
@@ -543,7 +550,7 @@ export function clearPosterCache() {
 
 // Дневные итоги кассы из локального кэша дней (без запросов к API).
 // Возвращает [{ yyyymmdd, total }] за диапазон или [] если кэша нет.
-export function getCachedDayTotals(dateFrom, dateTo) {
+export function getCachedDayTotals(dateFrom, dateTo, spotId = null) {
   try {
     const fromP = toPosterDate(dateFrom);
     const toP = toPosterDate(dateTo);
@@ -553,7 +560,10 @@ export function getCachedDayTotals(dateFrom, dateTo) {
     for (const yyyymmdd of enumerateDays(fromP, toP)) {
       const entry = cache[yyyymmdd];
       if (!entry) continue;
-      const total = Object.values(entry.cashBySpot || {}).reduce((s, v) => s + v, 0);
+      const cash = entry.cashBySpot || {};
+      const total = spotId
+        ? cash[String(spotId)] || 0
+        : Object.values(cash).reduce((s, v) => s + v, 0);
       out.push({ yyyymmdd, total });
     }
     return out;
@@ -566,10 +576,13 @@ export function getCachedDayTotals(dateFrom, dateTo) {
 
 const HOURLY_CACHE_TTL = 10 * 60 * 1000;
 
+// spotId — считать только по одной точке. Без него куратор видел кривую
+// выручки всей сети, хотя его дело — своя точка.
 export async function fetchHourlyCurve(date, opts = {}) {
   const ymd = toPosterDate(date);
   if (!ymd) return null;
-  const key = `supply-track.poster.hourly.${ymd}`;
+  const spotId = opts.spotId ? String(opts.spotId) : null;
+  const key = `supply-track.poster.hourly.${ymd}${spotId ? `.${spotId}` : ""}`;
   // opts.fresh — нажали «Обновить»: местный кэш в этот момент только мешает.
   if (!opts.fresh) {
     try {
@@ -586,6 +599,7 @@ export async function fetchHourlyCurve(date, opts = {}) {
   let total = 0;
   let txCount = 0;
   for (const tx of txs) {
+    if (spotId && String(tx.spot_id) !== spotId) continue;
     // dash.getTransactions отдаёт суммы в копейках — приводим к валюте
     // (см. fetchPaymentBreakdown выше, тот же эндпоинт).
     const sum = Number(tx.payed_sum || 0) / 100;
@@ -794,7 +808,7 @@ export async function getMenuCategories(opts = {}) {
 // ─── Загрузка одного дня через transactions.getTransactions ───────────
 
 export async function fetchOneDay(yyyymmdd, opts = {}) {
-  const cached = getCachedDay(yyyymmdd);
+  const cached = getCachedDay(yyyymmdd, opts.withProducts !== false);
   if (cached) return { ...cached, fromCache: true };
 
   // Тянем ВСЕ страницы за день. Сначала узнаём count, потом параллелим остальное.
@@ -822,8 +836,12 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
     for (const arr of results) allData.push(...arr);
   }
 
-  // Подгружаем меню для имён товаров.
-  const menu = await getMenuIndex(opts);
+  // Меню нужно ТОЛЬКО ради названий товаров и весит 4,6 МБ при 3,4 с.
+  // Денежным цифрам оно ни к чему, а именно их ждут на дашборде первыми,
+  // поэтому для кассы его пропускаем: касса появляется через секунду, а
+  // не через четыре.
+  const withProducts = opts.withProducts !== false;
+  const menu = withProducts ? await getMenuIndex(opts) : null;
 
   // Агрегируем по филиалам и товарам.
   const rowsBySpot = {};
@@ -838,6 +856,10 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
     if (!txBySpot[spotId]) txBySpot[spotId] = 0;
     txBySpot[spotId]++;
     cashBySpot[spotId] = (cashBySpot[spotId] || 0) + payedSum;
+
+    // Без меню названий нет — разбор по товарам пропускаем целиком,
+    // денежные итоги выше уже посчитаны.
+    if (!withProducts) continue;
 
     const products = tx.products || [];
     if (products.length === 0) continue;
@@ -856,7 +878,7 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
     }
   }
 
-  const payload = { rowsBySpot, transactionsCount, txBySpot, cashBySpot };
+  const payload = { rowsBySpot, transactionsCount, txBySpot, cashBySpot, hasProducts: withProducts };
   setCachedDay(yyyymmdd, payload);
   return { ...payload, fromCache: false };
 }
@@ -1104,10 +1126,20 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   }
 
   const days = enumerateDays(fromP, toP);
-  const [spots, menu] = await Promise.all([getSpots(opts), getMenuIndex(opts)]);
+  const withProducts = opts.withProducts !== false;
+  const [spots, menu] = await Promise.all([
+    getSpots(opts),
+    withProducts ? getMenuIndex(opts) : Promise.resolve(null),
+  ]);
+
+  // Имена точек берём из справочника филиалов, а не из товарных строк:
+  // без меню строк нет вовсе, и касса осталась бы с «Филиал #4».
+  const spotNames = Object.fromEntries(
+    Object.entries(spots).map(([id, sp]) => [id, sp?.name || id]),
+  );
 
   // Проверяем кэш: если ВСЕ дни есть в кэше — возвращаем сразу
-  const uncachedDays = days.filter(d => !getCachedDay(d));
+  const uncachedDays = days.filter(d => !getCachedDay(d, withProducts));
   if (uncachedDays.length === 0) {
     // Все дни в кэше — собираем из кэша
     const merged = new Map();
@@ -1115,7 +1147,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     const txBySpot = {};
     const cashBySpot = {};
     for (const yyyymmdd of days) {
-      const entry = getCachedDay(yyyymmdd);
+      const entry = getCachedDay(yyyymmdd, withProducts);
       if (!entry) continue;
       transactionsCount += entry.transactionsCount || 0;
       for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
@@ -1136,7 +1168,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       }
     }
     const rows = buildRows(spots, merged);
-    return { rows, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length };
+    return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length };
   }
 
   // Загружаем только некэшированные дни (не весь период!)
@@ -1206,7 +1238,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   for (const yyyymmdd of days) {
     // Если день уже в кэше — берём оттуда, не перезаписываем
     if (!uncachedSet.has(yyyymmdd)) {
-      const cached = getCachedDay(yyyymmdd);
+      const cached = getCachedDay(yyyymmdd, withProducts);
       if (cached) {
         transactionsCount += cached.transactionsCount || 0;
         for (const [spotId, count] of Object.entries(cached.txBySpot || {})) {
@@ -1247,7 +1279,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       dayCashBySpot[spotId] = (dayCashBySpot[spotId] || 0) + payedSum;
 
       // Product rows only for transactions with products
-      const products = tx.products || [];
+      const products = withProducts ? (tx.products || []) : [];
       if (products.length > 0) {
         if (!rowsBySpot[spotId]) rowsBySpot[spotId] = {};
         for (const it of products) {
@@ -1265,7 +1297,13 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     }
 
     // Кэшируем только свежие дни
-    setCachedDay(yyyymmdd, { rowsBySpot, transactionsCount: dayTxCount, txBySpot: dayTxBySpot, cashBySpot: dayCashBySpot });
+    setCachedDay(yyyymmdd, {
+      rowsBySpot, transactionsCount: dayTxCount,
+      txBySpot: dayTxBySpot, cashBySpot: dayCashBySpot,
+      // Без меню названий товаров в этом дне нет — тот, кому они нужны,
+      // должен считать такой день незакэшированным.
+      hasProducts: withProducts,
+    });
 
     transactionsCount += dayTxCount;
     for (const [spotId, count] of Object.entries(dayTxBySpot)) {
@@ -1296,7 +1334,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   }
 
   const rows = buildRows(spots, merged);
-  return { rows, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
+  return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
 }
 
 function buildRows(spots, merged) {

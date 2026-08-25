@@ -2,6 +2,7 @@
 // Fuzzy-поиск по филиалам, отчётам, товарам, действиям.
 
 import { useEffect, useMemo, useState, useRef } from "react";
+import { branchScope, useUserBranch } from "../auth.jsx";
 import { aggregateDocs, fmt } from "../utils";
 import { useAppStore } from "../store/useAppStore";
 
@@ -45,7 +46,8 @@ export default function CommandPalette() {
     }
   }, [open]);
 
-  const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  const scopeBranch = branchScope(useUserBranch());
+  const agg = useMemo(() => aggregateDocs(docs, scopeBranch), [docs, scopeBranch]);
 
   // Сбор секций
   const sections = useMemo(() => {

@@ -1,10 +1,12 @@
 // PaymentsView — лента всех оплат (ручных и общих) с фильтрами и экспортом.
 
 import { useMemo, useState } from "react";
+import { branchScope, useUserBranch } from "../auth.jsx";
 import { aggregateDocs, fmt, dateInRange, dateKeyToTs, dateInputToRu, ruToDateInput, downloadCsv } from "../utils";
 
 export default function PaymentsView({ docs, globalPayments = [], branchesList = [], onOpenGlobalPayment }) {
-  const agg = useMemo(() => aggregateDocs(docs), [docs]);
+  const scopeBranch = branchScope(useUserBranch());
+  const agg = useMemo(() => aggregateDocs(docs, scopeBranch), [docs, scopeBranch]);
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("all"); // all | manual | global
   const [from, setFrom] = useState("");

@@ -197,6 +197,24 @@ export function getUserBranch() {
   return meta.branch || null;
 }
 
+// Предикат «этот филиал — мой». Возвращает null для админа и управляющего:
+// им отсекать нечего. Нужен везде, где считается сводка по документам —
+// дневной документ общий на все точки, и без него в итоги куратора
+// попадают чужие суммы.
+export function branchScope(userBranch) {
+  if (!userBranch) return null;
+  const match = matchBranchInDocs(userBranch);
+  return (branchName) => match([branchName]);
+}
+
+// spot_id точки куратора в Poster. Нужен там, где данные приходят
+// с числовым id, а не с названием филиала.
+export function getUserSpotId() {
+  const branch = getCachedMeta()?.branch;
+  if (!branch) return null;
+  return BRANCHES[branch]?.spotId || null;
+}
+
 // uid текущего пользователя — по нему «Мои обращения» отбирают свои
 // надёжнее, чем по имени: тёзки и переименования его не путают.
 export function getCurrentUid() {

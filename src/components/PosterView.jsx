@@ -19,7 +19,7 @@ import {
 } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { useUserBranch, getSpotNameForBranch } from "../auth.jsx";
+import { spotNameByPosterId, useUserBranch, getSpotNameForBranch } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -499,7 +499,7 @@ function LedgerBranches({ grouped, isCollapsed, onToggle, grandTotal }) {
             <button type="button" className="cl-spot-head" style={headBtnStyle} onClick={() => onToggle(g.spotId)}>
               <span className="cl-spot-name">
                 <i className={`ti ${collapsed ? "ti-chevron-right" : "ti-chevron-down"}`} aria-hidden="true" style={{ fontSize: 12, color: "var(--text-muted)", flex: "none" }} />
-                <span className="cl-spot-name-text">{g.spotName.replace(/^Aura02[_-]?/i, "")}</span>
+                <span className="cl-spot-name-text">{spotNameByPosterId(g.spotId, g.spotName.replace(/^Aura02[_-]?/i, ""))}</span>
               </span>
               <span className="cl-spot-cash">{fmt(g.totalSum)}</span>
             </button>
