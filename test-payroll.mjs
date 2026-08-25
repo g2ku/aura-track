@@ -1,7 +1,9 @@
 // test-payroll.mjs — разбор сообщения инвентаризации и расчёт зарплаты.
 // Запуск: node test-payroll.mjs
 
-import { parseInventoryMessage, priceItems, calcRow, calcPayroll, summarize } from "./src/payroll.js";
+import {
+  parseInventoryMessage, priceItems, calcRow, calcPayroll, summarize, MIN_HOURS_FOR_SHORTAGE,
+} from "./src/payroll.js";
 import { matchBranch } from "./api/_lib/branches.js";
 
 let passed = 0, failed = 0;
@@ -71,6 +73,80 @@ eq(p.warnings, [], "предупреждений нет");
 {
   const noBranch = parseInventoryMessage("Инвентаризация Караганда 01.08-07.08\nЧасы\nРаф 10", matchBranch);
   ok(noBranch.warnings.some((w) => w.includes("не распознан")), "неизвестный филиал");
+  ok(noBranch.warnings[0].includes("Караганда"), "названо, что именно не распознали");
+}
+
+// ─── Шапка сообщения в любом виде ─────────────────────────────────────
+section("Шапка: филиал, «инвент» и период на разных строках");
+
+{
+  // Формат, в котором пишут на самом деле: три отдельные строки, тире —
+  // длинное, у «Недостачи» двоеточие. Раньше филиал и период терялись.
+  const r = parseInventoryMessage(`Гагарина
+инвент
+17.08 – 23.08
+Недостачи:
+
+Кр кур – 1
+Молоко кокос – 1.003
+Сироп ваниль – 0.4
+
+Часы
+Раф 60
+Катя 34.5
+94.5/94.5`, matchBranch);
+
+  eq(r.branch, "Гагарина", "филиал отдельной строкой");
+  eq(r.period, { from: "17.08", to: "23.08", raw: "17.08 – 23.08" }, "период отдельной строкой, длинное тире");
+  eq(r.shortage.length, 3, "недостачи прочитаны");
+  eq(r.shortage[1], { name: "Молоко кокос", qty: 1.003 }, "тире-разделитель не съело название");
+  eq(r.hours.length, 2, "часы прочитаны");
+  eq(r.warnings, [], "предупреждений нет");
+}
+
+{
+  // Порядок строк в шапке произвольный
+  const r = parseInventoryMessage("17.08-23.08\nинвентаризация\nОби\nНедостачи\nКукис 1", matchBranch);
+  eq(r.branch, "OBI", "филиал после периода");
+  eq(r.period.from, "17.08", "период до филиала");
+}
+
+{
+  // Однострочная шапка продолжает работать
+  const r = parseInventoryMessage("Инвентаризация Абая 15.08-22.08\nЧасы\nРаф 20", matchBranch);
+  eq(r.branch, "Абая", "старый формат не сломан");
+  eq(r.period.raw, "15.08-22.08", "период из той же строки");
+}
+
+{
+  // «Баума» на сайте — Дубай, синхронизация та же, что в боте
+  const r = parseInventoryMessage("Баума\n17.08-23.08\nЧасы\nРаф 20", matchBranch);
+  eq(r.branch, "Дубай", "«Баума» → Дубай");
+}
+
+{
+  // Дробное число в недостаче не должно читаться как период
+  const r = parseInventoryMessage("Гагарина\n17.08-23.08\nНедостачи\nКола 0.5 – 1.5", matchBranch);
+  eq(r.period.from, "17.08", "период взят из шапки");
+  eq(r.shortage[0], { name: "Кола 0.5", qty: 1.5 }, "«0.5 – 1.5» не стало датой");
+}
+
+{
+  // Разделитель может быть без пробелов
+  const r = parseInventoryMessage("Гагарина\nНедостачи\nКр кур-1\nОрешки—3", matchBranch);
+  eq(r.shortage[0], { name: "Кр кур", qty: 1 }, "тире вплотную");
+  eq(r.shortage[1], { name: "Орешки", qty: 3 }, "длинное тире вплотную");
+}
+
+{
+  // Часы иногда пишут с единицей
+  const r = parseInventoryMessage("Гагарина\nЧасы\nРаф 60ч\nКатя 20 ч", matchBranch);
+  eq(r.hours, [{ name: "Раф", hours: 60 }, { name: "Катя", hours: 20 }], "«ч» после числа не мешает");
+}
+
+{
+  const r = parseInventoryMessage("Недостачи\nКукис 1", matchBranch);
+  ok(r.warnings.some((w) => w.includes("не указан")), "филиала нет вовсе — сказали об этом");
 }
 
 // ─── Цены ─────────────────────────────────────────────────────────────
@@ -156,7 +232,7 @@ section("Расчёт по филиалу");
 {
   // Излишки не зачитываются ни при каких аргументах: в листе они справочные
   const r = calcPayroll({
-    staff: [{ id: "a", name: "A", rate: 1000, hours: 10 }],
+    staff: [{ id: "a", name: "A", rate: 1000, hours: 20 }],
     shortageRows: [{ sum: 7000 }],
     surplusRows: [{ sum: 9000 }],
   });
@@ -168,7 +244,7 @@ section("Расчёт по филиалу");
   // Кто не работал — недостачу не получает
   const r = calcPayroll({
     staff: [
-      { id: "a", name: "A", rate: 1000, hours: 10 },
+      { id: "a", name: "A", rate: 1000, hours: 20 },
       { id: "b", name: "B", rate: 1000, hours: 0 },
     ],
     shortageRows: [{ sum: 1000 }],
@@ -182,8 +258,8 @@ section("Расчёт по филиалу");
   // Исключение вручную — как в листе, где часть людей без недостачи
   const r = calcPayroll({
     staff: [
-      { id: "a", name: "A", rate: 1000, hours: 10 },
-      { id: "b", name: "B", rate: 1000, hours: 10, excluded: true },
+      { id: "a", name: "A", rate: 1000, hours: 20 },
+      { id: "b", name: "B", rate: 1000, hours: 20, excluded: true },
     ],
     shortageRows: [{ sum: 1000 }],
     surplusRows: [],
@@ -196,7 +272,7 @@ section("Расчёт по филиалу");
 {
   // Остаток от деления не теряется незаметно
   const r = calcPayroll({
-    staff: [1, 2, 3].map((i) => ({ id: "s" + i, name: "S" + i, rate: 1000, hours: 10 })),
+    staff: [1, 2, 3].map((i) => ({ id: "s" + i, name: "S" + i, rate: 1000, hours: 20 })),
     shortageRows: [{ sum: 1000 }],
     surplusRows: [],
   });
@@ -208,7 +284,7 @@ section("Расчёт по филиалу");
   // Минусы видны отдельно: в экселе их вручную исключали из итога
   const r = calcPayroll({
     staff: [
-      { id: "a", name: "A", rate: 1000, hours: 10 },
+      { id: "a", name: "A", rate: 1000, hours: 20 },
       { id: "b", name: "B", rate: 1000, hours: 0, debt: 4730 },
     ],
     shortageRows: [],
@@ -216,8 +292,66 @@ section("Расчёт по филиалу");
   });
   eq(r.negative.length, 1, "должник найден");
   eq(r.negative[0].total, -4730, "его баланс");
-  eq(r.payout, 10000, "к выплате — без минусов");
-  eq(r.total, 5270, "общий баланс — с минусами");
+  eq(r.payout, 20000, "к выплате — без минусов");
+  eq(r.total, 15270, "общий баланс — с минусами");
+}
+
+// ─── Порог по часам ───────────────────────────────────────────────────
+section("Недостача только при часах больше порога");
+
+{
+  // Граница ровно та, что задал Равиль: 19 — нет, 20 — да
+  const r = calcPayroll({
+    staff: [
+      { id: "a", name: "Двадцать", rate: 1000, hours: 20 },
+      { id: "b", name: "Девятнадцать", rate: 1000, hours: 19 },
+    ],
+    shortageRows: [{ sum: 1000 }],
+    surplusRows: [],
+  });
+  eq(MIN_HOURS_FOR_SHORTAGE, 19, "порог — 19 часов");
+  eq(r.chargedCount, 1, "делится на одного");
+  eq(r.rows[0].shortage, 1000, "20 часов — недостача начислена");
+  eq(r.rows[1].shortage, 0, "19 часов — не начислена");
+  eq(r.belowHours, ["Девятнадцать"], "названо, кто выпал из-за часов");
+  eq(r.rows[1].total, 19000, "его ЗП — чистая ставка × часы");
+}
+
+{
+  // 19.5 часа — это больше 19, значит начисляем
+  const r = calcPayroll({
+    staff: [{ id: "a", name: "A", rate: 1000, hours: 19.5 }],
+    shortageRows: [{ sum: 500 }],
+    surplusRows: [],
+  });
+  eq(r.chargedCount, 1, "19.5 ч попадает под начисление");
+  eq(r.belowHours, [], "в исключённых по часам никого");
+}
+
+{
+  // Никто не дотянул — недостачу списать не на кого, и это видно
+  const r = calcPayroll({
+    staff: [
+      { id: "a", name: "A", rate: 1000, hours: 10 },
+      { id: "b", name: "B", rate: 1000, hours: 8 },
+    ],
+    shortageRows: [{ sum: 5000 }],
+    surplusRows: [],
+  });
+  eq(r.chargedCount, 0, "начислять некому");
+  eq(r.perPerson, 0, "доля нулевая");
+  eq(r.roundingDiff, 5000, "вся недостача осталась нераспределённой");
+  eq(r.belowHours, ["A", "B"], "оба в списке недобравших часы");
+}
+
+{
+  // Ноль часов — это не «мало часов», человек просто не работал
+  const r = calcPayroll({
+    staff: [{ id: "a", name: "A", rate: 1000, hours: 0 }],
+    shortageRows: [{ sum: 100 }],
+    surplusRows: [],
+  });
+  eq(r.belowHours, [], "нулевые часы не попадают в «недобрал»");
 }
 
 // ─── Филиалы не смешиваются ───────────────────────────────────────────
@@ -227,14 +361,14 @@ section("Изоляция филиалов");
   // Главное правило: недостача Жароково не должна попасть в зарплату Абая.
   const zhar = calcPayroll({
     staff: [
-      { id: "raf", name: "Раф", rate: 1000, hours: 10 },
-      { id: "kat", name: "Катя", rate: 1000, hours: 10 },
+      { id: "raf", name: "Раф", rate: 1000, hours: 20 },
+      { id: "kat", name: "Катя", rate: 1000, hours: 20 },
     ],
     shortageRows: [{ sum: 10000 }],
     surplusRows: [],
   });
   const abay = calcPayroll({
-    staff: [{ id: "dsh", name: "Даша", rate: 1000, hours: 10 }],
+    staff: [{ id: "dsh", name: "Даша", rate: 1000, hours: 20 }],
     shortageRows: [],
     surplusRows: [],
   });
@@ -242,7 +376,7 @@ section("Изоляция филиалов");
   eq(zhar.perPerson, 5000, "10 000 делится на двоих из Жароково");
   eq(abay.perPerson, 0, "на Абая недостачи нет");
   eq(abay.rows[0].shortage, 0, "Даше чужая недостача не начислена");
-  eq(abay.rows[0].total, 10000, "её ЗП — ровно ставка × часы");
+  eq(abay.rows[0].total, 20000, "её ЗП — ровно ставка × часы");
 
   const blocks = [
     { name: "Жароково", result: zhar },
@@ -251,7 +385,7 @@ section("Изоляция филиалов");
   const t = summarize(blocks);
   eq(t.branches, 2, "два филиала в своде");
   eq(t.people, 3, "трое суммарно");
-  eq(t.hours, 30, "часы сложены");
+  eq(t.hours, 60, "часы сложены");
   eq(t.shortage, 10000, "недостача только у одного филиала");
   eq(t.payout, zhar.payout + abay.payout, "к выплате — сумма филиалов");
   eq(t.blockedCount, 0, "все филиалы посчитаны");
@@ -261,7 +395,7 @@ section("Изоляция филиалов");
   // Филиал без цены в итог недели не входит: иначе сумма выглядит готовой
   const t = summarize([
     { name: "Готовый", result: calcPayroll({
-      staff: [{ id: "a", name: "A", rate: 1000, hours: 10 }],
+      staff: [{ id: "a", name: "A", rate: 1000, hours: 20 }],
       shortageRows: [], surplusRows: [],
     }) },
     { name: "Без цены", result: null },
@@ -269,7 +403,7 @@ section("Изоляция филиалов");
   eq(t.branches, 2, "оба филиала в листе");
   eq(t.readyCount, 1, "посчитан один");
   eq(t.blockedCount, 1, "второй заблокирован");
-  eq(t.payout, 10000, "в сумму вошёл только посчитанный");
+  eq(t.payout, 20000, "в сумму вошёл только посчитанный");
 }
 
 {

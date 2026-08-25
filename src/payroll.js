@@ -30,21 +30,83 @@ function num(s) {
   return Number.isFinite(v) ? v : null;
 }
 
-// «Кр кур 1» → { name: "Кр кур", qty: 1 }. Число всегда последнее.
+// Число всегда последнее, разделитель перед ним любой:
+//   «Кр кур 1» / «Кр кур – 1» / «Кр кур-1» / «Раф 60ч»
+const NAMED_QTY = /^(.+?)\s*[–—:-]*\s*(-?\d+(?:[.,]\d+)?)\s*(?:шт\.?|ч)?$/i;
+
 function parseNamedQty(line) {
-  const parts = String(line).trim().split(/\s+/).filter(Boolean);
-  if (parts.length < 2) return null;
-  const qty = num(parts[parts.length - 1]);
+  const m = String(line).trim().match(NAMED_QTY);
+  if (!m) return null;
+  const qty = num(m[2]);
   if (qty === null) return null;
-  const name = parts.slice(0, -1).join(" ").replace(/[-–—:]+$/, "").trim();
+  const name = m[1].replace(/[-–—:,.]+$/, "").trim();
   if (!name) return null;
   return { name, qty };
 }
 
-// «15.08-22.08» → { from: "15.08", to: "22.08" }
+// «15.08-22.08», «17.08 – 23.08» → { from, to }
 function parsePeriod(text) {
   const m = String(text).match(/(\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?)\s*[-–—]\s*(\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?)/);
   return m ? { from: m[1], to: m[2], raw: m[0] } : null;
+}
+
+// Самый длинный префикс строки, который матчится на филиал:
+// «Гагарина», «Гагарина 17.08», «Жарокова точка».
+function matchBranchIn(text, matchBranch) {
+  if (!matchBranch) return null;
+  const words = String(text).split(/\s+/).filter(Boolean);
+  for (let take = Math.min(words.length, 3); take >= 1; take--) {
+    const hit = matchBranch(words.slice(0, take).join(" "));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// Шапка сообщения. Кураторы пишут её как придётся — одной строкой или
+// тремя, со словом «инвент» и без него, в любом порядке:
+//
+//   Инвентаризация Жарокова 15.08-22.08
+//
+//   Гагарина            ← и так тоже
+//   инвент
+//   17.08 – 23.08
+//
+// Поэтому в шапке ищем филиал и период по всем строкам сразу, а не
+// цепляемся за одно ключевое слово.
+function parseHead(lines, result, matchBranch) {
+  for (const line of lines) {
+    // \b и \w в JS — только про латиницу, кириллицу ими не зацепить
+    let rest = line.replace(/инвент[а-яё]*/gi, " ").replace(/\s+/g, " ").trim();
+    rest = rest.replace(/^[-–—:]+/, "").replace(/[-–—:]+$/, "").trim();
+    if (!rest) continue;
+
+    if (!result.period) {
+      const per = parsePeriod(rest);
+      if (per) {
+        result.period = per;
+        rest = rest.replace(per.raw, " ").replace(/\s+/g, " ").trim();
+        if (!rest) continue;
+      }
+    }
+
+    if (result.branch) continue;
+
+    const hit = matchBranchIn(rest, matchBranch);
+    if (hit) {
+      result.branch = hit;
+      result.branchRaw = rest;
+    } else if (!result.branchRaw) {
+      result.branchRaw = rest;
+    }
+  }
+
+  if (!result.branch) {
+    result.warnings.push(
+      result.branchRaw
+        ? `филиал «${result.branchRaw}» не распознан`
+        : "филиал не указан"
+    );
+  }
 }
 
 // Разбор сообщения вида:
@@ -70,9 +132,16 @@ export function parseInventoryMessage(text, matchBranch) {
     return result;
   }
 
+  // Шапка — всё до первого заголовка секции. Ниже период уже не ищем:
+  // «Кола 0.5 – 1.5» в недостачах слишком похожа на диапазон дат.
+  let firstSection = lines.findIndex((l) => SECTIONS.some((sec) => sec.re.test(l)));
+  if (firstSection === -1) firstSection = lines.length;
+
+  parseHead(lines.slice(0, firstSection), result, matchBranch);
+
   let section = null;
 
-  for (const line of lines) {
+  for (const line of lines.slice(firstSection)) {
     // Контрольная сумма часов: «238/238»
     const check = line.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/);
     if (check) {
@@ -84,21 +153,6 @@ export function parseInventoryMessage(text, matchBranch) {
     const sec = SECTIONS.find((s) => s.re.test(line));
     if (sec) {
       section = sec.id === "note" ? section : sec.id;
-      continue;
-    }
-
-    // Шапка: «Инвентаризация Жарокова 15.08-22.08»
-    if (/^инвентаризац/i.test(line)) {
-      result.period = parsePeriod(line);
-      const rest = line
-        .replace(/^инвентаризац\S*/i, "")
-        .replace(result.period?.raw || "", "")
-        .trim();
-      if (rest) {
-        result.branchRaw = rest;
-        result.branch = matchBranch ? matchBranch(rest) : null;
-        if (!result.branch) result.warnings.push(`филиал «${rest}» не распознан`);
-      }
       continue;
     }
 
@@ -187,6 +241,11 @@ export function calcRow(row) {
   );
 }
 
+// Недостача начисляется только тем, кто отработал БОЛЬШЕ этого числа часов.
+// 19 часов — не списывается, 20 — списывается: подработавшего пару смен
+// нельзя ставить наравне с теми, кто стоял всю неделю.
+export const MIN_HOURS_FOR_SHORTAGE = 19;
+
 // Полный расчёт по ОДНОМУ филиалу.
 //
 // Недостача делится только между теми, кто работал на этой точке: недостача
@@ -200,9 +259,15 @@ export function calcPayroll({ staff, shortageRows, surplusRows }) {
   const surplusSum = sum(surplusRows);
   const net = shortageSum;
 
-  // Делим на тех, кто работал и не исключён вручную.
-  const charged = (staff || []).filter((s) => !s.excluded && +s.hours > 0);
+  // Делим на тех, кто отработал больше порога и не исключён вручную.
+  const charged = (staff || []).filter((s) => !s.excluded && +s.hours > MIN_HOURS_FOR_SHORTAGE);
   const perPerson = charged.length ? Math.round(net / charged.length) : 0;
+
+  // Кто выпал именно из-за часов — это надо показать, иначе выглядит
+  // как потерянная строка.
+  const belowHours = (staff || [])
+    .filter((s) => !s.excluded && +s.hours > 0 && +s.hours <= MIN_HOURS_FOR_SHORTAGE)
+    .map((s) => s.name);
 
   const rows = (staff || []).map((s) => {
     const share = charged.some((c) => c.id === s.id) ? perPerson : 0;
@@ -219,6 +284,7 @@ export function calcPayroll({ staff, shortageRows, surplusRows }) {
     net,
     perPerson,
     chargedCount: charged.length,
+    belowHours,
     roundingDiff: net - distributed,
     hoursSum: Math.round(rows.reduce((s, r) => s + (+r.hours || 0), 0) * 100) / 100,
     rows,

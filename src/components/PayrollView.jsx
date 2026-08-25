@@ -14,7 +14,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
 import { matchBranch } from "../../api/_lib/branches.js";
-import { parseInventoryMessage, priceItems, calcPayroll, summarize } from "../payroll.js";
+import {
+  parseInventoryMessage, priceItems, calcPayroll, summarize, MIN_HOURS_FOR_SHORTAGE,
+} from "../payroll.js";
 import {
   loadPrices, savePrices, loadStaff, saveStaff,
   savePayroll, loadPayrollList, periodId, PAYROLL_COLLECTION,
@@ -142,6 +144,13 @@ export default function PayrollView() {
   const totals = useMemo(() => summarize(blocks), [blocks]);
   const period = entries.find((e) => e.period)?.period || null;
 
+  // Лист сохраняется под одним периодом. Если филиалы прислали разные —
+  // это почти всегда опечатка куратора, и молчать про неё нельзя.
+  const periodMismatch = useMemo(() => {
+    const seen = [...new Set(entries.filter((e) => e.period).map((e) => `${e.period.from} — ${e.period.to}`))];
+    return seen.length > 1 ? seen : null;
+  }, [entries]);
+
   function addEntry() {
     const text = raw.trim();
     if (!text) return;
@@ -156,7 +165,10 @@ export default function PayrollView() {
       return;
     }
 
-    const id = p.branch || p.branchRaw || `Без филиала ${entries.length + 1}`;
+    // Ключ филиала: по нему повторная вставка того же сообщения заменяет
+    // разбор, а не добавляет дубль. Без шапки — уникальный, иначе два
+    // безымянных блока схлопнулись бы в один.
+    const id = p.branch || p.branchRaw || `Без филиала ${Date.now()}`;
     const entry = {
       id,
       branch: p.branch,
@@ -383,6 +395,12 @@ export default function PayrollView() {
             <div className="pr-line pr-line-total">
               <span>К выплате за неделю</span><span className="pr-dots" /><span>{fmt(totals.payout)}</span>
             </div>
+            {periodMismatch && (
+              <div className="pr-line pr-line-dim pr-bad">
+                <span>Разные периоды в одном листе: {periodMismatch.join(", ")}</span>
+                <span className="pr-dots" /><span>—</span>
+              </div>
+            )}
             {totals.blockedCount > 0 && (
               <div className="pr-line pr-line-dim pr-bad">
                 <span>Не посчитано филиалов: {totals.blockedCount} — в итог не вошли</span>
@@ -549,6 +567,21 @@ function BranchBlock({ block, draftPrice, setDraftPrice, onAddPrice, onSetRate, 
               <span>На человека · {result.chargedCount} чел.</span>
               <span className="pr-dots" /><span>{fmt(result.perPerson)}</span>
             </div>
+            {result.belowHours.length > 0 && (
+              <div className="pr-line pr-line-dim">
+                <span>
+                  Без недостачи, до {MIN_HOURS_FOR_SHORTAGE} ч включительно:{" "}
+                  {result.belowHours.join(", ")}
+                </span>
+                <span className="pr-dots" /><span>0 ₸</span>
+              </div>
+            )}
+            {result.chargedCount === 0 && result.net > 0 && (
+              <div className="pr-line pr-line-dim pr-bad">
+                <span>Недостачу не на кого списать: никто не отработал больше {MIN_HOURS_FOR_SHORTAGE} ч</span>
+                <span className="pr-dots" /><span>{fmt(result.net)}</span>
+              </div>
+            )}
             {result.roundingDiff !== 0 && (
               <div className="pr-line pr-line-dim">
                 <span>Не разделилось</span><span className="pr-dots" /><span>{fmt(result.roundingDiff)}</span>
