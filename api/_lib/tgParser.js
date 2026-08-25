@@ -59,6 +59,21 @@ export function parseDateToken(token, today) {
   return valid(out) ? out : null;
 }
 
+// «вчера» вместо «24.08» — на телефоне это быстрее и без риска ошибиться
+// в числе. Слово ищем только в шапке, как и дату.
+const DAY_WORDS = { "вчера": 1, "позавчера": 2 };
+
+function shiftYmd(ymd, back) {
+  const d = new Date(ymd + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+
+export function parseDayWord(word, today) {
+  const back = DAY_WORDS[String(word).trim().toLowerCase()];
+  return back == null ? null : shiftYmd(today, back);
+}
+
 function looksLikeDate(t) {
   const m = String(t).match(DATE_TOKEN);
   if (!m) return false;
@@ -228,6 +243,29 @@ export function parseItemLine(line) {
   return { name, qty, sum };
 }
 
+// «пон 48 40к, кру 20 15к» — две позиции в одной строке.
+// На телефоне это заметно быстрее, чем переносить строку ради каждой.
+//
+// Режем только по запятой/точке с запятой, за которой идёт пробел: иначе
+// «40,000» (разделитель тысяч) распалось бы на «40» и «000». И разбиваем
+// лишь тогда, когда КАЖДЫЙ кусок сам по себе — нормальная позиция с суммой;
+// иначе «Пончики, шоколадные 40000» потеряло бы половину названия.
+export function expandCommaLines(lines) {
+  const out = [];
+  for (const line of lines) {
+    const parts = String(line).split(/[,;](?=\s)/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 1 && parts.every((p) => {
+      const it = parseItemLine(p);
+      return it && it.name && it.sum !== null;
+    })) {
+      out.push(...parts);
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
 // Разбор целого сообщения → { ok, branch, items, warnings }
 export function parseInvoiceMessage(text, today = null) {
   const result = { ok: false, branch: null, date: null, items: [], warnings: [] };
@@ -243,8 +281,10 @@ export function parseInvoiceMessage(text, today = null) {
 
   for (const line of lines) {
     // Дата отдельной строкой: «Жар \n 21.08 \n Кукис ...»
-    if (today && result.branch !== null && result.date === null) {
-      const solo = parseDateToken(line.trim(), today);
+    // Отдельная строка-дата однозначна, поэтому читаем её и до строки
+    // филиала: у бариста с привязкой филиала в сообщении вообще нет.
+    if (today && result.date === null) {
+      const solo = parseDateToken(line.trim(), today) || parseDayWord(line.trim(), today);
       if (solo) { result.date = solo; continue; }
     }
 
@@ -256,9 +296,11 @@ export function parseInvoiceMessage(text, today = null) {
       let rest = bm.rest;
       if (today && rest) {
         const words = rest.split(/\s+/);
-        const idx = words.findIndex((w) => parseDateToken(w, today));
+        const idx = words.findIndex(
+          (w) => parseDateToken(w, today) || parseDayWord(w, today)
+        );
         if (idx !== -1) {
-          result.date = parseDateToken(words[idx], today);
+          result.date = parseDateToken(words[idx], today) || parseDayWord(words[idx], today);
           rest = words.filter((_, i) => i !== idx).join(" ").trim();
         }
       }
@@ -274,12 +316,12 @@ export function parseInvoiceMessage(text, today = null) {
     itemLines.push(line);
   }
 
-  if (!result.branch) {
-    result.warnings.push("филиал не распознан");
-    return result;
-  }
+  // Филиал может быть не написан вовсе — он подставится из привязки
+  // бариста. Поэтому позиции разбираем всегда, а отсутствие филиала лишь
+  // помечаем: решать, что с этим делать, — не дело парсера.
+  if (!result.branch) result.warnings.push("филиал не распознан");
 
-  for (const line of itemLines) {
+  for (const line of expandCommaLines(itemLines)) {
     const item = parseItemLine(line);
     if (!item) continue;
     if (!item.name) {
@@ -293,8 +335,8 @@ export function parseInvoiceMessage(text, today = null) {
     result.items.push(item);
   }
 
-  result.ok = result.items.length > 0;
-  if (!result.ok && result.warnings.length === 0) {
+  result.ok = result.items.length > 0 && !!result.branch;
+  if (!result.items.length && result.warnings.length === 0) {
     result.warnings.push("не найдено ни одной позиции");
   }
   return result;

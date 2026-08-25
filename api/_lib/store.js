@@ -40,10 +40,15 @@ function docRef(date) {
 }
 
 // Добавить накладную в дневной документ. Возвращает документ после записи.
-export async function appendEntry(entry) {
+//
+// Повторная запись с тем же id — это правка сообщения в телеграме, applyEntry
+// её заменяет. Если правка ещё и переносит накладную в другой день (дописали
+// «вчера»), старую версию надо убрать из сегодняшнего дня: иначе поставка
+// останется в обоих.
+export async function appendEntry(entry, { removeFrom = null } = {}) {
   const db = getDb();
   const ref = docRef(entry.date);
-  return db.runTransaction(async (tx) => {
+  const result = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const current = snap.exists ? snap.data() : null;
     const next = applyEntry(current, entry);
@@ -51,6 +56,11 @@ export async function appendEntry(entry) {
     tx.set(ref, next);
     return next;
   });
+
+  if (removeFrom && removeFrom !== entry.date) {
+    await undoEntry(removeFrom, entry.id);
+  }
+  return result;
 }
 
 // Отменить запись по id. Возвращает { doc, removed }.
@@ -139,6 +149,13 @@ export const DEFAULT_CONFIG = {
   // Ошибка разбора всегда уходит текстом, в любом режиме кроме silent.
   ackMode: "reaction",
   lastReportDate: null, // дата последнего автоотчёта — чтобы не слать дважды
+  // Кто откуда пишет: { "<telegram user id>": "Абая" }. Бариста работает на
+  // одной точке, поэтому филиал в каждом сообщении — чистая трата времени.
+  people: {},
+  // Имена к id — чтобы /люди читался человеком, а не как список цифр
+  peopleNames: {},
+  // Тема форума или чат целиком закреплены за филиалом: { "<чат:тема>": "Абая" }
+  topics: {},
 };
 
 export async function getConfig() {

@@ -56,6 +56,14 @@ export function emptyDoc(date) {
 // Позиции накапливаются: за день с точки может прийти несколько накладных,
 // поэтому суммы складываются, а не перезаписываются.
 export function applyEntry(doc, entry) {
+  // Та же накладная уже записана — значит, бариста ИСПРАВИЛ своё сообщение
+  // в телеграме, и прилетел edited_message с тем же id. Пересобираем день
+  // без старой версии, иначе поставка удваивается: 40 000 + правка 4 000
+  // давали 44 000.
+  if (entry.id && doc?.entries?.some((e) => e.id === entry.id)) {
+    doc = removeEntry(doc, entry.id);
+  }
+
   const next = doc ? { ...doc } : emptyDoc(entry.date);
   next.items = (next.items || []).map((it) => ({
     ...it,

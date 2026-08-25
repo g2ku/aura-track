@@ -32,9 +32,12 @@ function makeStore(initialConfig = {}) {
     get config() { return config; },
     get products() { return products; },
     async getDoc(date) { return docs.get(date) || emptyDoc(date); },
-    async appendEntry(entry) {
+    async appendEntry(entry, { removeFrom = null } = {}) {
       const next = applyEntry(docs.get(entry.date) || null, entry);
       docs.set(entry.date, next);
+      if (removeFrom && removeFrom !== entry.date && docs.has(removeFrom)) {
+        docs.set(removeFrom, removeEntry(docs.get(removeFrom), entry.id));
+      }
       return next;
     },
     async undoEntry(date, id) {
@@ -83,6 +86,12 @@ function message(text, opts = {}) {
 
 async function run(store, text, opts = {}) {
   const msg = message(text, opts);
+  if (opts.messageId) msg.message_id = opts.messageId;
+  // Правка сообщения в телеграме: тот же message_id, но с edit_date
+  if (opts.editOf) {
+    msg.message_id = opts.editOf;
+    msg.edit_date = Math.floor(Date.now() / 1000);
+  }
   return handleMessage(msg, { store, config: store.config, authorName: "@barista" });
 }
 
@@ -793,6 +802,199 @@ section("Подтверждение реакцией");
 }
 
 // ─── Итог ─────────────────────────────────────────────────────────────
+// ─── Филиал по привязке ───────────────────────────────────────────────
+section("Филиал по привязке: не печатать одно и то же");
+
+{
+  const store = makeStore({ ackMode: "reply" });
+
+  const bind = await run(store, "/я абая");
+  ok(bind.text.includes("Абая"), "привязка подтверждена");
+  eq(store.config.people, { "777": "Абая" }, "привязка сохранена по id");
+
+  // Филиала в сообщении нет — берём из привязки
+  const r = await run(store, "Пончики 48шт 40000");
+  ok(r && r.text.includes("Абая"), "накладная без филиала записана на Абая");
+  const doc = await store.getDoc(TODAY);
+  eq(doc.totals, { "Абая": 40000 }, "сумма легла на привязанный филиал");
+}
+
+{
+  // Написанное явно важнее привязки: курьер сдаёт за соседнюю точку
+  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  await run(store, "коктем\nПончики 10шт 5000");
+  const doc = await store.getDoc(TODAY);
+  eq(doc.totals, { "Коктем": 5000 }, "явный филиал перебивает привязку");
+}
+
+{
+  // Болтовня в чате не должна становиться накладной
+  const store = makeStore({ people: { "777": "Абая" } });
+  eq(await run(store, "ребята кто сегодня закрывает"), null, "разговор без сумм — молчим");
+  eq(await run(store, "ок"), null, "короткая реплика — молчим");
+  const doc = await store.getDoc(TODAY);
+  eq(doc.entries.length, 0, "ничего не записано");
+}
+
+{
+  // Без привязки, но похоже на накладную — подсказываем, как настроить
+  const store = makeStore();
+  const r = await run(store, "Пончики 48шт 40000");
+  ok(r && r.text.includes("/я"), "новичку подсказали про привязку");
+  const doc = await store.getDoc(TODAY);
+  eq(doc.entries.length, 0, "непонятную накладную не записали");
+}
+
+{
+  const store = makeStore();
+  eq(await run(store, "всем привет"), null, "на болтовню без филиала подсказка не лезет");
+}
+
+{
+  // Тема форума под одну точку
+  const store = makeStore({ ackMode: "reply" });
+  await run(store, "/это гагарина", { threadId: 12 });
+  eq(store.config.topics, { "-100500:12": "Гагарина" }, "тема закреплена за филиалом");
+
+  const r = await run(store, "Пончики 10шт 9000", { threadId: 12, userId: 999 });
+  ok(r.text.includes("Гагарина"), "накладная из темы ушла на её филиал");
+}
+
+{
+  // Человек важнее темы: бариста Абая, написавший в общую тему
+  const store = makeStore({
+    ackMode: "reply",
+    people: { "777": "Абая" },
+    topics: { "-100500:12": "Гагарина" },
+  });
+  const r = await run(store, "Пончики 10шт 9000", { threadId: 12 });
+  ok(r.text.includes("Абая"), "привязка человека сильнее темы");
+}
+
+{
+  const store = makeStore({ people: { "777": "Абая" } });
+  const r = await run(store, "/я");
+  ok(r.text.includes("Абая"), "/я показывает текущую привязку");
+
+  const off = await run(store, "/я нет");
+  ok(off.text.includes("убрана"), "привязку можно снять");
+  eq(store.config.people, {}, "привязка удалена");
+}
+
+{
+  const store = makeStore();
+  await run(store, "/я абая");
+  const list = await run(store, "/люди");
+  ok(list.text.includes("@barista"), "/люди показывает имя, а не голый id");
+  ok(list.text.includes("Абая"), "/люди показывает филиал");
+}
+
+{
+  const store = makeStore();
+  const r = await run(store, "/я караганда");
+  ok(r.text.includes("Не знаю филиал"), "неизвестный филиал не привязывается");
+  eq(store.config.people, {}, "ничего не сохранено");
+}
+
+// ─── Сокращения товаров ───────────────────────────────────────────────
+section("Сокращения товаров");
+
+{
+  const store = makeStore({
+    ackMode: "reply",
+    people: { "777": "Абая" },
+    products: ["Пончики", "Круассан", "Молоко кокос", "Молоко обычное"],
+  });
+
+  const r = await run(store, "пон 48 40к");
+  ok(r.text.includes("Пончики"), "«пон» развернулось в Пончики");
+  ok(r.text.includes("✏️"), "замена показана, а не сделана молча");
+
+  const doc = await store.getDoc(TODAY);
+  eq(doc.items[0].name, "Пончики", "в отчёт попало каноническое название");
+}
+
+{
+  // Сокращение — осознанное, чат им засорять не нужно: хватает 👍
+  const store = makeStore({
+    people: { "777": "Абая" },
+    products: ["Пончики", "Круассан"],
+  });
+  const r = await run(store, "пон 48 40к");
+  eq(r.reaction, "👍", "сокращение подтверждается реакцией");
+  eq(r.text, null, "в чат ничего не написано");
+
+  // А вот опечатку бот исправил сам — это надо показать
+  const typo = await run(store, "пончеки 48 40к");
+  ok(typo.text && typo.text.includes("✏️"), "исправление опечатки показано текстом");
+}
+
+{
+  const store = makeStore({
+    people: { "777": "Абая" },
+    products: ["Молоко кокос", "Молоко обычное"],
+  });
+  const r = await run(store, "мол 12 5000");
+  ok(r.text.includes("Непонятно"), "двусмысленное сокращение — переспросили");
+  ok(r.text.includes("Молоко кокос") && r.text.includes("Молоко обычное"), "названы оба варианта");
+  const doc = await store.getDoc(TODAY);
+  eq(doc.entries.length, 0, "накладную не записали, пока непонятно");
+}
+
+{
+  // Уточнили — записалось
+  const store = makeStore({
+    ackMode: "reply",
+    people: { "777": "Абая" },
+    products: ["Молоко кокос", "Молоко обычное"],
+  });
+  await run(store, "мол коко 12 5000");
+  const doc = await store.getDoc(TODAY);
+  eq(doc.items[0].name, "Молоко кокос", "«мол коко» разобралось однозначно");
+}
+
+{
+  // Несколько позиций в одну строку
+  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" }, products: ["Пончики", "Круассан"] });
+  await run(store, "пон 48 40к, кру 20 15к");
+  const doc = await store.getDoc(TODAY);
+  eq(doc.items.length, 2, "обе позиции из одной строки");
+  eq(doc.totals, { "Абая": 55000 }, "суммы сложены");
+}
+
+// ─── Правка сообщения ─────────────────────────────────────────────────
+section("Правка сообщения вместо переотправки");
+
+{
+  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  await run(store, "Пончики 48шт 40000", { messageId: 500 });
+  await run(store, "Пончики 48шт 4000", { editOf: 500 });
+
+  const doc = await store.getDoc(TODAY);
+  eq(doc.entries.length, 1, "правка не создала вторую накладную");
+  eq(doc.totals, { "Абая": 4000 }, "сумма заменена, а не сложена");
+}
+
+{
+  // Правка перенесла накладную во вчера — из сегодня она должна уйти
+  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  await run(store, "Пончики 48шт 40000", { messageId: 600 });
+  await run(store, "вчера\nПончики 48шт 40000", { editOf: 600 });
+
+  const todayDoc = await store.getDoc(TODAY);
+  eq(todayDoc.entries.length, 0, "из сегодняшнего дня убрана");
+  eq(todayDoc.totals, {}, "сегодняшний итог обнулён");
+}
+
+{
+  // «вчера» словом вместо даты
+  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  const r = await run(store, "вчера\nПончики 48шт 40000");
+  ok(r.text.includes("Записано на"), "дата показана явно");
+  const todayDoc = await store.getDoc(TODAY);
+  eq(todayDoc.entries.length, 0, "в сегодня не попало");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) {
   console.log("\nПРОВАЛЕНО:\n");
