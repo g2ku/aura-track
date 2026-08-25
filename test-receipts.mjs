@@ -68,6 +68,20 @@ section("Один ответ dash на всё");
   ok(/if \(!r\.waiter\) r\.waiter =/.test(body), "имя дописывается только там, где его нет");
 }
 
+section("Открытые чеки не тянут весь период");
+
+{
+  // dash.getTransactions весит 0,65 МБ за день и 27,8 МБ за месяц.
+  // Забытый чек живёт день-два, поэтому смотрим только хвост периода.
+  const fn = poster.slice(poster.indexOf("export async function fetchReceipts"));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  ok(/const openFrom = maxYmdDate\(/.test(body), "начало окна поиска ограничено");
+  ok(/fetchDashTransactions\(openFrom, dateTo, opts\)/.test(body),
+     "dash запрашивается за хвост, а не за весь период");
+  ok(!/fetchDashTransactions\(dateFrom, dateTo/.test(body),
+     "полный период за открытыми чеками больше не качается");
+}
+
 section("Открытые — наверх");
 
 ok(/\(a\.status === "open"\) !== \(b\.status === "open"\)/.test(poster),

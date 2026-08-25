@@ -728,6 +728,16 @@ export async function fetchOneDay(yyyymmdd, opts = {}) {
 // Их немного (обычно десяток), запрос лёгкий — 700 байт, полсекунды.
 // Сырые строки dash.getTransactions за период. Из одного ответа берём и
 // открытые чеки, и имена бариста для закрытых — качать 650 КБ дважды незачем.
+function shiftYmd(ymd, days) {
+  const d = new Date(`${ymd.slice(0,4)}-${ymd.slice(4,6)}-${ymd.slice(6,8)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function maxYmdDate(a, b) {
+  return a > b ? a : b;
+}
+
 export async function fetchDashTransactions(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
@@ -885,7 +895,12 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
   let openReceipts = [];
   try {
     if (opts.includeOpen === false) throw { skip: true };
-    const dashRows = await fetchDashTransactions(dateFrom, dateTo, opts);
+
+    // Открытые чеки ищем только в хвосте периода. dash.getTransactions
+    // тяжёлый — 0,65 МБ за день, 27,8 МБ за месяц, — а забытый чек живёт
+    // день-два, не месяц. За «30 дней» это разница между 1,3 МБ и 27,8.
+    const openFrom = maxYmdDate(toPosterDate(dateFrom), shiftYmd(toPosterDate(dateTo), -1));
+    const dashRows = await fetchDashTransactions(openFrom, dateTo, opts);
 
     // transactions.getTransactions имени бариста не отдаёт — колонка
     // «Официант» у закрытых чеков стояла пустой. В dash оно есть, и мы
