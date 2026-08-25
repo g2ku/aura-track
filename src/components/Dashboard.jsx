@@ -274,6 +274,9 @@ export default function Dashboard({
   // Открытые чеки: заказ пробит, деньги ещё не проведены. Пока их не видно,
   // касса выглядит отстающей — по замеру это 1–3 минуты на каждый чек.
   const openChecks = useMemo(() => {
+    // Пока только админу: по открытым чекам видно, кто именно держит заказ,
+    // и на этом легко построить неверные выводы о смене.
+    if (!isAdmin()) return null;
     const src = payBreakdown?.openChecks;
     if (!src || !src.count) return null;
     const allowed = new Set(displayCashBySpot.map((c) => String(c.spotId)));
