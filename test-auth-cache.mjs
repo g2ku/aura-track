@@ -29,8 +29,8 @@ section("Кэш привязан к человеку");
   // Без проверки uid роль из прошлого аккаунта работает в новом
   ok(/function dropCacheIfOtherUser\(uid\)/.test(src), "есть проверка, чей это кэш");
   ok(/cached\.uid !== uid/.test(src), "сравнивается uid, а не факт наличия");
-  ok(/if \(dropCacheIfOtherUser\(fbUser\.uid\)\) setAuth\(null\)/.test(src),
-     "при смене человека чужая роль выбрасывается сразу");
+  ok(/dropCacheIfOtherUser\(fbUser\.uid\)\) \{ setLiveMeta\(null\); setAuth\(null\); \}/.test(src),
+     "при смене человека чужая роль выбрасывается сразу — и из памяти, и из состояния");
 
   // Выброс должен идти ДО подписки на метаданные, иначе первые кадры
   // рисуются с чужими правами
@@ -121,6 +121,23 @@ section("Экран «Ожидайте назначения роли» не по
   const app = readFileSync("src/App.jsx", "utf8");
   ok(/!auth\.provisional && role === "curator"/.test(app),
      "временная роль не роняет админа на экран ожидания");
+}
+
+section("Роль живёт в памяти, а localStorage — только для первого кадра");
+
+{
+  // Синхронные isAdmin()/isAdminOrManager() спрашивают роль прямо во время
+  // рендера. Пока они читали только localStorage, получалось два источника
+  // правды: React знает, что ты админ, а меню — нет.
+  ok(/let liveMeta = null/.test(src), "живая роль сессии есть");
+  ok(/function getCachedMeta\(\) \{\s*if \(liveMeta\) return liveMeta;/.test(src),
+     "память важнее localStorage");
+  ok(/setLiveMeta\(next\.auth\);\s*\n\s*setAuth\(next\.auth\)/.test(src),
+     "в память кладём до состояния — рендер спрашивает роль синхронно");
+  ok(/await logoutUser\(\);\s*\n\s*setLiveMeta\(null\)/.test(src),
+     "при выходе память чистится");
+  ok(/if \(!fbUser\) \{\s*\n\s*setLiveMeta\(null\)/.test(src),
+     "и при обрыве сессии тоже");
 }
 
 console.log("\n══════════════════════════════════════════════════");

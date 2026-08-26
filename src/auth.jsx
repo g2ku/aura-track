@@ -98,7 +98,26 @@ function dropCacheIfOtherUser(uid) {
   return false;
 }
 
+// Живая роль текущей сессии.
+//
+// Это ГЛАВНЫЙ источник правды, localStorage — только чтобы первый кадр
+// после перезагрузки не мигал. Без него получалось два источника на одно
+// решение: в React-состоянии админ, а синхронные isAdmin()/isAdminOrManager()
+// читали localStorage и отвечали «нет». Владелец видел бейдж ADMIN и при
+// этом дашборд без «Зарплаты» и «Пользователей», а перезагрузка не
+// помогала — localStorage переживает и её.
+//
+// В памяти живёт и заглушка (provisional), которую в localStorage писать
+// нельзя: там роль куратора, и, застряв на диске, она молча урезала бы
+// права настоящему админу.
+let liveMeta = null;
+
+export function setLiveMeta(meta) {
+  liveMeta = meta || null;
+}
+
 function getCachedMeta() {
+  if (liveMeta) return liveMeta;
   try {
     const raw = localStorage.getItem(META_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -132,6 +151,7 @@ export function useAuth() {
       while (timers.length) clearTimeout(timers.pop());
 
       if (!fbUser) {
+        setLiveMeta(null);
         setAuth(null);
         cacheUserMeta(null);
         setLoading(false);
@@ -141,7 +161,7 @@ export function useAuth() {
       // Сменился человек — чужую роль выкидываем сразу, не дожидаясь
       // ответа Firestore. Иначе первые кадры экран рисуется с правами
       // предыдущего аккаунта.
-      if (dropCacheIfOtherUser(fbUser.uid)) setAuth(null);
+      if (dropCacheIfOtherUser(fbUser.uid)) { setLiveMeta(null); setAuth(null); }
 
       // Пока сервер не ответил, «документа нет» ничего не значит — ждём.
       // Но не вечно: без сети серверный ответ не придёт никогда, и висеть
@@ -158,6 +178,9 @@ export function useAuth() {
         fbUser.uid,
         (meta, fromCache) => {
           const next = resolveMetaSnapshot(fbUser, meta, fromCache);
+          // Сначала в память, потом в состояние: пункты меню и вкладки
+          // спрашивают роль синхронно, прямо во время рендера.
+          setLiveMeta(next.auth);
           setAuth(next.auth);
           if (next.cache) cacheUserMeta(next.auth);
           if (next.settled) settle();
@@ -284,6 +307,7 @@ export async function login(email, password) {
 
 export async function logout() {
   await logoutUser();
+  setLiveMeta(null);
   cacheUserMeta(null);
   window.dispatchEvent(new Event("auth-change"));
 }
