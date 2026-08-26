@@ -15,6 +15,7 @@
 import { posterStringToMs, localMinutesOfDay, localDateStr } from "./api/_lib/time.js";
 import {
   isShiftOpen, openSpots, usualOpening, usualClosing, windingDown, buildLateAlerts,
+  scheduleFor, hhmmToMinutes,
 } from "./api/_lib/shifts.js";
 
 let passed = 0, failed = 0;
@@ -182,6 +183,73 @@ section("Точка не открылась");
   // Без истории молчим: гадать, во сколько точка «должна» открыться,
   // хуже, чем не сказать ничего.
   eq(buildLateAlerts([], { now: Date.now() }), [], "нет истории — нет тревог");
+}
+
+section("Правило владельца важнее истории");
+
+{
+  // История отвечает на вопрос «как открываются обычно», а не «как
+  // должны». Если точка месяц открывается на двадцать минут позже,
+  // медиана это впитает — и опоздание перестанет быть опозданием.
+  const withRule = scheduleFor("7", { "7": { open: "08:00", close: "21:00" } }, { open: 461, close: 1268 });
+  eq(withRule.open, 480, "берём заданное правило, а не медиану");
+  eq(withRule.close, 1260, "и закрытие тоже");
+  eq(withRule.openBy, "rule", "помечено, что это правило");
+
+  const noRule = scheduleFor("7", {}, { open: 461, close: 1268 });
+  eq(noRule.open, 461, "без правила — история");
+  eq(noRule.openBy, "history", "и помечено как история");
+
+  eq(scheduleFor("7", {}, {}).open, null, "ни того, ни другого — ничего");
+  // Правило может задавать только одну границу
+  eq(scheduleFor("7", { "7": { open: "08:00" } }, { open: 461, close: 1268 }).close, 1268,
+     "незаданная граница берётся из истории");
+}
+
+eq(hhmmToMinutes("08:00"), 480, "часы и минуты");
+eq(hhmmToMinutes("00:05"), 5, "начало суток");
+eq(hhmmToMinutes("25:00"), null, "часа 25 не бывает");
+eq(hhmmToMinutes("08:70"), null, "минуты 70 тоже");
+eq(hhmmToMinutes("восемь"), null, "словами не принимаем");
+
+{
+  const day = 24 * 60 * 60 * 1000;
+  const base = Date.parse("2026-08-26T07:00:00+05:00");
+  const rows = [];
+  // По истории точка открывается в 07:00 — но правило говорит 08:00
+  for (let d = 1; d <= 10; d++) {
+    const start = base - d * day;
+    rows.push({ spot_id: "7", timestart: String(start), timeend: String(start + 14 * 3600 * 1000) });
+  }
+  const at = (hhmm) => Date.parse(`2026-08-26T${hhmm}:00+05:00`);
+  const schedule = { "7": { open: "08:00", close: "21:00" } };
+
+  // В 07:45 по истории точка уже «опоздала», по правилу — ещё нет
+  eq(buildLateAlerts(rows, { now: at("07:45") }).filter((a) => a.spotId === "7").length, 1,
+     "по истории в 07:45 это опоздание");
+  eq(buildLateAlerts(rows, { now: at("07:45"), schedule }).filter((a) => a.spotId === "7").length, 0,
+     "по правилу 08:00 — ещё нет");
+
+  const late = buildLateAlerts(rows, { now: at("08:45"), schedule }).find((a) => a.spotId === "7");
+  ok(late, "через 45 минут после правила — тревога");
+  eq(late?.usual, "08:00", "названо время из правила");
+  eq(late?.byRule, true, "помечено, что это правило, а не догадка");
+}
+
+{
+  // Затишье перед закрытием тоже считается от правила
+  const day = 24 * 60 * 60 * 1000;
+  const base = Date.parse("2026-08-26T07:00:00+05:00");
+  const rows = [];
+  for (let d = 1; d <= 10; d++) {
+    const start = base - d * day;
+    rows.push({ spot_id: "7", timestart: String(start), timeend: String(start + 16 * 3600 * 1000) }); // до 23:00
+  }
+  const at = (hhmm) => Date.parse(`2026-08-26T${hhmm}:00+05:00`);
+  const schedule = { "7": { open: "07:00", close: "21:00" } };
+
+  ok(!windingDown(rows, { now: at("20:30") }).has("7"), "по истории в 20:30 ещё торгуют до 23:00");
+  ok(windingDown(rows, { now: at("20:30"), schedule }).has("7"), "по правилу до 21:00 — уже затишье");
 }
 
 console.log("\n══════════════════════════════════════════════════");
