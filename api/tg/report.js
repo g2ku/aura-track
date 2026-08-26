@@ -79,12 +79,13 @@ export default async function handler(req, res) {
     // провели на склад. Расхождение само не всплывёт, а искать его руками
     // по восьми точкам никто не станет.
     try {
+      if (!config.reconcileEnabled) throw { skip: true };
       const sup = await posterCall("storage.getSupplies", {});
       const byBranch = posterSuppliesByBranch(sup?.response || [], date);
       const text = formatReconcile(reconcile(doc?.totals || {}, byBranch), formatDateRu(date));
       if (text) await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
     } catch (e) {
-      console.warn("[tg] сверка не сошлась:", e?.message);
+      if (!e?.skip) console.warn("[tg] сверка не сошлась:", e?.message);
     }
     if (!force) await setConfig({ lastReportDate: date });
 

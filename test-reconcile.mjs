@@ -143,6 +143,25 @@ section("Настоящий ответ Poster");
   ok(Object.values(by).every((v) => v.sum < 10_000_000), "масштаб не съехал на два порядка");
 }
 
+section("К вечернему отчёту не цепляется без спроса");
+
+{
+  // Отчёт уходит каждый вечер и его читают все, кому он приходит. Прицепить
+  // к нему что-то новое — отдельное решение, а не побочный эффект деплоя.
+  const store = readFileSync("api/_lib/store.js", "utf8");
+  ok(/reconcileEnabled: false/.test(store), "по умолчанию выключено");
+
+  const report = readFileSync("api/tg/report.js", "utf8");
+  ok(/if \(!config\.reconcileEnabled\) throw \{ skip: true \};/.test(report),
+     "вечерний отчёт проверяет флаг перед сверкой");
+  ok(/if \(!e\?\.skip\) console\.warn/.test(report),
+     "намеренный пропуск не пишется в лог как ошибка");
+
+  const cmd = readFileSync("api/_lib/commands.js", "utf8");
+  ok(/reconcileEnabled: true/.test(cmd), "включается командой");
+  ok(/reconcileEnabled: false/.test(cmd), "и выключается ею же");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
