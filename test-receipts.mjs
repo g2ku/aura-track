@@ -171,6 +171,68 @@ section("Заглушка вместо сухого «нет доступа»");
      "для тех, кому анимация мешает, есть неподвижный вариант");
 }
 
+section("Фильтр по филиалу");
+
+{
+  // Ловушка была в запасной ветке: сравнение по ПОДСТРОКЕ названия.
+  // spot_id Жароково — «2», а двойка есть в префиксе «Aura02_» у каждого
+  // филиала, поэтому под фильтр подходили все и он переставал работать.
+  // auth.jsx в Node не импортируется (JSX + React), поэтому берём тот же
+  // справочник из серверного модуля и ниже сверяем, что копии не разошлись.
+  const { BRANCHES } = await import("./api/_lib/branches.js");
+  const all = BRANCHES.map((b) => ({
+    spotId: b.spotId,
+    spotName: b.key,             // Poster отдаёт точку именно так: Aura02_X
+    ru: b.name,
+  }));
+
+  const keep = (r, filterSpot) => !(filterSpot && String(r.spotId) !== String(filterSpot));
+
+  for (const b of all) {
+    const kept = all.filter((r) => keep(r, b.spotId));
+    eq(kept.length, 1, `фильтр «${b.ru}» оставляет ровно одну точку`);
+    eq(kept[0]?.spotId, b.spotId, `и это именно ${b.ru}`);
+  }
+
+  eq(all.filter((r) => keep(r, "")).length, all.length, "пустой фильтр — все точки");
+
+  // Номера точек обязаны быть уникальными, иначе фильтр смешает две
+  const ids = all.map((b) => b.spotId);
+  eq(ids.length, new Set(ids).size, "spot_id уникальны в справочнике");
+
+  // И самой сломанной ветки в коде быть не должно
+  ok(!/spotName\?\.includes\(filterSpot/.test(view),
+     "сравнения филиала по подстроке не осталось");
+  ok(/String\(r\.spotId\) !== String\(filterSpot\)/.test(view),
+     "фильтр сравнивает номера точек");
+  ok(/useState\(\(\) => getUserSpotId\(\) \|\| ""\)/.test(view),
+     "у куратора фильтр тоже номер точки, а не branchId");
+}
+
+section("Справочники филиалов на сайте и в боте совпадают");
+
+{
+  // Их две копии: src/auth.jsx для сайта и api/_lib/branches.js для бота.
+  // Разъедутся — фильтры, отчёты и накладные начнут указывать на разные
+  // точки, и заметить это будет нечем.
+  const { BRANCHES: bot } = await import("./api/_lib/branches.js");
+  const site = readFileSync("src/auth.jsx", "utf8");
+  const table = site.slice(site.indexOf("export const BRANCHES"), site.indexOf("// Обратные маппинги"));
+
+  for (const b of bot) {
+    const row = new RegExp(`${b.key}:\\s*\\{[^}]*spotName:\\s*"([^"]+)"[^}]*spotId:\\s*"([^"]+)"`);
+    const m = table.match(row);
+    ok(m, `${b.key} есть в справочнике сайта`);
+    if (m) {
+      eq(m[2], b.spotId, `${b.name}: номер точки совпадает`);
+      eq(m[1], b.name, `${b.key}: название совпадает`);
+    }
+  }
+
+  const siteCount = (table.match(/Aura02_\w+:\s*\{/g) || []).length;
+  eq(siteCount, bot.length, "число филиалов одинаковое");
+}
+
 section("Состав чека раскрывается и на телефоне");
 
 {

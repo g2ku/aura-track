@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchReceipts, clearPosterCache } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { canSeeOpenChecks, useUserBranch, getSpotNameForBranch, spotNameByPosterId, BRANCHES } from "../auth.jsx";
+import { canSeeOpenChecks, useUserBranch, getSpotNameForBranch, getUserSpotId, spotNameByPosterId, BRANCHES } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -75,7 +75,10 @@ export default function ReceiptsView() {
   const abortRef = useRef(null);
 
   const [query, setQuery] = useState("");
-  const [filterSpot, setFilterSpot] = useState(userBranch || "");
+  // Всегда spot_id: и из выпадающего списка, и у куратора. Раньше здесь
+  // мог оказаться то номер точки, то branchId вида «Aura02_Zharokova»,
+  // и фильтру приходилось угадывать, что ему дали.
+  const [filterSpot, setFilterSpot] = useState(() => getUserSpotId() || "");
   const [expandedId, setExpandedId] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all"); // all | open | closed
 
@@ -149,12 +152,12 @@ export default function ReceiptsView() {
     if (!data) return [];
     const q = query.trim().toLowerCase();
     return data.receipts.filter((r) => {
-      // Фильтр по филиалу
-      if (filterSpot && r.spotId !== filterSpot && r.spotName !== filterSpot) {
-        const spotName = getSpotNameForBranch(filterSpot);
-        if (spotName && r.spotName !== spotName) return false;
-        if (!spotName && !r.spotName?.includes(filterSpot.replace("Aura02_", ""))) return false;
-      }
+      // Фильтр по филиалу — строго по номеру точки.
+      //
+      // Раньше запасной веткой шло сравнение по ПОДСТРОКЕ названия, и на
+      // Жароково фильтр переставал работать: её spot_id — «2», а двойка
+      // есть в префиксе «Aura02_» у каждого филиала, так что подходили все.
+      if (filterSpot && String(r.spotId) !== String(filterSpot)) return false;
       // Фильтр по статусу
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       // Поиск
