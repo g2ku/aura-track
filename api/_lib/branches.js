@@ -24,6 +24,15 @@ export const BRANCHES = [
 export const BRANCH_ORDER = BRANCHES.map((b) => b.name);
 
 // Нормализация для сравнения: нижний регистр, ё→е, только буквы/цифры.
+// spot_id в Poster → русское название. Poster отдаёт точки как
+// «Aura02_Atakent», в сообщениях бота такое читать невозможно.
+const NAME_BY_SPOT = {};
+for (const b of BRANCHES) NAME_BY_SPOT[b.spotId] = b.name;
+
+export function spotNameByPosterId(spotId, fallback = "") {
+  return NAME_BY_SPOT[String(spotId)] || fallback || `Точка #${spotId}`;
+}
+
 export function normalizeKey(s) {
   return String(s || "")
     .toLowerCase()

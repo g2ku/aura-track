@@ -654,6 +654,54 @@ export function getCachedCashBySpot(dateFrom, dateTo) {
   }
 }
 
+// ─── Цены для зарплатного проекта ────────────────────────────────────
+//
+// В недостачах кураторов две разные вещи, и цена у них берётся по-разному:
+//
+//   товары меню (Бейгл, Панини, Орешки) — есть ЦЕНА ПРОДАЖИ, именно её
+//     и положено списывать: Бейгл в Poster стоит 1560 ₸;
+//   ингредиенты (молоко, сиропы, стаканы) — продажной цены нет и быть не
+//     может, их не продают поштучно. Есть только себестоимость.
+//
+// Поэтому себестоимость отдаём как ПОДСКАЗКУ с пометкой, а не молча
+// подставляем вместо цены продажи: сколько списывать за литр молока —
+// решение владельца, а не наше.
+//
+// Масштабы у Poster разные: у товаров копейки (156000 = 1560 ₸),
+// у ингредиентов копейки ×100 (6512600 = 651,26 ₸ за литр).
+export async function fetchPosterPriceList(opts = {}) {
+  const [menu, ing] = await Promise.all([
+    call("menu.getProducts", {}, opts).catch(() => null),
+    call("menu.getIngredients", {}, opts).catch(() => null),
+  ]);
+
+  const out = [];
+
+  for (const p of menu?.response || []) {
+    const name = p.product_name;
+    if (!name) continue;
+    // Цена задаётся по точкам; берём наибольшую — филиалы у них одинаковые,
+    // а если где-то забыли проставить, ноль не должен победить.
+    const prices = Object.values(p.price || {}).map(Number).filter((v) => v > 0);
+    if (!prices.length) continue;
+    out.push({ name, price: Math.round(Math.max(...prices) / 100), source: "menu" });
+  }
+
+  for (const i of ing?.response || []) {
+    const name = i.ingredient_name;
+    const cost = Number(i.prime_cost) || 0;
+    if (!name || cost <= 0) continue;
+    out.push({
+      name,
+      price: Math.round(cost / 10000),
+      source: "ingredient",
+      unit: i.ingredient_unit || "",
+    });
+  }
+
+  return out;
+}
+
 // ─── Список филиалов ──────────────────────────────────────────────────
 
 const spotsCache = { data: null, promise: null };

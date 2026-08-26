@@ -9,7 +9,9 @@
 // если задан CRON_SECRET)
 
 import { getConfig, setConfig, getDoc, purgeSeen } from "../_lib/store.js";
-import { formatReport, todayAlmaty } from "../_lib/dailyDoc.js";
+import { formatReport, todayAlmaty, formatDateRu } from "../_lib/dailyDoc.js";
+import { posterCall } from "../_lib/poster.js";
+import { posterSuppliesByBranch, reconcile, formatReconcile } from "../_lib/reconcile.js";
 import { sendMessage } from "../_lib/telegram.js";
 
 function almatyHourMinute(now = new Date()) {
@@ -72,6 +74,18 @@ export default async function handler(req, res) {
     const doc = await getDoc(date);
     const thread = config.reportThreadId;
     await sendMessage(target, formatReport(doc), thread ? { message_thread_id: thread } : {});
+
+    // Следом — сверка с Poster. Бот знает, что привезли; Poster — что
+    // провели на склад. Расхождение само не всплывёт, а искать его руками
+    // по восьми точкам никто не станет.
+    try {
+      const sup = await posterCall("storage.getSupplies", {});
+      const byBranch = posterSuppliesByBranch(sup?.response || [], date);
+      const text = formatReconcile(reconcile(doc?.totals || {}, byBranch), formatDateRu(date));
+      if (text) await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+    } catch (e) {
+      console.warn("[tg] сверка не сошлась:", e?.message);
+    }
     if (!force) await setConfig({ lastReportDate: date });
 
     res.status(200).json({ ok: true, purged, sent: true, date, items: doc.items?.length || 0 });

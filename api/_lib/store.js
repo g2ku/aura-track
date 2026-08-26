@@ -156,6 +156,23 @@ export const DEFAULT_CONFIG = {
   peopleNames: {},
   // Тема форума или чат целиком закреплены за филиалом: { "<чат:тема>": "Абая" }
   topics: {},
+
+  // ─── Сторож ────────────────────────────────────────────────────────
+  // Пишет сам, когда чек висит слишком долго или на точке нет продаж.
+  watchEnabled: false,     // включается командой: сначала надо задать чат
+  watchChatId: null,       // куда слать; по умолчанию туда же, куда отчёт
+  watchThreadId: null,
+  stuckCheckMin: 15,
+  quietSpotMin: 40,
+  quietFrom: "08:00",      // раньше и позже не тревожим: до утра всё равно
+  quietTo: "22:00",        //   никто ничего не сделает
+  repeatAfterMin: 60,      // про ту же беду не напоминаем чаще раза в час
+  alertSeen: {},           // что уже отправляли, чтобы не повторяться
+
+  // ─── Утренняя сводка ───────────────────────────────────────────────
+  briefingEnabled: false,
+  briefingTime: "09:00",
+  lastBriefingDate: null,
 };
 
 export async function getConfig() {
@@ -212,6 +229,17 @@ export async function purgeSeen(olderThanMs = 24 * 60 * 60 * 1000, limit = 400) 
 // Полный набор операций, который передаётся в commands.js.
 // Собирается ЗДЕСЬ, а не в вебхуке: иначе легко забыть добавить сюда новый
 // метод, и команда тихо отвалится в проде, пройдя все тесты.
+// Поставки из Poster для сверки. Живут не в Firestore, но команде бота
+// нужны так же, как всё остальное, — поэтому отдаются тем же набором.
+export async function getSupplies() {
+  const { posterCall } = await import("./poster.js");
+  const d = await posterCall("storage.getSupplies", {});
+  return d?.response || [];
+}
+
 export function botStore() {
-  return { getDoc, getDocsRange, appendEntry, undoEntry, setConfig, getIpGroups, getProducts, saveProducts };
+  return {
+    getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
+    getIpGroups, getProducts, saveProducts, getSupplies,
+  };
 }

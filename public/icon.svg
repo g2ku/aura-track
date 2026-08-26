@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aura 02 Coffee">
+  <!-- Чернила и бумага «Термоленты» — те же, что во всём интерфейсе -->
+  <rect width="512" height="512" rx="112" fill="#16130e"/>
+  <g fill="none" stroke="#f4f1ea" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Пар -->
+    <path d="M212 118c-18 22-18 42 0 64M256 106c-18 26-18 50 0 76M300 118c-18 22-18 42 0 64" opacity="0.55"/>
+    <!-- Чашка -->
+    <path d="M140 236h204v66c0 50-46 90-102 90s-102-40-102-90z"/>
+    <!-- Ручка -->
+    <path d="M344 258h22c26 0 46 18 46 42s-20 42-46 42h-14"/>
+    <!-- Блюдце -->
+    <path d="M112 424h288"/>
+  </g>
+</svg>

@@ -6,6 +6,16 @@
     <meta name="theme-color" content="#16130e" />
     <title>Aura · Кофе | пульт сети</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Добавление на домашний экран. iOS манифест почти не читает и берёт
+         apple-touch-icon и свои meta, поэтому они прописаны отдельно —
+         сайт смотрят в основном с айфона. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Aura 02" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <!-- Иконочный шрифт грузится с чужого домена и раньше блокировал рендер
          страницы (render-blocking <link rel=stylesheet>) — это была основная
          причина медленного LCP на мобильном (Vercel Speed Insights).

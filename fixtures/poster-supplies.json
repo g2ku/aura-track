@@ -1,0 +1,77 @@
+{
+ "_": "Срез настоящего ответа storage.getSupplies за 24–25.08.2026. Важна форма: суммы строками в копейках, склад — ключом филиала.",
+ "response": [
+  {
+   "supply_id": "9881",
+   "storage_name": "Aura02_OBI",
+   "date": "2026-08-25 14:21:30",
+   "supply_sum": "10173000",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9878",
+   "storage_name": "Aura02_Gagarina",
+   "date": "2026-08-25 11:47:30",
+   "supply_sum": "17029000",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9877",
+   "storage_name": "Aura02_Atakent",
+   "date": "2026-08-24 20:29:30",
+   "supply_sum": "7855189",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9876",
+   "storage_name": "Aura02_Atakent",
+   "date": "2026-08-24 17:29:30",
+   "supply_sum": "63402217",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9874",
+   "storage_name": "Aura02_Rams",
+   "date": "2026-08-24 15:32:30",
+   "supply_sum": "6584080",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9880",
+   "storage_name": "Aura02_OBI",
+   "date": "2026-08-24 14:14:30",
+   "supply_sum": "2023500",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9873",
+   "storage_name": "Aura02_Koktem",
+   "date": "2026-08-24 13:32:30",
+   "supply_sum": "1965606",
+   "supplier_name": "Излишка",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9872",
+   "storage_name": "Aura02_Koktem",
+   "date": "2026-08-24 13:17:30",
+   "supply_sum": "13020155",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  },
+  {
+   "supply_id": "9866",
+   "storage_name": "Aura02_Gagarina",
+   "date": "2026-08-24 06:30:30",
+   "supply_sum": "9210000",
+   "supplier_name": "Закуп",
+   "delete": "0"
+  }
+ ]
+}

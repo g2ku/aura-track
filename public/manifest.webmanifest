@@ -1,0 +1,22 @@
+{
+  "name": "Aura 02 · пульт сети",
+  "short_name": "Aura 02",
+  "description": "Касса, накладные и зарплата сети Aura 02 Coffee",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "ru",
+  "background_color": "#16130e",
+  "theme_color": "#16130e",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Касса", "url": "/#/branches", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Чеки", "url": "/#/receipts", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

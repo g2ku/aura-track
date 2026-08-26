@@ -9,6 +9,7 @@ import { parseInvoiceMessage } from "./tgParser.js";
 import { BRANCHES, branchNamesFor, matchIpGroup, matchBranch } from "./branches.js";
 import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
 import { parseCommand } from "./telegram.js";
+import { posterSuppliesByBranch, reconcile, formatReconcile } from "./reconcile.js";
 import { applyCatalog } from "./products.js";
 
 const HELP = `<b>Как сдавать накладные</b>
@@ -59,7 +60,9 @@ const ADMIN_HELP = `
 /ответы реакция|текст|тихо — как подтверждать накладные
 /переименовать старое &gt; новое — поправить название товара
 /это абая — закрепить эту тему за филиалом
-/люди — кто к какому филиалу привязан`;
+/люди — кто к какому филиалу привязан
+/сторож — тревоги о зависших чеках и тишине на точках
+/сводка — итог вчерашнего дня по утрам`;
 
 function isAdmin(config, userId) {
   // Пока список админов пуст, настройки доступны всем: иначе после первого
@@ -224,6 +227,100 @@ async function handleCommand({ cmd, args }, ctx) {
       }
       await store.setConfig({ topics: { ...(config.topics || {}), [key]: branch } });
       return { text: `✅ Эта тема закреплена за <b>${escapeHtml(branch)}</b>. Филиал в накладных можно не писать.` };
+    }
+
+    // Сверка накладных с тем, что провели в Poster
+    case "сверка":
+    case "reconcile": {
+      if (!store.getSupplies) return { text: "Сверка недоступна." };
+      const today = todayAlmaty();
+      const date = args.trim() ? parseDateArg(args.trim()) : today;
+      if (!date) return { text: "Дата: <code>/сверка 2026-08-24</code> или <code>/сверка</code> за сегодня." };
+
+      const [doc, sup] = await Promise.all([store.getDoc(date), store.getSupplies()]);
+      const byBranch = posterSuppliesByBranch(sup, date);
+      const text = formatReconcile(reconcile(doc?.totals || {}, byBranch), formatDateRu(date));
+      return { text: text || `За ${formatDateRu(date)} сверять нечего.` };
+    }
+
+    // Сторож: пишет сам, когда чек висит или на точке нет продаж
+    case "сторож":
+    case "watch": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const arg = args.trim().toLowerCase();
+
+      if (/^(вкл|включить|on)$/.test(arg)) {
+        await store.setConfig({ watchEnabled: true, watchChatId: msg.chat.id, watchThreadId: msg.is_topic_message ? msg.message_thread_id : null });
+        return { text: "✅ Сторож включён. Тревоги буду слать сюда." };
+      }
+      if (/^(выкл|выключить|off)$/.test(arg)) {
+        await store.setConfig({ watchEnabled: false });
+        return { text: "Сторож выключен." };
+      }
+
+      // «/сторож чек 20» и «/сторож тишина 45» — пороги
+      const num = arg.match(/^(чек|чеки|тишина|молчание)\s+(\d{1,3})$/);
+      if (num) {
+        const v = Number(num[2]);
+        if (v < 5 || v > 240) return { text: "Порог — от 5 до 240 минут." };
+        const isCheck = /^чек/.test(num[1]);
+        await store.setConfig(isCheck ? { stuckCheckMin: v } : { quietSpotMin: v });
+        return { text: `✅ ${isCheck ? "Чек считается зависшим" : "Тишина на точке"} — от ${v} мин.` };
+      }
+
+      // «/сторож часы 08:00 22:00» — когда тревожить
+      const hrs = arg.match(/^часы\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})$/);
+      if (hrs) {
+        await store.setConfig({ quietFrom: hrs[1], quietTo: hrs[2] });
+        return { text: `✅ Тревожу с ${hrs[1]} до ${hrs[2]}.` };
+      }
+
+      return {
+        text: [
+          `<b>Сторож</b> — ${config.watchEnabled ? "включён" : "выключен"}`,
+          "",
+          `Чек висит — от <b>${config.stuckCheckMin} мин</b>`,
+          `Нет продаж — от <b>${config.quietSpotMin} мин</b>`,
+          `Тревожу с <b>${config.quietFrom}</b> до <b>${config.quietTo}</b>`,
+          `Повтор про то же — не чаще раза в <b>${config.repeatAfterMin} мин</b>`,
+          "",
+          "/сторож вкл · /сторож выкл",
+          "/сторож чек 20 — сколько минут чек считается зависшим",
+          "/сторож тишина 45 — сколько минут без продаж уже тревога",
+          "/сторож часы 08:00 22:00 — когда можно писать",
+        ].join("\n"),
+      };
+    }
+
+    // Утренняя сводка: чем закончился вчерашний день
+    case "сводка":
+    case "briefing": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const arg = args.trim().toLowerCase();
+
+      if (/^(вкл|включить|on)$/.test(arg)) {
+        await store.setConfig({ briefingEnabled: true, watchChatId: msg.chat.id, watchThreadId: msg.is_topic_message ? msg.message_thread_id : null });
+        return { text: `✅ Сводка включена, буду слать в ${config.briefingTime}.` };
+      }
+      if (/^(выкл|выключить|off)$/.test(arg)) {
+        await store.setConfig({ briefingEnabled: false });
+        return { text: "Утренняя сводка выключена." };
+      }
+
+      const t = arg.match(/^(\d{1,2}:\d{2})$/);
+      if (t) {
+        await store.setConfig({ briefingTime: t[1], lastBriefingDate: null });
+        return { text: `✅ Сводка будет приходить в ${t[1]}.` };
+      }
+
+      return {
+        text: [
+          `<b>Утренняя сводка</b> — ${config.briefingEnabled ? "включена" : "выключена"}`,
+          `Время: <b>${config.briefingTime}</b>`,
+          "",
+          "/сводка вкл · /сводка выкл · /сводка 09:30",
+        ].join("\n"),
+      };
     }
 
     case "филиалы":
