@@ -506,6 +506,23 @@ export async function loginUser(email, password) {
   return cred.user;
 }
 
+// ID-токен текущего человека — им сайт представляется своим же
+// серверным эндпоинтам (/api/poster/*, /api/supply-status).
+//
+// Firebase кэширует токен сам и обновляет, когда тот протухает, поэтому
+// звать это на каждый запрос дёшево. Не вошли — пустая строка: сервер
+// ответит 401, и это правильнее, чем притворяться, будто всё хорошо.
+export async function getIdToken() {
+  try {
+    const a = getFirebaseAuth();
+    const u = a.currentUser;
+    if (!u) return "";
+    return await u.getIdToken();
+  } catch {
+    return "";
+  }
+}
+
 // Выход
 export async function logoutUser() {
   const a = getFirebaseAuth();

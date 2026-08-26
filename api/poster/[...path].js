@@ -1,3 +1,5 @@
+import { requireUser, denyResponse } from "../_lib/requireUser.js";
+
 const POSTER_HOST = "aura-02-coffee.joinposter.com";
 const POSTER_TOKEN = process.env.VITE_POSTER_TOKEN || process.env.POSTER_TOKEN || "";
 
@@ -11,12 +13,19 @@ const POSTER_TOKEN = process.env.VITE_POSTER_TOKEN || process.env.POSTER_TOKEN |
 //
 // Поэтому срок жизни зависит от того, может ли ответ ещё измениться.
 
+// Кэш ТОЛЬКО браузерный (private), а не общий.
+//
+// Раньше было public/s-maxage — ответы оседали в кэше Vercel и раздавались
+// по URL. С тех пор как прокси требует вход, так нельзя: CDN отвечает, не
+// заглядывая в заголовки, и сохранённый ответ уехал бы кому угодно в обход
+// проверки. Общий кэш здесь несовместим с авторизацией.
+
 // Сегодняшний день меняется с каждой продажей.
-const FRESH = "public, s-maxage=15, stale-while-revalidate=30";
+const FRESH = "private, max-age=15, stale-while-revalidate=30";
 // Прошедший день уже не изменится — держим сутки вместо получаса.
-const SETTLED = "public, s-maxage=86400, stale-while-revalidate=86400";
+const SETTLED = "private, max-age=86400, stale-while-revalidate=86400";
 // Справочники (филиалы, меню): меняются редко, но всё же меняются.
-const REFERENCE = "public, s-maxage=1800, stale-while-revalidate=1800";
+const REFERENCE = "private, max-age=1800, stale-while-revalidate=1800";
 
 // Явное «Обновить» на сайте — единственный случай, когда кэш не нужен вовсе.
 const PARAM_FRESH = "_fresh";
@@ -53,14 +62,22 @@ export function cacheHeaderFor(params, now = new Date()) {
 }
 
 export default async function handler(req, res) {
+  // Свой же сайт, поэтому эхо-Origin и credentials не нужны. Заголовок
+  // Authorization разрешаем явно: с ним ходит клиент.
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept");
+  res.setHeader("Vary", "Authorization");
 
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return;
   }
+
+  // Без входа дальше не пускаем: за этой дверью продажи, меню и
+  // себестоимость всей сети.
+  const who = await requireUser(req);
+  if (!who.ok) { denyResponse(res, who); return; }
 
   if (!POSTER_TOKEN) {
     res.status(500).json({ error: { message: "POSTER_TOKEN not configured on server" } });

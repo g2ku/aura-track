@@ -7,8 +7,8 @@
 // прилетают одновременно с нескольких точек, и обычный read-modify-write
 // терял бы записи.
 
-import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { getAdminApp } from "./firebaseAdmin.js";
 import { applyEntry, removeEntry, docIdFor, emptyDoc, enumerateDates } from "./dailyDoc.js";
 import { DEFAULT_IP_GROUPS } from "./branches.js";
 
@@ -17,20 +17,7 @@ let _db = null;
 export function getDb() {
   if (_db) return _db;
 
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT не задан в переменных окружения");
-
-  let sa;
-  try {
-    sa = JSON.parse(raw);
-  } catch {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT — некорректный JSON");
-  }
-  // При копировании в переменную окружения переносы строк в ключе экранируются
-  if (sa.private_key) sa.private_key = sa.private_key.replace(/\\n/g, "\n");
-
-  const app = getApps().length ? getApps()[0] : initializeApp({ credential: cert(sa) });
-  _db = getFirestore(app);
+  _db = getFirestore(getAdminApp());
   _db.settings({ ignoreUndefinedProperties: true });
   return _db;
 }
