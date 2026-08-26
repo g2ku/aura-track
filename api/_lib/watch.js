@@ -57,6 +57,7 @@ export function buildAlerts(rows, opts = {}) {
 
     const key = `check:${tx.transaction_id}`;
     if (!fresh(key)) continue;
+    const sum = Math.round(Number(tx.sum || 0) / 100);
     alerts.push({
       key,
       kind: "stuck",
@@ -64,7 +65,11 @@ export function buildAlerts(rows, opts = {}) {
       spotId: String(tx.spot_id || ""),
       spot: spotNameByPosterId(tx.spot_id),
       waiter: tx.name || "",
-      sum: Math.round(Number(tx.sum || 0) / 100),
+      sum,
+      // Пустой чек — неаккуратность, а не висящие деньги. Мешать их в
+      // одну кучу значит топить важное в мелочи: на замере из 16 тревог
+      // 10 были пустыми, а денег висело всего на 9 990 ₸.
+      empty: sum <= 0,
     });
   }
 
@@ -112,25 +117,70 @@ function fmtAge(m) {
 
 const fmtSum = (n) => new Intl.NumberFormat("ru-RU").format(n) + " ₸";
 
+// Сколько строк показываем, прежде чем свернуть остаток в счётчик.
+// Стена из двух десятков строк перестаёт читаться со второго раза.
+const MAX_LINES = 6;
+
+// Чеки одного бариста на одной точке — одной строкой. Иначе «Абая ·
+// Тома-Бибэк» повторяется трижды подряд и занимает половину сообщения.
+function groupByWaiter(list) {
+  const map = new Map();
+  for (const a of list) {
+    const key = `${a.spotId}|${a.waiter}`;
+    const g = map.get(key);
+    if (!g) map.set(key, { ...a, count: 1 });
+    else {
+      g.count++;
+      g.sum += a.sum;
+      if (a.minutes > g.minutes) g.minutes = a.minutes;
+    }
+  }
+  return [...map.values()].sort((a, b) => b.minutes - a.minutes);
+}
+
+function plural(n, one, few, many) {
+  const a = n % 10, b = n % 100;
+  if (a === 1 && b !== 11) return one;
+  if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
+  return many;
+}
+
 export function formatAlerts(alerts) {
   if (!alerts.length) return null;
   const lines = [];
+
   const stuck = alerts.filter((a) => a.kind === "stuck");
+  const withMoney = groupByWaiter(stuck.filter((a) => !a.empty));
+  const emptyCount = stuck.filter((a) => a.empty).length;
   const quiet = alerts.filter((a) => a.kind === "quiet");
 
-  if (stuck.length) {
+  if (withMoney.length) {
     lines.push("⚠️ <b>Чеки висят открытыми</b>");
-    for (const a of stuck) {
+    for (const a of withMoney.slice(0, MAX_LINES)) {
       const who = a.waiter ? ` · ${a.waiter}` : "";
-      const sum = a.sum > 0 ? ` · ${fmtSum(a.sum)}` : "";
-      lines.push(`• ${a.spot}${who} — ${fmtAge(a.minutes)}${sum}`);
+      const many = a.count > 1 ? ` ${a.count} чека, старший` : "";
+      lines.push(`• ${a.spot}${who} —${many} ${fmtAge(a.minutes)} · ${fmtSum(a.sum)}`);
     }
+    const rest = withMoney.length - MAX_LINES;
+    if (rest > 0) {
+      const restSum = withMoney.slice(MAX_LINES).reduce((s, a) => s + a.sum, 0);
+      lines.push(`• и ещё ${rest} — ${fmtSum(restSum)}`);
+    }
+  }
+
+  // Пустые не перечисляем: их бывает десяток, и каждый — просто забытый
+  // чек без денег. Важно знать, что они есть, а не читать их список.
+  if (emptyCount) {
+    if (lines.length) lines.push("");
+    lines.push(`📄 Ещё ${emptyCount} ${plural(emptyCount, "чек открыт", "чека открыты", "чеков открыты")} пустыми`);
   }
 
   if (quiet.length) {
     if (lines.length) lines.push("");
     lines.push("🔇 <b>Нет продаж</b>");
-    for (const a of quiet) lines.push(`• ${a.spot} — ${fmtAge(a.minutes)}`);
+    for (const a of quiet.slice(0, MAX_LINES)) lines.push(`• ${a.spot} — ${fmtAge(a.minutes)}`);
+    const rest = quiet.length - MAX_LINES;
+    if (rest > 0) lines.push(`• и ещё ${rest}`);
   }
 
   return lines.join("\n");
