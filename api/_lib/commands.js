@@ -14,11 +14,9 @@ import { applyCatalog } from "./products.js";
 
 const HELP = `<b>Как сдавать накладные</b>
 
-Один раз напишите, откуда вы:
-<pre>/я абая</pre>
-
-Дальше просто присылайте, что привезли:
-<pre>Пончики 48шт 40000
+Первой строкой — филиал, дальше что привезли:
+<pre>Абая
+Пончики 48шт 40000
 Круассан 20шт 15000</pre>
 
 <b>Чтобы печатать меньше</b>
@@ -35,7 +33,6 @@ const HELP = `<b>Как сдавать накладные</b>
 Принял — поставит 👍. Если не поставил, значит не понял и написал почему.
 
 <b>Команды</b>
-/я абая — привязать себя к филиалу (/я — посмотреть, /я нет — убрать)
 /отчет — сводка за сегодня
 /отчет 2026-08-14 — за конкретный день
 /отчет 14 дней — за период (можно «неделя», «2 недели», «месяц», «вчера»)
@@ -59,8 +56,8 @@ const ADMIN_HELP = `
 /чаты — список подключённых чатов
 /ответы реакция|текст|тихо — как подтверждать накладные
 /переименовать старое &gt; новое — поправить название товара
-/это абая — закрепить эту тему за филиалом
-/люди — кто к какому филиалу привязан
+/это абая — закрепить тему форума за филиалом
+/темы — какие темы за какими филиалами
 /сторож — тревоги о зависших чеках и тишине на точках
 /график — во сколько точки открываются и закрываются
 /сводка — итог вчерашнего дня по утрам`;
@@ -140,67 +137,16 @@ async function handleCommand({ cmd, args }, ctx) {
       return { text: HELP + extra };
     }
 
-    // Бариста один раз говорит, откуда он, и больше не пишет филиал.
-    // Это самая частая экономия: филиал повторяется в каждом сообщении.
-    case "я":
-    case "me": {
-      if (!userId) return { text: "Не вижу, кто пишет." };
-      const arg = args.trim();
-
-      if (!arg) {
-        const cur = config.people?.[String(userId)];
-        return {
-          text: cur
-            ? `Вы записаны как <b>${escapeHtml(cur)}</b>.\nСменить: <code>/я коктем</code>. Убрать: <code>/я нет</code>.`
-            : `Филиал не привязан.\nНапишите <code>/я абая</code> — и в накладных филиал можно будет не указывать.`,
-        };
-      }
-
-      if (/^(нет|сброс|убрать|off)$/i.test(arg)) {
-        const people = { ...(config.people || {}) };
-        delete people[String(userId)];
-        await store.setConfig({ people });
-        return { text: "Привязка убрана. Теперь пишите филиал в накладной." };
-      }
-
-      const branch = matchBranch(arg);
-      if (!branch) {
-        return { text: `Не знаю филиал «${escapeHtml(arg)}». Список: /филиалы` };
-      }
-      await store.setConfig({
-        people: { ...(config.people || {}), [String(userId)]: branch },
-        peopleNames: { ...(config.peopleNames || {}), [String(userId)]: ctx.authorName || "" },
-      });
-      return {
-        text: [
-          `✅ Записал: вы с <b>${escapeHtml(branch)}</b>.`,
-          "",
-          "Теперь накладную можно слать без филиала:",
-          "<pre>Пончики 48шт 40000</pre>",
-        ].join("\n"),
-      };
-    }
-
-    case "люди":
-    case "people": {
+    case "темы":
+    case "topics": {
       if (!isAdmin(config, userId)) return { text: "Только для админа." };
-      const people = Object.entries(config.people || {});
       const topics = Object.entries(config.topics || {});
-      if (!people.length && !topics.length) {
-        return { text: "Привязок нет. Бариста ставит свою командой <code>/я абая</code>." };
+      if (!topics.length) {
+        return { text: "Ни одна тема не закреплена за филиалом.\nВ теме филиала выполните <code>/это абая</code>." };
       }
-      const lines = [];
-      if (people.length) {
-        lines.push("<b>Бариста</b>");
-        for (const [id, branch] of people) {
-          const who = config.peopleNames?.[id] || `id ${id}`;
-          lines.push(`• ${escapeHtml(who)} — <b>${escapeHtml(branch)}</b>`);
-        }
-      }
-      if (topics.length) {
-        lines.push("", "<b>Темы и чаты</b>");
-        for (const [key, branch] of topics) lines.push(`• <code>${escapeHtml(key)}</code> — ${escapeHtml(branch)}`);
-      }
+      const lines = ["<b>Темы, закреплённые за филиалами</b>", ""];
+      for (const [key, branch] of topics) lines.push(`• <code>${escapeHtml(key)}</code> — ${escapeHtml(branch)}`);
+      lines.push("", "В такой теме филиал в накладной можно не писать.");
       return { text: lines.join("\n") };
     }
 
@@ -844,16 +790,16 @@ export async function handleMessage(msg, ctx) {
   const today = todayAlmaty();
   const parsed = parseInvoiceMessage(text, today);
 
-  // Филиал берём из сообщения, а если его там нет — из привязки бариста
-  // или темы. Написанное явно всегда важнее: курьер может сдать накладную
-  // за соседнюю точку из своей темы.
+  // Филиал берём из сообщения, а если его там нет — из темы, закреплённой
+  // за точкой. Написанное явно всегда важнее: курьер может сдать накладную
+  // за соседнюю точку из чужой темы.
   const bound = boundBranch(config, msg);
   const branch = parsed.branch || bound;
   const implicit = !parsed.branch;
   const hasItems = parsed.items.length > 0;
 
   // «филиал не распознан» — забота этой функции, а не бариста: если филиал
-  // берётся из привязки, показывать такое предупреждение незачем.
+  // берётся из темы, показывать такое предупреждение незачем.
   const warnings = parsed.warnings.filter((w) => w !== "филиал не распознан");
 
   if (!branch) {
@@ -865,14 +811,15 @@ export async function handleMessage(msg, ctx) {
       text: [
         "⚠️ Не понял, какой это филиал.",
         "",
-        "Напишите один раз <code>/я абая</code> — и филиал больше указывать не придётся.",
-        "Либо ставьте его первой строкой: <code>Абая</code>",
+        "Начните сообщение с названия точки:",
+        "<pre>Абая\nПончики 48шт 40000</pre>",
+        "Можно сокращённо: <code>абая</code>, <code>гаг</code>, <code>жар</code>, <code>оби</code>. Все — /филиалы",
       ].join("\n"),
     };
   }
 
   if (!hasItems) {
-    // Филиал взят из привязки, а сумм в сообщении нет — это разговор в
+    // Филиал взят из темы, а сумм в сообщении нет — это разговор в
     // чате, а не сломанная накладная. Молчим.
     if (implicit) return null;
     return {
@@ -999,11 +946,12 @@ export async function handleMessage(msg, ctx) {
 // message_thread_id. Поэтому ключ подключения — «чат:тема» для сообщений
 // из темы и просто «чат» для обычных групп. Иначе подключение темы
 // «Накладные» разрешало бы боту и «Долги», и «Переносы».
-// Филиал, закреплённый за автором сообщения или за темой.
-// Сначала человек: он всегда с одной точки, а тему могут делить все.
+// Филиал, закреплённый за темой форума или за чатом целиком.
+//
+// Привязки «человек → точка» здесь нет намеренно: бариста больше пятидесяти,
+// и объяснить каждому команду дороже, чем один раз написать филиал строкой.
+// Тему же закрепляет админ — от бариста не требуется ничего.
 export function boundBranch(config, msg) {
-  const byUser = msg?.from?.id != null ? config?.people?.[String(msg.from.id)] : null;
-  if (byUser) return byUser;
   const topics = config?.topics || {};
   return topics[chatKey(msg)] || topics[String(msg?.chat?.id)] || null;
 }

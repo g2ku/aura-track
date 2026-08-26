@@ -803,34 +803,45 @@ section("Подтверждение реакцией");
 }
 
 // ─── Итог ─────────────────────────────────────────────────────────────
-// ─── Филиал по привязке ───────────────────────────────────────────────
-section("Филиал по привязке: не печатать одно и то же");
+// ─── Филиал по теме ───────────────────────────────────────────────────
+section("Филиал: строкой в сообщении или по теме чата");
 
 {
+  // Обычный путь: филиал первой строкой. Учить бариста ничему не нужно.
   const store = makeStore({ ackMode: "reply" });
-
-  const bind = await run(store, "/я абая");
-  ok(bind.text.includes("Абая"), "привязка подтверждена");
-  eq(store.config.people, { "777": "Абая" }, "привязка сохранена по id");
-
-  // Филиала в сообщении нет — берём из привязки
-  const r = await run(store, "Пончики 48шт 40000");
-  ok(r && r.text.includes("Абая"), "накладная без филиала записана на Абая");
+  const r = await run(store, "Абая\nПончики 48шт 40000");
+  ok(r && r.text.includes("Абая"), "филиал первой строкой распознан");
   const doc = await store.getDoc(TODAY);
-  eq(doc.totals, { "Абая": 40000 }, "сумма легла на привязанный филиал");
+  eq(doc.totals, { "Абая": 40000 }, "сумма легла на этот филиал");
 }
 
 {
-  // Написанное явно важнее привязки: курьер сдаёт за соседнюю точку
-  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  // Тот же чат, разные бариста, разные точки — привязки к человеку нет,
+  // поэтому каждый пишет свою и ничего не путается
+  const store = makeStore({ ackMode: "reply" });
+  await run(store, "абая\nПончики 10шт 5000", { userId: 1 });
+  await run(store, "коктем\nПончики 10шт 4000", { userId: 2 });
+  const doc = await store.getDoc(TODAY);
+  eq(doc.totals, { "Абая": 5000, "Коктем": 4000 }, "две точки из одного чата не смешались");
+}
+
+{
+  const store = makeStore({ ackMode: "reply", topics: { "-100500": "Абая" } });
+  const r = await run(store, "Пончики 48шт 40000");
+  ok(r && r.text.includes("Абая"), "в закреплённом чате филиал можно не писать");
+}
+
+{
+  // Написанное явно важнее закрепления: курьер сдаёт за соседнюю точку
+  const store = makeStore({ ackMode: "reply", topics: { "-100500": "Абая" } });
   await run(store, "коктем\nПончики 10шт 5000");
   const doc = await store.getDoc(TODAY);
-  eq(doc.totals, { "Коктем": 5000 }, "явный филиал перебивает привязку");
+  eq(doc.totals, { "Коктем": 5000 }, "явный филиал перебивает закрепление");
 }
 
 {
   // Болтовня в чате не должна становиться накладной
-  const store = makeStore({ people: { "777": "Абая" } });
+  const store = makeStore({ topics: { "-100500": "Абая" } });
   eq(await run(store, "ребята кто сегодня закрывает"), null, "разговор без сумм — молчим");
   eq(await run(store, "ок"), null, "короткая реплика — молчим");
   const doc = await store.getDoc(TODAY);
@@ -838,10 +849,11 @@ section("Филиал по привязке: не печатать одно и �
 }
 
 {
-  // Без привязки, но похоже на накладную — подсказываем, как настроить
+  // Филиала нет нигде, но похоже на накладную — подсказываем формат
   const store = makeStore();
   const r = await run(store, "Пончики 48шт 40000");
-  ok(r && r.text.includes("/я"), "новичку подсказали про привязку");
+  ok(r && r.text.includes("названия точки"), "новичку подсказали писать филиал строкой");
+  ok(r && !r.text.includes("/я"), "мёртвой команды в подсказке нет");
   const doc = await store.getDoc(TODAY);
   eq(doc.entries.length, 0, "непонятную накладную не записали");
 }
@@ -862,39 +874,31 @@ section("Филиал по привязке: не печатать одно и �
 }
 
 {
-  // Человек важнее темы: бариста Абая, написавший в общую тему
+  // Тема точнее чата: у общего чата своя точка, у темы — своя
   const store = makeStore({
     ackMode: "reply",
-    people: { "777": "Абая" },
-    topics: { "-100500:12": "Гагарина" },
+    topics: { "-100500": "Абая", "-100500:12": "Гагарина" },
   });
   const r = await run(store, "Пончики 10шт 9000", { threadId: 12 });
-  ok(r.text.includes("Абая"), "привязка человека сильнее темы");
+  ok(r.text.includes("Гагарина"), "тема сильнее чата целиком");
 }
 
 {
-  const store = makeStore({ people: { "777": "Абая" } });
-  const r = await run(store, "/я");
-  ok(r.text.includes("Абая"), "/я показывает текущую привязку");
+  const store = makeStore({ topics: { "-100500:12": "Гагарина" } });
+  const list = await run(store, "/темы");
+  ok(list.text.includes("Гагарина"), "/темы показывает закреплённый филиал");
+  ok(list.text.includes("-100500:12"), "и саму тему");
 
-  const off = await run(store, "/я нет");
-  ok(off.text.includes("убрана"), "привязку можно снять");
-  eq(store.config.people, {}, "привязка удалена");
+  const empty = await run(makeStore(), "/темы");
+  ok(empty.text.includes("/это"), "когда тем нет — объясняем, как закрепить");
 }
 
 {
+  // Команды привязки человека больше нет: она требовала обучать полсотни бариста
   const store = makeStore();
-  await run(store, "/я абая");
-  const list = await run(store, "/люди");
-  ok(list.text.includes("@barista"), "/люди показывает имя, а не голый id");
-  ok(list.text.includes("Абая"), "/люди показывает филиал");
-}
-
-{
-  const store = makeStore();
-  const r = await run(store, "/я караганда");
-  ok(r.text.includes("Не знаю филиал"), "неизвестный филиал не привязывается");
-  eq(store.config.people, {}, "ничего не сохранено");
+  eq(await run(store, "/я абая"), null, "/я больше не команда");
+  eq(await run(store, "/люди"), null, "/люди больше не команда");
+  ok(!("people" in store.config), "в конфиге не осталось людей");
 }
 
 // ─── Сокращения товаров ───────────────────────────────────────────────
@@ -903,7 +907,7 @@ section("Сокращения товаров");
 {
   const store = makeStore({
     ackMode: "reply",
-    people: { "777": "Абая" },
+    topics: { "-100500": "Абая" },
     products: ["Пончики", "Круассан", "Молоко кокос", "Молоко обычное"],
   });
 
@@ -918,7 +922,7 @@ section("Сокращения товаров");
 {
   // Сокращение — осознанное, чат им засорять не нужно: хватает 👍
   const store = makeStore({
-    people: { "777": "Абая" },
+    topics: { "-100500": "Абая" },
     products: ["Пончики", "Круассан"],
   });
   const r = await run(store, "пон 48 40к");
@@ -932,7 +936,7 @@ section("Сокращения товаров");
 
 {
   const store = makeStore({
-    people: { "777": "Абая" },
+    topics: { "-100500": "Абая" },
     products: ["Молоко кокос", "Молоко обычное"],
   });
   const r = await run(store, "мол 12 5000");
@@ -946,7 +950,7 @@ section("Сокращения товаров");
   // Уточнили — записалось
   const store = makeStore({
     ackMode: "reply",
-    people: { "777": "Абая" },
+    topics: { "-100500": "Абая" },
     products: ["Молоко кокос", "Молоко обычное"],
   });
   await run(store, "мол коко 12 5000");
@@ -956,7 +960,7 @@ section("Сокращения товаров");
 
 {
   // Несколько позиций в одну строку
-  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" }, products: ["Пончики", "Круассан"] });
+  const store = makeStore({ ackMode: "reply", topics: { "-100500": "Абая" }, products: ["Пончики", "Круассан"] });
   await run(store, "пон 48 40к, кру 20 15к");
   const doc = await store.getDoc(TODAY);
   eq(doc.items.length, 2, "обе позиции из одной строки");
@@ -967,7 +971,7 @@ section("Сокращения товаров");
 section("Правка сообщения вместо переотправки");
 
 {
-  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  const store = makeStore({ ackMode: "reply", topics: { "-100500": "Абая" } });
   await run(store, "Пончики 48шт 40000", { messageId: 500 });
   await run(store, "Пончики 48шт 4000", { editOf: 500 });
 
@@ -978,7 +982,7 @@ section("Правка сообщения вместо переотправки")
 
 {
   // Правка перенесла накладную во вчера — из сегодня она должна уйти
-  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  const store = makeStore({ ackMode: "reply", topics: { "-100500": "Абая" } });
   await run(store, "Пончики 48шт 40000", { messageId: 600 });
   await run(store, "вчера\nПончики 48шт 40000", { editOf: 600 });
 
@@ -989,7 +993,7 @@ section("Правка сообщения вместо переотправки")
 
 {
   // «вчера» словом вместо даты
-  const store = makeStore({ ackMode: "reply", people: { "777": "Абая" } });
+  const store = makeStore({ ackMode: "reply", topics: { "-100500": "Абая" } });
   const r = await run(store, "вчера\nПончики 48шт 40000");
   ok(r.text.includes("Записано на"), "дата показана явно");
   const todayDoc = await store.getDoc(TODAY);
