@@ -62,6 +62,7 @@ const ADMIN_HELP = `
 /это абая — закрепить эту тему за филиалом
 /люди — кто к какому филиалу привязан
 /сторож — тревоги о зависших чеках и тишине на точках
+/график — во сколько точки открываются и закрываются
 /сводка — итог вчерашнего дня по утрам`;
 
 function isAdmin(config, userId) {
@@ -229,6 +230,51 @@ async function handleCommand({ cmd, args }, ctx) {
       return { text: `✅ Эта тема закреплена за <b>${escapeHtml(branch)}</b>. Филиал в накладных можно не писать.` };
     }
 
+    // Расписание точек: во сколько открываются и закрываются
+    case "график":
+    case "schedule": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const arg = args.trim();
+      const schedule = { ...(config.schedule || {}) };
+
+      // «/график коктем 08:00 21:00» — задать правило
+      const set = arg.match(/^(.+?)\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})$/);
+      if (set) {
+        const branch = matchBranch(set[1]);
+        if (!branch) return { text: `Не знаю филиал «${escapeHtml(set[1])}». Список: /филиалы` };
+        const b = BRANCHES.find((x) => x.name === branch);
+        schedule[b.spotId] = { open: set[2], close: set[3] };
+        await store.setConfig({ schedule });
+        return { text: `✅ ${branch}: с <b>${set[2]}</b> до <b>${set[3]}</b>.\nТеперь сторож считает по этому правилу, а не по истории.` };
+      }
+
+      // «/график коктем сброс» — вернуться к истории
+      const clear = arg.match(/^(.+?)\s+(сброс|убрать|нет)$/i);
+      if (clear) {
+        const branch = matchBranch(clear[1]);
+        if (!branch) return { text: `Не знаю филиал «${escapeHtml(clear[1])}».` };
+        const b = BRANCHES.find((x) => x.name === branch);
+        delete schedule[b.spotId];
+        await store.setConfig({ schedule });
+        return { text: `${branch}: правило убрано, снова считаю по истории смен.` };
+      }
+
+      if (arg) {
+        return {
+          text: [
+            "Не разобрал. Как задать:",
+            "<code>/график коктем 08:00 21:00</code>",
+            "<code>/график коктем сброс</code> — вернуться к истории",
+          ].join("\n"),
+        };
+      }
+
+      // Показать: что задано правилом, что выведено из истории
+      if (!store.getSchedule) return { text: "Расписание недоступно." };
+      const view = await store.getSchedule(schedule);
+      return { text: view };
+    }
+
     // Сверка накладных с тем, что провели в Poster
     case "сверка":
     case "reconcile": {
@@ -282,6 +328,8 @@ async function handleCommand({ cmd, args }, ctx) {
           quietSpotMin: config.quietSpotMin,
           openBy: config.openBy,
           noSupplyDays: config.noSupplyDays,
+          lateByMin: config.lateByMin,
+          schedule: config.schedule,
         });
         return { text: snap || "✅ Сейчас всё спокойно: зависших чеков нет, точки продают." };
       }
@@ -294,6 +342,8 @@ async function handleCommand({ cmd, args }, ctx) {
               quietSpotMin: config.quietSpotMin,
               openBy: config.openBy,
               noSupplyDays: config.noSupplyDays,
+              lateByMin: config.lateByMin,
+              schedule: config.schedule,
             }).catch(() => null)
           : null;
         return {

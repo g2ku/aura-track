@@ -328,6 +328,25 @@ section("Поставки проверяются раз в день");
   ok(/поставки не проверились/.test(watch), "ошибка поставок не роняет остальные тревоги");
 }
 
+section("Расписание задаётся командой и запоминается");
+
+{
+  const cmd = readFileSync("api/_lib/commands.js", "utf8");
+  ok(/case "график":/.test(cmd), "команда есть");
+  ok(/schedule\[b\.spotId\] = \{ open: set\[2\], close: set\[3\] \}/.test(cmd), "правило сохраняется по филиалу");
+  ok(/store\.setConfig\(\{ schedule \}\)/.test(cmd), "и запоминается в настройках");
+  ok(/сброс\|убрать\|нет/.test(cmd), "правило можно снять и вернуться к истории");
+
+  const store = readFileSync("api/_lib/store.js", "utf8");
+  ok(/schedule: \{\}/.test(store), "по умолчанию правил нет — работает история");
+  ok(/по факту в/.test(store), "показываем, как открываются НА САМОМ ДЕЛЕ");
+
+  const watch = readFileSync("api/tg/watch.js", "utf8");
+  ok(/schedule: config\.schedule/.test(watch), "сторож получает правило");
+  ok(/windingDown\(shifts, \{ schedule: config\.schedule \}\)/.test(watch),
+     "и закрытие считает по нему же");
+}
+
 section("Точка входа защищена и не роняет планировщик");
 
 {

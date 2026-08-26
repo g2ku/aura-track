@@ -166,6 +166,10 @@ export const DEFAULT_CONFIG = {
   quietSpotMin: 40,
   openBy: "11:00",         // к этому часу точка обязана хоть что-то продать
   lateByMin: 30,           // насколько позже обычного открытия — уже опоздание
+  // Расписание, заданное владельцем: { "<spot_id>": { open, close } }.
+  // Важнее выведенного из истории: история говорит, как открываются
+  // обычно, а не как должны. Систематическое опоздание она впитывает.
+  schedule: {},
   noSupplyDays: 2,         // столько дней без поставки в Poster — уже вопрос
   lastSupplyCheck: null,   // поставки проверяем раз в день: ответ на 2,7 МБ
   quietFrom: "08:00",      // раньше и позже не тревожим: до утра всё равно
@@ -276,7 +280,7 @@ export async function getWatchSnapshot(opts = {}) {
   const alerts = buildAlerts(rows, {
     ...opts, now: Date.now(), nowHHMM, seen: {},
     openSpots: shifts.length ? openSpots(shifts) : null,
-    windingDown: shifts.length ? windingDown(shifts) : null,
+    windingDown: shifts.length ? windingDown(shifts, { schedule: opts.schedule }) : null,
   });
   if (shifts.length) alerts.push(...buildLateAlerts(shifts, { ...opts, now: Date.now(), seen: {} }));
 
@@ -290,9 +294,57 @@ export async function getWatchSnapshot(opts = {}) {
   return formatAlerts(alerts);
 }
 
+// Показать расписание: где правило владельца, где догадка по истории —
+// и как точки открываются НА САМОМ ДЕЛЕ. Расхождение между «должно» и
+// «по факту» — это и есть систематическое опоздание.
+export async function getSchedule(schedule = {}) {
+  const { posterCall } = await import("./poster.js");
+  const { usualOpening, usualClosing, scheduleFor } = await import("./shifts.js");
+  const { BRANCHES } = await import("./branches.js");
+
+  let rows = [];
+  try {
+    const r = await posterCall("finance.getCashShifts", {});
+    rows = r?.response || [];
+  } catch (e) {
+    console.warn("[tg] смены для расписания не прочитались:", e?.message);
+  }
+
+  const opens = usualOpening(rows);
+  const closes = usualClosing(rows);
+  const fmt = (m) => (m == null ? "—" : `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+
+  const lines = ["<b>Расписание точек</b>", ""];
+  let anyRule = false;
+
+  for (const b of BRANCHES) {
+    const s = scheduleFor(b.spotId, schedule, { open: opens[b.spotId], close: closes[b.spotId] });
+    const byRule = s.openBy === "rule";
+    if (byRule) anyRule = true;
+
+    const mark = byRule ? "📌" : "📊";
+    lines.push(`${mark} <b>${b.name}</b> — ${fmt(s.open)} … ${fmt(s.close)}`);
+
+    // Если правило задано, показываем и то, как открываются по факту
+    if (byRule && opens[b.spotId] != null) {
+      const diff = opens[b.spotId] - s.open;
+      if (Math.abs(diff) >= 10) {
+        lines.push(`    по факту в ${fmt(opens[b.spotId])} — ${diff > 0 ? `на ${diff} мин позже` : `на ${-diff} мин раньше`}`);
+      }
+    }
+  }
+
+  lines.push("");
+  lines.push(anyRule ? "📌 правило · 📊 по истории смен" : "📊 всё выведено из истории смен");
+  lines.push("");
+  lines.push("<code>/график коктем 08:00 21:00</code> — задать");
+  lines.push("<code>/график коктем сброс</code> — вернуть историю");
+  return lines.join("\n");
+}
+
 export function botStore() {
   return {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
-    getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot,
+    getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
   };
 }

@@ -114,7 +114,7 @@ export default async function handler(req, res) {
         // Без смен не фильтруем вовсе: лучше лишняя тревога, чем тишина
         // из-за того, что Poster не ответил.
         openSpots: shifts.length ? openSpots(shifts) : null,
-        windingDown: shifts.length ? windingDown(shifts) : null,
+        windingDown: shifts.length ? windingDown(shifts, { schedule: config.schedule }) : null,
       });
 
       if (shifts.length) {
@@ -123,6 +123,8 @@ export default async function handler(req, res) {
           seen: config.alertSeen || {},
           lateByMin: config.lateByMin,
           repeatAfterMin: config.repeatAfterMin,
+          // Правило владельца важнее выведенного из истории
+          schedule: config.schedule,
         }));
       }
 

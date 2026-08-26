@@ -125,6 +125,14 @@ export function windingDown(rows, opts = {}) {
   const nowMin = minutesOfDay(now);
   const closing = usualClosing(rows, cfg);
 
+  const schedule = cfg.schedule || {};
+  // Правило владельца перекрывает историю и здесь: если сказано, что
+  // точка работает до 21:00, затишье считаем от него.
+  for (const [spotId, rule] of Object.entries(schedule)) {
+    const m = hhmmToMinutes(rule?.close);
+    if (m != null) closing[spotId] = m <= (hhmmToMinutes(rule?.open) ?? 0) ? m + 1440 : m;
+  }
+
   const out = new Set();
   for (const [spot, close] of Object.entries(closing)) {
     const pastMidnight = close > 1440;
@@ -144,7 +152,35 @@ export function windingDown(rows, opts = {}) {
 
 const fmtHM = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-// Точки, которые к своему обычному часу так и не открылись.
+// Расписание, заданное владельцем, важнее выведенного из истории.
+//
+// История отвечает на вопрос «как открываются обычно», а не «как должны».
+// Если точка месяц открывается на двадцать минут позже, медиана это
+// впитает, и опоздание перестанет быть опозданием. Поэтому там, где
+// правило задано руками, оно и главное.
+export function scheduleFor(spotId, schedule, derived) {
+  const rule = schedule?.[String(spotId)];
+  const open = hhmmToMinutes(rule?.open);
+  const close = hhmmToMinutes(rule?.close);
+  return {
+    open: open ?? derived?.open ?? null,
+    close: close ?? derived?.close ?? null,
+    // Откуда взято — чтобы в ответе бота было видно, где правило, а где
+    // догадка по истории.
+    openBy: open != null ? "rule" : derived?.open != null ? "history" : null,
+    closeBy: close != null ? "rule" : derived?.close != null ? "history" : null,
+  };
+}
+
+export function hhmmToMinutes(hhmm) {
+  const m = String(hhmm || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2]);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+// Точки, которые к своему часу так и не открылись.
 export function buildLateAlerts(rows, opts = {}) {
   const cfg = { ...SHIFT_DEFAULTS, ...opts };
   const now = cfg.now ?? Date.now();
@@ -153,13 +189,14 @@ export function buildLateAlerts(rows, opts = {}) {
 
   const open = openSpots(rows, now);
   const usual = usualOpening(rows, cfg);
+  const schedule = cfg.schedule || {};
   const alerts = [];
 
   for (const b of BRANCHES) {
     if (open.has(b.spotId)) continue;
-    const u = usual[b.spotId];
-    // Без истории молчим: гадать, во сколько точка «должна» открыться,
-    // хуже, чем не сказать ничего.
+    const { open: u, openBy } = scheduleFor(b.spotId, schedule, { open: usual[b.spotId] });
+    // Ни правила, ни истории — молчим: гадать, во сколько точка «должна»
+    // открыться, хуже, чем не сказать ничего.
     if (u == null) continue;
 
     const late = nowMin - (u + cfg.lateByMin);
@@ -175,6 +212,7 @@ export function buildLateAlerts(rows, opts = {}) {
       spot: b.name,
       spotId: b.spotId,
       usual: fmtHM(u),
+      byRule: openBy === "rule",
       lateMin: nowMin - u,
     });
   }
