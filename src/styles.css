@@ -6230,6 +6230,12 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .pr-block-blocking .pr-block-title { color: var(--text-danger); }
 .pr-block-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; max-width: 62ch; }
 
+.pr-pull { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 12px; }
+/* Откуда взялась цена. Себестоимость помечена иначе: её подставили
+   вместо цены продажи, которой у ингредиента нет, и это надо проверить. */
+.pr-hint-src { display: block; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+.pr-hint-warn { color: var(--text-warning); }
+
 .pr-price-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 0; }
 .pr-price-name { flex: 1 1 160px; font-size: 14px; font-weight: 600; }
 .pr-price-input {

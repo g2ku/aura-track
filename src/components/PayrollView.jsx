@@ -14,6 +14,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
 import { matchBranch } from "../../api/_lib/branches.js";
+import { fetchPosterPriceList } from "../poster";
+import { resolveProductName } from "../../api/_lib/products.js";
 import {
   parseInventoryMessage, priceItems, calcPayroll, summarize, MIN_HOURS_FOR_SHORTAGE,
 } from "../payroll.js";
@@ -76,6 +78,9 @@ export default function PayrollView() {
   const [staffBook, setStaffBook] = useState([]);
   const [loading, setLoading] = useState(true);
   const [draftPrice, setDraftPrice] = useState({});
+  // Подсказки из Poster: { название: { price, source, unit } }
+  const [hints, setHints] = useState(null);
+  const [hintsLoading, setHintsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState(null);
 
@@ -225,6 +230,50 @@ export default function PayrollView() {
 
   function setExcluded(entryId, name, on) {
     patchEntry(entryId, (e) => ({ ...e, excluded: { ...(e.excluded || {}), [name]: on } }));
+  }
+
+  // Подтянуть цены из Poster под то, чего не хватает.
+  //
+  // Товарам меню берём цену продажи — её и положено списывать. Ингредиентам
+  // продажной цены нет вовсе, поэтому подставляем себестоимость и честно
+  // помечаем: сколько списывать за литр молока, решает владелец.
+  async function pullPrices() {
+    if (hintsLoading) return;
+    setHintsLoading(true);
+    try {
+      const list = await fetchPosterPriceList();
+      const names = list.map((x) => x.name);
+      const found = {};
+      const drafts = {};
+      for (const need of missing) {
+        const { name: canonical } = resolveProductName(need, names);
+        const hit = list.find((x) => x.name === canonical);
+        if (!hit) continue;
+        found[need] = hit;
+        drafts[need] = String(hit.price);
+      }
+      setHints(found);
+      setDraftPrice((d) => ({ ...d, ...drafts }));
+
+      const n = Object.keys(found).length;
+      toast(
+        n
+          ? { tone: "success", icon: "ti-check", title: `Нашёл ${n} из ${missing.length}`, message: "Проверьте и сохраните" }
+          : { tone: "info", title: "В Poster таких позиций нет", message: "Впишите цены вручную" },
+      );
+    } catch (e) {
+      toast({ tone: "error", title: "Poster не ответил", message: e.message });
+    }
+    setHintsLoading(false);
+  }
+
+  // Сохранить всё, что заполнено, одним махом
+  async function savePulled() {
+    const ready = missing.filter((n) => {
+      const v = parseFloat(String(draftPrice[n] || "").replace(",", "."));
+      return Number.isFinite(v) && v > 0;
+    });
+    for (const n of ready) await addPrice(n);
   }
 
   async function addPrice(name) {
@@ -510,9 +559,30 @@ function BranchBlock({ block, draftPrice, setDraftPrice, onAddPrice, onSetRate, 
             Недостача списывается по цене продажи. Пока цены нет, сумма занизилась бы молча.
             Остальные филиалы считаются как обычно.
           </p>
+          <div className="pr-pull">
+            <button className="btn btn-out btn-sm" onClick={pullPrices} disabled={hintsLoading}>
+              <i className="ti ti-download" aria-hidden="true" />
+              {hintsLoading ? " Ищу в Poster…" : " Подтянуть из Poster"}
+            </button>
+            {hints && Object.keys(hints).length > 0 && (
+              <button className="btn btn-pri btn-sm" onClick={savePulled}>
+                <i className="ti ti-check" aria-hidden="true" /> Сохранить заполненные
+              </button>
+            )}
+          </div>
+
           {missing.map((n) => (
             <div key={n} className="pr-price-row">
-              <span className="pr-price-name">{n}</span>
+              <span className="pr-price-name">
+                {n}
+                {hints?.[n] && (
+                  <span className={`pr-hint-src${hints[n].source === "ingredient" ? " pr-hint-warn" : ""}`}>
+                    {hints[n].source === "menu"
+                      ? " цена продажи из Poster"
+                      : ` себестоимость из Poster${hints[n].unit ? ` за ${hints[n].unit}` : ""} — проверьте`}
+                  </span>
+                )}
+              </span>
               <input
                 className="pr-price-input"
                 type="number"
