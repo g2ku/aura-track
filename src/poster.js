@@ -375,93 +375,29 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
 }
 
 // ─── Поставки из Poster (Склад > Поставки) ──────────────────────────────
-
-const SUPPLIES_CACHE_KEY = "supply-track.poster.supplies.v1";
-const SUPPLIES_CACHE_TTL = 0; // всегда свежие данные
-
-export async function fetchSupplies(opts = {}) {
-  // Проверяем кэш
-  try {
-    const raw = localStorage.getItem(SUPPLIES_CACHE_KEY);
-    if (raw) {
-      const cached = JSON.parse(raw);
-      if (cached && Date.now() - cached.ts < SUPPLIES_CACHE_TTL) {
-        return cached.data;
-      }
-    }
-  } catch (_) {}
-
-  // Poster API: storage.getStockHistory or supplies.getSupplies
-  // пробуем несколько эндпоинтов
-  let supplies = [];
-  try {
-    // Пробуем получить поставки через库存 API
-    const data = await call("storage.getStockHistory", {
-      date_from: toPosterDate(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)),
-      date_to: toPosterDate(new Date().toISOString().slice(0, 10)),
-    }, opts);
-    supplies = data?.response || [];
-  } catch (_) {
-    try {
-      const data = await call("supplies.getSupplies", {}, opts);
-      supplies = data?.response || [];
-    } catch (_) {
-      supplies = [];
-    }
-  }
-
-  // Кэшируем
-  try {
-    localStorage.setItem(SUPPLIES_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: supplies }));
-  } catch (_) {}
-
-  return supplies;
-}
-
-// ─── Статус поставок по филиалам: когда последняя поставка ───────────────
+//
+// Считает сервер: /api/supply-status. Здесь этого кода больше нет
+// намеренно. Раньше он ходил в Poster сам и пробовал два метода наугад —
+// storage.getStockHistory и supplies.getSupplies. Не существует ни один:
+// 405 и 404 на каждой загрузке дашборда, поставок на сайте не было
+// никогда. Настоящий метод — storage.getSupplies, но он отдаёт 2,7 МБ
+// истории целиком и игнорирует фильтры по датам, а группировался ответ
+// по полю spot_id, которого в нём нет вовсе.
 
 export async function fetchSupplyStatus(spots, opts = {}) {
-  const supplies = await fetchSupplies(opts);
-  console.log("[poster] fetchSupplyStatus supplies:", supplies?.length);
-  const spotMap = spots || await getSpots(opts);
-  const result = {};
-
-  // Группируем по складу (warehouse name → spot)
-  for (const s of Object.values(spotMap)) {
-    const spotName = s.spot_name || s.name || "";
-    result[s.spot_id] = {
-      spotId: s.spot_id,
-      spotName,
-      lastSupplyDate: null,
-      daysSinceLastSupply: null,
-      totalSupplies: 0,
-    };
+  // Метка времени, а не просто флаг: иначе «Обновить» упрётся в тот же
+  // URL и получит из кэша Vercel ровно то, что уже было.
+  const url = `/api/supply-status${opts.fresh ? `?_fresh=${Date.now()}` : ""}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: opts.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data?.status || {};
+  } catch (e) {
+    if (e?.name === "AbortError") throw e;
+    console.warn("[poster] статус поставок недоступен:", e?.message);
+    return {};
   }
-
-  for (const supply of supplies) {
-    // Poster supply object: { supply_date, supply_number, supply_sum, spot_id, ... }
-    const spotId = String(supply.spot_id || "");
-    const dateStr = supply.supply_date || supply.date || "";
-    if (!spotId || !result[spotId]) continue;
-    result[spotId].totalSupplies++;
-    if (!result[spotId].lastSupplyDate || dateStr > result[spotId].lastSupplyDate) {
-      result[spotId].lastSupplyDate = dateStr;
-    }
-  }
-
-  // Считаем дни с последней поставки
-  const now = new Date();
-  for (const r of Object.values(result)) {
-    if (r.lastSupplyDate) {
-      const m = String(r.lastSupplyDate).match(/(\d{4})(\d{2})(\d{2})/);
-      if (m) {
-        const d = new Date(+m[1], +m[2] - 1, +m[3]);
-        r.daysSinceLastSupply = Math.floor((now - d) / 86400000);
-      }
-    }
-  }
-
-  return result;
 }
 
 // ─── Кэш по дням ──────────────────────────────────────────────────────
