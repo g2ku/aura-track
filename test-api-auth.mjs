@@ -8,8 +8,10 @@
 // Запуск: node test-api-auth.mjs
 
 import { requireUser, denyResponse } from "./api/_lib/requireUser.js";
+import { verifyFirebaseToken } from "./api/_lib/verifyToken.js";
 import { cacheHeaderFor } from "./api/poster/[...path].js";
 import { readFileSync } from "node:fs";
+import { generateKeyPairSync, createSign, X509Certificate } from "node:crypto";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -42,11 +44,71 @@ section("Без токена не пускаем");
 section("Кривой токен не открывает дверь");
 
 {
-  // Настоящий firebase-admin такой токен отвергнет; без ключа в окружении
-  // получим 503 — и это тоже отказ. Открыться не должно ни в каком случае.
   const r = await requireUser(req({ authorization: "Bearer не-настоящий-токен" }));
   eq(r.ok, false, "подделка отклонена");
   ok(r.status === 401 || r.status === 503, `статус отказа: ${r.status}`);
+}
+
+// ─── Настоящая проверка подписи ──────────────────────────────────────
+//
+// Поднимаем свой ключ и подписываем им токены: так видно не «модуль
+// импортируется», а что подделка действительно не проходит.
+
+const PROJECT = "aura-track-test";
+const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const CERTS = { kid1: publicKey.export({ type: "spki", format: "pem" }) };
+
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const NOW_MS = Date.parse("2026-08-27T10:00:00Z");
+const SEC = Math.floor(NOW_MS / 1000);
+
+function mint(payload = {}, { kid = "kid1", alg = "RS256", key = privateKey, tamper = false } = {}) {
+  const head = b64({ alg, kid, typ: "JWT" });
+  const body = b64({
+    sub: "user-1", aud: PROJECT, iss: `https://securetoken.google.com/${PROJECT}`,
+    iat: SEC - 60, exp: SEC + 3600, email: "boss@aura.kz", ...payload,
+  });
+  const sig = createSign("RSA-SHA256").update(`${head}.${body}`).sign(key).toString("base64url");
+  return `${head}.${body}.${tamper ? sig.slice(0, -4) + "AAAA" : sig}`;
+}
+
+const check = (token, over = {}) =>
+  verifyFirebaseToken(token, { projectId: PROJECT, certs: CERTS, now: NOW_MS, ...over });
+
+section("Настоящий токен проходит");
+
+{
+  const who = await check(mint());
+  eq(who.uid, "user-1", "пользователь опознан");
+  eq(who.email, "boss@aura.kz", "почта прочитана");
+}
+
+section("Подделку не пропускаем");
+
+async function rejects(label, token, over = {}) {
+  try {
+    await check(token, over);
+    failed++; failures.push(`  ❌ ${label} — ПРОШЁЛ, хотя не должен`);
+  } catch (e) { passed++; }
+}
+
+await rejects("испорченная подпись", mint({}, { tamper: true }));
+await rejects("подписан чужим ключом",
+  mint({}, { key: generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey }));
+await rejects("alg: none — классика обхода подписи", mint({}, { alg: "none" }));
+await rejects("неизвестный kid", mint({}, { kid: "чужой" }));
+await rejects("истёкший токен", mint({ exp: SEC - 1 }));
+await rejects("выписан будущим временем", mint({ iat: SEC + 4000, exp: SEC + 9000 }));
+await rejects("токен чужого Firebase-проекта", mint({ aud: "другой-проект" }));
+await rejects("издатель не Firebase", mint({ iss: "https://example.com/" }));
+await rejects("без пользователя", mint({ sub: undefined }));
+await rejects("вообще не JWT", "просто строка");
+await rejects("две части вместо трёх", "aaa.bbb");
+await rejects("не знаем свой проект", mint(), { projectId: "" });
+
+{
+  // Токен настоящий, но проверяем его для другого проекта
+  await rejects("свой токен не подходит чужому проекту", mint(), { projectId: "не-наш" });
 }
 
 section("Отказ не оседает в кэше");
@@ -115,6 +177,21 @@ section("Клиент предъявляет токен");
   // Токен — в заголовке, а не в адресе: адреса оседают в логах и истории.
   ok(!/qs\.set\("token"|searchParams\.set\("token"/.test(client),
      "токен не уезжает в строку запроса");
+}
+
+section("firebase-admin/auth сюда не вернулся");
+
+{
+  // На Vercel он не поднимается: jwks-rsa зовёт jose через require(),
+  // а jose нынче только ESM. Функция падала голым 500.
+  const stripComments = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  const guard = stripComments(readFileSync("api/_lib/requireUser.js", "utf8"));
+  const verify = stripComments(readFileSync("api/_lib/verifyToken.js", "utf8"));
+  ok(!/firebase-admin/.test(guard), "проверка входа не тянет firebase-admin");
+  ok(!/firebase-admin/.test(verify), "и разбор токена тоже");
+  ok(/node:crypto/.test(verify), "подпись проверяется штатным crypto");
 }
 
 section("Телеграм-бот ходит мимо прокси и не задет");
