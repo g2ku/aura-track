@@ -82,8 +82,13 @@ export default async function handler(req, res) {
       if (!config.reconcileEnabled) throw { skip: true };
       const sup = await posterCall("storage.getSupplies", {});
       const byBranch = posterSuppliesByBranch(sup?.response || [], date);
-      const text = formatReconcile(reconcile(doc?.totals || {}, byBranch), formatDateRu(date));
-      if (text) await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+      const result = reconcile(doc?.totals || {}, byBranch);
+      // В отчёт не шлём «сверять нечего»: это сообщение уходит каждый
+      // вечер, и пустая строка в нём — чистый шум. На команду /сверка
+      // такой ответ, наоборот, нужен: там спросили и ждут ответа.
+      if (result.rows.length) {
+        await sendMessage(target, formatReconcile(result, formatDateRu(date)), thread ? { message_thread_id: thread } : {});
+      }
     } catch (e) {
       if (!e?.skip) console.warn("[tg] сверка не сошлась:", e?.message);
     }

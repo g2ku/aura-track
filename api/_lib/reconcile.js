@@ -84,14 +84,25 @@ function plural(n, one, few, many) {
   return many;
 }
 
-export function formatReconcile(result, dateLabel) {
+export function formatReconcile(result, dateLabel, totalBranches = BRANCHES.length) {
   const { rows, problems } = result;
-  if (!rows.length) return null;
-
   const lines = [`🔍 <b>Сверка с Poster · ${dateLabel}</b>`];
 
+  // Точка, где за день не было ни накладной, ни поставки в Poster, в
+  // сравнение не попадает вовсе. Без этой строки сообщение с одним
+  // филиалом выглядит так, будто остальные молча пропустили.
+  const untouched = Math.max(0, totalBranches - rows.length);
+  const tail = untouched
+    ? `\nНа остальных ${untouched} ${plural(untouched, "точке", "точках", "точках")} за день ни накладных, ни поставок.`
+    : "";
+
+  if (!rows.length) {
+    lines.push("", `Ни накладных, ни поставок в Poster за этот день.`);
+    return lines.join("\n");
+  }
+
   if (!problems.length) {
-    lines.push("", `Всё сошлось — ${rows.length} ${plural(rows.length, "точка", "точки", "точек")}.`);
+    lines.push("", `Всё сошлось — ${rows.length} ${plural(rows.length, "точка", "точки", "точек")}.${tail}`);
     return lines.join("\n");
   }
 
@@ -107,6 +118,7 @@ export function formatReconcile(result, dateLabel) {
   }
 
   const ok = rows.length - problems.length;
-  if (ok > 0) lines.push("", `Сошлись остальные ${ok} ${plural(ok, "точка", "точки", "точек")}.`);
+  if (ok > 0) lines.push("", `Сошлись остальные ${ok} ${plural(ok, "точка", "точки", "точек")}.${tail}`);
+  else if (tail) lines.push(tail.trim());
   return lines.join("\n");
 }

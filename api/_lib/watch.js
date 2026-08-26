@@ -120,6 +120,10 @@ const fmtSum = (n) => new Intl.NumberFormat("ru-RU").format(n) + " ₸";
 // Сколько строк показываем, прежде чем свернуть остаток в счётчик.
 // Стена из двух десятков строк перестаёт читаться со второго раза.
 const MAX_LINES = 6;
+// Общий предел на раздел с чеками: у одного бариста их бывает пять, и
+// шесть таких строк превращаются в тридцать. Считаем ВСЕ строки, а не
+// только заголовки групп.
+const MAX_CHECK_LINES = 16;
 
 // Чеки одного бариста на одной точке — одной строкой. Иначе «Абая ·
 // Тома-Бибэк» повторяется трижды подряд и занимает половину сообщения.
@@ -128,14 +132,17 @@ function groupByWaiter(list) {
   for (const a of list) {
     const key = `${a.spotId}|${a.waiter}`;
     const g = map.get(key);
-    if (!g) map.set(key, { ...a, count: 1 });
+    if (!g) map.set(key, { ...a, count: 1, items: [a] });
     else {
       g.count++;
       g.sum += a.sum;
+      g.items.push(a);
       if (a.minutes > g.minutes) g.minutes = a.minutes;
     }
   }
-  return [...map.values()].sort((a, b) => b.minutes - a.minutes);
+  const groups = [...map.values()];
+  for (const g of groups) g.items.sort((x, y) => y.minutes - x.minutes);
+  return groups.sort((a, b) => b.minutes - a.minutes);
 }
 
 function plural(n, one, few, many) {
@@ -156,15 +163,35 @@ export function formatAlerts(alerts) {
 
   if (withMoney.length) {
     lines.push("⚠️ <b>Чеки висят открытыми</b>");
-    for (const a of withMoney.slice(0, MAX_LINES)) {
+    let budget = MAX_CHECK_LINES;
+    let shown = 0;
+
+    for (const a of withMoney) {
+      const need = a.count === 1 ? 1 : 1 + a.count;
+      // Место кончилось — остаток свернём одной строкой ниже
+      if (budget - need < 0 && shown > 0) break;
+
       const who = a.waiter ? ` · ${a.waiter}` : "";
-      const many = a.count > 1 ? ` ${a.count} чека, старший` : "";
-      lines.push(`• ${a.spot}${who} —${many} ${fmtAge(a.minutes)} · ${fmtSum(a.sum)}`);
+      if (a.count === 1) {
+        lines.push(`• ${a.spot}${who} — ${fmtAge(a.minutes)} · ${fmtSum(a.sum)}`);
+        budget -= 1;
+      } else {
+        // Несколько чеков у одного бариста показываем поимённо: у одного
+        // может висеть двенадцать часов, а у трёх соседних — двадцать
+        // минут, и одна общая цифра это скрывает.
+        lines.push(`• ${a.spot}${who} — ${a.count} ${plural(a.count, "чек", "чека", "чеков")} на ${fmtSum(a.sum)}`);
+        const fit = Math.max(1, Math.min(a.items.length, budget - 1));
+        for (const i of a.items.slice(0, fit)) lines.push(`    ${fmtAge(i.minutes)} · ${fmtSum(i.sum)}`);
+        if (a.items.length > fit) lines.push(`    … и ещё ${a.items.length - fit}`);
+        budget -= 1 + fit;
+      }
+      shown++;
     }
-    const rest = withMoney.length - MAX_LINES;
+
+    const rest = withMoney.length - shown;
     if (rest > 0) {
-      const restSum = withMoney.slice(MAX_LINES).reduce((s, a) => s + a.sum, 0);
-      lines.push(`• и ещё ${rest} — ${fmtSum(restSum)}`);
+      const restSum = withMoney.slice(shown).reduce((s, a) => s + a.sum, 0);
+      lines.push(`• и ещё ${rest} ${plural(rest, "бариста", "бариста", "бариста")} — ${fmtSum(restSum)}`);
     }
   }
 
