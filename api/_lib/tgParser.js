@@ -282,7 +282,7 @@ export function parseInvoiceMessage(text, today = null) {
   for (const line of lines) {
     // Дата отдельной строкой: «Жар \n 21.08 \n Кукис ...»
     // Отдельная строка-дата однозначна, поэтому читаем её и до строки
-    // филиала: у бариста с привязкой филиала в сообщении вообще нет.
+    // филиала: в закреплённой за точкой теме его в сообщении вообще нет.
     if (today && result.date === null) {
       const solo = parseDateToken(line.trim(), today) || parseDayWord(line.trim(), today);
       if (solo) { result.date = solo; continue; }
@@ -316,7 +316,7 @@ export function parseInvoiceMessage(text, today = null) {
     itemLines.push(line);
   }
 
-  // Филиал может быть не написан вовсе — он подставится из привязки
+  // Филиал может быть не написан вовсе — он подставится из темы
   // бариста. Поэтому позиции разбираем всегда, а отсутствие филиала лишь
   // помечаем: решать, что с этим делать, — не дело парсера.
   if (!result.branch) result.warnings.push("филиал не распознан");
