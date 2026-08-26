@@ -164,6 +164,9 @@ export const DEFAULT_CONFIG = {
   watchThreadId: null,
   stuckCheckMin: 15,
   quietSpotMin: 40,
+  openBy: "11:00",         // к этому часу точка обязана хоть что-то продать
+  noSupplyDays: 2,         // столько дней без поставки в Poster — уже вопрос
+  lastSupplyCheck: null,   // поставки проверяем раз в день: ответ на 2,7 МБ
   quietFrom: "08:00",      // раньше и позже не тревожим: до утра всё равно
   quietTo: "22:00",        //   никто ничего не сделает
   repeatAfterMin: 60,      // про ту же беду не напоминаем чаще раза в час
@@ -172,7 +175,9 @@ export const DEFAULT_CONFIG = {
   // Сверка накладных с Poster в конце вечернего отчёта. Выключена, пока
   // не обкатана: она цепляется к сообщению, которое и так уходит каждый
   // вечер, и включилась бы сама собой.
-  reconcileEnabled: false,
+  // Сверка идёт следом за вечерним отчётом по умолчанию: расхождение
+  // само не всплывает, а искать его руками никто не станет.
+  reconcileEnabled: true,
 
   // ─── Утренняя сводка ───────────────────────────────────────────────
   briefingEnabled: false,
@@ -242,9 +247,36 @@ export async function getSupplies() {
   return d?.response || [];
 }
 
+// Снимок текущей обстановки — для «/сторож сейчас».
+//
+// Не оглядывается на то, о чём уже писали: спросили — значит хотят
+// видеть всё как есть, а не остаток от прошлой рассылки.
+export async function getWatchSnapshot(opts = {}) {
+  const { dashTransactions, posterCall } = await import("./poster.js");
+  const { buildAlerts, buildSupplyAlerts, formatAlerts } = await import("./watch.js");
+  const { todayAlmaty } = await import("./dailyDoc.js");
+
+  const ymd = todayAlmaty().replace(/-/g, "");
+  const nowHHMM = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date());
+
+  const rows = await dashTransactions(ymd);
+  const alerts = buildAlerts(rows, { ...opts, now: Date.now(), nowHHMM, seen: {} });
+
+  try {
+    const sup = await posterCall("storage.getSupplies", {});
+    alerts.push(...buildSupplyAlerts(sup?.response || [], { ...opts, now: Date.now(), seen: {} }));
+  } catch (e) {
+    console.warn("[tg] поставки в снимок не попали:", e?.message);
+  }
+
+  return formatAlerts(alerts);
+}
+
 export function botStore() {
   return {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
-    getIpGroups, getProducts, saveProducts, getSupplies,
+    getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot,
   };
 }

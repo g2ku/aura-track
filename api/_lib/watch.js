@@ -7,7 +7,7 @@
 // Логика чистая: на вход строки Poster и настройки, на выход — список
 // тревог. Ни сети, ни телеграма, поэтому проверяется тестами целиком.
 
-import { spotNameByPosterId } from "./branches.js";
+import { spotNameByPosterId, BRANCHES } from "./branches.js";
 
 export const WATCH_DEFAULTS = {
   stuckCheckMin: 15,   // чек висит открытым дольше — уже не «делают напиток»
@@ -15,6 +15,8 @@ export const WATCH_DEFAULTS = {
   quietFrom: "08:00",  // раньше не тревожим: точки ещё закрыты
   quietTo: "22:00",    // и позже тоже
   repeatAfterMin: 60,  // про ту же беду не напоминаем чаще, чем раз в час
+  openBy: "11:00",     // к этому часу точка обязана хоть что-то продать
+  noSupplyDays: 2,     // столько дней без поставки в Poster — уже вопрос
 };
 
 function hhmmToMinutes(hhmm) {
@@ -103,9 +105,65 @@ export function buildAlerts(rows, opts = {}) {
     });
   }
 
+  // 3. Точка, которая за день не продала вообще ничего.
+  //
+  // Такой точки в строках Poster нет совсем — её отсутствие и есть
+  // сигнал. Пункт 2 её пропускал: там считается время с последней
+  // продажи, а продаж не было ни одной.
+  if (cfg.openBy && cfg.nowHHMM && cfg.nowHHMM >= cfg.openBy) {
+    for (const b of BRANCHES) {
+      if (spotsSeen.has(b.spotId)) continue;
+      const key = `closed:${b.spotId}`;
+      if (!fresh(key)) continue;
+      alerts.push({
+        key,
+        kind: "closed",
+        minutes: Number.MAX_SAFE_INTEGER, // наверх списка: это серьёзнее прочего
+        spotId: b.spotId,
+        spot: b.name,
+      });
+    }
+  }
+
   // Сначала то, что тянется дольше
   alerts.sort((a, b) => b.minutes - a.minutes);
   return alerts;
+}
+
+// Поставки: сколько дней точка ничего не проводила на склад.
+//
+// Отдельно от остальных тревог: ответ storage.getSupplies весит 2,7 МБ,
+// а факт медленный — дёргать его каждые пятнадцать минут незачем.
+export function buildSupplyAlerts(supplies, opts = {}) {
+  const cfg = { ...WATCH_DEFAULTS, ...opts };
+  const now = cfg.now ?? Date.now();
+  const seen = cfg.seen || {};
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const lastByStorage = {};
+  for (const s of supplies || []) {
+    if (String(s.delete) === "1") continue;
+    const ts = Date.parse(String(s.date || "").replace(" ", "T"));
+    if (!ts) continue;
+    const k = String(s.storage_name || "").trim().toLowerCase();
+    if (ts > (lastByStorage[k] || 0)) lastByStorage[k] = ts;
+  }
+
+  const alerts = [];
+  for (const b of BRANCHES) {
+    const last = lastByStorage[b.key.toLowerCase()];
+    // Точка, которой не было НИКОГДА, — это не «забыли на два дня»,
+    // а либо новый склад, либо чужое название. Молчим, чтобы не гадать.
+    if (!last) continue;
+    const days = Math.floor((now - last) / dayMs);
+    if (days < cfg.noSupplyDays) continue;
+
+    const key = `nosupply:${b.spotId}`;
+    if (seen[key] && now - seen[key] < cfg.repeatAfterMin * 60000) continue;
+    alerts.push({ key, kind: "nosupply", spot: b.name, spotId: b.spotId, days, lastAt: last });
+  }
+
+  return alerts.sort((a, b) => b.days - a.days);
 }
 
 function fmtAge(m) {
@@ -160,6 +218,16 @@ export function formatAlerts(alerts) {
   const withMoney = groupByWaiter(stuck.filter((a) => !a.empty));
   const emptyCount = stuck.filter((a) => a.empty).length;
   const quiet = alerts.filter((a) => a.kind === "quiet");
+  const closed = alerts.filter((a) => a.kind === "closed");
+  const nosupply = alerts.filter((a) => a.kind === "nosupply");
+
+  // Точка, не продавшая за день ни разу, — самое серьёзное здесь,
+  // поэтому идёт первой, до зависших чеков.
+  if (closed.length) {
+    lines.push("🚫 <b>Нет продаж за весь день</b>");
+    for (const a of closed) lines.push(`• ${a.spot}`);
+    lines.push("");
+  }
 
   if (withMoney.length) {
     lines.push("⚠️ <b>Чеки висят открытыми</b>");
@@ -204,9 +272,19 @@ export function formatAlerts(alerts) {
 
   if (quiet.length) {
     if (lines.length) lines.push("");
-    lines.push("🔇 <b>Нет продаж</b>");
+    lines.push("🔇 <b>Давно нет заказов</b>");
     for (const a of quiet.slice(0, MAX_LINES)) lines.push(`• ${a.spot} — ${fmtAge(a.minutes)}`);
     const rest = quiet.length - MAX_LINES;
+    if (rest > 0) lines.push(`• и ещё ${rest}`);
+  }
+
+  if (nosupply.length) {
+    if (lines.length) lines.push("");
+    lines.push("📦 <b>Поставки не проводили</b>");
+    for (const a of nosupply.slice(0, MAX_LINES)) {
+      lines.push(`• ${a.spot} — ${a.days} ${plural(a.days, "день", "дня", "дней")}`);
+    }
+    const rest = nosupply.length - MAX_LINES;
     if (rest > 0) lines.push(`• и ещё ${rest}`);
   }
 
