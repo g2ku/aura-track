@@ -9,6 +9,7 @@ import { parseInvoiceMessage } from "./tgParser.js";
 import { BRANCHES, branchNamesFor, matchIpGroup, matchBranch } from "./branches.js";
 import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
 import { parseCommand } from "./telegram.js";
+import { posterSuppliesByBranch, reconcile, formatReconcile } from "./reconcile.js";
 import { applyCatalog } from "./products.js";
 
 const HELP = `<b>Как сдавать накладные</b>
@@ -226,6 +227,20 @@ async function handleCommand({ cmd, args }, ctx) {
       }
       await store.setConfig({ topics: { ...(config.topics || {}), [key]: branch } });
       return { text: `✅ Эта тема закреплена за <b>${escapeHtml(branch)}</b>. Филиал в накладных можно не писать.` };
+    }
+
+    // Сверка накладных с тем, что провели в Poster
+    case "сверка":
+    case "reconcile": {
+      if (!store.getSupplies) return { text: "Сверка недоступна." };
+      const today = todayAlmaty();
+      const date = args.trim() ? parseDateArg(args.trim()) : today;
+      if (!date) return { text: "Дата: <code>/сверка 2026-08-24</code> или <code>/сверка</code> за сегодня." };
+
+      const [doc, sup] = await Promise.all([store.getDoc(date), store.getSupplies()]);
+      const byBranch = posterSuppliesByBranch(sup, date);
+      const text = formatReconcile(reconcile(doc?.totals || {}, byBranch), formatDateRu(date));
+      return { text: text || `За ${formatDateRu(date)} сверять нечего.` };
     }
 
     // Сторож: пишет сам, когда чек висит или на точке нет продаж

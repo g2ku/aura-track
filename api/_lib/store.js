@@ -229,6 +229,17 @@ export async function purgeSeen(olderThanMs = 24 * 60 * 60 * 1000, limit = 400) 
 // Полный набор операций, который передаётся в commands.js.
 // Собирается ЗДЕСЬ, а не в вебхуке: иначе легко забыть добавить сюда новый
 // метод, и команда тихо отвалится в проде, пройдя все тесты.
+// Поставки из Poster для сверки. Живут не в Firestore, но команде бота
+// нужны так же, как всё остальное, — поэтому отдаются тем же набором.
+export async function getSupplies() {
+  const { posterCall } = await import("./poster.js");
+  const d = await posterCall("storage.getSupplies", {});
+  return d?.response || [];
+}
+
 export function botStore() {
-  return { getDoc, getDocsRange, appendEntry, undoEntry, setConfig, getIpGroups, getProducts, saveProducts };
+  return {
+    getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
+    getIpGroups, getProducts, saveProducts, getSupplies,
+  };
 }
