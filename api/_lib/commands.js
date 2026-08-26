@@ -233,9 +233,33 @@ async function handleCommand({ cmd, args }, ctx) {
     case "сверка":
     case "reconcile": {
       if (!store.getSupplies) return { text: "Сверка недоступна." };
+      const arg = args.trim().toLowerCase();
+
+      // Прицеплять сверку к вечернему отчёту — отдельное решение: это
+      // сообщение уходит каждый день и его читают все, кому он приходит.
+      if (/^(вкл|включить|on)$/.test(arg)) {
+        await store.setConfig({ reconcileEnabled: true });
+        return { text: "✅ Сверка будет приходить следом за вечерним отчётом." };
+      }
+      if (/^(выкл|выключить|off)$/.test(arg)) {
+        await store.setConfig({ reconcileEnabled: false });
+        return { text: "Сверка к вечернему отчёту больше не цепляется. Командой /сверка по-прежнему доступна." };
+      }
+
       const today = todayAlmaty();
-      const date = args.trim() ? parseDateArg(args.trim()) : today;
-      if (!date) return { text: "Дата: <code>/сверка 2026-08-24</code> или <code>/сверка</code> за сегодня." };
+      const date = arg ? parseDateArg(arg) : today;
+      if (!date) {
+        return {
+          text: [
+            "<b>Сверка накладных с Poster</b>",
+            `К вечернему отчёту — ${config.reconcileEnabled ? "прицеплена" : "не прицеплена"}.`,
+            "",
+            "/сверка — за сегодня",
+            "/сверка 2026-08-24 — за день",
+            "/сверка вкл · /сверка выкл — слать ли следом за отчётом",
+          ].join("\n"),
+        };
+      }
 
       const [doc, sup] = await Promise.all([store.getDoc(date), store.getSupplies()]);
       const byBranch = posterSuppliesByBranch(sup, date);
