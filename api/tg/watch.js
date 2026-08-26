@@ -16,6 +16,7 @@ import { getConfig, setConfig, getDoc } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
+import { openSpots, windingDown, buildLateAlerts } from "../_lib/shifts.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -91,6 +92,16 @@ export default async function handler(req, res) {
 
     // ─── Сторож ──────────────────────────────────────────────────────
     if (config.watchEnabled && withinWorkingHours(nowHM, config.quietFrom, config.quietTo)) {
+      // Смены: кто сейчас открыт, кто уже закрылся, кто закрывается.
+      // Ответ лёгкий (137 КБ), поэтому берём при каждой проверке.
+      let shifts = [];
+      try {
+        const r = await posterCall("finance.getCashShifts", {});
+        shifts = r?.response || [];
+      } catch (e) {
+        console.warn("[tg] смены не прочитались:", e?.message);
+      }
+
       const rows = await dashTransactions(toPoster(today));
       const alerts = buildAlerts(rows, {
         now: Date.now(),
@@ -100,7 +111,20 @@ export default async function handler(req, res) {
         quietSpotMin: config.quietSpotMin,
         openBy: config.openBy,
         repeatAfterMin: config.repeatAfterMin,
+        // Без смен не фильтруем вовсе: лучше лишняя тревога, чем тишина
+        // из-за того, что Poster не ответил.
+        openSpots: shifts.length ? openSpots(shifts) : null,
+        windingDown: shifts.length ? windingDown(shifts) : null,
       });
+
+      if (shifts.length) {
+        alerts.push(...buildLateAlerts(shifts, {
+          now: Date.now(),
+          seen: config.alertSeen || {},
+          lateByMin: config.lateByMin,
+          repeatAfterMin: config.repeatAfterMin,
+        }));
+      }
 
       // Поставки — раз в день: ответ storage.getSupplies весит 2,7 МБ,
       // а факт «не проводили два дня» за пятнадцать минут не меняется.

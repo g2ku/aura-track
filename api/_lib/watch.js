@@ -8,6 +8,7 @@
 // тревог. Ни сети, ни телеграма, поэтому проверяется тестами целиком.
 
 import { spotNameByPosterId, BRANCHES } from "./branches.js";
+import { posterStringToMs } from "./time.js";
 
 export const WATCH_DEFAULTS = {
   stuckCheckMin: 15,   // чек висит открытым дольше — уже не «делают напиток»
@@ -49,6 +50,11 @@ export function buildAlerts(rows, opts = {}) {
     return !last || now - last > cfg.repeatAfterMin * 60000;
   };
 
+  // Закрытая точка — не повод для тревог. Коктем закрывает смену в 19:00,
+  // и «нет заказов N минут» капало оттуда до самой ночи.
+  const openSet = cfg.openSpots || null;
+  const isOpen = (spotId) => !openSet || openSet.has(String(spotId));
+
   // 1. Чеки, висящие слишком долго
   for (const tx of rows) {
     if (!isOpen(tx)) continue;
@@ -87,7 +93,13 @@ export function buildAlerts(rows, opts = {}) {
     if (ts > (lastSale[spotId] || 0)) lastSale[spotId] = ts;
   }
 
+  const winding = cfg.windingDown || null;
   for (const spotId of spotsSeen) {
+    if (!isOpen(spotId)) continue;
+    // Перед закрытием затишье — норма, а не повод писать. Иначе в 21:55
+    // приходило шесть строк «нет заказов час» просто потому, что день
+    // кончается.
+    if (winding && winding.has(String(spotId))) continue;
     const ts = lastSale[spotId];
     // Точка без единой продажи за день: возраст неизвестен, тревожить не о чем
     if (!ts) continue;
@@ -113,6 +125,9 @@ export function buildAlerts(rows, opts = {}) {
   if (cfg.openBy && cfg.nowHHMM && cfg.nowHHMM >= cfg.openBy) {
     for (const b of BRANCHES) {
       if (spotsSeen.has(b.spotId)) continue;
+      // Смена не открыта — это «не открылись», отдельная тревога.
+      // Здесь речь про открытую точку, которая ничего не продала.
+      if (!isOpen(b.spotId)) continue;
       const key = `closed:${b.spotId}`;
       if (!fresh(key)) continue;
       alerts.push({
@@ -143,7 +158,8 @@ export function buildSupplyAlerts(supplies, opts = {}) {
   const lastByStorage = {};
   for (const s of supplies || []) {
     if (String(s.delete) === "1") continue;
-    const ts = Date.parse(String(s.date || "").replace(" ", "T"));
+    // Строка Poster — по Москве; разбирать её «как есть» нельзя
+    const ts = posterStringToMs(s.date);
     if (!ts) continue;
     const k = String(s.storage_name || "").trim().toLowerCase();
     if (ts > (lastByStorage[k] || 0)) lastByStorage[k] = ts;
@@ -215,21 +231,34 @@ export function formatAlerts(alerts) {
   const lines = [];
 
   const stuck = alerts.filter((a) => a.kind === "stuck");
+  // Пустые чеки в тревоги не идут: открыли и ничего не пробили — это
+  // ни денег, ни срочности. Смотреть их можно на сайте.
   const withMoney = groupByWaiter(stuck.filter((a) => !a.empty));
-  const emptyCount = stuck.filter((a) => a.empty).length;
   const quiet = alerts.filter((a) => a.kind === "quiet");
   const closed = alerts.filter((a) => a.kind === "closed");
   const nosupply = alerts.filter((a) => a.kind === "nosupply");
 
+  const late = alerts.filter((a) => a.kind === "late");
+
+  // Точка, которая должна была открыться и не открылась, — первое, что
+  // нужно знать утром: там либо бариста опоздал, либо что-то случилось.
+  if (late.length) {
+    lines.push("⏰ <b>Точка не открылась</b>");
+    for (const a of late) {
+      lines.push(`• ${a.spot} — обычно открывается в ${a.usual}, уже ${fmtAge(a.lateMin)} без смены`);
+    }
+  }
+
   // Точка, не продавшая за день ни разу, — самое серьёзное здесь,
   // поэтому идёт первой, до зависших чеков.
   if (closed.length) {
+    if (lines.length) lines.push("");
     lines.push("🚫 <b>Нет продаж за весь день</b>");
     for (const a of closed) lines.push(`• ${a.spot}`);
-    lines.push("");
   }
 
   if (withMoney.length) {
+    if (lines.length) lines.push("");
     lines.push("⚠️ <b>Чеки висят открытыми</b>");
     let budget = MAX_CHECK_LINES;
     let shown = 0;
@@ -261,13 +290,6 @@ export function formatAlerts(alerts) {
       const restSum = withMoney.slice(shown).reduce((s, a) => s + a.sum, 0);
       lines.push(`• и ещё ${rest} ${plural(rest, "бариста", "бариста", "бариста")} — ${fmtSum(restSum)}`);
     }
-  }
-
-  // Пустые не перечисляем: их бывает десяток, и каждый — просто забытый
-  // чек без денег. Важно знать, что они есть, а не читать их список.
-  if (emptyCount) {
-    if (lines.length) lines.push("");
-    lines.push(`📄 Ещё ${emptyCount} ${plural(emptyCount, "чек открыт", "чека открыты", "чеков открыты")} пустыми`);
   }
 
   if (quiet.length) {
