@@ -526,12 +526,18 @@ export async function getUserMeta(uid) {
   return snap.exists() ? snap.data() : null;
 }
 
-// Подписка на метаданные пользователя (реактивно)
+// Подписка на метаданные пользователя (реактивно).
+//
+// Второй аргумент колбэка — fromCache. Он важнее, чем кажется: onSnapshot
+// первым делом отвечает из локального кэша Firestore, и на свежем браузере
+// этот ответ приходит с exists === false. «Документа нет» и «кэш ещё не
+// знает» выглядят одинаково, а решать по ним нужно разное — иначе админ
+// на пару секунд становится куратором без филиала.
 export function subscribeUserMeta(uid, onChange, onError) {
-  if (!uid) { onChange(null); return () => {}; }
+  if (!uid) { onChange(null, false); return () => {}; }
   return onSnapshot(
     doc(getDb(), "users", uid),
-    (snap) => onChange(snap.exists() ? snap.data() : null),
+    (snap) => onChange(snap.exists() ? snap.data() : null, snap.metadata.fromCache),
     (err) => onError && onError(err)
   );
 }

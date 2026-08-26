@@ -9,6 +9,7 @@
 //   { uid, email, displayName, role, branch, spotName, createdAt }
 
 import { useEffect, useState, lazy, Suspense } from "react";
+import { resolveMetaSnapshot, WAIT_FOR_SERVER_MS } from "./authState.js";
 import {
   onAuthChange,
   loginUser,
@@ -123,10 +124,12 @@ export function useAuth() {
     }
 
     let unsubMeta = null;
+    const timers = [];
 
     const unsubAuth = onAuthChange(async (fbUser) => {
       // Отписываемся от предыдущего подписчика
       if (unsubMeta) { unsubMeta(); unsubMeta = null; }
+      while (timers.length) clearTimeout(timers.pop());
 
       if (!fbUser) {
         setAuth(null);
@@ -140,38 +143,31 @@ export function useAuth() {
       // предыдущего аккаунта.
       if (dropCacheIfOtherUser(fbUser.uid)) setAuth(null);
 
+      // Пока сервер не ответил, «документа нет» ничего не значит — ждём.
+      // Но не вечно: без сети серверный ответ не придёт никогда, и висеть
+      // на спиннере хуже, чем показать урезанный экран.
+      let settled = false;
+      const settle = () => { settled = true; setLoading(false); };
+      const giveUpWaiting = setTimeout(() => {
+        if (!settled) setLoading(false);
+      }, WAIT_FOR_SERVER_MS);
+      timers.push(giveUpWaiting);
+
       // Подписываемся на метаданные из Firestore
       unsubMeta = subscribeUserMeta(
         fbUser.uid,
-        (meta) => {
-          if (meta) {
-            const enriched = { ...meta, email: fbUser.email };
-            setAuth(enriched);
-            cacheUserMeta(enriched);
-          } else {
-            // Документа ещё нет. Такой ответ приходит и из локального
-            // кэша Firestore — до того, как сервер вообще ответил.
-            // Роль здесь — заглушка, и записывать её в localStorage
-            // нельзя: она переживёт перезагрузку и молча урежет права
-            // настоящему админу.
-            setAuth({
-              uid: fbUser.uid,
-              email: fbUser.email,
-              displayName: fbUser.email?.split("@")[0] || "",
-              role: "curator",
-              branch: null,
-              spotName: null,
-              createdAt: Date.now(),
-              provisional: true,
-            });
-          }
-          setLoading(false);
+        (meta, fromCache) => {
+          const next = resolveMetaSnapshot(fbUser, meta, fromCache);
+          setAuth(next.auth);
+          if (next.cache) cacheUserMeta(next.auth);
+          if (next.settled) settle();
         },
-        () => setLoading(false)
+        settle
       );
     });
 
     return () => {
+      while (timers.length) clearTimeout(timers.pop());
       if (unsubMeta) unsubMeta();
       unsubAuth();
     };

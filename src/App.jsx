@@ -38,8 +38,12 @@ function MainApp() {
   const userBranch = useUserBranch();
   const canEdit = isAdminOrManager();
 
-  // Куратор без филиала — экран ожидания
-  if (auth && role === "curator" && !userBranch) {
+  // Куратор без филиала — экран ожидания.
+  //
+  // provisional значит «Firestore ещё не ответил, роль подставлена».
+  // Показывать по ней экран ожидания нельзя: админ увидел бы «ждите
+  // назначения роли» вместо своего дашборда.
+  if (auth && !auth.provisional && role === "curator" && !userBranch) {
     return (
       <div className="login-wrap">
         <div className="login-card" style={{ textAlign: "center", maxWidth: 420 }}>
