@@ -42,8 +42,16 @@ export async function requireUser(req) {
   } catch (e) {
     // Ключа нет — проверить некому. Закрываемся, а не открываемся:
     // «не смогли проверить» не должно означать «пускаем всех».
-    console.error("[auth] firebase-admin недоступен:", e?.message);
-    return { ok: false, status: 503, message: "Проверка входа недоступна" };
+    console.error("[auth] firebase-admin недоступен:", e?.stack || e?.message);
+    // Причина в ответе — временно, пока не поймана поломка на Vercel:
+    // там функция падала голым FUNCTION_INVOCATION_FAILED без единой
+    // строчки в ответе. Секретов здесь нет, только имя модуля или
+    // переменной окружения. Убрать, когда причина станет ясна.
+    return {
+      ok: false, status: 503,
+      message: "Проверка входа недоступна",
+      reason: String(e?.message || e).slice(0, 300),
+    };
   }
 
   try {
@@ -58,5 +66,7 @@ export async function requireUser(req) {
 // не так с токеном.
 export function denyResponse(res, deny) {
   res.setHeader("Cache-Control", "no-store");
-  res.status(deny.status).json({ error: { message: deny.message } });
+  const err = { message: deny.message };
+  if (deny.reason) err.reason = deny.reason;
+  res.status(deny.status).json({ error: err });
 }
