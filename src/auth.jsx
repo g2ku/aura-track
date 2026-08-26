@@ -71,13 +71,30 @@ export function matchBranchInDocs(userBranch) {
 }
 
 // ─── Хранение метаданных в localStorage (кэш Firestore) ──────────────
-const META_KEY = "supply-track-user-meta";
+// Версия в ключе: у тех, кто успел словить испорченный кэш с урезанной
+// ролью, он останется лежать под старым именем и просто не будет прочитан.
+const META_KEY = "supply-track-user-meta.v2";
+const META_KEY_LEGACY = "supply-track-user-meta";
+try { localStorage.removeItem(META_KEY_LEGACY); } catch {}
 
 function cacheUserMeta(meta) {
   try {
     if (meta) localStorage.setItem(META_KEY, JSON.stringify(meta));
     else localStorage.removeItem(META_KEY);
   } catch {}
+}
+
+// Кэш принадлежит конкретному человеку. Без этой проверки роль из
+// прошлого аккаунта переезжала в новый: заходишь тестовым куратором,
+// возвращаешься админом — а права остаются кураторскими, и перезагрузка
+// не помогает, потому что стухшая роль лежит в localStorage.
+function dropCacheIfOtherUser(uid) {
+  const cached = getCachedMeta();
+  if (cached && cached.uid && cached.uid !== uid) {
+    cacheUserMeta(null);
+    return true;
+  }
+  return false;
 }
 
 function getCachedMeta() {
@@ -118,6 +135,11 @@ export function useAuth() {
         return;
       }
 
+      // Сменился человек — чужую роль выкидываем сразу, не дожидаясь
+      // ответа Firestore. Иначе первые кадры экран рисуется с правами
+      // предыдущего аккаунта.
+      if (dropCacheIfOtherUser(fbUser.uid)) setAuth(null);
+
       // Подписываемся на метаданные из Firestore
       unsubMeta = subscribeUserMeta(
         fbUser.uid,
@@ -127,7 +149,12 @@ export function useAuth() {
             setAuth(enriched);
             cacheUserMeta(enriched);
           } else {
-            const fallback = {
+            // Документа ещё нет. Такой ответ приходит и из локального
+            // кэша Firestore — до того, как сервер вообще ответил.
+            // Роль здесь — заглушка, и записывать её в localStorage
+            // нельзя: она переживёт перезагрузку и молча урежет права
+            // настоящему админу.
+            setAuth({
               uid: fbUser.uid,
               email: fbUser.email,
               displayName: fbUser.email?.split("@")[0] || "",
@@ -135,9 +162,8 @@ export function useAuth() {
               branch: null,
               spotName: null,
               createdAt: Date.now(),
-            };
-            setAuth(fallback);
-            cacheUserMeta(fallback);
+              provisional: true,
+            });
           }
           setLoading(false);
         },
