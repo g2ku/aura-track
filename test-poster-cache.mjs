@@ -22,8 +22,10 @@ function section(t) { console.log(`\n📋 ${t}`); }
 const NOW = new Date("2026-08-25T10:00:00+06:00");
 const h = (qs) => cacheHeaderFor(new URLSearchParams(qs), NOW);
 
-const isFresh = (v) => /s-maxage=(\d+)/.test(v) && Number(RegExp.$1) <= 60;
-const isLong = (v) => /s-maxage=(\d+)/.test(v) && Number(RegExp.$1) >= 3600;
+// Кэш теперь браузерный: прокси за входом, а общий кэш Vercel раздаёт
+// ответы по URL и проверку бы обошёл.
+const isFresh = (v) => /max-age=(\d+)/.test(v) && Number(RegExp.$1) <= 60;
+const isLong = (v) => /max-age=(\d+)/.test(v) && Number(RegExp.$1) >= 3600;
 
 section("Сегодняшний день не кэшируется надолго");
 
@@ -56,6 +58,16 @@ ok(isFresh(cacheHeaderFor(new URLSearchParams("date_to=20260825"), night)),
 ok(isFresh(h("date_to=20260826")), "дата из будущего считается живой, а не застывшей");
 ok(!isFresh(h("format=json")) && !isLong(h("format=json")), "без дат — справочник, средний срок");
 ok(!isFresh(h("date_to=не-дата")), "мусор вместо даты не роняет и не открывает кэш");
+
+section("Ответы за входом не уходят в общий кэш");
+
+// Если бы заголовок остался public/s-maxage, CDN раздавал бы сохранённый
+// ответ по URL кому угодно — и проверка входа стала бы бутафорией.
+for (const qs of ["date_to=20260825", "date_to=20260824", "format=json"]) {
+  const v = h(qs);
+  ok(/^private,/.test(v), `${qs}: кэш private, а не общий`);
+  ok(!/s-maxage/.test(v), `${qs}: s-maxage не осталось`);
+}
 
 section("Кнопка «Обновить» пробивает кэш");
 

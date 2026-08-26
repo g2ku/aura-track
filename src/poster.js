@@ -46,6 +46,24 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const PER_PAGE = 200;          // max для transactions.getTransactions
 const DAY_CONCURRENCY = 4;    // параллельных дней за раз
 
+// Заголовки для наших же эндпоинтов. Прокси Poster требует вход: за ним
+// продажи, меню и себестоимость всей сети, и без этого он был открыт
+// любому, кто знает адрес сайта.
+async function apiHeaders() {
+  const h = { Accept: "application/json", "User-Agent": UA };
+  try {
+    // Импорт ленивый намеренно: firebase.js читает import.meta.env, и от
+    // обычного import этот файл перестаёт открываться из node — а тесты
+    // разбора продаж импортируют его напрямую.
+    const { getIdToken } = await import("./firebase.js");
+    const token = await getIdToken();
+    if (token) h.Authorization = `Bearer ${token}`;
+  } catch (_) {
+    // Firebase не сконфигурирован — идём без токена, сервер ответит 401.
+  }
+  return h;
+}
+
 function buildUrl(method, params = {}, opts = {}) {
   const qs = new URLSearchParams();
   qs.set("format", "json");
@@ -389,7 +407,7 @@ export async function fetchSupplyStatus(spots, opts = {}) {
   // URL и получит из кэша Vercel ровно то, что уже было.
   const url = `/api/supply-status${opts.fresh ? `?_fresh=${Date.now()}` : ""}`;
   try {
-    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: opts.signal });
+    const res = await fetch(url, { headers: await apiHeaders(), signal: opts.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     return data?.status || {};
@@ -1455,7 +1473,7 @@ async function call(method, params = {}, opts = {}) {
   try {
     res = await fetch(url, {
       method: "GET",
-      headers: { Accept: "application/json", "User-Agent": UA },
+      headers: await apiHeaders(),
       signal: opts.signal,
     });
   } catch (e) {
@@ -1463,6 +1481,9 @@ async function call(method, params = {}, opts = {}) {
     throw new Error(
       `Не удалось подключиться к Poster (${e.message || "сеть"}). Возможно, блокирует CORS или нет интернета.`,
     );
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Сессия истекла — обновите страницу и войдите заново");
   }
   let data;
   try {
