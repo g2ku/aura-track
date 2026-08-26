@@ -59,20 +59,27 @@ export function groupOpenChecks(items) {
         sum: 0,
         oldest: i.minutes ?? null,
         ages: [],
+        // Сами чеки: в свёрнутой строке видно только самый старый, а
+        // остальные могут быть свежими. Без них строка вводит в
+        // заблуждение — «11 ч» рядом с чеком, открытым 8 минут назад.
+        items: [],
       };
       map.set(key, g);
     }
     g.count++;
     g.sum += i.sum;
     g.ages.push(i.minutes);
+    g.items.push(i);
     if (i.minutes != null && (g.oldest == null || i.minutes > g.oldest)) g.oldest = i.minutes;
   }
 
   const groups = [...map.values()];
   for (const g of groups) {
     g.sum = Math.round(g.sum);
-    // Внутри группы — от давних к свежим, для подсказки при наведении.
+    // Внутри группы — от давних к свежим
     g.ages.sort((a, b) => (b ?? -1) - (a ?? -1));
+    g.items.sort((a, b) => (b.minutes ?? -1) - (a.minutes ?? -1));
+    g.newest = g.ages.length ? g.ages[g.ages.length - 1] : null;
   }
   // Сверху те, у кого висит дольше всех: ради них список и нужен.
   groups.sort((a, b) => (b.oldest ?? -1) - (a.oldest ?? -1));

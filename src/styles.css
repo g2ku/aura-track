@@ -6003,11 +6003,34 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .oc-row:last-of-type { border-bottom: 0; }
 
 .oc-who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* Главное в строке — кто и где, поэтому это имя не ужимается.
+   Раньше длинный список бариста («Тома-Бибэк, Дарина, Султик») выдавливал
+   название филиала до нуля, и строка оставалась без него вовсе. */
+/* Имя ужимается, но не исчезает: «Гагарина» станет «Гагари…», а не
+   пропадёт совсем, как было, когда длинный список бариста выдавливал
+   название филиала из строки. Совсем не ужимать тоже нельзя — на узком
+   экране имя вылезало на соседнюю колонку. */
 .oc-name {
+  flex: 0 1 auto; min-width: 4.5em;
   font-weight: 700; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.oc-spot { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.oc-spot {
+  flex: 0 1 auto; min-width: 0;
+  font-size: 12px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Группа: свёрнутая строка + раскрытые чеки под ней */
+.oc-group { border-bottom: 1px dashed var(--border); }
+.oc-group:last-of-type { border-bottom: 0; }
+.oc-group .oc-row { border-bottom: 0; }
+.oc-row-many { cursor: pointer; }
+.oc-row-many:hover .oc-name { color: var(--text-accent); }
+.oc-count i { font-size: 11px; margin-left: 3px; vertical-align: -1px; }
+
+.oc-row-sub { padding-top: 2px; padding-bottom: 2px; }
+.oc-sub-id { font-size: 12px; color: var(--text-muted); padding-left: 14px; white-space: nowrap; }
 
 /* Метка «2 чека» — почему одна строка, а не две.
    Ячейка под неё есть всегда, даже пустая: без этого строки без метки
@@ -6025,6 +6048,15 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .oc-age { font-size: 12px; color: var(--text-muted); }
+/* «Старший» ставим НАД возрастом, а не рядом: в строку рядом с суммой оно
+   не влезает, а без него число врёт — это возраст самого давнего чека
+   группы, а не «этого». */
+.oc-age-note {
+  display: block;
+  font-family: var(--font-sans, inherit);
+  font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted); opacity: 0.75; line-height: 1.2;
+}
 .oc-sum { font-weight: 700; color: var(--text); }
 
 .oc-row-stuck .oc-name,
@@ -6051,6 +6083,13 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 @media (max-width: 560px) {
   .oc-head, .oc-row { grid-template-columns: minmax(0, 1fr) auto 66px 78px; gap: 8px; }
   .oc-spot { font-size: 11px; }
+
+  /* На телефоне имя и точка встают друг под друга. В одну строку они с
+     меткой «6 чеков» не помещаются, и обе ужимаются до «А…» и «Т…» —
+     читать нечего. Строка становится выше, зато понятной. */
+  .oc-who { flex-direction: column; align-items: flex-start; gap: 0; }
+  .oc-name { min-width: 0; max-width: 100%; }
+  .oc-spot { max-width: 100%; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

@@ -95,6 +95,8 @@ export default function CashLedger({
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
   const [checkedAt, setCheckedAt] = useState(Date.now());
+  // Какая группа открытых чеков раскрыта
+  const [expandedGroup, setExpandedGroup] = useState(null);
   const [yesterdayTotal, setYesterdayTotal] = useState(null);
   const [yesterdayHourly, setYesterdayHourly] = useState(null);
   const [hourlyCurve, setHourlyCurve] = useState(null);
@@ -473,23 +475,52 @@ export default function CashLedger({
 
           {openChecks.groups.slice(0, OPEN_CHECK_LIST_LIMIT).map((g) => {
             const stuck = g.oldest != null && g.oldest >= OPEN_CHECK_STUCK_MIN;
+            const many = g.count > 1;
+            const open = expandedGroup === g.key;
             return (
-              <div
-                key={g.key}
-                className={`oc-row${stuck ? " oc-row-stuck" : ""}`}
-                title={g.count > 1 ? `Чеки: ${g.ages.map(fmtAge).join(", ")}` : undefined}
-              >
-                <span className="oc-who">
-                  <span className="oc-name">{g.waiter || "без имени"}</span>
-                  <span className="oc-spot">{spotNameByPosterId(g.spotId)}</span>
-                </span>
-                <span className="oc-count-cell">
-                  {g.count > 1 && (
-                    <span className="oc-count">{g.count} {plural(g.count, "чек", "чека", "чеков")}</span>
-                  )}
-                </span>
-                <span className="oc-age">{fmtAge(g.oldest)}</span>
-                <span className="oc-sum">{g.sum > 0 ? fmt(g.sum) : "—"}</span>
+              <div key={g.key} className="oc-group">
+                <div
+                  className={`oc-row${stuck ? " oc-row-stuck" : ""}${many ? " oc-row-many" : ""}`}
+                  onClick={many ? () => setExpandedGroup(open ? null : g.key) : undefined}
+                  role={many ? "button" : undefined}
+                  tabIndex={many ? 0 : undefined}
+                  onKeyDown={many ? (e) => e.key === "Enter" && setExpandedGroup(open ? null : g.key) : undefined}
+                >
+                  <span className="oc-who">
+                    <span className="oc-name">{g.waiter || "без имени"}</span>
+                    <span className="oc-spot">{spotNameByPosterId(g.spotId)}</span>
+                  </span>
+                  <span className="oc-count-cell">
+                    {many && (
+                      <span className="oc-count">
+                        {g.count} {plural(g.count, "чек", "чека", "чеков")}
+                        <i className={`ti ti-chevron-${open ? "up" : "down"}`} aria-hidden="true" />
+                      </span>
+                    )}
+                  </span>
+                  {/* У группы это возраст САМОГО СТАРОГО чека, а не «этого».
+                      Без пометки строка врёт: «11 ч» рядом с чеком, который
+                      открыли восемь минут назад. */}
+                  <span className="oc-age">
+                    {many && <span className="oc-age-note">старший</span>}
+                    {fmtAge(g.oldest)}
+                  </span>
+                  <span className="oc-sum">{g.sum > 0 ? fmt(g.sum) : "—"}</span>
+                </div>
+
+                {many && open && g.items.map((i) => {
+                  const s = i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN;
+                  return (
+                    <div key={i.id} className={`oc-row oc-row-sub${s ? " oc-row-stuck" : ""}`}>
+                      <span className="oc-who">
+                        <span className="oc-sub-id">чек №{i.id}</span>
+                      </span>
+                      <span className="oc-count-cell" />
+                      <span className="oc-age">{fmtAge(i.minutes)}</span>
+                      <span className="oc-sum">{i.sum > 0 ? fmt(i.sum) : "—"}</span>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}

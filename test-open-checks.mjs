@@ -233,6 +233,61 @@ section("Чеки одного бариста собираются в строк
 
 eq(groupOpenChecks([]), [], "пустой список");
 
+section("Свёрнутая строка не выдаёт чужой возраст за свой");
+
+{
+  // Настоящий случай: у Миланы четыре чека — 669, 22, 9 и 8 минут.
+  // Строка показывала «11 ч 5 мин», и это читалось как возраст ЧЕКА,
+  // хотя три из четырёх были свежие.
+  const g = groupOpenChecks([
+    { id: "1", spotId: "10", waiter: "Милана", sum: 2850, minutes: 669 },
+    { id: "2", spotId: "10", waiter: "Милана", sum: 2380, minutes: 22 },
+    { id: "3", spotId: "10", waiter: "Милана", sum: 1090, minutes: 9 },
+    { id: "4", spotId: "10", waiter: "Милана", sum: 1300, minutes: 8 },
+  ])[0];
+
+  eq(g.oldest, 669, "самый давний");
+  eq(g.newest, 8, "самый свежий — по нему видно, что группа неоднородна");
+  eq(g.items.length, 4, "чеки сохранены поштучно, а не только их возрасты");
+  eq(g.items.map((i) => i.minutes), [669, 22, 9, 8], "внутри группы от давних к свежим");
+  eq(g.items[0].id, "1", "у каждого чека есть номер — по нему его и ищут в кассе");
+  eq(g.sum, 7620, "сумма всей группы");
+
+  const cl = readFileSync("src/components/CashLedger.jsx", "utf8");
+  ok(/oc-age-note">старший/.test(cl), "у группы возраст подписан как «старший»");
+  ok(/many \? \(\) => setExpandedGroup/.test(cl), "группу можно раскрыть и увидеть каждый чек");
+  ok(/чек №\{i\.id\}/.test(cl), "в раскрытом виде показан номер чека");
+  ok(/g\.items\.map/.test(cl), "раскрывается именно список чеков группы");
+}
+
+{
+  // Одиночный чек подписывать нечем — там возраст и есть возраст
+  const g = groupOpenChecks([{ id: "1", spotId: "4", waiter: "Сабина", sum: 990, minutes: 30 }])[0];
+  eq(g.count, 1, "одна строка");
+  eq(g.oldest, g.newest, "старший и младший совпадают");
+}
+
+section("Название точки не выдавливается длинным списком имён");
+
+{
+  // На экране была строка «(пусто) · Тома-Бибэк, Дарина, Султик» — филиал
+  // ужало до нуля, потому что список бариста не давал себя сжать.
+  const css = readFileSync("src/styles.css", "utf8");
+  const name = css.slice(css.indexOf(".oc-name {"), css.indexOf("}", css.indexOf(".oc-name {")));
+  const spot = css.slice(css.indexOf(".oc-spot {"), css.indexOf("}", css.indexOf(".oc-spot {")));
+
+  ok(/flex: 0 1 auto/.test(name), "имя сжимается, но по своей воле");
+  ok(/min-width: [\d.]+em/.test(name), "и не до нуля — иначе оно исчезает");
+  ok(/text-overflow: ellipsis/.test(name), "длинное имя обрезается многоточием, а не пропадает");
+  ok(/min-width: 0/.test(spot), "список бариста уступает место первым");
+  ok(/text-overflow: ellipsis/.test(spot), "и обрезается он");
+
+  // На телефоне они встают друг под друга: в строку с меткой не влезают
+  const mob = css.slice(css.indexOf("@media (max-width: 560px)"));
+  const block = mob.slice(0, mob.indexOf("\n}\n"));
+  ok(/\.oc-who \{ flex-direction: column/.test(block), "на узком экране имя и точка в две строки");
+}
+
 section("Названия точек — по-русски");
 
 {
