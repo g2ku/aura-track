@@ -12,8 +12,17 @@
 // сохранённый ответ уехал бы любому желающему в обход этой проверки.
 // Поэтому вместе с проверкой кэш становится private — браузерным.
 
-import { getAuth } from "firebase-admin/auth";
-import { getAdminApp } from "./firebaseAdmin.js";
+// Импорт ленивый намеренно. Сломайся он на загрузке модуля — Vercel
+// отвечает голым FUNCTION_INVOCATION_FAILED, без единой строчки о том,
+// что случилось. Внутри функции та же поломка превращается в честный
+// 503 с текстом в логе.
+async function adminAuth() {
+  const [{ getAuth }, { getAdminApp }] = await Promise.all([
+    import("firebase-admin/auth"),
+    import("./firebaseAdmin.js"),
+  ]);
+  return getAuth(getAdminApp());
+}
 
 function bearerToken(req) {
   const h = req.headers?.authorization || req.headers?.Authorization || "";
@@ -29,7 +38,7 @@ export async function requireUser(req) {
 
   let auth;
   try {
-    auth = getAuth(getAdminApp());
+    auth = await adminAuth();
   } catch (e) {
     // Ключа нет — проверить некому. Закрываемся, а не открываемся:
     // «не смогли проверить» не должно означать «пускаем всех».
