@@ -14,8 +14,8 @@
 
 import { getConfig, setConfig, getDoc } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
-import { dashTransactions } from "../_lib/poster.js";
-import { buildAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
+import { dashTransactions, posterCall } from "../_lib/poster.js";
+import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -94,11 +94,30 @@ export default async function handler(req, res) {
       const rows = await dashTransactions(toPoster(today));
       const alerts = buildAlerts(rows, {
         now: Date.now(),
+        nowHHMM: nowHM,
         seen: config.alertSeen || {},
         stuckCheckMin: config.stuckCheckMin,
         quietSpotMin: config.quietSpotMin,
+        openBy: config.openBy,
         repeatAfterMin: config.repeatAfterMin,
       });
+
+      // Поставки — раз в день: ответ storage.getSupplies весит 2,7 МБ,
+      // а факт «не проводили два дня» за пятнадцать минут не меняется.
+      if (config.lastSupplyCheck !== today) {
+        try {
+          const sup = await posterCall("storage.getSupplies", {});
+          alerts.push(...buildSupplyAlerts(sup?.response || [], {
+            now: Date.now(),
+            seen: config.alertSeen || {},
+            noSupplyDays: config.noSupplyDays,
+            repeatAfterMin: config.repeatAfterMin,
+          }));
+          patch.lastSupplyCheck = today;
+        } catch (e) {
+          console.warn("[tg] поставки не проверились:", e?.message);
+        }
+      }
 
       if (alerts.length) {
         await sendMessage(target, formatAlerts(alerts), thread ? { message_thread_id: thread } : {});

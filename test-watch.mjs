@@ -6,7 +6,7 @@
 //
 // Запуск: node test-watch.mjs
 
-import { buildAlerts, formatAlerts, markSeen, withinWorkingHours, WATCH_DEFAULTS } from "./api/_lib/watch.js";
+import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours, WATCH_DEFAULTS } from "./api/_lib/watch.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "./api/_lib/briefing.js";
 import { readFileSync } from "node:fs";
 
@@ -91,6 +91,88 @@ section("Не повторяться");
   const next = markSeen(old, [], NOW);
   ok(!next["check:1"], "вчерашнее забывается");
   ok(next["check:2"], "свежее остаётся");
+}
+
+section("Точка, которая не продала ничего");
+
+{
+  // Пункт про «нет заказов N минут» такую точку пропускал: там считается
+  // время с ПОСЛЕДНЕЙ продажи, а её не было ни одной. Точки просто нет в
+  // строках Poster — её отсутствие и есть сигнал.
+  const rows = [closed("1", "4", 10), open("2", "4", 5)];
+  const a = buildAlerts(rows, { now: NOW, nowHHMM: "14:00" });
+  const dead = a.filter((x) => x.kind === "closed");
+  ok(dead.length >= 6, `молчащие точки найдены: ${dead.length} из восьми`);
+  ok(!dead.some((x) => x.spotId === "4"), "точка с продажей в список не попала");
+  ok(a[0].kind === "closed", "это серьёзнее зависших чеков, поэтому наверху");
+}
+
+{
+  // До открытия тревожить не о чем
+  const a = buildAlerts([], { now: NOW, nowHHMM: "09:00", openBy: "11:00" });
+  eq(a.filter((x) => x.kind === "closed").length, 0, "до назначенного часа молчим");
+}
+
+{
+  const a = buildAlerts([], { now: NOW, nowHHMM: "11:00", openBy: "11:00" });
+  ok(a.filter((x) => x.kind === "closed").length > 0, "ровно в срок — уже тревога");
+}
+
+section("Поставки не проводили");
+
+{
+  const day = 24 * 60 * 60 * 1000;
+  const sup = (storage, daysAgo) => ({
+    storage_name: storage, delete: "0",
+    date: new Date(NOW - daysAgo * day).toISOString().slice(0, 19).replace("T", " "),
+  });
+
+  const a = buildSupplyAlerts([
+    sup("Aura02_Zharokova", 4),
+    sup("Aura02_Abaya", 3),
+    sup("Aura02_Gagarina", 0),
+  ], { now: NOW, noSupplyDays: 2 });
+
+  const names = a.map((x) => x.spot);
+  ok(names.includes("Жароково"), "четыре дня без поставки — тревога");
+  ok(names.includes("Абая"), "три дня — тоже");
+  ok(!names.includes("Гагарина"), "сегодняшняя поставка — не тревога");
+  eq(a[0].spot, "Жароково", "сверху та, что молчит дольше");
+  eq(a[0].days, 4, "дни посчитаны");
+}
+
+{
+  // Точки, которой не было НИКОГДА, в списке быть не должно: это не
+  // «забыли на два дня», а новый склад или чужое название
+  const a = buildSupplyAlerts([], { now: NOW, noSupplyDays: 2 });
+  eq(a.length, 0, "без единой поставки в истории не гадаем");
+}
+
+{
+  const day = 24 * 60 * 60 * 1000;
+  const a = buildSupplyAlerts(
+    [{ storage_name: "Aura02_Rams", delete: "1", date: new Date(NOW - 5 * day).toISOString().slice(0, 19).replace("T", " ") }],
+    { now: NOW, noSupplyDays: 2 },
+  );
+  eq(a.length, 0, "удалённая поставка в расчёт не идёт");
+}
+
+{
+  const day = 24 * 60 * 60 * 1000;
+  const one = [{ storage_name: "Aura02_Rams", delete: "0", date: new Date(NOW - 5 * day).toISOString().slice(0, 19).replace("T", " ") }];
+  const seen = { "nosupply:11": NOW - 10 * 60000 };
+  eq(buildSupplyAlerts(one, { now: NOW, seen, repeatAfterMin: 60 }).length, 0, "не повторяемся каждые десять минут");
+  eq(buildSupplyAlerts(one, { now: NOW, seen: {} }).length, 1, "а без памяти — говорим");
+}
+
+{
+  const day = 24 * 60 * 60 * 1000;
+  const t = formatAlerts(buildSupplyAlerts(
+    [{ storage_name: "Aura02_Zharokova", delete: "0", date: new Date(NOW - 4 * day).toISOString().slice(0, 19).replace("T", " ") }],
+    { now: NOW, noSupplyDays: 2 },
+  )).replace(/<[^>]+>/g, "");
+  ok(t.includes("Поставки не проводили"), "раздел назван");
+  ok(t.includes("Жароково — 4 дня"), "дни по-русски");
 }
 
 section("Тихие часы");
@@ -217,6 +299,33 @@ section("Утренняя сводка");
 eq(formatDayLabel("2026-08-25"), "25 августа", "дата по-человечески");
 eq(formatDayLabel("2026-01-01"), "1 января", "первое число без нуля");
 eq(formatDayLabel("мусор"), "мусор", "битая дата не роняет сводку");
+
+section("«Сейчас» показывает всё, не оглядываясь на память");
+
+{
+  const store = readFileSync("api/_lib/store.js", "utf8");
+  ok(/export async function getWatchSnapshot/.test(store), "снимок обстановки есть");
+  ok(/seen: \{\}/.test(store.slice(store.indexOf("getWatchSnapshot"))),
+     "снимок игнорирует память о прошлых тревогах: спросили — значит хотят всё");
+  ok(/getWatchSnapshot/.test(readFileSync("api/_lib/store.js", "utf8").slice(store.indexOf("botStore"))),
+     "отдан командам бота");
+
+  const cmd = readFileSync("api/_lib/commands.js", "utf8");
+  ok(/\^\(сейчас\|now\|статус\)\$/.test(cmd), "команда «/сторож сейчас» есть");
+  ok(/Сейчас всё спокойно/.test(cmd), "когда тревог нет — так и говорим, а не молчим");
+  ok(/<b>Сейчас:<\/b>/.test(cmd), "при включении сразу показываем обстановку");
+}
+
+section("Поставки проверяются раз в день");
+
+{
+  // Ответ storage.getSupplies весит 2,7 МБ, а «не проводили два дня» за
+  // пятнадцать минут не меняется.
+  const watch = readFileSync("api/tg/watch.js", "utf8");
+  ok(/config\.lastSupplyCheck !== today/.test(watch), "не чаще раза в сутки");
+  ok(/patch\.lastSupplyCheck = today/.test(watch), "день запоминается");
+  ok(/поставки не проверились/.test(watch), "ошибка поставок не роняет остальные тревоги");
+}
 
 section("Точка входа защищена и не роняет планировщик");
 

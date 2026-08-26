@@ -273,9 +273,33 @@ async function handleCommand({ cmd, args }, ctx) {
       if (!isAdmin(config, userId)) return { text: "Только для админа." };
       const arg = args.trim().toLowerCase();
 
+      // «/сторож сейчас» — показать всё как есть, не оглядываясь на то,
+      // о чём уже писали. Спросили — значит хотят полную картину.
+      if (/^(сейчас|now|статус)$/.test(arg)) {
+        if (!store.getWatchSnapshot) return { text: "Сейчас недоступно." };
+        const snap = await store.getWatchSnapshot({
+          stuckCheckMin: config.stuckCheckMin,
+          quietSpotMin: config.quietSpotMin,
+          openBy: config.openBy,
+          noSupplyDays: config.noSupplyDays,
+        });
+        return { text: snap || "✅ Сейчас всё спокойно: зависших чеков нет, точки продают." };
+      }
+
       if (/^(вкл|включить|on)$/.test(arg)) {
         await store.setConfig({ watchEnabled: true, watchChatId: msg.chat.id, watchThreadId: msg.is_topic_message ? msg.message_thread_id : null });
-        return { text: "✅ Сторож включён. Тревоги буду слать сюда." };
+        const snap = store.getWatchSnapshot
+          ? await store.getWatchSnapshot({
+              stuckCheckMin: config.stuckCheckMin,
+              quietSpotMin: config.quietSpotMin,
+              openBy: config.openBy,
+              noSupplyDays: config.noSupplyDays,
+            }).catch(() => null)
+          : null;
+        return {
+          text: "✅ Сторож включён. Тревоги буду слать сюда."
+            + (snap ? `\n\n<b>Сейчас:</b>\n${snap}` : ""),
+        };
       }
       if (/^(выкл|выключить|off)$/.test(arg)) {
         await store.setConfig({ watchEnabled: false });
@@ -292,6 +316,20 @@ async function handleCommand({ cmd, args }, ctx) {
         return { text: `✅ ${isCheck ? "Чек считается зависшим" : "Тишина на точке"} — от ${v} мин.` };
       }
 
+      const sup = arg.match(/^поставк\S*\s+(\d{1,2})$/);
+      if (sup) {
+        const v = Number(sup[1]);
+        if (v < 1 || v > 30) return { text: "Дней — от 1 до 30." };
+        await store.setConfig({ noSupplyDays: v, lastSupplyCheck: null });
+        return { text: `✅ Скажу, если поставку не проводили ${v} ${v === 1 ? "день" : v < 5 ? "дня" : "дней"}.` };
+      }
+
+      const openBy = arg.match(/^открытие\s+(\d{1,2}:\d{2})$/);
+      if (openBy) {
+        await store.setConfig({ openBy: openBy[1] });
+        return { text: `✅ Если к ${openBy[1]} точка ничего не продала — скажу.` };
+      }
+
       // «/сторож часы 08:00 22:00» — когда тревожить
       const hrs = arg.match(/^часы\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})$/);
       if (hrs) {
@@ -303,14 +341,23 @@ async function handleCommand({ cmd, args }, ctx) {
         text: [
           `<b>Сторож</b> — ${config.watchEnabled ? "включён" : "выключен"}`,
           "",
-          `Чек висит — от <b>${config.stuckCheckMin} мин</b>`,
-          `Нет продаж — от <b>${config.quietSpotMin} мин</b>`,
-          `Тревожу с <b>${config.quietFrom}</b> до <b>${config.quietTo}</b>`,
-          `Повтор про то же — не чаще раза в <b>${config.repeatAfterMin} мин</b>`,
           "",
+          "<b>О чём предупреждает</b>",
+          `• чек висит открытым — от <b>${config.stuckCheckMin} мин</b>`,
+          "• чеки открыты пустыми — счётчиком",
+          `• на точке нет заказов — от <b>${config.quietSpotMin} мин</b>`,
+          `• точка не продала ничего к <b>${config.openBy}</b>`,
+          `• поставку не проводили — <b>${config.noSupplyDays} дн.</b>`,
+          "",
+          `Тревожу с <b>${config.quietFrom}</b> до <b>${config.quietTo}</b>, `
+            + `про то же не чаще раза в <b>${config.repeatAfterMin} мин</b>`,
+          "",
+          "/сторож сейчас — показать всё прямо сейчас",
           "/сторож вкл · /сторож выкл",
-          "/сторож чек 20 — сколько минут чек считается зависшим",
-          "/сторож тишина 45 — сколько минут без продаж уже тревога",
+          "/сторож чек 20 — минут, после которых чек зависший",
+          "/сторож тишина 45 — минут без заказов до тревоги",
+          "/сторож поставки 3 — дней без поставки до тревоги",
+          "/сторож открытие 11:00 — во сколько точка обязана продать",
           "/сторож часы 08:00 22:00 — когда можно писать",
         ].join("\n"),
       };
