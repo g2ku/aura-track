@@ -7,6 +7,7 @@
 // Логика чистая: на вход строки Poster и итоги бота, на выход сравнение.
 
 import { BRANCHES } from "./branches.js";
+import { posterStringToMs, localDateStr } from "./time.js";
 
 // storage_name в Poster — это наш ключ филиала: «Aura02_Gagarina».
 const NAME_BY_STORAGE = {};
@@ -22,7 +23,10 @@ export function posterSuppliesByBranch(rows, ymd) {
   const out = {};
   for (const s of rows || []) {
     if (String(s.delete) === "1") continue;
-    if (String(s.date || "").slice(0, 10) !== ymd) continue;
+    // День считаем по Алматы: поставка, заведённая в час ночи, по
+    // московской строке попала бы во вчера.
+    const ms = posterStringToMs(s.date);
+    if (!ms || localDateStr(ms) !== ymd) continue;
     const branch = branchByStorage(s.storage_name);
     if (!branch) continue;
     const sum = Number(s.supply_sum || 0) / 100;

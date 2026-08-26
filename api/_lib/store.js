@@ -165,6 +165,7 @@ export const DEFAULT_CONFIG = {
   stuckCheckMin: 15,
   quietSpotMin: 40,
   openBy: "11:00",         // к этому часу точка обязана хоть что-то продать
+  lateByMin: 30,           // насколько позже обычного открытия — уже опоздание
   noSupplyDays: 2,         // столько дней без поставки в Poster — уже вопрос
   lastSupplyCheck: null,   // поставки проверяем раз в день: ответ на 2,7 МБ
   quietFrom: "08:00",      // раньше и позже не тревожим: до утра всё равно
@@ -261,8 +262,23 @@ export async function getWatchSnapshot(opts = {}) {
     timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(new Date());
 
+  const { openSpots, windingDown, buildLateAlerts } = await import("./shifts.js");
+
+  let shifts = [];
+  try {
+    const r = await posterCall("finance.getCashShifts", {});
+    shifts = r?.response || [];
+  } catch (e) {
+    console.warn("[tg] смены в снимок не попали:", e?.message);
+  }
+
   const rows = await dashTransactions(ymd);
-  const alerts = buildAlerts(rows, { ...opts, now: Date.now(), nowHHMM, seen: {} });
+  const alerts = buildAlerts(rows, {
+    ...opts, now: Date.now(), nowHHMM, seen: {},
+    openSpots: shifts.length ? openSpots(shifts) : null,
+    windingDown: shifts.length ? windingDown(shifts) : null,
+  });
+  if (shifts.length) alerts.push(...buildLateAlerts(shifts, { ...opts, now: Date.now(), seen: {} }));
 
   try {
     const sup = await posterCall("storage.getSupplies", {});
