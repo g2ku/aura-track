@@ -56,8 +56,9 @@ export const GROUPS = [
       { id: "waste", path: "/waste", icon: "ti-trash", label: "Отходы" },
       { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта" },
       { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L" },
-      { id: "payroll", path: "/payroll", icon: "ti-cash-banknote", label: "Зарплатный проект", adminOnly: true },
+      { id: "payroll", path: "/payroll", icon: "ti-cash-banknote", label: "Зарплатный проект", ownerOnly: true },
       { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки" },
+      { id: "movement", path: "/movement", icon: "ti-flask", label: "Расход и остатки", ownerOnly: true },
       { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии" },
     ],
   },
@@ -66,7 +67,7 @@ export const GROUPS = [
     icon: "ti-settings",
     label: "Настройки",
     items: [
-      { id: "admin-users", path: "/admin/users", icon: "ti-users", label: "Пользователи", adminOnly: true },
+      { id: "admin-users", path: "/admin/users", icon: "ti-users", label: "Пользователи", ownerOnly: true },
       { id: "admin-ip-groups", path: "/admin/ip-groups", icon: "ti-building", label: "Группы ИП", adminOnly: true },
     ],
   },
@@ -84,6 +85,9 @@ export function canSeeItemFor(role, isBranch, item) {
   const admin = role === "admin";
   const staff = admin || role === "manager";
 
+  // adminOnly здесь исторически значит «админ или управляющий».
+  // ownerOnly — строго владелец: там либо деньги людей, либо права.
+  if (item.ownerOnly && !admin) return false;
   if (item.adminOnly && !staff) return false;
   if (item.managerOnly && !staff) return false;
   if (isBranch) {
@@ -92,10 +96,5 @@ export function canSeeItemFor(role, isBranch, item) {
   }
   if (item.id === "cash-recon" || item.id === "waste") return false;
   if ((item.id === "pnl" || item.id === "anomalies") && !staff) return false;
-  // Зарплата — только админ: там ставки и выплаты по всем людям
-  if (item.id === "payroll" && !admin) return false;
-  // Пользователи — тоже только админ: роли раздаёт он, и правила Firestore
-  // разрешают запись сюда только ему. Управляющему страница бы не работала.
-  if (item.id === "admin-users" && !admin) return false;
   return true;
 }
