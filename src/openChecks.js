@@ -26,17 +26,38 @@ export function isOpenCheck(tx) {
   return String(tx?.status) === "1";
 }
 
-// Когда на точке в последний раз ЗАКРЫЛИ чек. Из этого считается, сколько
-// там уже нет заказов: пустой открытый чек сам по себе ничего не говорит,
-// а «на Коктеме 52 минуты тишина» — говорит.
+// Когда на точке в последний раз ЧТО-ТО ПРОБИЛИ.
+//
+// Считалось только закрытие чека — и это врало ровно там, где важнее
+// всего. На Дубае висело 34 открытых чека на 93 030 ₸, бариста в завале,
+// а сайт писал «нет заказов 1 ч 11 мин»: закрыть он ничего не успевал,
+// значит по этому счёту точка «молчала».
+//
+// Заказ — это когда товар пробит, а не когда чек закрыт. Поэтому берём
+// самое позднее из двух: последнее закрытие и последний ОТКРЫТЫЙ чек,
+// в котором уже есть позиции.
+//
+// Пустой открытый чек по-прежнему не в счёт: нажать «новый заказ» и уйти
+// — это не работа, и такие чеки показываются отдельным списком.
 export function collectLastOrders(rows) {
   const last = {};
+  const bump = (spotId, ts) => {
+    if (!spotId || !ts) return;
+    if (ts > (last[spotId] || 0)) last[spotId] = ts;
+  };
+
   for (const tx of rows || []) {
-    if (String(tx.status) !== "2") continue;
     const spotId = String(tx.spot_id || "");
     if (!spotId) continue;
-    const ts = Number(tx.date_close) || Number(tx.date_start) || 0;
-    if (ts > (last[spotId] || 0)) last[spotId] = ts;
+
+    if (String(tx.status) === "2") {
+      bump(spotId, Number(tx.date_close) || Number(tx.date_start) || 0);
+      continue;
+    }
+
+    if (isOpenCheck(tx) && Number(tx.sum || 0) > 0) {
+      bump(spotId, Number(tx.date_start || tx.date_start_new || 0) || 0);
+    }
   }
   return last;
 }
@@ -125,8 +146,9 @@ export function collectOpenChecks(rows, lastOrderBySpot = collectLastOrders(rows
       if (minutes != null && minutes >= OPEN_CHECK_STUCK_MIN) out.bySpot[spotId].stuck++;
     }
 
-    // Сколько на этой точке нет заказов. Если сегодня не закрыли ни одного
-    // чека, берём возраст самого открытого — большего мы всё равно не знаем.
+    // Сколько на этой точке нет заказов. Если пробитого сегодня нет вовсе
+    // (одни пустые чеки), берём возраст самого открытого — большего мы
+    // всё равно не знаем.
     const lastOrderAt = lastOrderBySpot[spotId] || null;
     const silentFor = lastOrderAt
       ? Math.max(0, Math.round((now - lastOrderAt) / 60000))

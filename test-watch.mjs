@@ -361,6 +361,90 @@ section("Точка входа защищена и не роняет плани�
   ok(/withinWorkingHours/.test(src), "сторож соблюдает тихие часы");
 }
 
+section("Открытая ТОЧКА и открытый ЧЕК — разные вещи");
+
+{
+  // Две функции звались isOpen, внутренняя перекрыла внешнюю, и проверка
+  // «это открытый чек» превратилась в openSpots.has("[object Object]").
+  // Тревога о зависших чеках — та самая, ради которой всё затевалось, —
+  // молча перестала срабатывать, как только появилось расписание смен.
+  const now = Date.now();
+  const ago = (min) => String(now - min * 60000);
+
+  const rows = [
+    { transaction_id: "1", spot_id: "9", status: "1", date_start: ago(75), sum: "4000000", name: "Касым" },
+    { transaction_id: "2", spot_id: "9", status: "2", date_close: ago(71) },
+  ];
+
+  const withShifts = buildAlerts(rows, { now, seen: {}, openSpots: new Set(["9"]) });
+  ok(withShifts.some((a) => a.kind === "stuck"),
+     "с расписанием смен зависший чек всё равно находится");
+
+  const noShifts = buildAlerts(rows, { now, seen: {} });
+  ok(noShifts.some((a) => a.kind === "stuck"), "и без расписания тоже");
+
+  // А закрытый чек зависшим быть не может, сколько бы ему ни было лет
+  const closedOnly = buildAlerts(
+    [{ transaction_id: "3", spot_id: "9", status: "2", date_start: ago(300), date_close: ago(290) }],
+    { now, seen: {} },
+  );
+  ok(!closedOnly.some((a) => a.kind === "stuck"), "закрытый чек за зависший не сходит");
+}
+
+{
+  // Закрытая точка молчит по-прежнему
+  const now = Date.now();
+  const rows = [{ transaction_id: "1", spot_id: "7", status: "1", date_start: String(now - 80 * 60000), sum: "500000" }];
+  const closed = buildAlerts(rows, { now, seen: {}, openSpots: new Set(["9"]) });
+  ok(!closed.some((a) => a.kind === "stuck"), "о чеке на закрытой точке не пишем");
+}
+
+section("Одно событие — одна строка");
+
+{
+  // Точка, где единственная активность за день — тот самый зависший чек.
+  // Раньше приходило две тревоги об одном и том же: «чек висит 97 мин» и
+  // «нет заказов 97 мин».
+  const a = buildAlerts([open("1", "10", 97)], { now: NOW, seen: {} });
+  eq(a.length, 1, "одна строка, а не две");
+  eq(a[0].kind, "stuck", "и это та, что называет виновника");
+
+  // О зависшем чеке напоминаем раз в час. В промежутке точка не должна
+  // вдруг становиться «тихой» — иначе схлопывание просто переехало бы
+  // в другую строку, и владелец получил бы то же самое другими словами.
+  const seen = markSeen({}, a, NOW);
+  const later = buildAlerts([open("1", "10", 97)], { now: NOW + 10 * 60000, seen });
+  eq(later.length, 0, "через десять минут молчим совсем, а не пишем «нет заказов»");
+}
+
+section("Завал — это не тишина");
+
+{
+  const now = Date.now();
+  const ago = (min) => String(now - min * 60000);
+  const rows = [
+    { transaction_id: "1", spot_id: "9", status: "2", date_close: ago(71) },
+    { transaction_id: "2", spot_id: "9", status: "1", date_start: ago(3), sum: "1200000", name: "Касым" },
+    { transaction_id: "3", spot_id: "7", status: "2", date_close: ago(95) },
+  ];
+  const alerts = buildAlerts(rows, { now, seen: {}, openSpots: new Set(["9", "7"]) });
+  const quiet = alerts.filter((a) => a.kind === "quiet").map((a) => a.spot);
+  ok(!quiet.includes("Дубай"), "точка, где только что пробили чек, тихой не считается");
+  ok(quiet.includes("Коктем"), "а настоящая тишина находится");
+}
+
+{
+  // Пустой чек тишину не отменяет
+  const now = Date.now();
+  const ago = (min) => String(now - min * 60000);
+  const rows = [
+    { transaction_id: "1", spot_id: "7", status: "2", date_close: ago(95) },
+    { transaction_id: "2", spot_id: "7", status: "1", date_start: ago(2), sum: "0" },
+  ];
+  const alerts = buildAlerts(rows, { now, seen: {}, openSpots: new Set(["7"]) });
+  ok(alerts.some((a) => a.kind === "quiet"), "открыть пустой чек — не продать");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

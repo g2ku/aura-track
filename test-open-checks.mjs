@@ -396,6 +396,54 @@ section("Касса не ждёт остальные модули дашборд
   ok(/fetchPaymentBreakdown\([^)]*\)\s*\n?\s*\.then\(/.test(load), "оплаты грузятся отдельно");
 }
 
+section("Заказ — это когда пробили, а не когда закрыли");
+
+{
+  // Настоящий случай: на Дубае у Касыма 34 открытых чека на 93 030 ₸,
+  // он в завале — а сайт писал «нет заказов 1 ч 11 мин». Закрыть он
+  // ничего не успевал, и по старому счёту точка «молчала».
+  const now = Date.now();
+  const ago = (min) => String(now - min * 60000);
+
+  const rows = [
+    { transaction_id: "1", spot_id: "9", status: "2", date_close: ago(71) },
+    { transaction_id: "2", spot_id: "9", status: "1", date_start: ago(75), sum: "4000000", name: "Касым" },
+    { transaction_id: "3", spot_id: "9", status: "1", date_start: ago(3),  sum: "1200000", name: "Касым" },
+  ];
+
+  const last = collectLastOrders(rows);
+  const silent = Math.round((now - last["9"]) / 60000);
+  ok(silent <= 4, `тишина считается по последнему пробитому чеку: ${silent} мин, а не 71`);
+
+  const open = collectOpenChecks(rows);
+  const dubai = open.items.find((i) => i.spotId === "9");
+  ok(dubai.silentFor <= 4, "в карточке точки то же число");
+}
+
+{
+  // Пустой чек — не заказ: нажать «новый заказ» и уйти работой не считается
+  const now = Date.now();
+  const ago = (min) => String(now - min * 60000);
+  const rows = [
+    { transaction_id: "1", spot_id: "7", status: "2", date_close: ago(90) },
+    { transaction_id: "2", spot_id: "7", status: "1", date_start: ago(2), sum: "0", name: "Севара" },
+  ];
+  const last = collectLastOrders(rows);
+  ok(Math.round((now - last["7"]) / 60000) >= 89, "пустой чек тишину не сбрасывает");
+}
+
+{
+  // Точка, где сегодня вообще ничего не пробили
+  const now = Date.now();
+  const rows = [
+    { transaction_id: "1", spot_id: "3", status: "1", date_start: String(now - 20 * 60000), sum: "0" },
+  ];
+  const last = collectLastOrders(rows);
+  eq(last["3"], undefined, "нечего считать — точки в списке нет");
+  const open = collectOpenChecks(rows);
+  eq(open.items[0].silentFor, 20, "тогда показываем возраст самого открытого чека");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
