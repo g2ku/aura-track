@@ -8,6 +8,7 @@
 // Запуск: node test-nav.mjs
 
 import { GROUPS, canSeeItemFor } from "./src/nav.js";
+import { parseHash } from "./src/router.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -48,6 +49,24 @@ section("Роль решает, а не localStorage");
   // Функция обязана быть чистой: одна и та же роль — один и тот же ответ,
   // сколько бы ни было мусора в браузере.
   eq(sees("admin", "payroll"), sees("admin", "payroll"), "ответ не зависит от вызова");
+}
+
+section("Расход и остатки — только владелец");
+
+{
+  ok(sees("admin", "movement"), "админ видит");
+  eq(sees("manager", "movement"), false, "управляющий — нет: там себестоимость всей сети");
+  eq(sees("curator", "movement", true), false, "куратор — тем более");
+  eq(sees(null, "movement"), false, "и без роли тоже");
+}
+
+{
+  // ownerOnly пришёл на смену перечислению id внутри функции: раньше
+  // каждая «только моя» страница добавляла туда ещё одну строчку.
+  const nav = readFileSync("src/nav.js", "utf8");
+  ok(/ownerOnly: true/.test(nav), "флаг проставлен у страниц владельца");
+  ok(!/item\.id === "payroll"/.test(nav), "перечисления по id не осталось");
+  ok(!/item\.id === "admin-users"/.test(nav), "и для пользователей тоже");
 }
 
 section("Управляющий — не админ");
@@ -97,6 +116,25 @@ section("Пункты меню не потеряны при переносе");
   ok(ALL.every((i) => i.id && i.path && i.label), "у каждого пункта есть id, путь и название");
   const ids = ALL.map((i) => i.id);
   eq(ids.length, new Set(ids).size, "id пунктов не повторяются");
+}
+
+section("Каждый пункт меню куда-то ведёт");
+
+{
+  // Маршрут регистрируется в ТРЁХ местах: пункт в nav.js, разбор адреса в
+  // router.js и ветка в useRouteContent. Забыть одно из них легко, и ошибка
+  // молчит: сборка проходит, а нажатие на пункт открывает дашборд.
+  // Так и случилось с «Расходом и остатками».
+  const items = GROUPS.flatMap((g) => g.items);
+  const broken = items.filter((i) => {
+    const parsed = parseHash("#" + i.path);
+    return parsed.path !== i.path;
+  });
+  eq(broken.map((i) => i.path), [], "все пути из меню разбираются router.js");
+
+  const content = readFileSync("src/hooks/useRouteContent.jsx", "utf8");
+  const noBranch = items.filter((i) => !content.includes(`"${i.path}"`));
+  eq(noBranch.map((i) => i.path), [], "и у каждого есть ветка в useRouteContent");
 }
 
 console.log("\n══════════════════════════════════════════════════");

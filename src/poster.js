@@ -418,6 +418,32 @@ export async function fetchSupplyStatus(spots, opts = {}) {
   }
 }
 
+// ─── Движение ингредиентов (расход и остатки по складам) ────────────────
+//
+// Считает сервер: /api/ingredient-movement. Восемь запросов в Poster на
+// каждое нажатие — не дело браузера, да и ловушки этого метода (даты
+// только camelCase, склад только snake_case) незачем тащить в клиент.
+
+export async function fetchIngredientMovement(from, to, opts = {}) {
+  const qs = new URLSearchParams({ from: toPosterDate(from), to: toPosterDate(to) });
+  if (opts.fresh) qs.set("_fresh", String(Date.now()));
+  const res = await fetch(`/api/ingredient-movement?${qs}`, {
+    headers: await apiHeaders(),
+    signal: opts.signal,
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Сессия истекла — обновите страницу и войдите заново");
+  }
+  if (!res.ok) throw new Error(`Не удалось получить движение ингредиентов (HTTP ${res.status})`);
+  try {
+    return await res.json();
+  } catch (_) {
+    // В dev serverless-функций нет: Vite отдаёт на этот адрес исходник
+    // файла, и res.json() спотыкается о первую же строку комментария.
+    throw new Error("Раздел работает только на боевом сайте: локально серверная часть не запускается");
+  }
+}
+
 // ─── Кэш по дням ──────────────────────────────────────────────────────
 
 function readCache() {
