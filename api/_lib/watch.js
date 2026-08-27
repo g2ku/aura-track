@@ -36,7 +36,11 @@ export function withinWorkingHours(nowHHMM, from, to) {
   return a <= b ? now >= a && now <= b : now >= a || now <= b;
 }
 
-const isOpen = (tx) => String(tx?.status) === "1";
+// Открытый чек — status «1» (у закрытых «2»).
+// Имя длинное намеренно: рядом живёт проверка «открыта ли ТОЧКА», и
+// когда обе звались isOpen, внутренняя перекрыла внешнюю. Тревога о
+// зависших чеках молча перестала срабатывать вовсе — см. тесты ниже.
+const isOpenCheck = (tx) => String(tx?.status) === "1";
 
 // Тревоги по строкам дня. seen — что уже отправляли: { ключ: время }.
 export function buildAlerts(rows, opts = {}) {
@@ -53,15 +57,22 @@ export function buildAlerts(rows, opts = {}) {
   // Закрытая точка — не повод для тревог. Коктем закрывает смену в 19:00,
   // и «нет заказов N минут» капало оттуда до самой ночи.
   const openSet = cfg.openSpots || null;
-  const isOpen = (spotId) => !openSet || openSet.has(String(spotId));
+  const spotIsOpen = (spotId) => !openSet || openSet.has(String(spotId));
+
+  // Точки, где прямо сейчас висит хотя бы один чек. Считаем по самим
+  // чекам, а не по отправленным тревогам: о зависшем чеке мы повторяемся
+  // раз в час, и в промежутке точка не должна вдруг становиться «тихой».
+  const stuckSpots = new Set();
 
   // 1. Чеки, висящие слишком долго
   for (const tx of rows) {
-    if (!isOpen(tx)) continue;
+    if (!isOpenCheck(tx)) continue;
+    if (!spotIsOpen(tx.spot_id)) continue;
     const started = Number(tx.date_start || tx.date_start_new || 0);
     if (!started) continue;
     const minutes = Math.round((now - started) / 60000);
     if (minutes < cfg.stuckCheckMin) continue;
+    stuckSpots.add(String(tx.spot_id || ""));
 
     const key = `check:${tx.transaction_id}`;
     if (!fresh(key)) continue;
@@ -82,20 +93,35 @@ export function buildAlerts(rows, opts = {}) {
   }
 
   // 2. Точки, где давно нет продаж
+  //
+  // «Продажа» — это когда товар пробит, а не когда чек закрыт. Считали
+  // только закрытия, и выходило вранье ровно там, где важнее всего: на
+  // Дубае висело 34 открытых чека на 93 030 ₸, бариста в завале, а сторож
+  // собирался писать «нет заказов 1 ч 11 мин» — закрывать тот просто не
+  // успевал. Пустой открытый чек по-прежнему не в счёт.
   const lastSale = {};
   const spotsSeen = new Set();
   for (const tx of rows) {
     const spotId = String(tx.spot_id || "");
     if (!spotId) continue;
     spotsSeen.add(spotId);
-    if (String(tx.status) !== "2") continue;
-    const ts = Number(tx.date_close) || Number(tx.date_start) || 0;
+
+    let ts = 0;
+    if (String(tx.status) === "2") {
+      ts = Number(tx.date_close) || Number(tx.date_start) || 0;
+    } else if (isOpenCheck(tx) && Number(tx.sum || 0) > 0) {
+      ts = Number(tx.date_start || tx.date_start_new || 0) || 0;
+    }
     if (ts > (lastSale[spotId] || 0)) lastSale[spotId] = ts;
   }
 
   const winding = cfg.windingDown || null;
   for (const spotId of spotsSeen) {
-    if (!isOpen(spotId)) continue;
+    if (!spotIsOpen(spotId)) continue;
+    // О точке, где висит чек, второй раз писать незачем: «чек висит
+    // 97 мин» и «нет заказов 97 мин» — одно и то же событие, и вторая
+    // строка только топит первую.
+    if (stuckSpots.has(spotId)) continue;
     // Перед закрытием затишье — норма, а не повод писать. Иначе в 21:55
     // приходило шесть строк «нет заказов час» просто потому, что день
     // кончается.
@@ -127,7 +153,7 @@ export function buildAlerts(rows, opts = {}) {
       if (spotsSeen.has(b.spotId)) continue;
       // Смена не открыта — это «не открылись», отдельная тревога.
       // Здесь речь про открытую точку, которая ничего не продала.
-      if (!isOpen(b.spotId)) continue;
+      if (!spotIsOpen(b.spotId)) continue;
       const key = `closed:${b.spotId}`;
       if (!fresh(key)) continue;
       alerts.push({
