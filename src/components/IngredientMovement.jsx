@@ -252,7 +252,7 @@ export default function IngredientMovement() {
                 <th className="text-right">₸ за ед.</th>
                 <th className="text-right">Сумма</th>
                 {branch === "all"
-                  ? <th>В минусе</th>
+                  ? <th>Остаток в минусе</th>
                   : <><th className="text-right">Приход</th><th className="text-right">Остаток</th></>}
               </tr>
             </thead>
@@ -268,7 +268,16 @@ export default function IngredientMovement() {
                     <td>
                       {r.negativeAt.length === 0
                         ? <span style={{ color: "var(--text-muted)" }}>—</span>
-                        : <span className="stamp stamp-bad">{r.negativeAt.join(", ")}</span>}
+                        : (
+                          <span
+                            className="stamp stamp-bad"
+                            title={`На этих точках Poster показывает остаток ниже нуля: ${r.negativeAt
+                              .map((b) => `${b} ${qty(r.byBranch[b]?.end)} ${unitOf(r.unit)}`)
+                              .join(", ")}`}
+                          >
+                            {r.negativeAt.join(", ")}
+                          </span>
+                        )}
                     </td>
                   ) : (
                     <>
@@ -291,6 +300,10 @@ export default function IngredientMovement() {
       )}
 
       <div style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
+        {branch === "all"
+          ? "Расход — сумма по всем точкам за период. Красным отмечены точки, где остаток ушёл ниже нуля: товар там есть, но приход в Poster не провели. Выберите филиал, чтобы увидеть числа по нему."
+          : "Остаток ниже нуля значит, что списывают по продажам, а приход не проводят: товар на точке есть, в Poster его нет."}
+        <br />
         Расход считает Poster по техкартам: продали столько напитков — значит ушло столько молока.
         Сколько разлили или выпили сами, здесь не видно. Разница между этим числом и инвентаризацией и есть потери.
       </div>
