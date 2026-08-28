@@ -4,36 +4,10 @@
 import { useState, useEffect } from "react";
 import { logout, getUserSpotName } from "../auth.jsx";
 import { useAppStore } from "../store/useAppStore";
-import { GROUPS, canSeeItemFor } from "../nav.js";
+import { GROUPS, canSeeItemFor, navIdForPath } from "../nav.js";
 
 // Переэкспорт: половина приложения импортирует их отсюда исторически.
 export { GROUPS, canSeeItemFor };
-
-function currentNavId(path) {
-  if (path === "/" || !path) return "dashboard";
-  if (path.startsWith("/branches")) return "branches";
-  if (path.startsWith("/reports")) return "reports";
-  if (path.startsWith("/products")) return "products";
-  if (path.startsWith("/poster")) return "poster";
-  if (path.startsWith("/receipts")) return "receipts";
-  if (path.startsWith("/inventory")) return "inventory";
-  if (path.startsWith("/tickets")) return "tickets";
-  if (path.startsWith("/my-tickets")) return "my-tickets";
-  if (path.startsWith("/admin/users")) return "admin-users";
-  if (path.startsWith("/admin/ip-groups")) return "admin-ip-groups";
-  if (path.startsWith("/cross-dashboard")) return "cross-dashboard";
-  if (path.startsWith("/cash-recon")) return "cash-recon";
-  if (path.startsWith("/profitability")) return "profitability";
-  if (path.startsWith("/waste")) return "waste";
-  if (path.startsWith("/traffic-heatmap")) return "traffic-heatmap";
-  if (path.startsWith("/pnl")) return "pnl";
-  if (path.startsWith("/payroll")) return "payroll";
-  if (path.startsWith("/replenish")) return "replenish";
-  if (path.startsWith("/anomalies")) return "anomalies";
-  if (path.startsWith("/briefing")) return "briefing";
-  if (path.startsWith("/margin")) return "margin";
-  return "dashboard";
-}
 
 function groupIdForItem(itemId) {
   for (const g of GROUPS) {
@@ -52,7 +26,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
       return saved ? JSON.parse(saved) : { stats: true };
     } catch { return { stats: true }; }
   });
-  const activeId = currentNavId(route.path);
+  const activeId = navIdForPath(route.path);
   const spotName = getUserSpotName();
   const isBranch = role === "curator";
 

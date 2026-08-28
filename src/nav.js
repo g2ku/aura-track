@@ -98,3 +98,22 @@ export function canSeeItemFor(role, isBranch, item) {
   if ((item.id === "pnl" || item.id === "anomalies") && !staff) return false;
   return true;
 }
+
+// Какому пункту меню соответствует адрес.
+//
+// Выводится из самого меню, а не из списка, поддерживаемого руками:
+// такой список уже был в Sidebar, и «Расход и остатки» в него не попал —
+// страница открывалась, а подсвечивался «Дашборд».
+export function navIdForPath(path) {
+  const p = String(path || "/") || "/";
+  const items = GROUPS.flatMap((g) => g.items).filter((i) => i.path && i.path !== "/");
+
+  let best = null;
+  for (const i of items) {
+    if (p === i.path || p.startsWith(i.path + "/")) {
+      // «/admin/users» должен победить «/admin», если оба есть
+      if (!best || i.path.length > best.path.length) best = i;
+    }
+  }
+  return best ? best.id : "dashboard";
+}
