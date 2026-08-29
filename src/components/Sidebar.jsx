@@ -9,8 +9,12 @@ import { GROUPS, GROUPS_V2, canSeeItemFor, navIdForPath, groupsFor } from "../na
 // Переэкспорт: половина приложения импортирует их отсюда исторически.
 export { GROUPS, GROUPS_V2, canSeeItemFor };
 
-function groupIdForItem(itemId) {
-  for (const g of GROUPS) {
+// В каком разделе лежит пункт. Искать надо в ТОМ меню, которое сейчас
+// показано: раньше искали жёстко в старом, и при новом меню не
+// раскрывался ни один раздел — владелец видел пять закрытых строк и
+// ноль ссылок.
+function groupIdForItem(groups, itemId) {
+  for (const g of groups) {
     if (g.items.some(i => i.id === itemId)) return g.id;
   }
   return null;
@@ -23,22 +27,32 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   const [expanded, setExpanded] = useState(() => {
     try {
       const saved = localStorage.getItem("aura-sidebar-groups");
-      return saved ? JSON.parse(saved) : { stats: true };
-    } catch { return { stats: true }; }
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
   });
+  const navV2 = useAppStore((s) => s.navV2);
+  const setNavV2 = useAppStore((s) => s.setNavV2);
+  // Объявлено до эффектов намеренно: они читают groups в списке
+  // зависимостей, а const не всплывает — иначе рендер падает.
+  const groups = groupsFor(role, navV2);
   const activeId = navIdForPath(route.path);
   const spotName = getUserSpotName();
   const isBranch = role === "curator";
 
   useEffect(() => { setOpen(false); }, [route.path]);
 
-  // Auto-expand group containing active item
+  // Раскрываем раздел с текущей страницей. И следим, чтобы открытым был
+  // хоть один: сохранённое состояние могло остаться от другого меню, а
+  // сайдбар без единой ссылки бесполезен.
   useEffect(() => {
-    const gid = groupIdForItem(activeId);
+    const gid = groupIdForItem(groups, activeId);
+    const anyOpen = groups.some(g => expanded[g.id]);
     if (gid && !expanded[gid]) {
       setExpanded(prev => ({ ...prev, [gid]: true }));
+    } else if (!anyOpen && groups.length) {
+      setExpanded(prev => ({ ...prev, [groups[0].id]: true }));
     }
-  }, [activeId]);
+  }, [activeId, groups, expanded]);
 
   useEffect(() => {
     try { localStorage.setItem("aura-sidebar-groups", JSON.stringify(expanded)); } catch (_) {}
@@ -77,9 +91,6 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   }
 
   const designV2 = useAppStore((s) => s.designV2);
-  const navV2 = useAppStore((s) => s.navV2);
-  const setNavV2 = useAppStore((s) => s.setNavV2);
-  const groups = groupsFor(role, navV2);
 
   return (
     <>
