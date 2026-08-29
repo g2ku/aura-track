@@ -68,7 +68,9 @@ export const GROUPS = [
     label: "Настройки",
     items: [
       { id: "admin-users", path: "/admin/users", icon: "ti-users", label: "Пользователи", ownerOnly: true },
-      { id: "admin-ip-groups", path: "/admin/ip-groups", icon: "ti-building", label: "Группы ИП", adminOnly: true },
+      // ownerOnly, а не adminOnly: маршрут и так требует админа, а
+      // управляющий видел пункт и попадал в пустоту.
+      { id: "admin-ip-groups", path: "/admin/ip-groups", icon: "ti-building", label: "Группы ИП", ownerOnly: true },
     ],
   },
 ];
@@ -99,6 +101,84 @@ export function canSeeItemFor(role, isBranch, item) {
   return true;
 }
 
+// ─── Пять разделов вместо шести групп ────────────────────────────────
+//
+// Старое меню собрано по ИСТОЧНИКУ данных: «Poster», «Отчёты», «Товары».
+// Новое — по ВОПРОСУ, который человек задаёт, открывая сайт:
+// что сейчас · как точки · сколько денег · что на складе · настройки.
+//
+// Ни один раздел не выброшен: те же 22 пункта, разложенные иначе. Что
+// удалять, решим по счётчику открытий, а не на глаз.
+//
+// Пока это только для владельца, и есть кнопка вернуться к старому:
+// меню — то, к чему привыкают руками, и ломать это без права отката
+// нельзя.
+export const GROUPS_V2 = [
+  {
+    id: "now",
+    icon: "ti-activity",
+    label: "Сегодня",
+    items: [
+      { id: "dashboard", path: "/", icon: "ti-layout-dashboard", label: "Касса" },
+      { id: "receipts", path: "/receipts", icon: "ti-receipt", label: "Чеки" },
+      { id: "briefing", path: "/briefing", icon: "ti-sun", label: "Сводка дня" },
+      { id: "tickets", path: "/tickets", icon: "ti-message-circle", label: "Запросы", managerOnly: true },
+      { id: "chat", path: "/chat", icon: "ti-message-chatbot", label: "Ассистент" },
+    ],
+  },
+  {
+    id: "spots",
+    icon: "ti-building-store",
+    label: "Точки",
+    items: [
+      { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
+      { id: "cross-dashboard", path: "/cross-dashboard", icon: "ti-world", label: "Сравнить точки" },
+      { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта" },
+      { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии" },
+    ],
+  },
+  {
+    id: "money",
+    icon: "ti-cash",
+    label: "Деньги",
+    items: [
+      { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L" },
+      { id: "margin", path: "/margin", icon: "ti-chart-pie", label: "Маржа" },
+      { id: "profitability", path: "/profitability", icon: "ti-chart-pie", label: "Меню-инжиниринг" },
+      { id: "payroll", path: "/payroll", icon: "ti-cash-banknote", label: "Зарплатный проект", ownerOnly: true },
+    ],
+  },
+  {
+    id: "stock",
+    icon: "ti-packages",
+    label: "Склад",
+    items: [
+      { id: "movement", path: "/movement", icon: "ti-flask", label: "Расход и остатки", ownerOnly: true },
+      { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки" },
+      { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
+      { id: "products", path: "/products", icon: "ti-packages", label: "Товары" },
+      { id: "reports", path: "/reports", icon: "ti-file-description", label: "Накладные" },
+    ],
+  },
+  {
+    id: "setup",
+    icon: "ti-settings",
+    label: "Настройки",
+    items: [
+      { id: "admin-users", path: "/admin/users", icon: "ti-users", label: "Пользователи", ownerOnly: true },
+      { id: "admin-ip-groups", path: "/admin/ip-groups", icon: "ti-building", label: "Группы ИП", ownerOnly: true },
+      { id: "poster", path: "/poster", icon: "ti-building-store", label: "Poster API" },
+      { id: "my-tickets", path: "/my-tickets", icon: "ti-mail", label: "Мои обращения" },
+    ],
+  },
+];
+
+// Новое меню обкатывает владелец. Остальные видят прежнее: у бариста и
+// управляющих и так по десять пунктов, переучивать их не за чем.
+export function groupsFor(role, wantsNew) {
+  return role === "admin" && wantsNew ? GROUPS_V2 : GROUPS;
+}
+
 // Какому пункту меню соответствует адрес.
 //
 // Выводится из самого меню, а не из списка, поддерживаемого руками:
@@ -106,7 +186,11 @@ export function canSeeItemFor(role, isBranch, item) {
 // страница открывалась, а подсвечивался «Дашборд».
 export function navIdForPath(path) {
   const p = String(path || "/") || "/";
-  const items = GROUPS.flatMap((g) => g.items).filter((i) => i.path && i.path !== "/");
+  // Оба меню разом: пункты в них одни и те же, но пусть подсветка не
+  // зависит от того, какое сейчас включено.
+  const items = [...GROUPS, ...GROUPS_V2]
+    .flatMap((g) => g.items)
+    .filter((i) => i.path && i.path !== "/");
 
   let best = null;
   for (const i of items) {

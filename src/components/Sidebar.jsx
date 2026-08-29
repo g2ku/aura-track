@@ -4,10 +4,10 @@
 import { useState, useEffect } from "react";
 import { logout, getUserSpotName } from "../auth.jsx";
 import { useAppStore } from "../store/useAppStore";
-import { GROUPS, canSeeItemFor, navIdForPath } from "../nav.js";
+import { GROUPS, GROUPS_V2, canSeeItemFor, navIdForPath, groupsFor } from "../nav.js";
 
 // Переэкспорт: половина приложения импортирует их отсюда исторически.
-export { GROUPS, canSeeItemFor };
+export { GROUPS, GROUPS_V2, canSeeItemFor };
 
 function groupIdForItem(itemId) {
   for (const g of GROUPS) {
@@ -77,6 +77,9 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   }
 
   const designV2 = useAppStore((s) => s.designV2);
+  const navV2 = useAppStore((s) => s.navV2);
+  const setNavV2 = useAppStore((s) => s.setNavV2);
+  const groups = groupsFor(role, navV2);
 
   return (
     <>
@@ -105,7 +108,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
         </button>
 
         <nav className="sidebar-nav">
-          {GROUPS.map(group => {
+          {groups.map(group => {
             // Hide entire analytics group for single-branch (curator) users
             if (isBranch && group.id === "admin-analytics") return null;
             const visibleItems = group.items.filter(canSeeItem);
@@ -145,6 +148,17 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
           <div className="sidebar-role">
             <span className="role-badge">{isBranch ? spotName || role : role}</span>
           </div>
+
+          {role === "admin" && (
+            <button
+              className="sidebar-theme-toggle"
+              onClick={() => setNavV2(!navV2)}
+              title={navV2 ? "Вернуться к прежнему меню" : "Пять разделов вместо шести групп"}
+            >
+              <i className={`ti ${navV2 ? "ti-arrow-back-up" : "ti-layout-sidebar"}`} aria-hidden="true" />
+              <span>{navV2 ? "Прежнее меню" : "Новое меню"}</span>
+            </button>
+          )}
 
           {onToggleTheme && (
             <button
