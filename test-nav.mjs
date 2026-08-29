@@ -194,6 +194,31 @@ section("Новое меню — только для владельца, с до
   ok(/groupsFor\(role, navV2\)/.test(bottom), "на телефоне «Ещё» показывает то же меню");
 }
 
+section("Сайдбар не бывает пустым");
+
+{
+  // Настоящий случай: сохранённое состояние осталось от старого меню
+  // ({"stats":true}), в новом такой группы нет — и владелец видел пять
+  // закрытых строк и НОЛЬ ссылок. Раскрытие искали жёстко в GROUPS.
+  const sidebar = readFileSync("src/components/Sidebar.jsx", "utf8");
+
+  ok(/function groupIdForItem\(groups, itemId\)/.test(sidebar),
+     "раздел ищется в том меню, которое сейчас показано");
+  ok(!/for \(const g of GROUPS\)/.test(sidebar),
+     "жёсткой ссылки на старое меню не осталось");
+  ok(/const anyOpen = groups\.some/.test(sidebar),
+     "проверяем, что открыт хоть один раздел");
+  ok(/setExpanded\(prev => \(\{ \.\.\.prev, \[groups\[0\]\.id\]: true \}\)\)/.test(sidebar),
+     "если не открыт ни один — раскрываем первый");
+  ok(!/JSON\.parse\(saved\) : \{ stats: true \}/.test(sidebar),
+     "умолчания с именем группы из старого меню больше нет");
+
+  // groups читается в зависимостях эффекта — объявление обязано быть выше
+  const declAt = sidebar.indexOf("const groups = groupsFor");
+  const firstUse = sidebar.indexOf("groupIdForItem(groups, activeId)");
+  ok(declAt > 0 && declAt < firstUse, "groups объявлена до эффектов, иначе рендер падает");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
