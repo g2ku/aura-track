@@ -4,6 +4,7 @@
 // «То-сё» — сетка мини-блоков, всё в 1–2 нажатия от дома.
 
 import { useMemo, useState, useEffect } from "react";
+import ProblemFeed from "./ProblemFeed";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
@@ -84,6 +85,7 @@ export default function CashLedger({
   onAddReport, onSelectBranch,
 }) {
   const route = useHashRoute();
+  const navV2 = useAppStore((s) => s.navV2);
   const toast = useToast();
   const designV2 = useAppStore((s) => s.designV2);
 
@@ -124,29 +126,30 @@ export default function CashLedger({
       const yesterday = isToday ? fetchCashBySpot(daysAgoStr(1), daysAgoStr(1)) : Promise.resolve(null);
       const hourly = isToday ? fetchHourlyCurve(dateFrom, { spotId: mySpotId }) : Promise.resolve(null);
       const yesterdayHourlyP = isToday ? fetchHourlyCurve(daysAgoStr(1), { spotId: mySpotId }) : Promise.resolve(null);
-      const [cashResult, suppliesResult, payResult, yResult, hResult, yhResult] = await Promise.allSettled([
-        fetchCashBySpot(dateFrom, dateTo),
-        fetchSupplyStatus(null),
-        fetchPaymentBreakdown(dateFrom, dateTo),
-        yesterday,
-        hourly,
-        yesterdayHourlyP,
-      ]);
-      if (cancelled) return;
-      if (cashResult.status === "fulfilled") setCashBySpot(cashResult.value);
-      else setError(cashResult.reason?.message || "Ошибка касс");
-      if (suppliesResult.status === "fulfilled") setSupplyStatus(suppliesResult.value);
-      if (payResult.status === "fulfilled") setPayBreakdown(payResult.value);
-      if (yResult.status === "fulfilled" && yResult.value) {
-        const rows = mySpotId
-          ? yResult.value.filter((c) => String(c.spotId) === String(mySpotId))
-          : yResult.value;
+      // Каждый запрос садится сам по себе.
+      //
+      // Раньше здесь был один allSettled на все шесть, и скелет держался,
+      // пока не сядет последний. То есть касса — то, ради чего заходят —
+      // ждала почасовую кривую за вчера. Теперь она появляется, как
+      // только пришла, а остальное дорисовывается следом.
+      const done = (fn) => (r) => { if (!cancelled) fn(r); };
+
+      const cashDone = fetchCashBySpot(dateFrom, dateTo).then(
+        done((v) => { setCashBySpot(v); setCheckedAt(Date.now()); setLoading(false); }),
+        done((e) => { setError(e?.message || "Ошибка касс"); setLoading(false); }),
+      );
+
+      fetchSupplyStatus(null).then(done(setSupplyStatus), () => {});
+      fetchPaymentBreakdown(dateFrom, dateTo).then(done(setPayBreakdown), () => {});
+      hourly.then(done((v) => v && setHourlyCurve(v)), () => {});
+      yesterdayHourlyP.then(done((v) => v && setYesterdayHourly(v)), () => {});
+      yesterday.then(done((v) => {
+        if (!v) return;
+        const rows = mySpotId ? v.filter((c) => String(c.spotId) === String(mySpotId)) : v;
         setYesterdayTotal(rows.reduce((s, c) => s + c.total, 0));
-      }
-      if (hResult.status === "fulfilled" && hResult.value) setHourlyCurve(hResult.value);
-      if (yhResult.status === "fulfilled" && yhResult.value) setYesterdayHourly(yhResult.value);
-      setCheckedAt(Date.now());
-      setLoading(false);
+      }), () => {});
+
+      await cashDone;
     }
     load(false);
     return () => { cancelled = true; };
@@ -338,6 +341,10 @@ export default function CashLedger({
     toast({ tone: "success", icon: "ti-refresh", title: "Обновлено", message: `Проверка в ${fmtClock(Date.now())}` });
   }
 
+  // Единственное правило, которое знал сайт до появления ленты. Когда
+  // лента есть, плашку убираем: иначе экран пишет «В порядке» и тут же
+  // перечисляет пять проблем — оба утверждения на одном экране.
+  const showFeed = navV2 && role === "admin";
   const stamp = supplyWarnings.length > 0
     ? { cls: "stamp-warn", text: "Поставки не забиты", icon: "ti-truck" }
     : { cls: "stamp-ok", text: "В порядке", icon: "ti-circle-check" };
@@ -450,11 +457,13 @@ export default function CashLedger({
           <span className="cl-line-dots" />
           <span className="cl-line-value">{totalTx > 0 ? `${fmt(Math.round(totalCash / totalTx))}` : "—"}</span>
         </div>
-        <div className="cl-total-stamp">
-          <span className={`stamp ${stamp.cls}`}>
-            <i className={`ti ${stamp.icon}`} aria-hidden="true" /> {stamp.text}
-          </span>
-        </div>
+        {!showFeed && (
+          <div className="cl-total-stamp">
+            <span className={`stamp ${stamp.cls}`}>
+              <i className={`ti ${stamp.icon}`} aria-hidden="true" /> {stamp.text}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ─── Открытые чеки ──────────────────────────────────────────── */}
@@ -653,6 +662,8 @@ export default function CashLedger({
           </div>
         </div>
       )}
+
+      {showFeed && <ProblemFeed onNavigate={(p) => route.navigate(p)} />}
 
       {/* ─── Лента касс ─────────────────────────────────────────────── */}
       {loading ? (

@@ -14,6 +14,7 @@
 import { doc, setDoc, increment } from "firebase/firestore";
 import { getDb } from "./firebase.js";
 import { navIdForPath } from "./nav.js";
+import { bumpLocal } from "./recentNav.js";
 
 export const VIEWS_DOC = "meta/page-views";
 
@@ -44,6 +45,7 @@ export function trackView(path, role) {
   lastKey = key;
 
   pending.set(key, (pending.get(key) || 0) + 1);
+  bumpLocal(id);
   if (!timer) timer = setTimeout(flush, FLUSH_MS);
 }
 
