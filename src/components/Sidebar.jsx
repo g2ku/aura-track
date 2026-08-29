@@ -1,10 +1,11 @@
 // Боковое меню с группами разделов (как в Poster).
 // На десктопе фиксировано слева, на мобильных — drawer.
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { logout, getUserSpotName } from "../auth.jsx";
 import { useAppStore } from "../store/useAppStore";
 import { GROUPS, GROUPS_V2, canSeeItemFor, navIdForPath, groupsFor } from "../nav.js";
+import { topViewed } from "../recentNav.js";
 
 // Переэкспорт: половина приложения импортирует их отсюда исторически.
 export { GROUPS, GROUPS_V2, canSeeItemFor };
@@ -36,6 +37,16 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
   // зависимостей, а const не всплывает — иначе рендер падает.
   const groups = groupsFor(role, navV2);
   const activeId = navIdForPath(route.path);
+
+  // «Часто» — четыре самых открываемых раздела лично этого человека.
+  // Пересчитываем при смене страницы: счёт как раз тогда и меняется.
+  const frequent = useMemo(() => {
+    if (!navV2) return [];
+    const byId = Object.fromEntries(groups.flatMap(g => g.items).map(i => [i.id, i]));
+    return topViewed(4)
+      .map(v => byId[v.id])
+      .filter(i => i && canSeeItemFor(role, role === "curator", i));
+  }, [navV2, groups, role, route.path]);
   const spotName = getUserSpotName();
   const isBranch = role === "curator";
 
@@ -119,24 +130,54 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
         </button>
 
         <nav className="sidebar-nav">
+          {frequent.length > 0 && (
+            <div className="sidebar-group">
+              <div className="sidebar-group-label">
+                <i className="ti ti-star" aria-hidden="true" />
+                <span>Часто</span>
+              </div>
+              <div className="sidebar-group-items">
+                {frequent.map(item => (
+                  <button
+                    key={`fav-${item.id}`}
+                    className={`sidebar-link sidebar-link-sub${activeId === item.id ? " active" : ""}`}
+                    onClick={() => onNavigate(item.path)}
+                  >
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {groups.map(group => {
             // Hide entire analytics group for single-branch (curator) users
             if (isBranch && group.id === "admin-analytics") return null;
             const visibleItems = group.items.filter(canSeeItem);
             if (visibleItems.length === 0) return null;
-            const isExpanded = expanded[group.id];
+            // В новом интерфейсе раздел — подпись, а не шторка: 22 пункта
+            // видно сразу, до любого один клик вместо двух. Прокрутить
+            // список, который видишь, дешевле, чем угадывать, за какой
+            // шторкой лежит нужное.
+            const isExpanded = navV2 ? true : expanded[group.id];
             const hasActive = visibleItems.some(i => i.id === activeId);
 
             return (
               <div key={group.id} className={`sidebar-group${hasActive ? " has-active" : ""}`}>
-                <button
-                  className={`sidebar-group-header${isExpanded ? " expanded" : ""}`}
-                  onClick={() => toggleGroup(group.id)}
-                >
-                  <i className={`ti ${group.icon}`} aria-hidden="true" />
-                  <span>{group.label}</span>
-                  <i className={`ti ti-chevron-${isExpanded ? "down" : "right"} sidebar-group-arrow`} aria-hidden="true" />
-                </button>
+                {navV2 ? (
+                  <div className="sidebar-group-label">
+                    <i className={`ti ${group.icon}`} aria-hidden="true" />
+                    <span>{group.label}</span>
+                  </div>
+                ) : (
+                  <button
+                    className={`sidebar-group-header${isExpanded ? " expanded" : ""}`}
+                    onClick={() => toggleGroup(group.id)}
+                  >
+                    <i className={`ti ${group.icon}`} aria-hidden="true" />
+                    <span>{group.label}</span>
+                    <i className={`ti ti-chevron-${isExpanded ? "down" : "right"} sidebar-group-arrow`} aria-hidden="true" />
+                  </button>
+                )}
                 {isExpanded && (
                   <div className="sidebar-group-items">
                     {visibleItems.map(item => (

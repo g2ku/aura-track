@@ -418,6 +418,20 @@ export async function fetchSupplyStatus(spots, opts = {}) {
   }
 }
 
+// ─── Что не так прямо сейчас ────────────────────────────────────────────
+//
+// Правила считает сервер — те же, что у сторожа в телеграме.
+
+export async function fetchAlerts(opts = {}) {
+  const url = `/api/alerts${opts.fresh ? `?_fresh=${Date.now()}` : ""}`;
+  const res = await fetch(url, { headers: await apiHeaders(), signal: opts.signal });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Сессия истекла — обновите страницу и войдите заново");
+  }
+  if (!res.ok) throw new Error(`Проверка не прошла (HTTP ${res.status})`);
+  return res.json();
+}
+
 // ─── Движение ингредиентов (расход и остатки по складам) ────────────────
 //
 // Считает сервер: /api/ingredient-movement. Восемь запросов в Poster на
