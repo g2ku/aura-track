@@ -1,5 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from "react";
 import { trackView, installFlushOnHide } from "./pageViews.js";
+import { syncServiceWorker } from "./serviceWorker.js";
 import { LoginGate, useAuth, useUserBranch, isAdmin, isAdminOrManager, logout } from "./auth.jsx";
 import { useHashRoute, useRememberRoute } from "./router";
 import { useAppStore } from "./store/useAppStore";
@@ -36,6 +37,7 @@ function MainApp() {
   const route = useHashRoute();
   const { auth } = useAuth();
   const role = auth?.role || null;
+  const navV2 = useAppStore((s) => s.navV2);
 
   // Считаем открытия разделов. Нужно, чтобы решать, что выкидывать при
   // следующей переделке меню, по цифрам, а не по догадкам.
@@ -44,6 +46,13 @@ function MainApp() {
     trackView(route.path, role);
   }, [route.path, role, auth]);
   useEffect(() => installFlushOnHide(), []);
+
+  // Мгновенный повторный запуск с телефона — пока только у владельца.
+  // Выключил новый интерфейс — воркер снимается вместе с кэшем.
+  useEffect(() => {
+    if (!auth || auth.provisional) return;
+    syncServiceWorker(role === "admin" && navV2);
+  }, [role, navV2, auth]);
   const userBranch = useUserBranch();
   const canEdit = isAdminOrManager();
 
