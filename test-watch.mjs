@@ -445,6 +445,45 @@ section("Завал — это не тишина");
   ok(alerts.some((a) => a.kind === "quiet"), "открыть пустой чек — не продать");
 }
 
+section("Из телеграма — сразу в нужное место");
+
+{
+  // Раньше тревога была просто текстом: «Рамс — минус 132 л», и дальше
+  // ищи сам. Ссылка на заголовке раздела не добавляет ни строки.
+  process.env.SITE_URL = "https://example.test";
+  const out = formatAlerts([
+    { kind: "stuck", spot: "Дубай", waiter: "Касым", minutes: 75, sum: 930, empty: false, spotId: "9" },
+    { kind: "nosupply", spot: "Абая", spotId: "4", days: 2 },
+  ]);
+  ok(/href="https:\/\/example\.test\/#\/receipts"/.test(out), "чеки ведут в «Чеки»");
+  ok(/href="https:\/\/example\.test\/#\/reports"/.test(out), "поставки — в накладные");
+  ok(!/href[\s\S]*href[\s\S]*href/.test(out.split("\n")[0]), "в одной строке одна ссылка, а не гирлянда");
+
+  // Строки с точками остаются текстом: ссылка на каждой превратила бы
+  // сообщение в синее полотно
+  const spotLine = out.split("\n").find((l) => l.startsWith("• Дубай"));
+  ok(spotLine && !/href=/.test(spotLine), "строки точек без ссылок");
+}
+
+{
+  // Адреса нет — заголовок остаётся текстом. Ссылка в никуда хуже,
+  // чем её отсутствие.
+  delete process.env.SITE_URL;
+  delete process.env.VERCEL_URL;
+  delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  const out = formatAlerts([{ kind: "quiet", spot: "OBI", minutes: 52, spotId: "3" }]);
+  ok(!/href=/.test(out), "без адреса ссылок не появляется");
+  ok(/Давно нет заказов/.test(out), "а текст на месте");
+}
+
+{
+  // Домен без протокола (так его кладёт Vercel) должен превратиться в ссылку
+  process.env.VERCEL_PROJECT_PRODUCTION_URL = "site.vercel.app";
+  const out = formatAlerts([{ kind: "quiet", spot: "OBI", minutes: 52, spotId: "3" }]);
+  ok(/href="https:\/\/site\.vercel\.app\/#\/receipts"/.test(out), "протокол подставлен сам");
+  delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

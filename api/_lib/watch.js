@@ -252,6 +252,31 @@ function plural(n, one, few, many) {
   return many;
 }
 
+// Адрес сайта для ссылок из сообщений.
+//
+// Vercel сам кладёт домен в окружение, поэтому настраивать обычно нечего.
+// Не нашли — вернём пустоту, и заголовки останутся просто текстом: лучше
+// без ссылки, чем со ссылкой в никуда.
+function siteUrl() {
+  const raw = process.env.SITE_URL
+    || process.env.VERCEL_PROJECT_PRODUCTION_URL
+    || process.env.VERCEL_URL
+    || "";
+  if (!raw) return "";
+  return /^https?:\/\//.test(raw) ? raw.replace(/\/+$/, "") : `https://${raw}`;
+}
+
+// Заголовок раздела ведёт туда, где с этим разбираются.
+//
+// Раньше тревога была просто текстом: «Рамс — минус 132 л молока», и
+// дальше ищи сам. Ссылка на самом заголовке не добавляет ни строки —
+// сообщение и так на счету по длине.
+function section(title, path) {
+  const base = siteUrl();
+  if (!base || !path) return `<b>${title}</b>`;
+  return `<b><a href="${base}/#${path}">${title}</a></b>`;
+}
+
 export function formatAlerts(alerts) {
   if (!alerts.length) return null;
   const lines = [];
@@ -269,7 +294,7 @@ export function formatAlerts(alerts) {
   // Точка, которая должна была открыться и не открылась, — первое, что
   // нужно знать утром: там либо бариста опоздал, либо что-то случилось.
   if (late.length) {
-    lines.push("⏰ <b>Точка не открылась</b>");
+    lines.push(`⏰ ${section("Точка не открылась", "/receipts")}`);
     for (const a of late) {
       lines.push(`• ${a.spot} — обычно открывается в ${a.usual}, уже ${fmtAge(a.lateMin)} без смены`);
     }
@@ -279,13 +304,13 @@ export function formatAlerts(alerts) {
   // поэтому идёт первой, до зависших чеков.
   if (closed.length) {
     if (lines.length) lines.push("");
-    lines.push("🚫 <b>Нет продаж за весь день</b>");
+    lines.push(`🚫 ${section("Нет продаж за весь день", "/receipts")}`);
     for (const a of closed) lines.push(`• ${a.spot}`);
   }
 
   if (withMoney.length) {
     if (lines.length) lines.push("");
-    lines.push("⚠️ <b>Чеки висят открытыми</b>");
+    lines.push(`⚠️ ${section("Чеки висят открытыми", "/receipts")}`);
     let budget = MAX_CHECK_LINES;
     let shown = 0;
 
@@ -320,7 +345,7 @@ export function formatAlerts(alerts) {
 
   if (quiet.length) {
     if (lines.length) lines.push("");
-    lines.push("🔇 <b>Давно нет заказов</b>");
+    lines.push(`🔇 ${section("Давно нет заказов", "/receipts")}`);
     for (const a of quiet.slice(0, MAX_LINES)) lines.push(`• ${a.spot} — ${fmtAge(a.minutes)}`);
     const rest = quiet.length - MAX_LINES;
     if (rest > 0) lines.push(`• и ещё ${rest}`);
@@ -328,7 +353,7 @@ export function formatAlerts(alerts) {
 
   if (nosupply.length) {
     if (lines.length) lines.push("");
-    lines.push("📦 <b>Поставки не проводили</b>");
+    lines.push(`📦 ${section("Поставки не проводили", "/reports")}`);
     for (const a of nosupply.slice(0, MAX_LINES)) {
       lines.push(`• ${a.spot} — ${a.days} ${plural(a.days, "день", "дня", "дней")}`);
     }
