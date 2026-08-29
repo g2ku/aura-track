@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useHashRoute } from "../router";
 import { useUserBranch, useRole } from "../auth.jsx";
 import { useAppStore } from "../store/useAppStore";
-import { GROUPS, canSeeItemFor } from "./Sidebar";
+import { canSeeItemFor } from "./Sidebar";
+import { groupsFor } from "../nav.js";
 
 const ADMIN_ITEMS = [
   { path: "/", icon: "ti-home", label: "Главная" },
@@ -27,10 +28,11 @@ export default function BottomNav() {
   const isBranch = !!userBranch;
   const items = isBranch ? BRANCH_ITEMS : ADMIN_ITEMS;
   const designV2 = useAppStore((s) => s.designV2);
+  const navV2 = useAppStore((s) => s.navV2);
   const [moreOpen, setMoreOpen] = useState(false);
 
   const groups = designV2
-    ? GROUPS
+    ? groupsFor(role, navV2)
         .map((g) => ({ ...g, items: g.items.filter((i) => canSeeItemFor(role, isBranch, i)) }))
         .filter((g) => g.items.length > 0)
     : [];

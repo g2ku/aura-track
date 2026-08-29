@@ -11,6 +11,7 @@ import { dateInputToTsStart } from "../utils";
 
 const PERIOD_KEY = "supply-track-period";
 const THEME_KEY = "supply-track-theme";
+const NAV_KEY = "supply-track-nav-v2";
 
 function loadPeriod() {
   try {
@@ -21,6 +22,18 @@ function loadPeriod() {
     return p;
   } catch (_) {
     return { preset: "all" };
+  }
+}
+
+// Какое меню человек выбрал в прошлый раз. localStorage, а не session:
+// это не эксперимент на один заход, а то, к чему привыкают руками.
+// Ключа нет — значит владелец ещё не выбирал, показываем новое.
+function loadNavV2() {
+  try {
+    const v = localStorage.getItem(NAV_KEY);
+    return v === null ? true : v === "1";
+  } catch (_) {
+    return true;
   }
 }
 
@@ -67,6 +80,11 @@ export const useAppStore = create((set, get) => ({
   // для admin, можно принудительно вкл/выкл через sessionStorage
   // (aura-design-v2 = 1 | 0). Когда дизайн одобрен — ставим true всем.
   designV2: false,
+
+  // ─── Пять разделов вместо шести групп ───────────────────────────────
+  // Обкатывает владелец, в сайдбаре есть кнопка вернуться к прежнему.
+  // Остальным меню не меняем: у них и так десять пунктов.
+  navV2: loadNavV2(),
 
   // ─── Подписки (инициализируются один раз) ─────────────────────────
   _init() {
@@ -123,6 +141,12 @@ export const useAppStore = create((set, get) => ({
 
   setDesignV2(v) {
     set({ designV2: Boolean(v) });
+  },
+
+  setNavV2(v) {
+    const next = Boolean(v);
+    try { localStorage.setItem(NAV_KEY, next ? "1" : "0"); } catch (_) {}
+    set({ navV2: next });
   },
 
   openModal(kind, payload = null) {

@@ -7,7 +7,7 @@
 //
 // Запуск: node test-nav.mjs
 
-import { GROUPS, canSeeItemFor } from "./src/nav.js";
+import { GROUPS, GROUPS_V2, canSeeItemFor, groupsFor } from "./src/nav.js";
 import { parseHash } from "./src/router.js";
 import { readFileSync } from "node:fs";
 
@@ -135,6 +135,63 @@ section("Каждый пункт меню куда-то ведёт");
   const content = readFileSync("src/hooks/useRouteContent.jsx", "utf8");
   const noBranch = items.filter((i) => !content.includes(`"${i.path}"`));
   eq(noBranch.map((i) => i.path), [], "и у каждого есть ветка в useRouteContent");
+}
+
+section("Пять разделов: ничего не потеряно");
+
+{
+  const oldIds = GROUPS.flatMap((g) => g.items).map((i) => i.id);
+  const newIds = GROUPS_V2.flatMap((g) => g.items).map((i) => i.id);
+
+  // Скрытые от всех «Сверка касс» и «Отходы» переносить некуда и незачем
+  const dropped = oldIds.filter((id) => !newIds.includes(id));
+  eq(dropped.sort(), ["cash-recon", "waste"], "потеряны только те два, до которых никто не мог дойти");
+  eq(newIds.filter((id) => !oldIds.includes(id)), [], "ничего не выдумано на пустом месте");
+  eq(newIds.length, new Set(newIds).size, "пункт не попал в два раздела сразу");
+  eq(GROUPS_V2.length, 5, "разделов ровно пять");
+}
+
+{
+  // Пути и права переехали как есть: переносим меню, а не переписываем доступ
+  const byId = Object.fromEntries(GROUPS.flatMap((g) => g.items).map((i) => [i.id, i]));
+  const wrongPath = GROUPS_V2.flatMap((g) => g.items).filter((i) => byId[i.id] && byId[i.id].path !== i.path);
+  eq(wrongPath.map((i) => i.id), [], "адреса не изменились");
+
+  const wrongRights = GROUPS_V2.flatMap((g) => g.items).filter((i) => {
+    const o = byId[i.id];
+    return o && (Boolean(o.ownerOnly) !== Boolean(i.ownerOnly) || Boolean(o.managerOnly) !== Boolean(i.managerOnly));
+  });
+  eq(wrongRights.map((i) => i.id), [], "права не поехали при переносе");
+}
+
+{
+  const seen = GROUPS_V2.flatMap((g) => g.items).filter((i) => canSeeItemFor("admin", false, i));
+  eq(seen.length, 22, "владелец видит все двадцать два пункта");
+  ok(GROUPS_V2.every((g) => g.id && g.label && g.icon && g.items.length), "у каждого раздела есть имя, значок и содержимое");
+}
+
+section("Новое меню — только для владельца, с дорогой назад");
+
+{
+  ok(groupsFor("admin", true) === GROUPS_V2, "владелец с включённым флагом видит пять разделов");
+  ok(groupsFor("admin", false) === GROUPS, "и может вернуться к прежнему");
+  ok(groupsFor("manager", true) === GROUPS, "управляющему меню не меняем");
+  ok(groupsFor("curator", true) === GROUPS, "куратору тоже");
+  ok(groupsFor(null, true) === GROUPS, "и без роли — прежнее");
+}
+
+{
+  const store = readFileSync("src/store/useAppStore.js", "utf8");
+  ok(/localStorage\.setItem\(NAV_KEY/.test(store), "выбор меню переживает перезагрузку");
+  ok(/v === null \? true/.test(store), "кто ещё не выбирал — видит новое");
+
+  const sidebar = readFileSync("src/components/Sidebar.jsx", "utf8");
+  ok(/role === "admin" && \(/.test(sidebar), "кнопка возврата показана только владельцу");
+  ok(/Прежнее меню/.test(sidebar) && /Новое меню/.test(sidebar), "и подписана в обе стороны");
+  ok(/\{groups\.map\(group/.test(sidebar), "сайдбар рисует выбранное меню, а не жёстко старое");
+
+  const bottom = readFileSync("src/components/BottomNav.jsx", "utf8");
+  ok(/groupsFor\(role, navV2\)/.test(bottom), "на телефоне «Ещё» показывает то же меню");
 }
 
 console.log("\n══════════════════════════════════════════════════");
