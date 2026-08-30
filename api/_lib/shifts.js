@@ -9,7 +9,7 @@
 //
 // Логика чистая: на вход строки finance.getCashShifts, на выход выводы.
 
-import { BRANCHES } from "./branches.js";
+import { BRANCHES, spotNameByPosterId } from "./branches.js";
 import { posterStringToMs, localMinutesOfDay, localDateStr } from "./time.js";
 
 export const SHIFT_DEFAULTS = {
@@ -180,6 +180,46 @@ export function hhmmToMinutes(hhmm) {
   return h * 60 + mi;
 }
 
+// Смены, которые забыли закрыть.
+//
+// Настоящий случай: на Атакенте и Коктеме смена висела со вчера. Через
+// сутки openSpots перестаёт считать такую смену открытой — и сторож
+// начинал каждый час писать «точка не открылась», хотя точка работала.
+// В скриншотах это видно по часам: Коктем пропал в 10:00 и вернулся в
+// 11:00 — ровно когда его смена перевалила за сутки.
+//
+// Проблема настоящая (из-за незакрытой смены и чеки висят сутками), но
+// называть её надо своим именем, иначе владелец идёт разбираться не туда.
+export function buildStaleShiftAlerts(rows, opts = {}) {
+  const cfg = { ...SHIFT_DEFAULTS, ...opts };
+  const now = cfg.now ?? Date.now();
+  const seen = cfg.seen || {};
+  const alerts = [];
+
+  for (const s of rows || []) {
+    if (!isShiftOpen(s)) continue;
+    const started = shiftStart(s);
+    if (!started) continue;
+    const hours = Math.floor((now - started) / 3600000);
+    if (hours < 24) continue;
+
+    const spotId = String(s.spot_id);
+    const key = `shiftstale:${spotId}`;
+    if (seen[key] && now - seen[key] < (cfg.repeatAfterMin ?? 60) * 60000) continue;
+
+    alerts.push({
+      key,
+      kind: "shiftstale",
+      spot: spotNameByPosterId(spotId),
+      spotId,
+      hours,
+      startedAt: started,
+    });
+  }
+
+  return alerts.sort((a, b) => b.hours - a.hours);
+}
+
 // Точки, которые к своему часу так и не открылись.
 export function buildLateAlerts(rows, opts = {}) {
   const cfg = { ...SHIFT_DEFAULTS, ...opts };
@@ -192,8 +232,15 @@ export function buildLateAlerts(rows, opts = {}) {
   const schedule = cfg.schedule || {};
   const alerts = [];
 
+  // Точка, которая сегодня уже что-то продала, открыться не могла не
+  // открыться — что бы ни говорили смены. Самый надёжный признак, и
+  // именно его не хватало: смену забыли закрыть со вчера, новую открыть
+  // не смогли, а кофе при этом варили с семи утра.
+  const sold = cfg.soldToday || null;
+
   for (const b of BRANCHES) {
     if (open.has(b.spotId)) continue;
+    if (sold && sold.has(String(b.spotId))) continue;
     const { open: u, openBy } = scheduleFor(b.spotId, schedule, { open: usual[b.spotId] });
     // Ни правила, ни истории — молчим: гадать, во сколько точка «должна»
     // открыться, хуже, чем не сказать ничего.
