@@ -2,6 +2,7 @@
 
 import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay } from "../poster.js";
 import { fmt } from "../utils.js";
+import { BRANCHES } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
 
@@ -155,6 +156,9 @@ export async function executeQuery(parsed, userBranch) {
       case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup);
       case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup);
       case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup);
+      case "openChecks": return await handleOpenChecks(effectiveSpot);
+      case "alerts": return await handleAlerts();
+      case "stock": return await handleStock(effectiveSpot, period, product);
       default: return await handleCash(operation, effectiveSpot, period, ipGroup);
     }
   } catch (e) {
@@ -971,4 +975,101 @@ async function handleCompareBranches(operation, spot, period, ipGroup) {
     text: `Рейтинг филиалов${ipLabel} за ${pl}:\n${lines}\n\n🏆 Лучший: ${best.spotName} (${fmt(best.total)})\n📉 Худший: ${worst.spotName} (${fmt(worst.total)})\n📊 Разница: +${diff}%`,
     data: { sorted, best: best.spotName, worst: worst.spotName, diff },
   };
+}
+
+// spot_id Poster → русское название. BRANCHES уже импортирован разбором,
+// но исполнителю он нужен свой.
+const SPOT_NAME = Object.fromEntries(Object.values(BRANCHES).map((b) => [String(b.spotId), b.spotName]));
+
+// ─── Открытые чеки ───────────────────────────────────────────────────
+//
+// Раньше «открытые чеки» уезжали в metric «checks» и превращались в
+// количество продаж за месяц — вопрос про то, что висит прямо сейчас,
+// получал ответ про совсем другое.
+async function handleOpenChecks(spot) {
+  const { fetchPaymentBreakdown } = await import("../poster.js");
+  const today = new Date().toISOString().slice(0, 10);
+  const r = await fetchPaymentBreakdown(today, today);
+  let items = r?.openChecks?.items || [];
+  if (spot && spot.spotId && spot.spotId !== "all") {
+    items = items.filter((i) => String(i.spotId) === String(spot.spotId));
+  }
+  if (!items.length) return { text: "Открытых чеков нет — всё закрыто.", data: null };
+
+  const withMoney = items.filter((i) => i.sum > 0);
+  const total = Math.round(withMoney.reduce((s, i) => s + i.sum, 0));
+  const stuck = items.filter((i) => (i.minutes ?? 0) >= 15);
+
+  const lines = [
+    `Открытых чеков: ${items.length}, на ${fmt(total)}.`,
+    stuck.length ? `Дольше 15 минут висит ${stuck.length}.` : "Все свежие, дольше 15 минут ничего не висит.",
+    "",
+  ];
+  for (const i of items.slice(0, 8)) {
+    const spotName = SPOT_NAME[String(i.spotId)] || `Точка #${i.spotId}`;
+    lines.push(`• ${spotName}${i.waiter ? ` · ${i.waiter}` : ""} — ${fmtAgeMin(i.minutes)} · ${fmt(Math.round(i.sum))}`);
+  }
+  if (items.length > 8) lines.push(`…и ещё ${items.length - 8}`);
+  return { text: lines.join("\n"), data: null };
+}
+
+// ─── Что не так прямо сейчас ─────────────────────────────────────────
+async function handleAlerts() {
+  const { fetchAlerts } = await import("../poster.js");
+  const { describe, sortAlerts } = await import("../alertText.js");
+  const r = await fetchAlerts();
+  const alerts = sortAlerts(r?.alerts || []);
+  if (!alerts.length) return { text: "Всё в порядке: чеки закрывают, точки работают, поставки проводят.", data: null };
+
+  const lines = [`Требует внимания: ${alerts.length}.`, ""];
+  for (const a of alerts.slice(0, 10)) {
+    const d = describe(a);
+    lines.push(`• ${d.title}${d.hint ? ` — ${d.hint}` : ""}`);
+  }
+  if (alerts.length > 10) lines.push(`…и ещё ${alerts.length - 10}`);
+  return { text: lines.join("\n"), data: null };
+}
+
+// ─── Расход и остатки ────────────────────────────────────────────────
+//
+// Молоко и зерно не продают стаканами — их списывают по техкартам.
+// Вопрос «сколько молока ушло» раньше искал такой товар в продажах и
+// не находил ничего.
+async function handleStock(spot, period, product) {
+  const { fetchIngredientMovement } = await import("../poster.js");
+  const r = await fetchIngredientMovement(period.from, period.to);
+  const branch = spot && spot.spotId !== "all" ? (SPOT_NAME[String(spot.spotId)] || null) : null;
+
+  let rows = r?.items || [];
+  if (product) {
+    const q = String(product).toLowerCase();
+    rows = rows.filter((i) => i.name.toLowerCase().includes(q));
+  }
+  if (branch) rows = rows.filter((i) => i.byBranch && i.byBranch[branch]);
+
+  if (!rows.length) return { text: "За этот период списаний не нашёл.", data: null };
+
+  const val = (i) => (branch ? (i.byBranch[branch]?.spent ?? 0) : i.spent);
+  rows = rows.filter((i) => val(i) > 0).sort((a, b) => val(b) * b.price - val(a) * a.price);
+
+  const where = branch ? ` · ${branch}` : "";
+  const lines = [`Расход за ${period.from} — ${period.to}${where}:`, ""];
+  for (const i of rows.slice(0, 10)) {
+    const q = val(i);
+    lines.push(`• ${i.name} — ${q.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${i.unit || ""} · ${fmt(Math.round(q * i.price))}`);
+  }
+
+  const neg = Object.entries(r?.negative || {}).filter(([b]) => !branch || b === branch);
+  if (neg.length) {
+    lines.push("");
+    lines.push(`⚠️ Остаток в минусе: ${neg.map(([b, items]) => `${b} (${items.length})`).join(", ")}`);
+  }
+  return { text: lines.join("\n"), data: null };
+}
+
+function fmtAgeMin(m) {
+  if (m == null) return "—";
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h} ч ${r} мин` : `${h} ч`;
 }

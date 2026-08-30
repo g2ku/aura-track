@@ -18,20 +18,13 @@ import {
   isFirebaseConfigured,
 } from "./firebase.js";
 
+import { BRANCHES } from "./branches.js";
+
 const RegistrationPage = lazy(() => import("./components/RegistrationPage.jsx"));
 
-// ─── Справочник филиалов ─────────────────────────────────────────────
-// branchId → { spotName, spotId (Poster) }
-export const BRANCHES = {
-  Aura02_Gagarina:  { spotName: "Гагарина",  spotId: "1" },
-  Aura02_Zharokova: { spotName: "Жароково",  spotId: "2" },
-  Aura02_OBI:       { spotName: "OBI",       spotId: "3" },
-  Aura02_Abaya:     { spotName: "Абая",      spotId: "4" },
-  Aura02_Koktem:    { spotName: "Коктем",    spotId: "7" },
-  Aura02_Dubai:     { spotName: "Дубай",     spotId: "9" },
-  Aura02_Atakent:   { spotName: "Атакент",   spotId: "10" },
-  Aura02_Rams:      { spotName: "Рамс",      spotId: "11" },
-};
+// Справочник филиалов живёт в отдельном модуле: он нужен разбору
+// вопросов ассистента, а тот не должен тащить за собой React и Firebase.
+export { BRANCHES } from "./branches.js";
 
 // Обратные маппинги
 const BRANCH_TO_NAME = {};

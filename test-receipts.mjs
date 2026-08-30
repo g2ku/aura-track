@@ -212,24 +212,26 @@ section("Фильтр по филиалу");
 section("Справочники филиалов на сайте и в боте совпадают");
 
 {
-  // Их две копии: src/auth.jsx для сайта и api/_lib/branches.js для бота.
-  // Разъедутся — фильтры, отчёты и накладные начнут указывать на разные
-  // точки, и заметить это будет нечем.
+  // Их две копии: src/branches.js для сайта и api/_lib/branches.js для
+  // бота. Разъедутся — фильтры, отчёты и накладные начнут указывать на
+  // разные точки, и заметить это будет нечем.
+  //
+  // Теперь сравниваем ЗАГРУЖЕННЫЕ справочники, а не текст исходника:
+  // сайтовый переехал из auth.jsx в отдельный модуль, и разбор текстом
+  // молча перестал что-либо проверять.
   const { BRANCHES: bot } = await import("./api/_lib/branches.js");
-  const site = readFileSync("src/auth.jsx", "utf8");
-  const table = site.slice(site.indexOf("export const BRANCHES"), site.indexOf("// Обратные маппинги"));
+  const { BRANCHES: site } = await import("./src/branches.js");
 
   for (const b of bot) {
-    const row = new RegExp(`${b.key}:\\s*\\{[^}]*spotName:\\s*"([^"]+)"[^}]*spotId:\\s*"([^"]+)"`);
-    const m = table.match(row);
-    ok(m, `${b.key} есть в справочнике сайта`);
-    if (m) {
-      eq(m[2], b.spotId, `${b.name}: номер точки совпадает`);
-      eq(m[1], b.name, `${b.key}: название совпадает`);
+    const row = site[b.key];
+    ok(row, `${b.key} есть в справочнике сайта`);
+    if (row) {
+      eq(row.spotId, b.spotId, `${b.name}: номер точки совпадает`);
+      eq(row.spotName, b.name, `${b.key}: название совпадает`);
     }
   }
 
-  const siteCount = (table.match(/Aura02_\w+:\s*\{/g) || []).length;
+  const siteCount = Object.keys(site).length;
   eq(siteCount, bot.length, "число филиалов одинаковое");
 }
 
