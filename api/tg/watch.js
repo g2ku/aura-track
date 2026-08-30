@@ -16,7 +16,7 @@ import { getConfig, setConfig, getDoc } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
-import { openSpots, windingDown, buildLateAlerts } from "../_lib/shifts.js";
+import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts } from "../_lib/shifts.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -118,6 +118,10 @@ export default async function handler(req, res) {
       });
 
       if (shifts.length) {
+        // Точка, которая сегодня уже продавала, «не открыться» не могла.
+        // Без этого сторож писал «не открылась» на работающие точки, у
+        // которых просто висела незакрытая вчерашняя смена.
+        const soldToday = new Set(rows.map((t) => String(t.spot_id || "")).filter(Boolean));
         alerts.push(...buildLateAlerts(shifts, {
           now: Date.now(),
           seen: config.alertSeen || {},
@@ -125,6 +129,12 @@ export default async function handler(req, res) {
           repeatAfterMin: config.repeatAfterMin,
           // Правило владельца важнее выведенного из истории
           schedule: config.schedule,
+          soldToday,
+        }));
+        alerts.push(...buildStaleShiftAlerts(shifts, {
+          now: Date.now(),
+          seen: config.alertSeen || {},
+          repeatAfterMin: config.repeatAfterMin,
         }));
       }
 

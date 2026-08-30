@@ -290,6 +290,7 @@ export function formatAlerts(alerts) {
   const nosupply = alerts.filter((a) => a.kind === "nosupply");
 
   const late = alerts.filter((a) => a.kind === "late");
+  const stale = alerts.filter((a) => a.kind === "shiftstale");
 
   // Точка, которая должна была открыться и не открылась, — первое, что
   // нужно знать утром: там либо бариста опоздал, либо что-то случилось.
@@ -341,6 +342,15 @@ export function formatAlerts(alerts) {
       const restSum = withMoney.slice(shown).reduce((s, a) => s + a.sum, 0);
       lines.push(`• и ещё ${rest} ${plural(rest, "бариста", "бариста", "бариста")} — ${fmtSum(restSum)}`);
     }
+  }
+
+  if (stale.length) {
+    if (lines.length) lines.push("");
+    lines.push(`🕛 ${section("Смену не закрыли", "/receipts")}`);
+    for (const a of stale.slice(0, MAX_LINES)) {
+      lines.push(`• ${a.spot} — открыта ${a.hours} ${plural(a.hours, "час", "часа", "часов")}`);
+    }
+    lines.push("Пока смена висит, точка числится закрытой и чеки не закрываются.");
   }
 
   if (quiet.length) {

@@ -35,6 +35,8 @@ export function alertLink(a) {
       return "/reports";
     case "negstock":
       return "/movement";
+    case "shiftstale":
+      return "/receipts";
     default:
       return null;
   }
@@ -43,6 +45,9 @@ export function alertLink(a) {
 // Насколько это срочно: от этого зависит и цвет, и порядок.
 export function severity(a) {
   if (a.kind === "closed" || a.kind === "late") return "high";
+  // Пока смена висит, точка числится закрытой и чеки не закрываются —
+  // от этого ломается и отчётность, и сам сторож.
+  if (a.kind === "shiftstale") return "high";
   if (a.kind === "negstock") return a.count > 1 ? "high" : "medium";
   if (a.kind === "stuck") return (a.minutes ?? 0) >= 60 ? "high" : "medium";
   if (a.kind === "nosupply") return (a.days ?? 0) >= 4 ? "high" : "medium";
@@ -72,6 +77,12 @@ export function describe(a) {
         icon: "ti-package-off",
         title: `${a.spot} — поставки не проводят ${a.days} ${plural(a.days, "день", "дня", "дней")}`,
         hint: "Товар привозят, а в Poster его не заводят",
+      };
+    case "shiftstale":
+      return {
+        icon: "ti-clock-pause",
+        title: `${a.spot} — смену не закрыли ${a.hours} ${plural(a.hours, "час", "часа", "часов")}`,
+        hint: "Точка числится закрытой, чеки не закрываются",
       };
     case "negstock":
       return {

@@ -248,7 +248,7 @@ export async function getWatchSnapshot(opts = {}) {
     timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(new Date());
 
-  const { openSpots, windingDown, buildLateAlerts } = await import("./shifts.js");
+  const { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts } = await import("./shifts.js");
 
   let shifts = [];
   try {
@@ -264,7 +264,11 @@ export async function getWatchSnapshot(opts = {}) {
     openSpots: shifts.length ? openSpots(shifts) : null,
     windingDown: shifts.length ? windingDown(shifts, { schedule: opts.schedule }) : null,
   });
-  if (shifts.length) alerts.push(...buildLateAlerts(shifts, { ...opts, now: Date.now(), seen: {} }));
+  if (shifts.length) {
+    const soldToday = new Set(rows.map((t) => String(t.spot_id || "")).filter(Boolean));
+    alerts.push(...buildLateAlerts(shifts, { ...opts, now: Date.now(), seen: {}, soldToday }));
+    alerts.push(...buildStaleShiftAlerts(shifts, { ...opts, now: Date.now(), seen: {} }));
+  }
 
   try {
     const sup = await posterCall("storage.getSupplies", {});

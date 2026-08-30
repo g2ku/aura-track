@@ -15,7 +15,7 @@
 import { posterStringToMs, localMinutesOfDay, localDateStr } from "./api/_lib/time.js";
 import {
   isShiftOpen, openSpots, usualOpening, usualClosing, windingDown, buildLateAlerts,
-  scheduleFor, hhmmToMinutes,
+  scheduleFor, hhmmToMinutes,  buildStaleShiftAlerts,
 } from "./api/_lib/shifts.js";
 
 let passed = 0, failed = 0;
@@ -250,6 +250,59 @@ eq(hhmmToMinutes("восемь"), null, "словами не принимаем"
 
   ok(!windingDown(rows, { now: at("20:30") }).has("7"), "по истории в 20:30 ещё торгуют до 23:00");
   ok(windingDown(rows, { now: at("20:30"), schedule }).has("7"), "по правилу до 21:00 — уже затишье");
+}
+
+section("Незакрытая смена — это не «точка не открылась»");
+
+{
+  // Настоящий случай 30.08: на Атакенте и Коктеме смена висела со вчера.
+  // openSpots через сутки перестаёт считать её открытой, и сторож каждый
+  // час писал «точка не открылась» на работающие точки. В переписке это
+  // видно по часам: Коктем пропал в 10:00 и вернулся в 11:00 — ровно
+  // когда его смена перевалила за 24 часа.
+  const now = Date.parse("2026-08-30T13:00:00+05:00");
+  const shifts = [{ spot_id: "10", timestart: String(now - 30 * 3600000), timeend: "0" }];
+  const schedule = { "10": { open: "07:00" } };
+
+  const late = buildLateAlerts(shifts, { now, seen: {}, schedule });
+  eq(late.map((a) => a.kind), ["late"], "без признака продаж тревога та же, что и была");
+
+  // А продавала она с семи утра
+  const withSales = buildLateAlerts(shifts, { now, seen: {}, schedule, soldToday: new Set(["10"]) });
+  eq(withSales, [], "точка, которая сегодня продавала, «не открыться» не может");
+}
+
+{
+  const now = Date.parse("2026-08-30T13:00:00+05:00");
+  const stale = buildStaleShiftAlerts(
+    [{ spot_id: "10", timestart: String(now - 30 * 3600000), timeend: "0" }],
+    { now, seen: {} },
+  );
+  eq(stale.length, 1, "зависшая смена найдена");
+  eq(stale[0].kind, "shiftstale", "и названа своим именем");
+  eq(stale[0].hours, 30, "сколько висит");
+  eq(stale[0].spot, "Атакент", "точка по-русски");
+}
+
+{
+  const now = Date.now();
+  eq(buildStaleShiftAlerts([{ spot_id: "1", timestart: String(now - 20 * 3600000), timeend: "0" }], { now, seen: {} }),
+     [], "смена на 20 часов — обычный длинный день, не тревога");
+  eq(buildStaleShiftAlerts([{ spot_id: "1", timestart: String(now - 40 * 3600000), timeend: String(now) }], { now, seen: {} }),
+     [], "закрытая смена не считается зависшей, сколько бы ни длилась");
+  eq(buildStaleShiftAlerts(null, { now, seen: {} }), [], "пустой ответ Poster не роняет");
+}
+
+{
+  // Не повторяемся каждые пятнадцать минут
+  const now = Date.now();
+  const rows = [{ spot_id: "1", timestart: String(now - 30 * 3600000), timeend: "0" }];
+  const first = buildStaleShiftAlerts(rows, { now, seen: {}, repeatAfterMin: 60 });
+  const seen = { [first[0].key]: now };
+  eq(buildStaleShiftAlerts(rows, { now: now + 10 * 60000, seen, repeatAfterMin: 60 }), [],
+     "через десять минут молчим");
+  eq(buildStaleShiftAlerts(rows, { now: now + 61 * 60000, seen, repeatAfterMin: 60 }).length, 1,
+     "через час напоминаем");
 }
 
 console.log("\n══════════════════════════════════════════════════");
