@@ -7,6 +7,13 @@ import { useAppStore } from "../store/useAppStore";
 // ─── Route-level ErrorBoundary ───────────────────────────────────
 // Ловит ошибки lazy-загрузки и рендера конкретного маршрута,
 // не краша всё приложение.
+// key={route.path} на этой границе обязателен — см. render ниже.
+//
+// Без него одна упавшая страница запирала ВСЁ приложение: граница
+// запоминала ошибку и продолжала показывать «Ошибка загрузки раздела» на
+// каждом следующем разделе, хотя с ними всё в порядке. Выйти можно было
+// только перезагрузкой — кнопка на экране ошибки её и делает, то есть
+// поведение считалось нормальным.
 class RouteErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -93,7 +100,7 @@ export function useRouteContent({
   // Curator hidden routes: redirect to dashboard
   if (isCurator && CURATOR_HIDDEN_ROUTES.includes(p)) {
     return (
-      <RouteErrorBoundary>
+      <RouteErrorBoundary key={route.path}>
         <Suspense fallback={<RouteFallback />}>
           <UnknownRouteFallback navigate={route.navigate} />
         </Suspense>
@@ -243,7 +250,7 @@ export function useRouteContent({
   }
 
   return (
-    <RouteErrorBoundary>
+    <RouteErrorBoundary key={route.path}>
       <Suspense fallback={<RouteFallback />}>{content}</Suspense>
     </RouteErrorBoundary>
   );
