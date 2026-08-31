@@ -125,3 +125,37 @@ export function negativeStock(table) {
   for (const list of Object.values(byBranch)) list.sort((a, b) => a.end - b.end);
   return byBranch;
 }
+
+// Минусовые остатки → тревоги для ленты и бота.
+//
+// Минус на одной точке — её беда. Минус на семи — это не семь бед, а
+// одна: приход не проводят по всей сети. На замере 31.08 семь отдельных
+// строк заняли половину ленты и утопили в себе чеки, ради которых её и
+// открывают.
+export function collapseNegative(byBranch) {
+  const perSpot = Object.entries(byBranch || {})
+    .map(([spot, items]) => ({
+      spot,
+      count: items.length,
+      money: items.reduce((sum, i) => sum + (i.money || 0), 0),
+      worst: items[0]?.name || "",
+    }))
+    .sort((a, b) => a.money - b.money);
+
+  if (!perSpot.length) return [];
+
+  if (perSpot.length === 1) {
+    const s = perSpot[0];
+    return [{ key: `negstock:${s.spot}`, kind: "negstock", ...s }];
+  }
+
+  return [{
+    key: "negstock:all",
+    kind: "negstockAll",
+    spots: perSpot.length,
+    count: perSpot.reduce((n, s) => n + s.count, 0),
+    money: perSpot.reduce((n, s) => n + s.money, 0),
+    worst: perSpot[0].worst,
+    worstSpot: perSpot[0].spot,
+  }];
+}

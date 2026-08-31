@@ -101,6 +101,29 @@ section("Ссылки ведут туда, где с этим разбирают
   eq(alertLink({ kind: "чего-то новое" }), null, "неизвестный вид не ведёт наугад");
 }
 
+section("Сетевой минус читается одной строкой");
+
+{
+  const a = { kind: "negstockAll", spots: 7, count: 412, money: -10693517, worst: "Крышка гор. Д90", worstSpot: "Абая" };
+  const d = describe(a);
+  ok(/7 точках/.test(d.title), "сказано, на скольких точках");
+  ok(/10 693 517/.test(d.title.replace(/\u00A0/g, " ")), "и во сколько это обходится");
+  ok(/по всей сети/.test(d.hint), "названа настоящая причина, а не симптом");
+  eq(severity(a), "high", "это важнее чеков");
+  eq(alertLink(a), "/movement", "ведёт в «Расход и остатки»");
+}
+
+{
+  // Забытый чек отличается от чека в работе — но только тот, где есть
+  // деньги. Пустые до ленты не доходят вовсе.
+  const forgotten = describe({ kind: "stuck", spot: "Дубай", minutes: 2337, waiter: "Мансур", sum: 990, abandoned: true });
+  ok(/забытый чек/i.test(forgotten.title), "забытый назван забытым");
+  ok(/вручную/.test(forgotten.hint), "и сказано, что с ним делать");
+
+  const live = describe({ kind: "stuck", spot: "Абая", minutes: 24, waiter: "Никитос", sum: 2840 });
+  ok(!/забытый/i.test(live.title), "свежий забытым не называется");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

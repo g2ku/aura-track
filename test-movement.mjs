@@ -5,7 +5,7 @@
 //
 // Запуск: node test-movement.mjs
 
-import { movementParams, normalizeMovement, buildMovementTable, negativeStock } from "./api/_lib/movement.js";
+import { movementParams, normalizeMovement, buildMovementTable, negativeStock, collapseNegative } from "./api/_lib/movement.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -144,6 +144,53 @@ section("Ловушка camelCase зафиксирована в коде");
 
   const client = stripComments(readFileSync("src/poster.js", "utf8"));
   ok(/\/api\/ingredient-movement/.test(client), "клиент ходит на свой эндпоинт, а не в Poster");
+}
+
+section("Семь минусов — одна беда, а не семь строк");
+
+{
+  // Настоящий случай 31.08: минус был на семи точках, и лента показала
+  // семь отдельных строк. Вместе с чеками вышло 18 строк, и в них
+  // утонуло то, ради чего ленту открывают.
+  const many = {
+    "Абая":     [{ id: "1", name: "Крышка гор. Д90", end: -900, money: -4769184 }],
+    "Гагарина": [{ id: "1", name: "Крышка гор. Д90", end: -400, money: -1627819 }],
+    "Жароково": [{ id: "1", name: "Крышка гор. Д90", end: -300, money: -1204055 }],
+  };
+  const out = collapseNegative(many);
+  eq(out.length, 1, "одна строка вместо трёх");
+  eq(out[0].kind, "negstockAll", "и это сетевая тревога");
+  eq(out[0].spots, 3, "сколько точек затронуто");
+  eq(out[0].money, -4769184 - 1627819 - 1204055, "деньги просуммированы");
+  eq(out[0].worstSpot, "Абая", "хуже всего там, где глубже минус");
+}
+
+{
+  // А одна точка в минусе — это её беда, и называть её надо по имени
+  const one = { "Рамс": [{ id: "1", name: "Молоко", end: -132, money: -87787 }] };
+  const out = collapseNegative(one);
+  eq(out.length, 1, "одна строка");
+  eq(out[0].kind, "negstock", "обычная тревога, не сетевая");
+  eq(out[0].spot, "Рамс", "точка названа");
+}
+
+{
+  eq(collapseNegative({}), [], "минусов нет — тревог нет");
+  eq(collapseNegative(null), [], "и на null не падаем");
+}
+
+section("Пустые чеки не доходят до ленты");
+
+{
+  // Особенность Poster: при смене смены предыдущий бариста не закрывает
+  // смену, и пустой чек остаётся висеть. Денег в нём нет, делать нечего.
+  // В телеграме их не было, а в ленту они пролезали — и на пустышке
+  // писалось «забытый чек».
+  const src = readFileSync("api/alerts.js", "utf8");
+  ok(/a\.kind !== "stuck" \|\| !a\.empty/.test(src), "лента отбрасывает пустые чеки");
+
+  const watch = readFileSync("api/_lib/watch.js", "utf8");
+  ok(/!a\.empty/.test(watch), "и телеграм тоже, как и раньше");
 }
 
 console.log("\n══════════════════════════════════════════════════");
