@@ -143,9 +143,11 @@ section("Пять разделов: ничего не потеряно");
   const oldIds = GROUPS.flatMap((g) => g.items).map((i) => i.id);
   const newIds = GROUPS_V2.flatMap((g) => g.items).map((i) => i.id);
 
-  // Скрытые от всех «Сверка касс» и «Отходы» переносить некуда и незачем
+  // «Сверка касс» и «Отходы» были скрыты от всех безусловно — их код
+  // удалён целиком, вместе с маршрутами. Теперь оба меню совпадают
+  // по составу: новое — это перестановка, а не урезание.
   const dropped = oldIds.filter((id) => !newIds.includes(id));
-  eq(dropped.sort(), ["cash-recon", "waste"], "потеряны только те два, до которых никто не мог дойти");
+  eq(dropped, [], "в новом меню нет потерянных пунктов");
   eq(newIds.filter((id) => !oldIds.includes(id)), [], "ничего не выдумано на пустом месте");
   eq(newIds.length, new Set(newIds).size, "пункт не попал в два раздела сразу");
   eq(GROUPS_V2.length, 5, "разделов ровно пять");
