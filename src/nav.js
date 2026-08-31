@@ -51,9 +51,7 @@ export const GROUPS = [
     label: "Аналитика",
     items: [
       { id: "cross-dashboard", path: "/cross-dashboard", icon: "ti-world", label: "Кросс-локации" },
-      { id: "cash-recon", path: "/cash-recon", icon: "ti-check-double", label: "Сверка касс" },
       { id: "profitability", path: "/profitability", icon: "ti-chart-pie", label: "Меню-инжиниринг" },
-      { id: "waste", path: "/waste", icon: "ti-trash", label: "Отходы" },
       { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта" },
       { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L" },
       { id: "payroll", path: "/payroll", icon: "ti-cash-banknote", label: "Зарплатный проект", ownerOnly: true },
@@ -96,7 +94,6 @@ export function canSeeItemFor(role, isBranch, item) {
     if (item.id === "inventory" || item.id === "tickets") return false;
     if (item.id === "briefing" || item.id === "margin" || item.id === "cross-dashboard" || item.id === "profitability") return false;
   }
-  if (item.id === "cash-recon" || item.id === "waste") return false;
   if ((item.id === "pnl" || item.id === "anomalies") && !staff) return false;
   return true;
 }

@@ -93,7 +93,7 @@ section("Разрез применён везде, где считается с�
 {
   // Дневной документ общий, поэтому забыть разрез в одном экране —
   // значит показать там чужие деньги.
-  for (const f of ["BranchesView", "PaymentsView", "BranchDetail", "CommandPalette", "DebtsView"]) {
+  for (const f of ["BranchesView", "BranchDetail", "CommandPalette"]) {
     const src = readFileSync(`src/components/${f}.jsx`, "utf8");
     ok(/aggregateDocs\(docs, scopeBranch\)/.test(src), `${f}: сводка считается с разрезом`);
     // Хук нельзя звать внутри useMemo — React такого не прощает

@@ -69,9 +69,7 @@ const TaxesView = lazy(() => import("../components/TaxesView"));
 const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
 const DataChat = lazy(() => import("../components/DataChat"));
 const CrossLocationDashboard = lazy(() => import("../components/CrossLocationDashboard"));
-const CashReconciliation = lazy(() => import("../components/CashReconciliation"));
 const ProfitabilityMatrix = lazy(() => import("../components/ProfitabilityMatrix"));
-const WasteTracker = lazy(() => import("../components/WasteTracker"));
 const TrafficHeatmap = lazy(() => import("../components/TrafficHeatmap"));
 const PnLView = lazy(() => import("../components/PnLView"));
 const PayrollView = lazy(() => import("../components/PayrollView.jsx"));
@@ -229,12 +227,8 @@ export function useRouteContent({
     content = <DataChat />;
   } else if (p === "/cross-dashboard") {
     content = <CrossLocationDashboard agg={agg} />;
-  } else if (p === "/cash-recon") {
-    content = <CashReconciliation />;
   } else if (p === "/profitability") {
     content = <ProfitabilityMatrix />;
-  } else if (p === "/waste") {
-    content = <WasteTracker />;
   } else if (p === "/traffic-heatmap") {
     content = <TrafficHeatmap />;
   } else if (p === "/pnl" && isAdminOrManager()) {
