@@ -175,11 +175,19 @@ section("Пять разделов: ничего не потеряно");
 section("Новое меню — только для владельца, с дорогой назад");
 
 {
-  ok(groupsFor("admin", true) === GROUPS_V2, "владелец с включённым флагом видит пять разделов");
-  ok(groupsFor("admin", false) === GROUPS, "и может вернуться к прежнему");
-  ok(groupsFor("manager", true) === GROUPS, "управляющему меню не меняем");
-  ok(groupsFor("curator", true) === GROUPS, "куратору тоже");
-  ok(groupsFor(null, true) === GROUPS, "и без роли — прежнее");
+  // Пять разделов теперь у всех — но права на пункты внутри не менялись.
+  ok(groupsFor("admin", true) === GROUPS_V2, "владелец видит пять разделов");
+  ok(groupsFor("manager", true) === GROUPS_V2, "управляющий тоже");
+  ok(groupsFor("curator", true) === GROUPS_V2, "и куратор");
+  ok(groupsFor("admin", false) === GROUPS, "выключил — вернулось прежнее");
+
+  const seen = (role) => GROUPS_V2.flatMap((g) => g.items)
+    .filter((i) => canSeeItemFor(role, role === "curator", i)).map((i) => i.id);
+  eq(seen("admin").length, 22, "владелец: все пункты");
+  eq(seen("manager").length, 18, "управляющий: без зарплаты, пользователей и групп ИП");
+  eq(seen("curator").length, 10, "куратор: только своё");
+  eq(seen("curator").filter((id) => ["payroll", "admin-users", "pnl", "margin"].includes(id)), [],
+     "куратору не видно ни денег сети, ни настроек");
 }
 
 {
@@ -188,7 +196,8 @@ section("Новое меню — только для владельца, с до
   ok(/v === null \? true/.test(store), "кто ещё не выбирал — видит новое");
 
   const sidebar = readFileSync("src/components/Sidebar.jsx", "utf8");
-  ok(/role === "admin" && \(/.test(sidebar), "кнопка возврата показана только владельцу");
+  ok(/\(role === "admin" \|\| role === "manager"\) && \(/.test(sidebar),
+     "кнопка возврата — у владельца и управляющего, не у бариста");
   ok(/Прежнее меню/.test(sidebar) && /Новое меню/.test(sidebar), "и подписана в обе стороны");
   ok(/\{groups\.map\(group/.test(sidebar), "сайдбар рисует выбранное меню, а не жёстко старое");
 

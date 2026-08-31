@@ -1,3 +1,4 @@
+import { BRANCHES } from "./branches.js";
 // Как тревога звучит по-человечески.
 //
 // Без React: движок отдаёт { kind, spot, minutes, ... }, а на экране это
@@ -124,3 +125,35 @@ export function sortAlerts(list) {
     return (b.minutes ?? b.days ?? 0) - (a.minutes ?? a.days ?? 0);
   });
 }
+
+// Лента глазами конкретного человека.
+//
+// Куратор отвечает за одну точку: чужие чеки и чужие остатки ему не
+// нужны и не его дело. Владелец и управляющий видят сеть целиком.
+//
+// spotId === null означает «показывать всё».
+export function alertsForSpot(alerts, spotId) {
+  if (!spotId) return alerts || [];
+  const mine = String(spotId);
+
+  const out = [];
+  for (const a of alerts || []) {
+    // Сетевой минус куратору нечего показывать целиком — достаём его
+    // точку из разбивки и превращаем в обычную тревогу.
+    if (a.kind === "negstockAll") {
+      const branchName = SPOT_TO_BRANCH[mine];
+      const row = (a.perSpot || []).find((s) => s.spot === branchName);
+      if (row) out.push({ key: `negstock:${row.spot}`, kind: "negstock", ...row });
+      continue;
+    }
+    if (a.spotId != null && String(a.spotId) !== mine) continue;
+    // Тревога без точки (если такая появится) касается всех — оставляем
+    out.push(a);
+  }
+  return out;
+}
+
+// spotId Poster → название филиала. Нужно, чтобы вытащить свою строку из
+// сетевого минуса: он свёрнут по названиям, а роль куратора знает номер.
+const SPOT_TO_BRANCH = {};
+for (const [, b] of Object.entries(BRANCHES)) SPOT_TO_BRANCH[String(b.spotId)] = b.spotName;

@@ -157,5 +157,8 @@ export function collapseNegative(byBranch) {
     money: perSpot.reduce((n, s) => n + s.money, 0),
     worst: perSpot[0].worst,
     worstSpot: perSpot[0].spot,
+    // Разбивка остаётся в ответе: владельцу нужна одна строка на сеть,
+    // а куратору — только его точка, и без разбивки её взять негде.
+    perSpot,
   }];
 }
