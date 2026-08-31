@@ -65,6 +65,15 @@ export function describe(a) {
         hint: `Обычно в ${a.usual}${a.byRule ? " по расписанию" : ""}, опоздание ${age(a.lateMin)}`,
       };
     case "stuck":
+      // Забытый чек и чек в работе требуют разного: первый закрывают
+      // руками в Poster, ко второму просто подходят.
+      if (a.abandoned) {
+        return {
+          icon: "ti-receipt-off",
+          title: `${a.spot} — забытый чек, ${age(a.minutes)}`,
+          hint: [a.waiter, a.sum ? money(a.sum) : null, "закрыть в Poster вручную"].filter(Boolean).join(" · "),
+        };
+      }
       return {
         icon: "ti-receipt-off",
         title: `${a.spot} — чек висит ${age(a.minutes)}`,
