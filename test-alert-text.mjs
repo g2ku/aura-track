@@ -5,7 +5,7 @@
 //
 // Запуск: node test-alert-text.mjs
 
-import { describe, severity, alertLink, sortAlerts, age } from "./src/alertText.js";
+import { describe, severity, alertLink, sortAlerts, age, alertsForSpot } from "./src/alertText.js";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -122,6 +122,56 @@ section("Сетевой минус читается одной строкой");
 
   const live = describe({ kind: "stuck", spot: "Абая", minutes: 24, waiter: "Никитос", sum: 2840 });
   ok(!/забытый/i.test(live.title), "свежий забытым не называется");
+}
+
+section("Куратор видит только свою точку");
+
+{
+  const alerts = [
+    { key: "c1", kind: "stuck", spot: "Атакент", spotId: "10", minutes: 625, waiter: "Адият", sum: 1400 },
+    { key: "c2", kind: "stuck", spot: "Абая", spotId: "4", minutes: 30, waiter: "Никитос", sum: 2840 },
+    { key: "q", kind: "quiet", spot: "Рамс", spotId: "11", minutes: 52 },
+    { key: "n", kind: "negstockAll", spots: 3, count: 190, money: -7601058, worst: "Крышка", worstSpot: "Абая",
+      perSpot: [
+        { spot: "Абая", count: 49, money: -4769184, worst: "Крышка гор. Д90" },
+        { spot: "Гагарина", count: 72, money: -1627819, worst: "Крышка гор. Д90" },
+        { spot: "Атакент", count: 69, money: -1204055, worst: "Крышка гор. Д90" },
+      ] },
+  ];
+
+  // Владелец и управляющий: точки не заданы — видят всё
+  eq(alertsForSpot(alerts, null).length, 4, "без своей точки видно всё");
+
+  // Куратор Абаи
+  const abaya = alertsForSpot(alerts, "4");
+  eq(abaya.map((a) => a.spot ?? a.worstSpot), ["Абая", "Абая"], "только свои тревоги");
+  ok(!abaya.some((a) => a.kind === "negstockAll"), "сетевой минус куратору не показываем");
+  const neg = abaya.find((a) => a.kind === "negstock");
+  eq(neg.money, -4769184, "вместо него — минус его собственной точки");
+  eq(neg.count, 49, "и число позиций его точки");
+
+  // Куратор точки, где всё чисто
+  eq(alertsForSpot(alerts, "7"), [], "чужих тревог не подсовываем");
+
+  // Куратор Гагариной: чеков нет, но минус свой есть
+  const gag = alertsForSpot(alerts, "1");
+  eq(gag.length, 1, "одна тревога");
+  eq(gag[0].money, -1627819, "его минус, а не сетевой");
+}
+
+{
+  eq(alertsForSpot(null, "4"), [], "пустая лента не роняет");
+  eq(alertsForSpot([], null), [], "и пустая для владельца тоже");
+}
+
+{
+  // Лента и её фильтр должны быть согласованы: сортировка после фильтра
+  const alerts = [
+    { key: "a", kind: "quiet", spot: "Абая", spotId: "4", minutes: 52 },
+    { key: "b", kind: "stuck", spot: "Абая", spotId: "4", minutes: 200, sum: 500 },
+  ];
+  const kinds = sortAlerts(alertsForSpot(alerts, "4")).map((a) => a.kind);
+  eq(kinds, ["stuck", "quiet"], "срочное выше и после фильтра");
 }
 
 console.log("\n══════════════════════════════════════════════════");

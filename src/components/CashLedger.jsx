@@ -344,7 +344,9 @@ export default function CashLedger({
   // Единственное правило, которое знал сайт до появления ленты. Когда
   // лента есть, плашку убираем: иначе экран пишет «В порядке» и тут же
   // перечисляет пять проблем — оба утверждения на одном экране.
-  const showFeed = navV2 && role === "admin";
+  // Ленту видят все: куратору она показывает его точку, владельцу и
+  // управляющему — сеть целиком.
+  const showFeed = navV2;
   const stamp = supplyWarnings.length > 0
     ? { cls: "stamp-warn", text: "Поставки не забиты", icon: "ti-truck" }
     : { cls: "stamp-ok", text: "В порядке", icon: "ti-circle-check" };

@@ -9,7 +9,8 @@
 
 import { useEffect, useState } from "react";
 import { fetchAlerts } from "../poster";
-import { describe, severity, alertLink, sortAlerts } from "../alertText";
+import { describe, severity, alertLink, sortAlerts, alertsForSpot } from "../alertText";
+import { getUserSpotId } from "../auth.jsx";
 
 export default function ProblemFeed({ onNavigate }) {
   const [state, setState] = useState({ status: "loading", alerts: [], failed: [] });
@@ -20,7 +21,10 @@ export default function ProblemFeed({ onNavigate }) {
     async function load(opts) {
       try {
         const r = await fetchAlerts(opts);
-        if (!cancelled) setState({ status: "ok", alerts: sortAlerts(r.alerts), failed: r.failed || [] });
+        // Куратор отвечает за одну точку — чужие тревоги ему не нужны и
+        // не его дело. У владельца и управляющего spotId нет, они видят сеть.
+        const mine = alertsForSpot(r.alerts, getUserSpotId());
+        if (!cancelled) setState({ status: "ok", alerts: sortAlerts(mine), failed: r.failed || [] });
       } catch (e) {
         if (!cancelled) setState({ status: "error", alerts: [], failed: [], error: e?.message });
       }
@@ -58,7 +62,7 @@ export default function ProblemFeed({ onNavigate }) {
           <div>
             <div className="feed-ok-title">Всё в порядке</div>
             <div className="feed-empty-sub">
-              Чеки закрывают, точки работают, поставки проводят
+              {getUserSpotId() ? "На вашей точке чеки закрывают и остатки в порядке" : "Чеки закрывают, точки работают, поставки проводят"}
               {failed.length ? ` · не проверил: ${failed.join(", ")}` : ""}
             </div>
           </div>

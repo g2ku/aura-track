@@ -201,7 +201,7 @@ export default function Sidebar({ route, role, theme, onToggleTheme, onNavigate,
             <span className="role-badge">{isBranch ? spotName || role : role}</span>
           </div>
 
-          {role === "admin" && (
+          {(role === "admin" || role === "manager") && (
             <button
               className="sidebar-theme-toggle"
               onClick={() => setNavV2(!navV2)}

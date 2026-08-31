@@ -47,11 +47,12 @@ function MainApp() {
   }, [route.path, role, auth]);
   useEffect(() => installFlushOnHide(), []);
 
-  // Мгновенный повторный запуск с телефона — пока только у владельца.
-  // Выключил новый интерфейс — воркер снимается вместе с кэшем.
+  // Мгновенный повторный запуск с телефона. Бариста работают с него же,
+  // и им это нужнее всех. Страница берётся сначала из сети, так что на
+  // старой версии никто не залипнет.
   useEffect(() => {
     if (!auth || auth.provisional) return;
-    syncServiceWorker(role === "admin" && navV2);
+    syncServiceWorker(navV2);
   }, [role, navV2, auth]);
   const userBranch = useUserBranch();
   const canEdit = isAdminOrManager();
