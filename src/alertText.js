@@ -34,6 +34,7 @@ export function alertLink(a) {
     case "nosupply":
       return "/reports";
     case "negstock":
+    case "negstockAll":
       return "/movement";
     case "shiftstale":
       return "/receipts";
@@ -49,6 +50,8 @@ export function severity(a) {
   // от этого ломается и отчётность, и сам сторож.
   if (a.kind === "shiftstale") return "high";
   if (a.kind === "negstock") return a.count > 1 ? "high" : "medium";
+  // Минус по всей сети — одна строка, но самая важная в ленте
+  if (a.kind === "negstockAll") return "high";
   if (a.kind === "stuck") return (a.minutes ?? 0) >= 60 ? "high" : "medium";
   if (a.kind === "nosupply") return (a.days ?? 0) >= 4 ? "high" : "medium";
   return "medium";
@@ -92,6 +95,12 @@ export function describe(a) {
         icon: "ti-clock-pause",
         title: `${a.spot} — смену не закрыли ${a.hours} ${plural(a.hours, "час", "часа", "часов")}`,
         hint: "Точка числится закрытой, чеки не закрываются",
+      };
+    case "negstockAll":
+      return {
+        icon: "ti-flask-off",
+        title: `Остатки в минусе на ${a.spots} точках — ${money(Math.abs(a.money))}`,
+        hint: `${a.count} ${plural(a.count, "позиция", "позиции", "позиций")} · приход не проводят по всей сети`,
       };
     case "negstock":
       return {

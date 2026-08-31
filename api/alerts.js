@@ -13,7 +13,7 @@ import { requireUser, denyResponse } from "./_lib/requireUser.js";
 import { buildAlerts, buildSupplyAlerts } from "./_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts } from "./_lib/shifts.js";
 import { branchByStorage } from "./_lib/reconcile.js";
-import { movementParams, normalizeMovement, buildMovementTable, negativeStock } from "./_lib/movement.js";
+import { movementParams, normalizeMovement, buildMovementTable, negativeStock, collapseNegative } from "./_lib/movement.js";
 import { getConfig } from "./_lib/store.js";
 
 // Минута: за это время касса не успевает измениться настолько, чтобы
@@ -46,16 +46,7 @@ async function negativeStockAlerts(ymd) {
     return [s.branch, normalizeMovement(r?.response || [])];
   }));
 
-  const neg = negativeStock(buildMovementTable(Object.fromEntries(per)));
-  return Object.entries(neg).map(([spot, items]) => ({
-    key: `negstock:${spot}`,
-    kind: "negstock",
-    spot,
-    count: items.length,
-    money: items.reduce((sum, i) => sum + (i.money || 0), 0),
-    worst: items[0]?.name || "",
-    worstEnd: items[0]?.end ?? null,
-  })).sort((a, b) => a.money - b.money);
+  return collapseNegative(negativeStock(buildMovementTable(Object.fromEntries(per))));
 }
 
 export default async function handler(req, res) {
@@ -95,7 +86,12 @@ export default async function handler(req, res) {
       openSpots: shifts.length ? openSpots(shifts) : null,
       windingDown: shifts.length ? windingDown(shifts, { schedule: config.schedule }) : null,
     };
-    alerts.push(...buildAlerts(rowsR.value, opts));
+    // Пустой чек — не проблема, а особенность Poster: при смене смены
+    // предыдущий бариста не закрывает смену, и пустой чек остаётся
+    // висеть. Денег в нём нет, делать с ним нечего. В телеграме их и не
+    // было, а в ленту на сайте они пролезали — и «забытый чек» писалось
+    // на пустышку.
+    alerts.push(...buildAlerts(rowsR.value, opts).filter((a) => a.kind !== "stuck" || !a.empty));
     if (shifts.length) {
       // Продавала сегодня — значит открылась, что бы ни говорили смены
       const soldToday = new Set(rowsR.value.map((t) => String(t.spot_id || "")).filter(Boolean));
