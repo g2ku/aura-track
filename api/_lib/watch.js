@@ -18,6 +18,13 @@ export const WATCH_DEFAULTS = {
   repeatAfterMin: 60,  // про ту же беду не напоминаем чаще, чем раз в час
   openBy: "11:00",     // к этому часу точка обязана хоть что-то продать
   noSupplyDays: 2,     // столько дней без поставки в Poster — уже вопрос
+
+  // Чек, висящий дольше этого, — уже не «бариста делает напиток», а
+  // забытый. Его никто не закроет сам по себе, и напоминать про него
+  // каждый час бессмысленно: владелец уже знает, а сообщение сторожа
+  // превращается в шум, который перестают читать.
+  abandonedCheckMin: 12 * 60,
+  abandonedRepeatMin: 12 * 60,
 };
 
 function hhmmToMinutes(hhmm) {
@@ -75,7 +82,10 @@ export function buildAlerts(rows, opts = {}) {
     stuckSpots.add(String(tx.spot_id || ""));
 
     const key = `check:${tx.transaction_id}`;
-    if (!fresh(key)) continue;
+    // Про забытый чек напоминаем дважды в сутки, а не двенадцать раз.
+    const abandoned = minutes >= cfg.abandonedCheckMin;
+    const window = abandoned ? cfg.abandonedRepeatMin : cfg.repeatAfterMin;
+    if (seen[key] && now - seen[key] < window * 60000) continue;
     const sum = Math.round(Number(tx.sum || 0) / 100);
     alerts.push({
       key,
@@ -89,6 +99,7 @@ export function buildAlerts(rows, opts = {}) {
       // одну кучу значит топить важное в мелочи: на замере из 16 тревог
       // 10 были пустыми, а денег висело всего на 9 990 ₸.
       empty: sum <= 0,
+      abandoned,
     });
   }
 
@@ -284,7 +295,12 @@ export function formatAlerts(alerts) {
   const stuck = alerts.filter((a) => a.kind === "stuck");
   // Пустые чеки в тревоги не идут: открыли и ничего не пробили — это
   // ни денег, ни срочности. Смотреть их можно на сайте.
-  const withMoney = groupByWaiter(stuck.filter((a) => !a.empty));
+  // Забытые отделяем от тех, что в работе: это разные беды и разные
+  // действия. «Висит 20 минут» — подойти и закрыть. «Висит 39 часов» —
+  // закрывать руками в Poster, бариста давно сменился.
+  const live = groupByWaiter(stuck.filter((a) => !a.empty && !a.abandoned));
+  const forgotten = groupByWaiter(stuck.filter((a) => !a.empty && a.abandoned));
+  const withMoney = live;
   const quiet = alerts.filter((a) => a.kind === "quiet");
   const closed = alerts.filter((a) => a.kind === "closed");
   const nosupply = alerts.filter((a) => a.kind === "nosupply");
@@ -342,6 +358,18 @@ export function formatAlerts(alerts) {
       const restSum = withMoney.slice(shown).reduce((s, a) => s + a.sum, 0);
       lines.push(`• и ещё ${rest} ${plural(rest, "бариста", "бариста", "бариста")} — ${fmtSum(restSum)}`);
     }
+  }
+
+  if (forgotten.length) {
+    if (lines.length) lines.push("");
+    lines.push(`🧟 ${section("Забытые чеки", "/receipts")}`);
+    for (const a of forgotten.slice(0, MAX_LINES)) {
+      const who = a.waiter ? ` · ${a.waiter}` : "";
+      lines.push(`• ${a.spot}${who} — ${fmtAge(a.minutes)} · ${fmtSum(a.sum)}`);
+    }
+    const rest = forgotten.length - MAX_LINES;
+    if (rest > 0) lines.push(`• и ещё ${rest}`);
+    lines.push("Сами не закроются — закрыть в Poster вручную.");
   }
 
   if (stale.length) {

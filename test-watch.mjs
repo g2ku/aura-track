@@ -484,6 +484,56 @@ section("Из телеграма — сразу в нужное место");
   delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
 }
 
+section("Забытый чек — не то же, что чек в работе");
+
+{
+  // Настоящий случай 31.08: на Дубае чеки висели 38 и 25 часов, и сторож
+  // каждый час писал про них ровно то же самое, что и про свежий чек на
+  // двадцать минут. Владелец спросил «почему так всё ещё» — потому что
+  // сообщение не отличало «подойди и закрой» от «закрывать руками».
+  const now = Date.now();
+  const ago = (h) => String(now - h * 3600000);
+  const rows = [
+    { transaction_id: "1", spot_id: "9", status: "1", date_start: ago(38.95), sum: "99000", name: "Мансур" },
+    { transaction_id: "3", spot_id: "4", status: "1", date_start: ago(0.4), sum: "284000", name: "Никитос" },
+  ];
+
+  const a = buildAlerts(rows, { now, seen: {} });
+  const forgotten = a.filter((x) => x.abandoned);
+  const live = a.filter((x) => x.kind === "stuck" && !x.abandoned);
+  eq(forgotten.map((x) => x.waiter), ["Мансур"], "39 часов — забытый");
+  eq(live.map((x) => x.waiter), ["Никитос"], "24 минуты — в работе");
+
+  const text = formatAlerts(a);
+  ok(/Забытые чеки/.test(text), "у забытых своя секция");
+  ok(/Чеки висят открытыми/.test(text), "и у свежих своя");
+  ok(/закрыть в Poster вручную/i.test(text), "сказано, что с ними делать");
+}
+
+{
+  // Про забытый чек не напоминаем каждый час: он таким и останется, а
+  // сообщение сторожа превращается в шум, который перестают читать.
+  const now = Date.now();
+  const rows = [{ transaction_id: "1", spot_id: "9", status: "1", date_start: String(now - 39 * 3600000), sum: "99000", name: "Мансур" }];
+  const first = buildAlerts(rows, { now, seen: {} });
+  eq(first.length, 1, "в первый раз пишем");
+
+  const seen = markSeen({}, first, now);
+  eq(buildAlerts(rows, { now: now + 61 * 60000, seen }), [], "через час молчим");
+  eq(buildAlerts(rows, { now: now + 5 * 3600000, seen }), [], "и через пять часов тоже");
+  eq(buildAlerts(rows, { now: now + 13 * 3600000, seen }).length, 1, "через полсуток напоминаем");
+}
+
+{
+  // А свежий чек — по-прежнему раз в час: там ещё можно успеть
+  const now = Date.now();
+  const rows = [{ transaction_id: "2", spot_id: "4", status: "1", date_start: String(now - 40 * 60000), sum: "50000", name: "Айка" }];
+  const first = buildAlerts(rows, { now, seen: {} });
+  const seen = markSeen({}, first, now);
+  eq(buildAlerts(rows, { now: now + 30 * 60000, seen }), [], "через полчаса молчим");
+  eq(buildAlerts(rows, { now: now + 61 * 60000, seen }).length, 1, "через час напоминаем");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
