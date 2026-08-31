@@ -44,7 +44,12 @@ function isTotalRow(row) {
   for (let i = 0; i < Math.min(row.length, 6); i++) {
     const v = String(row[i] || "").trim().toLowerCase();
     if (!v) continue;
-    if (/^(общ|итого|всего|total|grand total|итог|общий итог)\b/.test(v)) return true;
+    // Без \b: в JavaScript это граница между \w и не-\w, а кириллица в
+    // \w не входит вовсе. /^(итого)\b/ не совпадала даже со словом
+    // «итого» — и строка ИТОГО разбиралась как ещё один товар, удваивая
+    // суммы в каждом загруженном отчёте. Здесь и нужно совпадение по
+    // началу: «общ» → «общий итог», «итог» → «итого».
+    if (/^(общ|итог|всего|total|grand total)/.test(v)) return true;
   }
   return false;
 }
@@ -187,7 +192,9 @@ function findDate(rows, fallback) {
   }
   // 2. «26 июня», «26 июня 2025» — месяц прописью
   for (const cell of rows.flat()) {
-    const m = String(cell || "").match(/\b(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?\b/i);
+    // Завершающий \b стоял после кириллицы и не срабатывал: «12 марта»
+    // не разбиралось, а «12 марта 2026» — да.
+    const m = String(cell || "").match(/(?:^|\D)(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?/i);
     if (m) {
       const day = +m[1];
       const monthName = m[2].toLowerCase();
@@ -219,7 +226,7 @@ function findDate(rows, fallback) {
         return `${String(dd).padStart(2, "0")}.${String(mm).padStart(2, "0")}.${yy}`;
       }
     }
-    const m3 = fallback.match(/\b(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?\b/i);
+    const m3 = fallback.match(/(?:^|\D)(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?/i);
     if (m3) {
       const day = +m3[1];
       const monthName = m3[2].toLowerCase();

@@ -219,6 +219,20 @@ section("Сайдбар не бывает пустым");
   ok(declAt > 0 && declAt < firstUse, "groups объявлена до эффектов, иначе рендер падает");
 }
 
+section("Одна упавшая страница не запирает всё приложение");
+
+{
+  // Настоящий случай, найденный прогоном всех разделов в браузере:
+  // граница ошибок запоминала сбой и продолжала показывать «Ошибка
+  // загрузки раздела» на КАЖДОМ следующем разделе. Выйти можно было
+  // только перезагрузкой — кнопка на экране ошибки её и делала.
+  const content = readFileSync("src/hooks/useRouteContent.jsx", "utf8");
+  const wraps = content.match(/<RouteErrorBoundary[^>]*>/g) || [];
+  ok(wraps.length >= 2, `границ ошибок в разметке: ${wraps.length}`);
+  eq(wraps.filter((w) => !w.includes("key={route.path}")), [],
+     "у каждой границы есть key по маршруту — иначе она не сбрасывается при переходе");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

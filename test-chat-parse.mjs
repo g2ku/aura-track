@@ -115,7 +115,7 @@ section("Каждый пример из приложения обязан пон
   const back = (n) => { const d = new Date(); d.setMonth(d.getMonth() - n); return M[d.getMonth()]; };
   const fwd = () => { const d = new Date(); d.setMonth(d.getMonth() + 1); return M[d.getMonth()]; };
   const examples = raw
-    .map((q) => q.replace(/\$\{prev\}/g, back(1)).replace(/\$\{monthAgo\(2\)\}/g, back(2)).replace(/\$\{nextMonth\(\)\}/g, fwd()))
+    .map((q) => q.replace(/\$\{PREV_MONTH\}/g, back(1)).replace(/\$\{monthAgo\(2\)\}/g, back(2)).replace(/\$\{nextMonth\(\)\}/g, fwd()))
     .filter((q) => !q.includes("${"));
 
   ok(examples.length >= 20, `примеров в приложении: ${examples.length}`);
