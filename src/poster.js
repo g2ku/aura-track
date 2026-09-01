@@ -26,6 +26,7 @@ import {
   OPEN_CHECK_STUCK_MIN, isOpenCheck, isEmptyCheck,
   QUIET_SPOT_MIN, collectLastOrders, collectOpenChecks, groupOpenChecks, emptyOpenChecks,
 } from "./openChecks.js";
+import { BRANCHES } from "./branches.js";
 
 // Реэкспорт: экраны берут это из poster.js вместе с остальными данными
 export {
@@ -702,24 +703,66 @@ export async function fetchPosterPriceList(opts = {}) {
 // ─── Список филиалов ──────────────────────────────────────────────────
 
 const spotsCache = { data: null, promise: null };
-export async function getSpots(opts = {}) {
-  if (spotsCache.data) return spotsCache.data;
-  if (spotsCache.promise) return spotsCache.promise;
-  spotsCache.promise = (async () => {
-    const data = await call("spots.getSpots", {}, opts);
-    const map = {};
-    for (const s of data?.response || []) {
-      if (s.spot_delete) continue;
-      map[String(s.spot_id)] = s;
-    }
-    spotsCache.data = map;
-    return map;
-  })();
+const SPOTS_KEY = "supply-track.poster.spots.v1";
+
+// Список точек, который можно отдать МГНОВЕННО.
+//
+// Раньше getSpots кэшировался только в памяти, и каждая холодная
+// загрузка начиналась с круга до Poster — а касса ждала его, потому что
+// стоит первой в Promise.all. Секунда простоя ради списка из восьми
+// точек, который меняется раз в год и вдобавок зашит в приложении.
+function seedSpots() {
   try {
-    return await spotsCache.promise;
-  } finally {
-    spotsCache.promise = null;
+    const raw = localStorage.getItem(SPOTS_KEY);
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && typeof o === "object" && Object.keys(o).length) return o;
+    }
+  } catch (_) { /* приватный режим — возьмём из справочника */ }
+
+  // Ни разу не заходили: берём из справочника филиалов. Имя там —
+  // ключ вида «Aura02_Dubai», ровно как отдаёт Poster.
+  const map = {};
+  for (const [key, b] of Object.entries(BRANCHES)) {
+    map[String(b.spotId)] = { spot_id: String(b.spotId), name: key };
   }
+  return map;
+}
+
+// Обновляем в фоне ОДИН РАЗ за сессию: новая точка появится со
+// следующего захода, а ждать её сейчас незачем. Без этого флага
+// spots.getSpots уходил на каждый вызов getSpots — на дашборде это
+// три лишних круга до Poster.
+let spotsRefreshed = false;
+
+function refreshSpots(opts) {
+  if (spotsRefreshed || spotsCache.promise) return;
+  spotsRefreshed = true;
+  spotsCache.promise = (async () => {
+    try {
+      const data = await call("spots.getSpots", {}, opts);
+      const map = {};
+      for (const s of data?.response || []) {
+        if (s.spot_delete) continue;
+        map[String(s.spot_id)] = s;
+      }
+      if (Object.keys(map).length) {
+        spotsCache.data = map;
+        try { localStorage.setItem(SPOTS_KEY, JSON.stringify(map)); } catch (_) {}
+      }
+    } catch (_) {
+      // Не смогли — работаем с тем, что есть: список точек не та вещь,
+      // ради которой стоит ронять кассу.
+    } finally {
+      spotsCache.promise = null;
+    }
+  })();
+}
+
+export async function getSpots(opts = {}) {
+  if (!spotsCache.data) spotsCache.data = seedSpots();
+  refreshSpots(opts);
+  return spotsCache.data;
 }
 
 // ─── Меню товаров (для имён) ──────────────────────────────────────────

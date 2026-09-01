@@ -123,33 +123,37 @@ export default function CashLedger({
     async function load(quiet) {
       if (!quiet) setLoading(true);
       setError("");
-      const yesterday = isToday ? fetchCashBySpot(daysAgoStr(1), daysAgoStr(1)) : Promise.resolve(null);
-      const hourly = isToday ? fetchHourlyCurve(dateFrom, { spotId: mySpotId }) : Promise.resolve(null);
-      const yesterdayHourlyP = isToday ? fetchHourlyCurve(daysAgoStr(1), { spotId: mySpotId }) : Promise.resolve(null);
-      // Каждый запрос садится сам по себе.
-      //
-      // Раньше здесь был один allSettled на все шесть, и скелет держался,
-      // пока не сядет последний. То есть касса — то, ради чего заходят —
-      // ждала почасовую кривую за вчера. Теперь она появляется, как
-      // только пришла, а остальное дорисовывается следом.
       const done = (fn) => (r) => { if (!cancelled) fn(r); };
 
+      // КАССА ПЕРВОЙ И ОДНА.
+      //
+      // Раньше вчерашняя касса и две почасовые кривые создавались строкой
+      // выше — то есть уходили в сеть РАНЬШЕ сегодняшней кассы, и она
+      // вставала в очередь за ними. Цифра, ради которой открывают сайт,
+      // ждала данные, которые нужны для мелкого графика.
+      //
+      // Теперь она уходит одна и первой, а всё остальное — только когда
+      // она села.
       const cashDone = fetchCashBySpot(dateFrom, dateTo).then(
         done((v) => { setCashBySpot(v); setCheckedAt(Date.now()); setLoading(false); }),
         done((e) => { setError(e?.message || "Ошибка касс"); setLoading(false); }),
       );
 
+      await cashDone;
+      if (cancelled) return;
+
+      // Второй эшелон: на экран уже смотрят, эти данные дорисуются.
       fetchSupplyStatus(null).then(done(setSupplyStatus), () => {});
       fetchPaymentBreakdown(dateFrom, dateTo).then(done(setPayBreakdown), () => {});
-      hourly.then(done((v) => v && setHourlyCurve(v)), () => {});
-      yesterdayHourlyP.then(done((v) => v && setYesterdayHourly(v)), () => {});
-      yesterday.then(done((v) => {
-        if (!v) return;
-        const rows = mySpotId ? v.filter((c) => String(c.spotId) === String(mySpotId)) : v;
-        setYesterdayTotal(rows.reduce((s, c) => s + c.total, 0));
-      }), () => {});
-
-      await cashDone;
+      if (isToday) {
+        fetchHourlyCurve(dateFrom, { spotId: mySpotId }).then(done((v) => v && setHourlyCurve(v)), () => {});
+        fetchHourlyCurve(daysAgoStr(1), { spotId: mySpotId }).then(done((v) => v && setYesterdayHourly(v)), () => {});
+        fetchCashBySpot(daysAgoStr(1), daysAgoStr(1)).then(done((v) => {
+          if (!v) return;
+          const rows = mySpotId ? v.filter((c) => String(c.spotId) === String(mySpotId)) : v;
+          setYesterdayTotal(rows.reduce((s, c) => s + c.total, 0));
+        }), () => {});
+      }
     }
     load(false);
     return () => { cancelled = true; };
