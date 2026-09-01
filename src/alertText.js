@@ -24,6 +24,14 @@ export function age(min) {
 
 const money = (v) => Math.round(v).toLocaleString("ru-RU") + " ₸";
 
+// Во сколько чек открыли, по Алматы. Без этого «висит 10 ч 25 мин»
+// невозможно проверить глазами: «с 23:37» сразу говорит, что чек
+// остался со вчерашней смены, а не появился сегодня утром.
+const at = (ms) => ms
+  ? new Intl.DateTimeFormat("ru-RU", { timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false })
+      .format(new Date(Number(ms)))
+  : null;
+
 // Куда вести по нажатию. Лента без этого — просто список жалоб.
 export function alertLink(a) {
   switch (a.kind) {
@@ -75,13 +83,15 @@ export function describe(a) {
         return {
           icon: "ti-receipt-off",
           title: `${a.spot} — забытый чек, ${age(a.minutes)}`,
-          hint: [a.waiter, a.sum ? money(a.sum) : null, "закрыть в Poster вручную"].filter(Boolean).join(" · "),
+          hint: [a.waiter, at(a.startedAt) && `с ${at(a.startedAt)}`, a.sum ? money(a.sum) : null,
+                 "закрыть в Poster вручную"].filter(Boolean).join(" · "),
         };
       }
       return {
         icon: "ti-receipt-off",
         title: `${a.spot} — чек висит ${age(a.minutes)}`,
-        hint: [a.waiter, a.sum ? money(a.sum) : null].filter(Boolean).join(" · ") || "Столько напиток не делают",
+        hint: [a.waiter, at(a.startedAt) && `с ${at(a.startedAt)}`, a.sum ? money(a.sum) : null]
+          .filter(Boolean).join(" · ") || "Столько напиток не делают",
       };
     case "quiet":
       return { icon: "ti-zzz", title: `${a.spot} — нет заказов ${age(a.minutes)}`, hint: "Точка работает, а продаж нет" };

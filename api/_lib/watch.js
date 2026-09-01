@@ -100,6 +100,7 @@ export function buildAlerts(rows, opts = {}) {
       // 10 были пустыми, а денег висело всего на 9 990 ₸.
       empty: sum <= 0,
       abandoned,
+      startedAt: started,
     });
   }
 
@@ -217,6 +218,19 @@ export function buildSupplyAlerts(supplies, opts = {}) {
   }
 
   return alerts.sort((a, b) => b.days - a.days);
+}
+
+// Во сколько чек открыли, по Алматы.
+//
+// Без этого «висит 10 ч 25 мин» невозможно проверить: владелец говорит
+// «точка только открылась», и спор упирается в то, кому верить. Со
+// временем открытия сообщение отвечает само: «с 23:37» сразу видно, что
+// чек остался со вчерашней смены.
+function fmtStart(ms) {
+  if (!ms) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(Number(ms)));
 }
 
 function fmtAge(m) {
@@ -338,7 +352,8 @@ export function formatAlerts(alerts) {
 
       const who = a.waiter ? ` · ${a.waiter}` : "";
       if (a.count === 1) {
-        lines.push(`• ${a.spot}${who} — ${fmtAge(a.minutes)} · ${fmtSum(a.sum)}`);
+        const from = a.items?.[0]?.startedAt ? ` (с ${fmtStart(a.items[0].startedAt)})` : "";
+        lines.push(`• ${a.spot}${who} — ${fmtAge(a.minutes)}${from} · ${fmtSum(a.sum)}`);
         budget -= 1;
       } else {
         // Несколько чеков у одного бариста показываем поимённо: у одного
@@ -346,7 +361,10 @@ export function formatAlerts(alerts) {
         // минут, и одна общая цифра это скрывает.
         lines.push(`• ${a.spot}${who} — ${a.count} ${plural(a.count, "чек", "чека", "чеков")} на ${fmtSum(a.sum)}`);
         const fit = Math.max(1, Math.min(a.items.length, budget - 1));
-        for (const i of a.items.slice(0, fit)) lines.push(`    ${fmtAge(i.minutes)} · ${fmtSum(i.sum)}`);
+        for (const i of a.items.slice(0, fit)) {
+          const t = i.startedAt ? ` (с ${fmtStart(i.startedAt)})` : "";
+          lines.push(`    ${fmtAge(i.minutes)}${t} · ${fmtSum(i.sum)}`);
+        }
         if (a.items.length > fit) lines.push(`    … и ещё ${a.items.length - fit}`);
         budget -= 1 + fit;
       }
@@ -365,7 +383,8 @@ export function formatAlerts(alerts) {
     lines.push(`🧟 ${section("Забытые чеки", "/receipts")}`);
     for (const a of forgotten.slice(0, MAX_LINES)) {
       const who = a.waiter ? ` · ${a.waiter}` : "";
-      lines.push(`• ${a.spot}${who} — ${fmtAge(a.minutes)} · ${fmtSum(a.sum)}`);
+      const from = a.items?.[0]?.startedAt ? ` (с ${fmtStart(a.items[0].startedAt)})` : "";
+      lines.push(`• ${a.spot}${who} — ${fmtAge(a.minutes)}${from} · ${fmtSum(a.sum)}`);
     }
     const rest = forgotten.length - MAX_LINES;
     if (rest > 0) lines.push(`• и ещё ${rest}`);
