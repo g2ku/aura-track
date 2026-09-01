@@ -77,6 +77,33 @@ section("Что счётчик пишет, а что нет");
   ok(/no-store/.test(api), "цифры не кэшируются");
 }
 
+section("Точка в имени поля — не путь");
+
+{
+  // Счётчик пять дней писал в пустоту: setDoc понимает "total.dashboard"
+  // как ИМЯ поля, а не как путь к вложенному. Писалось всё, читалось
+  // ничего. Точки как путь понимает только updateDoc, но он падает на
+  // несуществующем документе.
+  const src = readFileSync("src/pageViews.js", "utf8");
+  ok(!/`total\.\$\{/.test(src) && !/`daily\.\$\{/.test(src) && !/`byRole\./.test(src),
+     "плоских ключей с точками больше не собирается");
+  ok(/total: inc\(total\)/.test(src), "пишем вложенным объектом");
+  ok(/daily: \{ \[safe\(day\)\]: inc\(perDay\) \}/.test(src), "и день тоже вложенным");
+
+  // increment() — метка для Firestore, складывать в ней нельзя
+  ok(/total\[i\] = \(total\[i\] \|\| 0\) \+ n/.test(src), "сначала складываем числа");
+  const incAt = src.indexOf("const inc = (o) =>");
+  const sumAt = src.indexOf("total[i] = (total[i] || 0) + n");
+  ok(sumAt > 0 && sumAt < incAt, "и только потом превращаем в приращения");
+}
+
+{
+  // Собранное за пять дней не пропало — оно лежит под плоскими именами
+  const api = readFileSync("api/usage.js", "utf8");
+  ok(/parts\[0\] === "total"/.test(api), "старые плоские ключи подбираются");
+  ok(/const merge = /.test(api), "и складываются с новыми, а не затирают их");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
