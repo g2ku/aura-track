@@ -18,15 +18,31 @@ export default function ProblemFeed({ onNavigate }) {
   useEffect(() => {
     let cancelled = false;
     load();
-    async function load(opts) {
-      try {
-        const r = await fetchAlerts(opts);
+
+    // Двумя заходами: сначала то, на что можно среагировать сейчас
+    // (два запроса в Poster), потом остатки и поставки (ещё девять,
+    // один на 2,7 МБ). Держать из-за них весь экран пять секунд незачем.
+    async function load(opts = {}) {
+      const show = (r, done) => {
+        if (cancelled) return;
         // Куратор отвечает за одну точку — чужие тревоги ему не нужны и
         // не его дело. У владельца и управляющего spotId нет, они видят сеть.
         const mine = alertsForSpot(r.alerts, getUserSpotId());
-        if (!cancelled) setState({ status: "ok", alerts: sortAlerts(mine), failed: r.failed || [] });
+        setState({ status: "ok", alerts: sortAlerts(mine), failed: r.failed || [], done });
+      };
+
+      try {
+        show(await fetchAlerts(opts), false);
       } catch (e) {
         if (!cancelled) setState({ status: "error", alerts: [], failed: [], error: e?.message });
+        return;
+      }
+
+      // Медленная половина: если не придёт, лента останется с быстрой.
+      try {
+        show(await fetchAlerts({ ...opts, full: true }), true);
+      } catch (e) {
+        if (!cancelled) setState((p) => ({ ...p, failed: [...(p.failed || []), "остатки"] }));
       }
     }
     return () => { cancelled = true; };
@@ -97,6 +113,12 @@ export default function ProblemFeed({ onNavigate }) {
           </button>
         );
       })}
+
+      {!state.done && state.status === "ok" && (
+        <div className="feed-empty-sub" style={{ padding: "8px 4px 0" }}>
+          <i className="ti ti-loader-2 spin" aria-hidden="true" /> Проверяю остатки и поставки…
+        </div>
+      )}
 
       {failed.length > 0 && (
         <div className="feed-empty-sub" style={{ padding: "8px 4px 0" }}>

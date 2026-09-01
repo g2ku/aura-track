@@ -58,13 +58,23 @@ export default async function handler(req, res) {
   const who = await requireUser(req);
   if (!who.ok) { denyResponse(res, who); return; }
 
-  const url = new URL(req.url, `https://${req.headers.host}`);
-  res.setHeader("Cache-Control", url.searchParams.get("_fresh") ? "no-store" : CACHE);
+  const url0 = new URL(req.url, `https://${req.headers.host}`);
+  res.setHeader("Cache-Control", url0.searchParams.get("_fresh") ? "no-store" : CACHE);
 
   const ymd = almatyToday();
   const now = Date.now();
   const alerts = [];
   const failed = [];
+
+  // Лента делится на быструю и медленную половины.
+  //
+  // Быстрая — то, на что можно среагировать сейчас: зависшие чеки,
+  // тишина, опоздания, напоминание о закрытии. Это два запроса в Poster.
+  //
+  // Медленная — минусовые остатки и «поставки не проводят»: девять
+  // запросов, один из которых на 2,7 МБ. Меняются они днями, а не
+  // минутами, и держать из-за них весь экран пять секунд незачем.
+  const full = url0.searchParams.get("full") === "1";
 
   // Каждый источник падает сам за себя: без смен лента должна остаться
   // лентой, а не превратиться в пустой экран.
@@ -73,8 +83,8 @@ export default async function handler(req, res) {
   const [shiftsR, rowsR, suppliesR, stockR] = await Promise.allSettled([
     posterCall("finance.getCashShifts", {}),
     dashTransactions(ymd),
-    posterCall("storage.getSupplies", {}),
-    negativeStockAlerts(ymd),
+    full ? posterCall("storage.getSupplies", {}) : Promise.resolve(null),
+    full ? negativeStockAlerts(ymd) : Promise.resolve([]),
   ]);
 
   const shifts = shiftsR.status === "fulfilled" ? (shiftsR.value?.response || []) : [];
@@ -103,14 +113,17 @@ export default async function handler(req, res) {
     failed.push("чеки");
   }
 
-  if (suppliesR.status === "fulfilled") {
+  if (!full) {
+    // ничего: медленную половину клиент запросит отдельно
+  } else if (suppliesR.status === "fulfilled") {
     alerts.push(...buildSupplyAlerts(suppliesR.value?.response || [], { now, seen: {} }));
   } else {
     failed.push("поставки");
   }
 
-  if (stockR.status === "fulfilled") alerts.push(...stockR.value);
+  if (!full) { /* см. выше */ }
+  else if (stockR.status === "fulfilled") alerts.push(...stockR.value);
   else failed.push("остатки");
 
-  res.status(200).json({ at: now, alerts, failed });
+  res.status(200).json({ at: now, alerts, failed, full });
 }

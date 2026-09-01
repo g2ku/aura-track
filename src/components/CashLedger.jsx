@@ -418,7 +418,13 @@ export default function CashLedger({
         <div className="cl-line cl-total-line">
           <span className="cl-line-label cl-total-label">Касса · итого</span>
           <span className="cl-line-dots" />
-          <span className="cl-line-value cl-total-value">{fmt(totalCash)}</span>
+          {/* Пока касса не пришла, показывать 0 ₸ нельзя: это не «пока
+              неизвестно», а утверждение, что за день не продали ничего.
+              На скриншоте владельца так и выглядело — ноль поверх
+              работающего дня. */}
+          <span className="cl-line-value cl-total-value">
+            {loading && displayCash.length === 0 ? "…" : fmt(totalCash)}
+          </span>
         </div>
         {isToday && yesterdayTotal != null && (
           <div className="cl-line">
