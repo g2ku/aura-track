@@ -17,7 +17,11 @@ export default function ProblemFeed({ onNavigate }) {
 
   useEffect(() => {
     let cancelled = false;
-    load();
+
+    // Пропускаем кассу вперёд: она — то, ради чего открывают экран.
+    // Лента появится на полсекунды позже, и это незаметно, а вот
+    // задержка кассы заметна сразу.
+    const t = setTimeout(load, 400);
 
     // Двумя заходами: сначала то, на что можно среагировать сейчас
     // (два запроса в Poster), потом остатки и поставки (ещё девять,
@@ -45,7 +49,7 @@ export default function ProblemFeed({ onNavigate }) {
         if (!cancelled) setState((p) => ({ ...p, failed: [...(p.failed || []), "остатки"] }));
       }
     }
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(t); };
   }, []);
 
   if (state.status === "loading") {

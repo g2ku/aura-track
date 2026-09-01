@@ -146,8 +146,12 @@ section("Проверка стоит до обращения к Poster");
 
 {
   const stripComments = (src) => src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
+    // Строчные — ПЕРВЫМИ: в комментариях встречается «/api/poster/*», и
+    // регулярка на блочный комментарий принимала это за его начало,
+    // выедая семнадцать килобайт настоящего кода. Проверки после такого
+    // проходили не потому, что код верный, а потому что его не осталось.
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
 
   const proxy = stripComments(readFileSync("api/poster/[...path].js", "utf8"));
   const guard = proxy.indexOf("requireUser(req)");
@@ -185,8 +189,12 @@ section("firebase-admin/auth сюда не вернулся");
   // На Vercel он не поднимается: jwks-rsa зовёт jose через require(),
   // а jose нынче только ESM. Функция падала голым 500.
   const stripComments = (src) => src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
+    // Строчные — ПЕРВЫМИ: в комментариях встречается «/api/poster/*», и
+    // регулярка на блочный комментарий принимала это за его начало,
+    // выедая семнадцать килобайт настоящего кода. Проверки после такого
+    // проходили не потому, что код верный, а потому что его не осталось.
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
   const guard = stripComments(readFileSync("api/_lib/requireUser.js", "utf8"));
   const verify = stripComments(readFileSync("api/_lib/verifyToken.js", "utf8"));
   ok(!/firebase-admin/.test(guard), "проверка входа не тянет firebase-admin");

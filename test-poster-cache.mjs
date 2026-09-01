@@ -222,6 +222,38 @@ section("Кэш дней не растёт вечно");
      "качаются только недостающие дни");
 }
 
+section("Справочник точек не должен тормозить кассу");
+
+{
+  const src = readFileSync("src/poster.js", "utf8");
+
+  // getSpots стоял первым в Promise.all и ждал круга до Poster — касса
+  // не могла начать грузиться, пока не приедет список из восьми точек,
+  // который вдобавок зашит в приложении.
+  ok(/function seedSpots\(\)/.test(src), "список точек берётся мгновенно");
+  ok(/localStorage\.getItem\(SPOTS_KEY\)/.test(src), "из localStorage");
+  ok(/Object\.entries\(BRANCHES\)/.test(src), "а на первом заходе — из справочника филиалов");
+  ok(/return spotsCache\.data;/.test(src), "getSpots возвращает без ожидания сети");
+
+  // И обновляется один раз за сессию, а не на каждый вызов
+  ok(/let spotsRefreshed = false/.test(src), "обновление помечается флагом");
+  ok(/if \(spotsRefreshed \|\| spotsCache\.promise\) return;/.test(src),
+     "второй раз за сессию в Poster не ходим");
+}
+
+{
+  // Касса уходит одна и первой, остальное — после
+  const ledger = readFileSync("src/components/CashLedger.jsx", "utf8");
+  const cashAt = ledger.indexOf("fetchCashBySpot(dateFrom, dateTo)");
+  const awaitAt = ledger.indexOf("await cashDone;");
+  const restAt = ledger.indexOf("fetchSupplyStatus(null)");
+  ok(cashAt > 0 && awaitAt > cashAt, "сначала касса");
+  ok(restAt > awaitAt, "второй эшелон — только после того, как касса села");
+
+  const feed = readFileSync("src/components/ProblemFeed.jsx", "utf8");
+  ok(/setTimeout\(load, 400\)/.test(feed), "лента пропускает кассу вперёд");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

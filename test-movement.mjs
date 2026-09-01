@@ -136,8 +136,12 @@ section("Ловушка camelCase зафиксирована в коде");
 
 {
   const stripComments = (src) => src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
+    // Строчные — ПЕРВЫМИ: в комментариях встречается «/api/poster/*», и
+    // регулярка на блочный комментарий принимала это за его начало,
+    // выедая семнадцать килобайт настоящего кода. Проверки после такого
+    // проходили не потому, что код верный, а потому что его не осталось.
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
   const api = stripComments(readFileSync("api/ingredient-movement.js", "utf8"));
   ok(/movementParams\(/.test(api), "эндпоинт собирает параметры через movementParams");
   ok(!/date_from|dateFrom/.test(api), "и не пишет даты руками мимо него");
