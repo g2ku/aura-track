@@ -11,7 +11,7 @@
 import { posterCall, dashTransactions } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
 import { buildAlerts, buildSupplyAlerts } from "./_lib/watch.js";
-import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts } from "./_lib/shifts.js";
+import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "./_lib/shifts.js";
 import { branchByStorage } from "./_lib/reconcile.js";
 import { movementParams, normalizeMovement, buildMovementTable, negativeStock, collapseNegative } from "./_lib/movement.js";
 import { getConfig } from "./_lib/store.js";
@@ -97,6 +97,7 @@ export default async function handler(req, res) {
       const soldToday = new Set(rowsR.value.map((t) => String(t.spot_id || "")).filter(Boolean));
       alerts.push(...buildLateAlerts(shifts, { ...opts, schedule: config.schedule, soldToday }));
       alerts.push(...buildStaleShiftAlerts(shifts, opts));
+      alerts.push(...buildClosingAlerts(shifts, rowsR.value, { ...opts, schedule: config.schedule }));
     }
   } else {
     failed.push("чеки");

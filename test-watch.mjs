@@ -568,6 +568,41 @@ section("Сообщение говорит, во сколько чек откр�
   eq(alerts, [], "чек без времени старта в тревоги не идёт");
 }
 
+section("Напоминание о закрытии — первым в сообщении");
+
+{
+  // Это единственная тревога, на которую ещё можно успеть: бариста на
+  // точке, чеки под рукой. Всё остальное — уже случившееся.
+  const text = formatAlerts([
+    { key: "s1", kind: "stuck", spot: "Рамс", spotId: "11", waiter: "Айка", minutes: 40, sum: 1200, empty: false },
+    { key: "cl9", kind: "closing", spot: "Дубай", spotId: "9", count: 3, withMoney: 2, sum: 2050, closeAt: "21:00" },
+  ]);
+  const lines = text.split("\n");
+  ok(/Закройте чеки перед уходом/.test(lines[0]), "напоминание стоит первым");
+  ok(/3 открытых чека/.test(text), "склонение по числу чеков");
+  ok(/закрытие в 21:00/.test(text), "сказано, когда точка закрывается");
+  ok(/уходит в выручку следующего дня/.test(text), "объяснено, чем это плохо");
+}
+
+{
+  const one = formatAlerts([{ key: "c", kind: "closing", spot: "Абая", spotId: "4", count: 1, withMoney: 1, sum: 890, closeAt: "21:00" }]);
+  ok(/1 открытый чек/.test(one), "один чек — «открытый чек», а не «чеков»");
+  const five = formatAlerts([{ key: "c", kind: "closing", spot: "Абая", spotId: "4", count: 5, withMoney: 0, sum: 0, closeAt: "21:00" }]);
+  ok(/5 открытых чеков/.test(five), "пять — «открытых чеков»");
+  ok(!/·\s*0 ₸/.test(five), "если денег в чеках нет, сумму не пишем");
+}
+
+{
+  // Поздним вечером сторож просыпается, но говорит только про закрытие
+  const src = readFileSync("api/tg/watch.js", "utf8");
+  ok(/const lateEvening = !working && nowHM >= /.test(src),
+     "после тихих часов сторож всё же просыпается");
+  ok(/alerts\.filter\(\(a\) => a\.kind === "closing"\)/.test(src),
+     "и шлёт только напоминание о закрытии — остальное подождёт до утра");
+  ok(/markSeen\(config\.alertSeen, toSend\)/.test(src),
+     "отмечаем отправленным то, что отправили, а не всё подряд");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
