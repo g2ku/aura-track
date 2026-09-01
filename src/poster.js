@@ -423,7 +423,10 @@ export async function fetchSupplyStatus(spots, opts = {}) {
 // Правила считает сервер — те же, что у сторожа в телеграме.
 
 export async function fetchAlerts(opts = {}) {
-  const url = `/api/alerts${opts.fresh ? `?_fresh=${Date.now()}` : ""}`;
+  const qs = new URLSearchParams();
+  if (opts.full) qs.set("full", "1");
+  if (opts.fresh) qs.set("_fresh", String(Date.now()));
+  const url = `/api/alerts${qs.toString() ? `?${qs}` : ""}`;
   const res = await fetch(url, { headers: await apiHeaders(), signal: opts.signal });
   if (res.status === 401 || res.status === 403) {
     throw new Error("Сессия истекла — обновите страницу и войдите заново");

@@ -444,6 +444,34 @@ section("Заказ — это когда пробили, а не когда з�
   eq(open.items[0].silentFor, 20, "тогда показываем возраст самого открытого чека");
 }
 
+section("Лента грузится в два захода, а ноль не выдаётся за факт");
+
+{
+  // Владелец увидел «КАССА · ИТОГО 0 ₸» поверх работающего дня, пока
+  // данные ещё шли. Ноль — это не «пока неизвестно», а утверждение,
+  // что за день не продали ничего.
+  const ledger = readFileSync("src/components/CashLedger.jsx", "utf8");
+  ok(/loading && displayCash\.length === 0 \? "…" : fmt\(totalCash\)/.test(ledger),
+     "пока касса не пришла, вместо суммы многоточие");
+}
+
+{
+  // Лента делала 12 запросов в Poster разом, включая один на 2,7 МБ,
+  // и держала экран все пять секунд.
+  const api = readFileSync("api/alerts.js", "utf8");
+  ok(/const full = url0\.searchParams\.get\("full"\) === "1"/.test(api),
+     "медленная половина берётся только по запросу");
+  ok(/full \? posterCall\("storage\.getSupplies"/.test(api),
+     "поставки на 2,7 МБ — не в быстром заходе");
+  ok(/full \? negativeStockAlerts\(ymd\)/.test(api),
+     "и восемь запросов за остатками тоже");
+
+  const feed = readFileSync("src/components/ProblemFeed.jsx", "utf8");
+  ok(/show\(await fetchAlerts\(opts\), false\)/.test(feed), "сначала быстрое");
+  ok(/fetchAlerts\(\{ \.\.\.opts, full: true \}\), true\)/.test(feed), "потом медленное");
+  ok(/Проверяю остатки и поставки…/.test(feed), "и видно, что проверка ещё идёт");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
