@@ -58,18 +58,34 @@ export async function flush() {
   pending = new Map();
 
   const day = todayAlmaty();
-  const patch = {};
+
+  // Вложенные объекты, а НЕ ключи вида "total.dashboard".
+  //
+  // setDoc понимает точку в имени поля буквально: с плоскими ключами в
+  // документе появляется поле, которое так и называется — «total.dashboard»,
+  // — а не total: { dashboard }. Счётчик из-за этого пять дней писал в
+  // пустоту: писалось всё, читалось ничего. Точки как путь понимает
+  // только updateDoc, но он падает, если документа ещё нет.
+  // Сначала складываем числа, и только потом превращаем в приращения:
+  // increment() — это метка для Firestore, складывать в ней нельзя.
+  const total = {}, byRole = {}, perDay = {};
   for (const [key, n] of batch) {
     const [id, role] = key.split("|");
-    patch[`total.${safe(id)}`] = n;
-    patch[`byRole.${safe(role)}.${safe(id)}`] = n;
-    patch[`daily.${safe(day)}.${safe(id)}`] = n;
+    const i = safe(id), r = safe(role);
+    total[i] = (total[i] || 0) + n;
+    (byRole[r] ||= {})[i] = ((byRole[r] || {})[i] || 0) + n;
+    perDay[i] = (perDay[i] || 0) + n;
   }
 
+  const inc = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, increment(v)]));
+  const patch = {
+    total: inc(total),
+    byRole: Object.fromEntries(Object.entries(byRole).map(([r, o]) => [r, inc(o)])),
+    daily: { [safe(day)]: inc(perDay) },
+  };
+
   try {
-    const inc = Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, increment(v)]));
-    // merge:true — документа может ещё не быть, а updateDoc на таком падает
-    await setDoc(doc(getDb(), "meta", "page-views"), { ...inc, updatedAt: Date.now() }, { merge: true });
+    await setDoc(doc(getDb(), "meta", "page-views"), { ...patch, updatedAt: Date.now() }, { merge: true });
   } catch (e) {
     // Не смогли — и ладно. Возвращаем в очередь: вдруг это была потеря
     // сети, и следующая попытка пройдёт.
