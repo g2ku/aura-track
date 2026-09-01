@@ -534,6 +534,40 @@ section("Забытый чек — не то же, что чек в работе
   eq(buildAlerts(rows, { now: now + 61 * 60000, seen }).length, 1, "через час напоминаем");
 }
 
+section("Сообщение говорит, во сколько чек открыли");
+
+{
+  // Владелец увидел «Дубай — 10 ч 25 мин» в 10:02 и сказал: точка только
+  // открылась, чек не может столько висеть. По коду возраст считался
+  // верно, и спор упирался в то, кому верить. Со временем открытия
+  // сообщение отвечает само: «с 23:37» — значит остался со вчера.
+  const now = Date.parse("2026-08-31T05:02:00Z");   // 10:02 по Алматы
+  const rows = [
+    { transaction_id: "1", spot_id: "9", status: "1", date_start: String(now - 625 * 60000), sum: "498000", name: "Жания" },
+  ];
+  const text = formatAlerts(buildAlerts(rows, { now, seen: {} }));
+  ok(/с 23:37/.test(text), "показано время открытия по Алматы, а не по Москве");
+  ok(/10 ч 25 мин/.test(text), "и возраст рядом");
+}
+
+{
+  // У каждого чека своё время, а не время самого старого в группе
+  const now = Date.parse("2026-08-31T05:02:00Z");
+  const rows = [
+    { transaction_id: "1", spot_id: "9", status: "1", date_start: String(now - 40 * 60000), sum: "120000", name: "Дос" },
+    { transaction_id: "2", spot_id: "9", status: "1", date_start: String(now - 25 * 60000), sum: "90000", name: "Дос" },
+  ];
+  const text = formatAlerts(buildAlerts(rows, { now, seen: {} }));
+  ok(/с 09:22/.test(text) && /с 09:37/.test(text), "у обоих чеков своё время открытия");
+}
+
+{
+  // Строка без времени старта не должна ломать сообщение
+  const now = Date.now();
+  const alerts = buildAlerts([{ transaction_id: "x", spot_id: "9", status: "1", date_start: "0" }], { now, seen: {} });
+  eq(alerts, [], "чек без времени старта в тревоги не идёт");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
