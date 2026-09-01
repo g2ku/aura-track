@@ -266,3 +266,75 @@ export function buildLateAlerts(rows, opts = {}) {
 
   return alerts.sort((a, b) => b.lateMin - a.lateMin);
 }
+
+// ─── Напоминание перед закрытием ─────────────────────────────────────
+//
+// Ради этого всё и затевалось. За четыре дня 67 чеков переехали через
+// полночь: вечерний бариста уходит, не закрыв чеки, а утренний закрывает
+// их когда придётся — один провисел с 25-го по 31-е. Пока чек открыт,
+// его деньги не в кассе, и выручка вечера всплывает в другом дне.
+//
+// Общего «в 22:30 всем» быть не может: Коктем закрывается в 19:00, а
+// другие точки работают дольше. Поэтому считаем от времени закрытия
+// КАЖДОЙ точки — из правила владельца, а если его нет, из истории смен.
+export const CLOSING_REMIND_MIN = 30;   // за сколько до закрытия напомнить
+export const CLOSING_WINDOW_MIN = 45;   // и сколько это окно длится
+
+export function buildClosingAlerts(rows, openRows, opts = {}) {
+  const cfg = { ...SHIFT_DEFAULTS, ...opts };
+  const now = cfg.now ?? Date.now();
+  const seen = cfg.seen || {};
+  const nowMin = minutesOfDay(now);
+  const today = localDateStr(now);
+
+  const closing = usualClosing(rows, cfg);
+  const schedule = cfg.schedule || {};
+  for (const [spotId, rule] of Object.entries(schedule)) {
+    const m = hhmmToMinutes(rule?.close);
+    if (m != null) closing[spotId] = m;
+  }
+
+  // Открытые чеки по точкам — считаем здесь, чтобы не тащить логику наружу
+  const bySpot = {};
+  for (const tx of openRows || []) {
+    if (String(tx.status) !== "1") continue;
+    const spot = String(tx.spot_id || "");
+    if (!spot) continue;
+    const sum = Number(tx.sum || 0) / 100;
+    const g = (bySpot[spot] ||= { count: 0, sum: 0, withMoney: 0 });
+    g.count++;
+    g.sum += sum;
+    if (sum > 0) g.withMoney++;
+  }
+
+  const alerts = [];
+  for (const b of BRANCHES) {
+    const close = closing[b.spotId];
+    if (close == null) continue;
+
+    // Окно: за 30 минут до закрытия и следующие 45. Раньше рано —
+    // чеки ещё пробивают; позже поздно — бариста уже ушёл.
+    const from = close - CLOSING_REMIND_MIN;
+    if (nowMin < from || nowMin > from + CLOSING_WINDOW_MIN) continue;
+
+    const g = bySpot[b.spotId];
+    if (!g || !g.count) continue;
+
+    // Раз за вечер, а не каждые пятнадцать минут: дата в ключе.
+    const key = `closing:${b.spotId}:${today}`;
+    if (seen[key]) continue;
+
+    alerts.push({
+      key,
+      kind: "closing",
+      spot: b.name,
+      spotId: b.spotId,
+      count: g.count,
+      withMoney: g.withMoney,
+      sum: Math.round(g.sum),
+      closeAt: fmtHM(close),
+    });
+  }
+
+  return alerts.sort((a, b) => b.sum - a.sum);
+}

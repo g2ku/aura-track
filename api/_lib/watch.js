@@ -306,6 +306,20 @@ export function formatAlerts(alerts) {
   if (!alerts.length) return null;
   const lines = [];
 
+  // Напоминание перед закрытием — самым первым.
+  //
+  // Это единственная тревога, на которую ещё можно успеть: бариста на
+  // точке, чеки под рукой. Всё остальное — уже случившееся.
+  const beforeClose = alerts.filter((a) => a.kind === "closing");
+  if (beforeClose.length) {
+    lines.push(`🌙 ${section("Закройте чеки перед уходом", "/receipts")}`);
+    for (const a of beforeClose.slice(0, MAX_LINES)) {
+      const money = a.withMoney ? ` · ${fmtSum(a.sum)}` : "";
+      lines.push(`• ${a.spot} — ${a.count} ${plural(a.count, "открытый чек", "открытых чека", "открытых чеков")}${money} · закрытие в ${a.closeAt}`);
+    }
+    lines.push("Незакрытый чек уходит в выручку следующего дня.");
+  }
+
   const stuck = alerts.filter((a) => a.kind === "stuck");
   // Пустые чеки в тревоги не идут: открыли и ничего не пробили — это
   // ни денег, ни срочности. Смотреть их можно на сайте.
@@ -321,6 +335,7 @@ export function formatAlerts(alerts) {
 
   const late = alerts.filter((a) => a.kind === "late");
   const stale = alerts.filter((a) => a.kind === "shiftstale");
+  const closing = alerts.filter((a) => a.kind === "closing");
 
   // Точка, которая должна была открыться и не открылась, — первое, что
   // нужно знать утром: там либо бариста опоздал, либо что-то случилось.

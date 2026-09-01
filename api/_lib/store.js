@@ -248,7 +248,7 @@ export async function getWatchSnapshot(opts = {}) {
     timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(new Date());
 
-  const { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts } = await import("./shifts.js");
+  const { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } = await import("./shifts.js");
 
   let shifts = [];
   try {
@@ -268,6 +268,7 @@ export async function getWatchSnapshot(opts = {}) {
     const soldToday = new Set(rows.map((t) => String(t.spot_id || "")).filter(Boolean));
     alerts.push(...buildLateAlerts(shifts, { ...opts, now: Date.now(), seen: {}, soldToday }));
     alerts.push(...buildStaleShiftAlerts(shifts, { ...opts, now: Date.now(), seen: {} }));
+    alerts.push(...buildClosingAlerts(shifts, rows, { ...opts, now: Date.now(), seen: {}, schedule: opts.schedule }));
   }
 
   try {

@@ -15,7 +15,7 @@
 import { posterStringToMs, localMinutesOfDay, localDateStr } from "./api/_lib/time.js";
 import {
   isShiftOpen, openSpots, usualOpening, usualClosing, windingDown, buildLateAlerts,
-  scheduleFor, hhmmToMinutes,  buildStaleShiftAlerts,
+  scheduleFor, hhmmToMinutes,  buildStaleShiftAlerts, buildClosingAlerts,
 } from "./api/_lib/shifts.js";
 
 let passed = 0, failed = 0;
@@ -303,6 +303,66 @@ section("Незакрытая смена — это не «точка не от�
      "через десять минут молчим");
   eq(buildStaleShiftAlerts(rows, { now: now + 61 * 60000, seen, repeatAfterMin: 60 }).length, 1,
      "через час напоминаем");
+}
+
+section("Напоминание закрыть чеки перед уходом");
+
+// За четыре дня 67 чеков переехали через полночь: вечерний бариста
+// уходит, не закрыв, а утренний закрывает когда придётся. Пока чек
+// открыт, его деньги не в кассе.
+const openTx = (spot, sum) => ({ spot_id: spot, status: "1", sum: String(sum) });
+const at = (hhmm) => Date.parse(`2026-09-01T${hhmm}:00+05:00`);
+const SCHED = { "9": { open: "08:00", close: "21:00" }, "7": { open: "08:00", close: "19:00" } };
+
+{
+  // 20:35 — за 25 минут до закрытия Дубая
+  const a = buildClosingAlerts([], [openTx("9", 120000), openTx("9", 0), openTx("9", 85000)],
+    { now: at("20:35"), seen: {}, schedule: SCHED });
+  eq(a.length, 1, "одна точка в окне");
+  eq(a[0].kind, "closing", "тип тревоги");
+  eq(a[0].spot, "Дубай", "точка названа");
+  eq(a[0].count, 3, "считаются все открытые чеки");
+  eq(a[0].withMoney, 2, "и отдельно те, в которых есть деньги");
+  eq(a[0].sum, 2050, "сумма в тенге");
+  eq(a[0].closeAt, "21:00", "время закрытия этой точки");
+}
+
+{
+  // У каждой точки своё время: Коктем закрывается в 19:00
+  const rows = [openTx("7", 50000)];
+  eq(buildClosingAlerts([], rows, { now: at("20:35"), seen: {}, schedule: SCHED }), [],
+     "в 20:35 Коктему поздно — он закрылся в 19:00");
+  eq(buildClosingAlerts([], rows, { now: at("18:35"), seen: {}, schedule: SCHED }).length, 1,
+     "а в 18:35 — самое время");
+}
+
+{
+  const rows = [openTx("9", 120000)];
+  eq(buildClosingAlerts([], rows, { now: at("17:00"), seen: {}, schedule: SCHED }), [],
+     "за четыре часа до закрытия рано — чеки ещё пробивают");
+  eq(buildClosingAlerts([], rows, { now: at("21:40"), seen: {}, schedule: SCHED }), [],
+     "через сорок минут после закрытия поздно — бариста ушёл");
+}
+
+{
+  eq(buildClosingAlerts([], [], { now: at("20:35"), seen: {}, schedule: SCHED }), [],
+     "нет открытых чеков — молчим");
+  eq(buildClosingAlerts([], [{ spot_id: "9", status: "2", sum: "5000" }], { now: at("20:35"), seen: {}, schedule: SCHED }), [],
+     "закрытые чеки не считаются");
+  eq(buildClosingAlerts([], [openTx("9", 1000)], { now: at("20:35"), seen: {}, schedule: {} }), [],
+     "без расписания и без истории смен молчим, а не гадаем");
+}
+
+{
+  // Раз за вечер, а не каждые пятнадцать минут
+  const rows = [openTx("9", 120000)];
+  const first = buildClosingAlerts([], rows, { now: at("20:35"), seen: {}, schedule: SCHED });
+  const seen = { [first[0].key]: at("20:35") };
+  eq(buildClosingAlerts([], rows, { now: at("20:50"), seen, schedule: SCHED }), [],
+     "через пятнадцать минут молчим");
+  eq(buildClosingAlerts([], rows, { now: at("21:10"), seen, schedule: SCHED }), [],
+     "и через полчаса тоже");
+  ok(first[0].key.includes("2026-09-01"), "в ключе дата — завтра напомним снова");
 }
 
 console.log("\n══════════════════════════════════════════════════");

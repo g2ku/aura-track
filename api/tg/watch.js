@@ -16,7 +16,7 @@ import { getConfig, setConfig, getDoc } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
-import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts } from "../_lib/shifts.js";
+import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -91,7 +91,13 @@ export default async function handler(req, res) {
     }
 
     // ─── Сторож ──────────────────────────────────────────────────────
-    if (config.watchEnabled && withinWorkingHours(nowHM, config.quietFrom, config.quietTo)) {
+    // Тихие часы кончаются в 22:00, а точка может закрываться в 23:00 —
+    // напоминание «закройте чеки» ей нужно как раз тогда. Поэтому поздним
+    // вечером сторож просыпается, но говорит ТОЛЬКО про закрытие.
+    const working = withinWorkingHours(nowHM, config.quietFrom, config.quietTo);
+    const lateEvening = !working && nowHM >= (config.quietTo || "22:00");
+
+    if (config.watchEnabled && (working || lateEvening)) {
       // Смены: кто сейчас открыт, кто уже закрылся, кто закрывается.
       // Ответ лёгкий (137 КБ), поэтому берём при каждой проверке.
       let shifts = [];
@@ -136,6 +142,14 @@ export default async function handler(req, res) {
           seen: config.alertSeen || {},
           repeatAfterMin: config.repeatAfterMin,
         }));
+
+        // Напоминание перед закрытием. Считается от времени закрытия
+        // КАЖДОЙ точки: Коктем закрывается в 19:00, другие позже.
+        alerts.push(...buildClosingAlerts(shifts, rows, {
+          now: Date.now(),
+          seen: config.alertSeen || {},
+          schedule: config.schedule,
+        }));
       }
 
       // Поставки — раз в день: ответ storage.getSupplies весит 2,7 МБ,
@@ -155,10 +169,14 @@ export default async function handler(req, res) {
         }
       }
 
-      if (alerts.length) {
-        await sendMessage(target, formatAlerts(alerts), thread ? { message_thread_id: thread } : {});
-        patch.alertSeen = markSeen(config.alertSeen, alerts);
-        out.alerts = alerts.length;
+      // Поздним вечером — только напоминание о закрытии. Остальное
+      // подождёт до утра: ночью с ним всё равно ничего не сделать.
+      const toSend = working ? alerts : alerts.filter((a) => a.kind === "closing");
+
+      if (toSend.length) {
+        await sendMessage(target, formatAlerts(toSend), thread ? { message_thread_id: thread } : {});
+        patch.alertSeen = markSeen(config.alertSeen, toSend);
+        out.alerts = toSend.length;
       }
     }
 

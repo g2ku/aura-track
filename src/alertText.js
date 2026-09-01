@@ -46,6 +46,7 @@ export function alertLink(a) {
     case "negstockAll":
       return "/movement";
     case "shiftstale":
+    case "closing":
       return "/receipts";
     default:
       return null;
@@ -58,6 +59,8 @@ export function severity(a) {
   // Пока смена висит, точка числится закрытой и чеки не закрываются —
   // от этого ломается и отчётность, и сам сторож.
   if (a.kind === "shiftstale") return "high";
+  // Успеть можно только сейчас — потом чек уедет в следующий день
+  if (a.kind === "closing") return "high";
   if (a.kind === "negstock") return a.count > 1 ? "high" : "medium";
   // Минус по всей сети — одна строка, но самая важная в ленте
   if (a.kind === "negstockAll") return "high";
@@ -100,6 +103,12 @@ export function describe(a) {
         icon: "ti-package-off",
         title: `${a.spot} — поставки не проводят ${a.days} ${plural(a.days, "день", "дня", "дней")}`,
         hint: "Товар привозят, а в Poster его не заводят",
+      };
+    case "closing":
+      return {
+        icon: "ti-moon",
+        title: `${a.spot} — закройте ${a.count} ${plural(a.count, "чек", "чека", "чеков")} перед уходом`,
+        hint: `Закрытие в ${a.closeAt}. Незакрытый чек уходит в выручку следующего дня`,
       };
     case "shiftstale":
       return {
