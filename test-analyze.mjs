@@ -140,6 +140,60 @@ section("Сверка — только владельцу");
   ok(/«мон»/.test(await ask({}, 555)), "без назначенных админов работает у всех — это известное поведение");
 }
 
+section("Дубли между чатами");
+
+{
+  // Ради этого сверка и нужна тому, у кого несколько чатов: накладную
+  // прислали в чат филиала и продублировали в общий, приход посчитался
+  // дважды, и само по себе это не всплывает никогда.
+  const docs = [{ date: "2026-08-28", entries: [
+    { id: "-100500:11", branch: "Абая", author: "Сабина", ts: 1, raw: "мон 6 21000",
+      items: [{ name: "Монин Ваниль", qty: 6, sum: 21000 }] },
+    { id: "-100777:22", branch: "Абая", author: "Сабина", ts: 2, raw: "монин ваниль 6 21000",
+      items: [{ name: "Монин Ваниль", qty: 6, sum: 21000 }] },
+    { id: "-100500:33", branch: "Дубай", author: "Касым", ts: 3, raw: "мон 4 15600",
+      items: [{ name: "Монин Карамель", qty: 4, sum: 15600 }] },
+  ]}];
+
+  const r = analyzeProduct(docs, "мон");
+  eq(r.duplicates.length, 1, "найден один дубль");
+  eq(r.duplicates[0].times, 2, "прислали дважды");
+  eq(r.duplicates[0].chats.length, 2, "из двух разных чатов");
+  eq(r.chats.length, 2, "всего чатов в выборке");
+
+  // Разные суммы — не дубль: мог быть второй завоз
+  const other = analyzeProduct([{ date: "2026-08-28", entries: [
+    { id: "-1:1", branch: "Абая", ts: 1, items: [{ name: "Монин", sum: 21000 }] },
+    { id: "-1:2", branch: "Абая", ts: 2, items: [{ name: "Монин", sum: 9000 }] },
+  ]}], "мон");
+  eq(other.duplicates, [], "разные суммы дублем не считаются");
+
+  // Разные точки — тоже не дубль
+  const spots = analyzeProduct([{ date: "2026-08-28", entries: [
+    { id: "-1:1", branch: "Абая", ts: 1, items: [{ name: "Монин", sum: 21000 }] },
+    { id: "-1:2", branch: "Дубай", ts: 2, items: [{ name: "Монин", sum: 21000 }] },
+  ]}], "мон");
+  eq(spots.duplicates, [], "одинаковая сумма на разных точках — не дубль");
+}
+
+{
+  const store2 = { config: { ...DEFAULT_CONFIG, admins: [777] },
+    async getDocsRange() { return [{ date: "2026-08-28", entries: [
+      { id: "-100500:11", branch: "Абая", author: "С", ts: 1, items: [{ name: "Монин", qty: 6, sum: 21000 }] },
+      { id: "-100777:22", branch: "Абая", author: "С", ts: 2, items: [{ name: "Монин", qty: 6, sum: 21000 }] },
+    ]}]; },
+    async getProducts() { return []; } };
+  const r = await handleMessage(
+    { message_id: 1, chat: { id: 777, type: "private" }, from: { id: 777, first_name: "Р" }, text: "/анализ месяц мон" },
+    { store: store2, config: store2.config, authorName: "@r" });
+
+  ok(/Похоже на дубли/.test(r.text), "дубли попали в отчёт");
+  ok(/лишних 21 000 ₸/.test(r.text), "посчитано, сколько лишнего");
+  ok(/из разных чатов/.test(r.text), "сказано, что из разных чатов");
+  const head = r.text.indexOf("Похоже на дубли");
+  ok(head > 0 && head < r.text.indexOf("По точкам"), "дубли стоят раньше разбивки");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
