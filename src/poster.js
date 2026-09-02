@@ -436,6 +436,19 @@ export async function fetchAlerts(opts = {}) {
   return res.json();
 }
 
+// ─── Бариста как продавец и история проблем точек ───────────────────────
+
+export async function fetchBaristas(from, to, opts = {}) {
+  const qs = new URLSearchParams({ from: toPosterDate(from), to: toPosterDate(to) });
+  if (opts.fresh) qs.set("_fresh", String(Date.now()));
+  const res = await fetch(`/api/baristas?${qs}`, { headers: await apiHeaders(), signal: opts.signal });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Сессия истекла — обновите страницу и войдите заново");
+  }
+  if (!res.ok) throw new Error(`Не удалось получить данные (HTTP ${res.status})`);
+  return res.json();
+}
+
 // ─── Движение ингредиентов (расход и остатки по складам) ────────────────
 //
 // Считает сервер: /api/ingredient-movement. Восемь запросов в Poster на

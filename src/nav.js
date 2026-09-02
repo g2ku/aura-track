@@ -51,6 +51,7 @@ export const GROUPS = [
     label: "Аналитика",
     items: [
       { id: "cross-dashboard", path: "/cross-dashboard", icon: "ti-world", label: "Кросс-локации" },
+      { id: "people", path: "/people", icon: "ti-users-group", label: "Люди и точки" },
       { id: "profitability", path: "/profitability", icon: "ti-chart-pie", label: "Меню-инжиниринг" },
       { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта" },
       { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L" },
@@ -129,6 +130,7 @@ export const GROUPS_V2 = [
     label: "Точки",
     items: [
       { id: "branches", path: "/branches", icon: "ti-building-store", label: "Филиалы" },
+      { id: "people", path: "/people", icon: "ti-users-group", label: "Люди и точки" },
       { id: "cross-dashboard", path: "/cross-dashboard", icon: "ti-world", label: "Сравнить точки" },
       { id: "traffic-heatmap", path: "/traffic-heatmap", icon: "ti-dashboard", label: "Тепловая карта" },
       { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии" },

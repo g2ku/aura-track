@@ -17,6 +17,7 @@ import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
+import { countAlerts, mergeLog } from "../_lib/alertLog.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -192,8 +193,11 @@ export default async function handler(req, res) {
         // То же правило: тревоги отправлены — значит записываем сразу,
         // иначе через час придут те же самые.
         patch.alertSeen = markSeen(config.alertSeen, toSend);
+        // Копим счётчики: одна тревога — шум, а «Атакент: 14 незакрытых
+        // смен за месяц» — уже факт для разговора с людьми.
+        patch.alertLog = mergeLog(config.alertLog, today, countAlerts(toSend));
         try {
-          await setConfig({ alertSeen: patch.alertSeen });
+          await setConfig({ alertSeen: patch.alertSeen, alertLog: patch.alertLog });
         } catch (e) {
           console.error("[tg] отметка тревог не сохранилась:", e?.message);
         }

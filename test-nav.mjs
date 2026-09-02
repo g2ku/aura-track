@@ -172,7 +172,7 @@ section("Пять разделов: ничего не потеряно");
 
 {
   const seen = GROUPS_V2.flatMap((g) => g.items).filter((i) => canSeeItemFor("admin", false, i));
-  eq(seen.length, 22, "владелец видит все двадцать два пункта");
+  eq(seen.length, 23, "владелец видит все пункты");
   ok(GROUPS_V2.every((g) => g.id && g.label && g.icon && g.items.length), "у каждого раздела есть имя, значок и содержимое");
 }
 
@@ -187,9 +187,9 @@ section("Новое меню — только для владельца, с до
 
   const seen = (role) => GROUPS_V2.flatMap((g) => g.items)
     .filter((i) => canSeeItemFor(role, role === "curator", i)).map((i) => i.id);
-  eq(seen("admin").length, 22, "владелец: все пункты");
-  eq(seen("manager").length, 18, "управляющий: без зарплаты, пользователей и групп ИП");
-  eq(seen("curator").length, 10, "куратор: только своё");
+  eq(seen("admin").length, 23, "владелец: все пункты");
+  eq(seen("manager").length, 19, "управляющий: без зарплаты, пользователей и групп ИП");
+  eq(seen("curator").length, 11, "куратор: только своё");
   eq(seen("curator").filter((id) => ["payroll", "admin-users", "pnl", "margin"].includes(id)), [],
      "куратору не видно ни денег сети, ни настроек");
 }

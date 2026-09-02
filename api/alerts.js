@@ -12,6 +12,8 @@ import { posterCall, dashTransactions } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
 import { buildAlerts, buildSupplyAlerts } from "./_lib/watch.js";
 import { buildLagAlerts } from "./_lib/briefing.js";
+import { usualByHour, todayByHour, buildBehindAlerts } from "./_lib/usualDay.js";
+import { spotNameByPosterId } from "./_lib/branches.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "./_lib/shifts.js";
 import { branchByStorage } from "./_lib/reconcile.js";
 import { movementParams, normalizeMovement, buildMovementTable, negativeStock, collapseNegative } from "./_lib/movement.js";
@@ -137,6 +139,33 @@ export default async function handler(req, res) {
   if (!full) { /* см. выше */ }
   else if (stockR.status === "fulfilled") alerts.push(...stockR.value);
   else failed.push("остатки");
+
+  // Отставание от СВОЕГО обычного дня недели.
+  //
+  // «4% от сети» честно, но грубо: у ОБИ поток и не должен быть как у
+  // Жароково. А «Коктем к 10 утра сделал вдвое меньше обычного вторника»
+  // — про саму точку. Нужны прошлые недели, поэтому в медленной половине.
+  if (full && rowsR.status === "fulfilled") {
+    try {
+      const weekday = new Date(Date.parse(`${ymd.slice(0,4)}-${ymd.slice(4,6)}-${ymd.slice(6,8)}T00:00:00Z`)).getUTCDay();
+      const hourLimit = Number(almatyHM().slice(0, 2));
+      // Четыре прошлых того же дня недели — этого хватает для медианы
+      const past = [7, 14, 21, 28].map((back) => {
+        const d = new Date(Date.parse(`${ymd.slice(0,4)}-${ymd.slice(4,6)}-${ymd.slice(6,8)}T00:00:00Z`) - back * 86400000);
+        return d.toISOString().slice(0, 10).replace(/-/g, "");
+      });
+      const chunks = await Promise.all(past.map((d) => dashTransactions(d).catch(() => [])));
+      const usual = usualByHour(chunks.flat(), { weekday, hourLimit, now });
+      const got = todayByHour(rowsR.value, { hourLimit, now });
+      alerts.push(...buildBehindAlerts(got, usual, {
+        nowHHMM: almatyHM(),
+        spotName: spotNameByPosterId,
+        openSpots: shifts.length ? openSpots(shifts) : null,
+      }));
+    } catch (e) {
+      console.warn("[alerts] обычный день не посчитался:", e?.message);
+    }
+  }
 
   res.status(200).json({ at: now, alerts, failed, full });
 }
