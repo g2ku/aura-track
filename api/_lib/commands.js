@@ -58,9 +58,28 @@ const ADMIN_HELP = `
 /переименовать старое &gt; новое — поправить название товара
 /это абая — закрепить тему форума за филиалом
 /темы — какие темы за какими филиалами
+/анализ месяц мон — что приходило под этим названием и от кого
 /сторож — тревоги о зависших чеках и тишине на точках
 /график — во сколько точки открываются и закрываются
 /сводка — итог вчерашнего дня по утрам`;
+
+// Тысячи с пробелом и «₸» — так же, как в отчётах бота.
+function fmtSum(v) {
+  return `${fmtInt(Math.round(Number(v) || 0))} ₸`;
+}
+
+// «Накладные за 30 дн. (...)» → «за 30 дн. (...)»: в заголовке анализа
+// слово «накладные» лишнее, речь и так о них.
+function periodTitle(period) {
+  return String(period?.label || "").replace(/^Накладные\s*/i, "");
+}
+
+function plural(n, one, few, many) {
+  const a = Math.abs(n) % 10, b = Math.abs(n) % 100;
+  if (a === 1 && b !== 11) return one;
+  if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
+  return many;
+}
 
 function isAdmin(config, userId) {
   // Пока список админов пуст, настройки доступны всем: иначе после первого
@@ -102,7 +121,11 @@ function parsePeriodArg(arg, today) {
   else if (/^(месяц|месяца)$/.test(a)) days = 30;
   else {
     const weeks = a.match(/^(\d+)\s*(недел[юияей]+)$/);
+    // «1 месяц», «3 месяца» — этого не понимал и /отчет: число с
+    // «месяц» проваливалось до разбора дней и превращалось в «1 день».
+    const months = a.match(/^(\d+)\s*(месяц[аев]*)$/);
     if (weeks) days = Number(weeks[1]) * 7;
+    else if (months) days = Number(months[1]) * 30;
     else {
       const dm = a.match(/^(\d+)\s*(д|дн|дней|день|дня|days?)?$/);
       if (dm) days = Number(dm[1]);
@@ -398,6 +421,87 @@ async function handleCommand({ cmd, args }, ctx) {
     case "branches": {
       const lines = BRANCHES.map((b) => `• <b>${escapeHtml(b.name)}</b> — ${b.aliases.map(escapeHtml).join(", ")}`);
       return { text: `<b>Филиалы и сокращения</b>\n\n${lines.join("\n")}` };
+    }
+
+    // ─── Сверка прихода по тексту чата ────────────────────────────
+    //
+    // «/анализ 1 месяц мон» — что приходило под этим названием и от кого.
+    // Цифра в отчёте есть, а кто и когда её прислал — до сих пор было не
+    // восстановить. Бот хранит исходный текст каждого сообщения, так что
+    // сверять можно буквально по написанному.
+    case "анализ":
+    case "analyze": {
+      const today = todayAlmaty();
+      const raw = String(args || "").trim();
+      if (!raw) {
+        return { text: [
+          "<b>Сверка прихода по чату</b>",
+          "",
+          "<code>/анализ 1 месяц мон</code> — что приходило под этим названием",
+          "",
+          "Период: <code>вчера</code>, <code>7 дней</code>, <code>неделя</code>, <code>2 недели</code>, <code>месяц</code>, <code>1 месяц</code>",
+          "Дальше — название или его начало: <code>мон</code>, <code>пон</code>, <code>мол коко</code>",
+        ].join("\n") };
+      }
+
+      // Период стоит первым, товар — всё, что осталось. Разбираем с
+      // самого длинного начала: «2 недели» надо откусить целиком.
+      const words = raw.split(/\s+/);
+      let period = null;
+      let take = 0;
+      for (let n = Math.min(3, words.length); n >= 1; n--) {
+        const p = parsePeriodArg(words.slice(0, n).join(" "), today);
+        if (p) { period = p; take = n; break; }
+      }
+      const query = words.slice(take).join(" ").trim();
+
+      if (!period) return { text: "Не понял период. Например: <code>/анализ месяц мон</code>" };
+      if (!query) return { text: "Не понял, что искать. Например: <code>/анализ месяц мон</code>" };
+      if (!store.getDocsRange) return { text: "Сверка за период недоступна." };
+
+      const docs = await store.getDocsRange(period.from, period.to);
+      const { analyzeProduct } = await import("./analyze.js");
+      const res = analyzeProduct(docs, query);
+
+      if (!res.times) {
+        // Подсказываем, что вообще приходило: искать вслепую утомительно
+        const seen = new Map();
+        for (const d of docs) for (const e of d.entries || []) for (const i of e.items || []) {
+          seen.set(i.name, (seen.get(i.name) || 0) + 1);
+        }
+        const top = [...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n]) => n);
+        return { text: [
+          `${escapeHtml(periodTitle(period))} — ничего похожего на «${escapeHtml(query)}» не приходило.`,
+          top.length ? "\nЧто приходило: " + top.map((n) => escapeHtml(n)).join(", ") : "",
+        ].join("\n") };
+      }
+
+      const lines = [
+        `<b>«${escapeHtml(query)}» · ${escapeHtml(periodTitle(period))}</b>`,
+        "",
+        `Всего: ${fmtSum(res.sum)}${res.qty ? ` · ${res.qty} шт` : ""} · ${res.times} ${plural(res.times, "поставка", "поставки", "поставок")} за ${res.days} ${plural(res.days, "день", "дня", "дней")}`,
+      ];
+
+      if (res.names.length > 1) {
+        lines.push("", "<b>Написания</b>");
+        for (const n of res.names) lines.push(`• ${escapeHtml(n.name)} — ${n.times}× · ${fmtSum(n.sum)}`);
+      }
+
+      lines.push("", "<b>По точкам</b>");
+      for (const b of res.branches) {
+        lines.push(`• ${escapeHtml(b.branch)} — ${fmtSum(b.sum)}${b.qty ? ` · ${b.qty} шт` : ""} · ${b.times}×`);
+      }
+
+      lines.push("", "<b>Когда приходило</b>");
+      const show = res.hits.slice(-12);
+      if (res.hits.length > show.length) lines.push(`<i>последние ${show.length} из ${res.hits.length}</i>`);
+      for (const h of show) {
+        const who = h.author ? ` · ${escapeHtml(h.author)}` : "";
+        const q = h.qty ? ` · ${h.qty} шт` : "";
+        lines.push(`• ${formatDateRu(h.date)} · ${escapeHtml(h.branch)}${who} — ${fmtSum(h.sum)}${q}`);
+      }
+
+      return { text: lines.join("\n") };
     }
 
     case "отчет":
