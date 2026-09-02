@@ -46,6 +46,9 @@ export default async function handler(req, res) {
   }
 
   const out = { ok: true, briefing: null, alerts: 0 };
+  // Снаружи try: аварийный путь тоже должен сохранить то, что уже
+  // отправлено, иначе одна ошибка превращается в повторные сообщения.
+  const patch = {};
 
   try {
     const config = await getConfig();
@@ -53,7 +56,6 @@ export default async function handler(req, res) {
     const thread = config.watchThreadId ?? config.reportThreadId ?? null;
     const today = todayAlmaty();
     const nowHM = almatyHM();
-    const patch = {};
 
     if (!target) {
       res.status(200).json({ ...out, skipped: "чат не задан — выполните /сюда" });
@@ -86,7 +88,19 @@ export default async function handler(req, res) {
       });
 
       await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+
+      // Метку пишем СРАЗУ, а не в конце обработчика.
+      //
+      // Сводка ушла дважды — в 09:00 и в 10:00 слово в слово. Метка
+      // сохранялась в самом конце, после всей работы сторожа, и любая
+      // ошибка между отправкой и записью её теряла. Сообщение уже не
+      // отозвать, поэтому «отправлено» должно записываться в тот же миг.
       patch.lastBriefingDate = today;
+      try {
+        await setConfig({ lastBriefingDate: today });
+      } catch (e) {
+        console.error("[tg] метка сводки не сохранилась:", e?.message);
+      }
       out.briefing = yesterday;
     }
 
@@ -175,7 +189,14 @@ export default async function handler(req, res) {
 
       if (toSend.length) {
         await sendMessage(target, formatAlerts(toSend), thread ? { message_thread_id: thread } : {});
+        // То же правило: тревоги отправлены — значит записываем сразу,
+        // иначе через час придут те же самые.
         patch.alertSeen = markSeen(config.alertSeen, toSend);
+        try {
+          await setConfig({ alertSeen: patch.alertSeen });
+        } catch (e) {
+          console.error("[tg] отметка тревог не сохранилась:", e?.message);
+        }
         out.alerts = toSend.length;
       }
     }
@@ -184,6 +205,13 @@ export default async function handler(req, res) {
     res.status(200).json(out);
   } catch (e) {
     console.error("[tg] сторож упал:", e?.message);
+    // Что успели пометить отправленным — сохраняем и на аварийном пути.
+    // Иначе одна ошибка в середине превращается в повторные сообщения.
+    try {
+      if (Object.keys(patch).length) await setConfig(patch);
+    } catch (e2) {
+      console.error("[tg] и патч не сохранился:", e2?.message);
+    }
     // 200, чтобы планировщик не считал задачу сломанной и не слал письма
     res.status(200).json({ ok: false, error: e?.message });
   }
