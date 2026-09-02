@@ -110,6 +110,36 @@ section("Команда целиком");
   ok(!/за за /.test(none), "без задвоенного «за за»");
 }
 
+section("Сверка — только владельцу");
+
+{
+  // В ответе суммы по всей сети и кто что присылал. В чате накладных
+  // это увидели бы полсотни бариста, а команда нужна для разговора с
+  // ними, а не при них.
+  const mk = (config) => ({
+    config: { ...DEFAULT_CONFIG, ...config },
+    async getDocsRange() { return DOCS; },
+    async getProducts() { return []; },
+  });
+  const ask = async (config, userId, chat) => {
+    const st = mk(config);
+    const r = await handleMessage(
+      { message_id: 1, chat: chat || { id: 777, type: "private" }, from: { id: userId, first_name: "Р" }, text: "/анализ месяц мон" },
+      { store: st, config: st.config, authorName: "@r" },
+    );
+    return r?.text || "";
+  };
+
+  ok(/«мон»/.test(await ask({ admins: [777] }, 777)), "владелец получает сверку");
+  ok(/только владельцу/.test(await ask({ admins: [777] }, 555)), "бариста — отказ");
+  ok(/только владельцу/.test(await ask({ admins: [777] }, 555, { id: -100500, type: "group" })),
+     "и в чате накладных тоже отказ");
+
+  // Пока админы не назначены, настройки открыты всем — так задумано,
+  // иначе первого администратора некому было бы назначить.
+  ok(/«мон»/.test(await ask({}, 555)), "без назначенных админов работает у всех — это известное поведение");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
