@@ -6,6 +6,7 @@
 // Запуск: node test-alert-text.mjs
 
 import { describe, severity, alertLink, sortAlerts, age, alertsForSpot } from "./src/alertText.js";
+import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -172,6 +173,30 @@ section("Куратор видит только свою точку");
   ];
   const kinds = sortAlerts(alertsForSpot(alerts, "4")).map((a) => a.kind);
   eq(kinds, ["stuck", "quiet"], "срочное выше и после фильтра");
+}
+
+section("В ленте — только то, чего нет на экране");
+
+{
+  // Владелец увидел 13 строк, из них девять — «чек висит 15–50 мин».
+  // Это бариста делает напиток, и тот же список есть блоком ниже.
+  const api = readFileSync("api/alerts.js", "utf8")
+    .replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  ok(/IGNORED = new Set\(\["stuck", "nosupply"\]\)/.test(api),
+     "чеки и поставки в ленту не идут");
+  ok(!/buildSupplyAlerts\(/.test(api), "поставки даже не запрашиваются");
+  ok(!/storage\.getSupplies/.test(api), "и запрос на 2,7 МБ ушёл вместе с ними");
+  ok(/buildLagAlerts/.test(api), "зато появилось отставание точки по кассе");
+}
+
+{
+  const a = { kind: "lag", spot: "OBI", spotId: "3", share: 4, fair: 13, total: 86588, checks: 43 };
+  const d = describe(a);
+  eq(d.title, "OBI — 4% дневной кассы сети", "видно, насколько мало");
+  ok(/Поровну вышло бы 13%/.test(d.hint), "и с чем сравнивать");
+  ok(/43 чека/.test(d.hint), "склонение по числу чеков");
+  eq(alertLink(a), "/branches", "ведёт в филиалы, а не в чеки");
+  eq(severity(a), "medium", "повод разобраться, но не бежать сию секунду");
 }
 
 console.log("\n══════════════════════════════════════════════════");

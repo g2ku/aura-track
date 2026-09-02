@@ -48,6 +48,8 @@ export function alertLink(a) {
     case "shiftstale":
     case "closing":
       return "/receipts";
+    case "lag":
+      return "/branches";
     default:
       return null;
   }
@@ -61,6 +63,8 @@ export function severity(a) {
   if (a.kind === "shiftstale") return "high";
   // Успеть можно только сейчас — потом чек уедет в следующий день
   if (a.kind === "closing") return "high";
+  // Отставание — повод разобраться, но не бежать сию секунду
+  if (a.kind === "lag") return "medium";
   if (a.kind === "negstock") return a.count > 1 ? "high" : "medium";
   // Минус по всей сети — одна строка, но самая важная в ленте
   if (a.kind === "negstockAll") return "high";
@@ -103,6 +107,12 @@ export function describe(a) {
         icon: "ti-package-off",
         title: `${a.spot} — поставки не проводят ${a.days} ${plural(a.days, "день", "дня", "дней")}`,
         hint: "Товар привозят, а в Poster его не заводят",
+      };
+    case "lag":
+      return {
+        icon: "ti-trending-down",
+        title: `${a.spot} — ${a.share}% дневной кассы сети`,
+        hint: `Поровну вышло бы ${a.fair}%. Сегодня ${money(a.total)} за ${a.checks} ${plural(a.checks, "чек", "чека", "чеков")}.`,
       };
     case "closing":
       return {

@@ -461,8 +461,9 @@ section("Лента грузится в два захода, а ноль не в
   const api = readFileSync("api/alerts.js", "utf8");
   ok(/const full = url0\.searchParams\.get\("full"\) === "1"/.test(api),
      "медленная половина берётся только по запросу");
-  ok(/full \? posterCall\("storage\.getSupplies"/.test(api),
-     "поставки на 2,7 МБ — не в быстром заходе");
+  // Стало ещё лучше: поставок в ленте нет вовсе, значит и запроса на
+  // 2,7 МБ нет ни в быстром заходе, ни в медленном.
+  ok(!/storage\.getSupplies/.test(api), "запрос на 2,7 МБ ушёл из ленты совсем");
   ok(/full \? negativeStockAlerts\(ymd\)/.test(api),
      "и восемь запросов за остатками тоже");
 
