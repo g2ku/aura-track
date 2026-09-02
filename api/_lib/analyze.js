@@ -61,12 +61,40 @@ export function analyzeProduct(docs, query) {
           sum: s,
           ts: e.ts || null,
           raw: e.raw || "",
+          // id записи — «<чат>:<сообщение>». Когда чатов несколько,
+          // по нему видно, откуда пришла накладная.
+          chatId: String(e.id || "").split(":")[0] || null,
         });
       }
     }
   }
 
   hits.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.ts || 0) - (b.ts || 0)));
+
+  // Дубли: один и тот же товар, та же точка, тот же день и та же сумма.
+  //
+  // Ради этого сверка и нужна тому, у кого несколько чатов: бариста
+  // прислал накладную в чат филиала и продублировал в общий, и приход
+  // посчитался дважды. Само по себе это не всплывает никогда.
+  const seen = new Map();
+  for (const h of hits) {
+    const key = `${h.date}|${h.branch}|${normalizeProductName(h.name)}|${Math.round(h.sum)}`;
+    (seen.get(key) || seen.set(key, []).get(key)).push(h);
+  }
+  const duplicates = [...seen.values()]
+    .filter((g) => g.length > 1)
+    .map((g) => ({
+      date: g[0].date,
+      branch: g[0].branch,
+      name: g[0].name,
+      sum: g[0].sum,
+      times: g.length,
+      // Из разных чатов — почти наверняка дубль. Из одного — мог быть
+      // и настоящий второй завоз в тот же день.
+      chats: [...new Set(g.map((h) => h.chatId).filter(Boolean))],
+      authors: [...new Set(g.map((h) => h.author).filter(Boolean))],
+    }))
+    .sort((a, b) => b.sum - a.sum);
 
   return {
     query,
@@ -79,5 +107,7 @@ export function analyzeProduct(docs, query) {
     // обычное» и «Молоко Обычное 2,5%» в отчёте окажутся разными строками.
     names: Object.values(byName).sort((a, b) => b.sum - a.sum),
     hits,
+    duplicates,
+    chats: [...new Set(hits.map((h) => h.chatId).filter(Boolean))],
   };
 }

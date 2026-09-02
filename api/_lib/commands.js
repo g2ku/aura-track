@@ -488,6 +488,20 @@ async function handleCommand({ cmd, args }, ctx) {
         `Всего: ${fmtSum(res.sum)}${res.qty ? ` · ${res.qty} шт` : ""} · ${res.times} ${plural(res.times, "поставка", "поставки", "поставок")} за ${res.days} ${plural(res.days, "день", "дня", "дней")}`,
       ];
 
+      // Дубли — первыми: ради них сверка и нужна. Одна накладная,
+      // присланная в два чата, считается дважды, и сама по себе эта
+      // ошибка не всплывает никогда.
+      if (res.duplicates.length) {
+        const money = res.duplicates.reduce((sum, d) => sum + d.sum * (d.times - 1), 0);
+        lines.push("", `⚠️ <b>Похоже на дубли</b> — лишних ${fmtSum(money)}`);
+        for (const d of res.duplicates.slice(0, 6)) {
+          const where = d.chats.length > 1 ? " · из разных чатов" : " · из одного чата";
+          lines.push(`• ${formatDateRu(d.date)} · ${escapeHtml(d.branch)} · ${escapeHtml(d.name)} — ${fmtSum(d.sum)} ×${d.times}${where}`);
+        }
+        if (res.duplicates.length > 6) lines.push(`• и ещё ${res.duplicates.length - 6}`);
+        lines.push("<i>Из разных чатов — почти наверняка дубль. Из одного мог быть и второй завоз.</i>");
+      }
+
       if (res.names.length > 1) {
         lines.push("", "<b>Написания</b>");
         for (const n of res.names) lines.push(`• ${escapeHtml(n.name)} — ${n.times}× · ${fmtSum(n.sum)}`);
