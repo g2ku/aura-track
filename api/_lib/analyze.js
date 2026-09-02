@@ -29,7 +29,8 @@ export function matchesQuery(name, query) {
 }
 
 // docs — дневные документы за период (как их отдаёт getDocsRange).
-export function analyzeProduct(docs, query) {
+// only — чем сузить выборку: { chatId } или { branch }.
+export function analyzeProduct(docs, query, only = {}) {
   const hits = [];
   const byBranch = {};
   const byName = {};
@@ -38,6 +39,15 @@ export function analyzeProduct(docs, query) {
 
   for (const doc of docs || []) {
     for (const e of doc?.entries || []) {
+      // Сужение: один чат или один филиал.
+      //
+      // Если чат у записи неизвестен (старые данные без id) — НЕ
+      // выбрасываем: в инструменте для сверки тихо потерять приход хуже,
+      // чем показать лишний. Такие строки помечаются отдельно.
+      const fromChat = String(e.id || "").split(":")[0] || null;
+      if (only.chatId && fromChat && String(only.chatId) !== fromChat) continue;
+      if (only.branch && e.branch !== only.branch) continue;
+
       for (const item of e.items || []) {
         if (!matchesQuery(item.name, query)) continue;
 
@@ -109,5 +119,8 @@ export function analyzeProduct(docs, query) {
     hits,
     duplicates,
     chats: [...new Set(hits.map((h) => h.chatId).filter(Boolean))],
+    // Сколько строк без известного чата — чтобы сужение не выглядело
+    // точнее, чем оно есть
+    unknownChat: hits.filter((h) => !h.chatId).length,
   };
 }
