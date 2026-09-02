@@ -136,6 +136,7 @@ export default function BaristaStats() {
                       <th>Бариста</th>
                       <th className="text-right">Выручка</th>
                       <th className="text-right">Доля точки</th>
+                      <th className="text-right">Дней</th>
                       <th className="text-right">Чеков</th>
                       <th className="text-right">Средний чек</th>
                       <th className="text-right">Чеков в час</th>
@@ -149,6 +150,7 @@ export default function BaristaStats() {
                           <td style={{ fontWeight: 600 }}>{p.name}</td>
                           <td className="text-right num">{fmt(p.total)}</td>
                           <td className="text-right num" style={{ color: "var(--text-muted)" }}>{p.shareOfSpot}%</td>
+                          <td className="text-right num" style={{ color: "var(--text-muted)" }}>{p.daysWorked ?? "—"}</td>
                           <td className="text-right num">{p.checks}</td>
                           <td className="text-right num" style={{ fontWeight: 600 }}>
                             {fmt(p.avgCheck)}
@@ -161,7 +163,8 @@ export default function BaristaStats() {
                               </span>
                             )}
                           </td>
-                          <td className="text-right num" style={{ color: "var(--text-muted)" }}>
+                          <td className="text-right num" style={{ color: "var(--text-muted)" }}
+                              title={p.hours ? `${p.hours} ч за прилавком` : "Слишком мало чеков, чтобы судить о скорости"}>
                             {p.perHour ?? "—"}
                           </td>
                         </tr>
@@ -203,7 +206,8 @@ export default function BaristaStats() {
 
       <div style={{ marginTop: 12, color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
         Сравнение — внутри точки: поток на Жароково и на ОБИ разный, и «средний чек ниже» значит там разное.
-        «Чеков в час» считается от первого чека до последнего, так что для короткой смены цифра грубее.
+        «Чеков в час» считается по каждому дню отдельно — от первого чека смены до последнего — и суммируется.
+        Если человек отработал меньше часа, стоит прочерк: по одному чеку скорость не узнать.
         История проблем копится с того дня, как сторож начал их запоминать.
       </div>
     </div>
