@@ -447,12 +447,26 @@ async function handleCommand({ cmd, args }, ctx) {
           "",
           "Период: <code>вчера</code>, <code>7 дней</code>, <code>неделя</code>, <code>2 недели</code>, <code>месяц</code>, <code>1 месяц</code>",
           "Дальше — название или его начало: <code>мон</code>, <code>пон</code>, <code>мол коко</code>",
+          "",
+          "Сузить: <code>/анализ месяц мон абая</code> — только по этому филиалу.",
+          "Спросить прямо в чате — ответ будет только по нему.",
         ].join("\n") };
+      }
+
+      // Филиал можно назвать где угодно: «/анализ месяц мон абая» и
+      // «/анализ абая месяц мон» — одно и то же. Список алиасов
+      // закрытый, так что перепутать с названием товара почти нельзя.
+      let onlyBranch = null;
+      const kept = [];
+      for (const w of raw.split(/\s+/)) {
+        const b = !onlyBranch ? matchBranch(w) : null;
+        if (b) { onlyBranch = b; continue; }
+        kept.push(w);
       }
 
       // Период стоит первым, товар — всё, что осталось. Разбираем с
       // самого длинного начала: «2 недели» надо откусить целиком.
-      const words = raw.split(/\s+/);
+      const words = kept;
       let period = null;
       let take = 0;
       for (let n = Math.min(3, words.length); n >= 1; n--) {
@@ -465,9 +479,18 @@ async function handleCommand({ cmd, args }, ctx) {
       if (!query) return { text: "Не понял, что искать. Например: <code>/анализ месяц мон</code>" };
       if (!store.getDocsRange) return { text: "Сверка за период недоступна." };
 
+      // Спросили в чате — значит про этот чат. В личке — про всю сеть.
+      // Никакой новой команды учить не надо: где спросил, про то и ответ.
+      const onlyChat = msg.chat?.type === "private" ? null : String(msg.chat?.id ?? "");
+
       const docs = await store.getDocsRange(period.from, period.to);
       const { analyzeProduct } = await import("./analyze.js");
-      const res = analyzeProduct(docs, query);
+      const res = analyzeProduct(docs, query, { chatId: onlyChat, branch: onlyBranch });
+
+      const scope = [
+        onlyBranch ? escapeHtml(onlyBranch) : null,
+        onlyChat ? "только этот чат" : null,
+      ].filter(Boolean).join(" · ");
 
       if (!res.times) {
         // Подсказываем, что вообще приходило: искать вслепую утомительно
@@ -477,16 +500,20 @@ async function handleCommand({ cmd, args }, ctx) {
         }
         const top = [...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n]) => n);
         return { text: [
-          `${escapeHtml(periodTitle(period))} — ничего похожего на «${escapeHtml(query)}» не приходило.`,
+          `${escapeHtml(periodTitle(period))}${scope ? ` · ${scope}` : ""} — ничего похожего на «${escapeHtml(query)}» не приходило.`,
           top.length ? "\nЧто приходило: " + top.map((n) => escapeHtml(n)).join(", ") : "",
         ].join("\n") };
       }
 
       const lines = [
-        `<b>«${escapeHtml(query)}» · ${escapeHtml(periodTitle(period))}</b>`,
+        `<b>«${escapeHtml(query)}» · ${escapeHtml(periodTitle(period))}${scope ? ` · ${scope}` : ""}</b>`,
         "",
         `Всего: ${fmtSum(res.sum)}${res.qty ? ` · ${res.qty} шт` : ""} · ${res.times} ${plural(res.times, "поставка", "поставки", "поставок")} за ${res.days} ${plural(res.days, "день", "дня", "дней")}`,
       ];
+
+      if (onlyChat && res.unknownChat) {
+        lines.push(`<i>Из них ${res.unknownChat} без известного чата — оставил, чтобы не потерять приход.</i>`);
+      }
 
       // Дубли — первыми: ради них сверка и нужна. Одна накладная,
       // присланная в два чата, считается дважды, и сама по себе эта
