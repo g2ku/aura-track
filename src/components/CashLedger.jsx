@@ -675,8 +675,6 @@ export default function CashLedger({
         </div>
       )}
 
-      {showFeed && <ProblemFeed onNavigate={(p) => route.navigate(p)} />}
-
       {/* ─── Лента касс ─────────────────────────────────────────────── */}
       {loading ? (
         <div className="cl-zone">
@@ -865,6 +863,10 @@ export default function CashLedger({
           <i className="ti ti-plus" aria-hidden="true" /> Добавить отчёт
         </button>
       )}
+      {/* Лента — внизу: сверху человек пришёл за кассой, а не за
+          списком проблем. Владелец так и попросил. */}
+      {showFeed && <ProblemFeed onNavigate={(p) => route.navigate(p)} />}
+
     </div>
   );
 }

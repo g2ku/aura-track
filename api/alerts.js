@@ -11,6 +11,7 @@
 import { posterCall, dashTransactions } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
 import { buildAlerts, buildSupplyAlerts } from "./_lib/watch.js";
+import { buildLagAlerts } from "./_lib/briefing.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "./_lib/shifts.js";
 import { branchByStorage } from "./_lib/reconcile.js";
 import { movementParams, normalizeMovement, buildMovementTable, negativeStock, collapseNegative } from "./_lib/movement.js";
@@ -80,10 +81,9 @@ export default async function handler(req, res) {
   // лентой, а не превратиться в пустой экран.
   const config = await getConfig().catch(() => ({}));
 
-  const [shiftsR, rowsR, suppliesR, stockR] = await Promise.allSettled([
+  const [shiftsR, rowsR, stockR] = await Promise.allSettled([
     posterCall("finance.getCashShifts", {}),
     dashTransactions(ymd),
-    full ? posterCall("storage.getSupplies", {}) : Promise.resolve(null),
     full ? negativeStockAlerts(ymd) : Promise.resolve([]),
   ]);
 
@@ -101,7 +101,24 @@ export default async function handler(req, res) {
     // висеть. Денег в нём нет, делать с ним нечего. В телеграме их и не
     // было, а в ленту на сайте они пролезали — и «забытый чек» писалось
     // на пустышку.
-    alerts.push(...buildAlerts(rowsR.value, opts).filter((a) => a.kind !== "stuck" || !a.empty));
+    // Чеки в ленту НЕ идут.
+    //
+    // На экране прямо под ней есть блок «Открытые чеки» — с группировкой
+    // по бариста и раскрытием. Дублировать его строками «чек висит 17
+    // мин» значит топить в рутине то, ради чего лента и нужна: девять
+    // строк из тринадцати были про напитки, которые в этот момент делают.
+    //
+    // Остаётся то, чего на экране нет и что требует решения: точка не
+    // открылась, за день нет продаж, смену не закрыли, тишина.
+    const IGNORED = new Set(["stuck", "nosupply"]);
+    alerts.push(...buildAlerts(rowsR.value, opts).filter((a) => !IGNORED.has(a.kind)));
+
+    // Точка, сильно отстающая по кассе. Этого нет больше нигде: суммы
+    // видно, а насколько это мало относительно остальных — нет.
+    alerts.push(...buildLagAlerts(rowsR.value, {
+      ...opts,
+      openSpots: shifts.length ? openSpots(shifts) : null,
+    }));
     if (shifts.length) {
       // Продавала сегодня — значит открылась, что бы ни говорили смены
       const soldToday = new Set(rowsR.value.map((t) => String(t.spot_id || "")).filter(Boolean));
@@ -113,13 +130,9 @@ export default async function handler(req, res) {
     failed.push("чеки");
   }
 
-  if (!full) {
-    // ничего: медленную половину клиент запросит отдельно
-  } else if (suppliesR.status === "fulfilled") {
-    alerts.push(...buildSupplyAlerts(suppliesR.value?.response || [], { now, seen: {} }));
-  } else {
-    failed.push("поставки");
-  }
+  // Поставки в ленту не идут: «не проводят 2 дня» есть на экране
+  // «Накладные», а здесь это ещё одна строка, которую нечем закрыть
+  // прямо сейчас. Заодно ушёл запрос на 2,7 МБ.
 
   if (!full) { /* см. выше */ }
   else if (stockR.status === "fulfilled") alerts.push(...stockR.value);

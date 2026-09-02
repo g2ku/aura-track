@@ -88,3 +88,50 @@ export function formatDayLabel(ymd) {
   if (!m) return String(ymd);
   return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}`;
 }
+
+// ─── Точка, сильно отстающая по кассе ────────────────────────────────
+//
+// То же правило, что в утренней сводке («OBI — всего 4% дневной кассы
+// сети»), но про СЕГОДНЯ. Это как раз то, чего нет больше нигде на
+// экране: касса по точкам показывает суммы, а насколько это мало
+// относительно остальных — приходится прикидывать в уме.
+//
+// Не раньше полудня: утром доли скачут, и точка, открывшаяся на час
+// позже, выглядела бы провальной без всякой причины.
+export const LAG_SHARE_PCT = 6;      // доля в дневной кассе ниже — вопрос
+export const LAG_NOT_BEFORE = "12:00";
+
+export function buildLagAlerts(rows, opts = {}) {
+  const { nowHHMM, seen = {}, now = Date.now(), openSpots = null } = opts;
+  if (!nowHHMM || nowHHMM < LAG_NOT_BEFORE) return [];
+
+  const day = summarizeDay(rows);
+  if (!day.total || day.spots.length < 3) return [];
+
+  const fair = 100 / day.spots.length;   // сколько было бы поровну
+  const alerts = [];
+
+  for (const s of day.spots) {
+    // Закрытая точка отстаёт законно
+    if (openSpots && !openSpots.has(String(s.spotId))) continue;
+
+    const share = Math.round((s.total / day.total) * 100);
+    if (share > LAG_SHARE_PCT) continue;
+
+    const key = `lag:${s.spotId}:${nowHHMM.slice(0, 2)}`;
+    if (seen[key]) continue;
+
+    alerts.push({
+      key,
+      kind: "lag",
+      spot: s.name,
+      spotId: s.spotId,
+      share,
+      fair: Math.round(fair),
+      total: Math.round(s.total),
+      checks: s.checks,
+    });
+  }
+
+  return alerts.sort((a, b) => a.share - b.share);
+}
