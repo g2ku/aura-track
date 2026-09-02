@@ -35,7 +35,7 @@ section("Метка пишется сразу после отправки");
 
 {
   const sendAt = code.indexOf("await sendMessage(target, formatAlerts(toSend)");
-  const markAt = code.indexOf("setConfig({ alertSeen: patch.alertSeen })");
+  const markAt = code.indexOf("setConfig({ alertSeen: patch.alertSeen, alertLog: patch.alertLog })");
   ok(sendAt > 0 && markAt > sendAt, "то же для тревог: отправили — отметили");
 }
 

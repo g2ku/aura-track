@@ -64,6 +64,7 @@ const MyTicketsView = lazy(() => import("../components/MyTicketsView"));
 const RegistrationPage = lazy(() => import("../components/RegistrationPage"));
 const AdminUsers = lazy(() => import("../components/AdminUsers"));
 const IngredientMovement = lazy(() => import("../components/IngredientMovement"));
+const BaristaStats = lazy(() => import("../components/BaristaStats"));
 const MarginView = lazy(() => import("../components/MarginView"));
 const TaxesView = lazy(() => import("../components/TaxesView"));
 const IPGroupsAdmin = lazy(() => import("../components/IPGroupsAdmin"));
@@ -215,6 +216,8 @@ export function useRouteContent({
     content = <MyTicketsView />;
   } else if (p === "/register") {
     content = <RegistrationPage />;
+  } else if (p === "/people") {
+    content = <BaristaStats />;
   } else if (p === "/movement" && isAdmin()) {
     content = <IngredientMovement />;
   } else if (p === "/admin/users" && isAdmin()) {

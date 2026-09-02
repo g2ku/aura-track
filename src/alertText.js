@@ -49,6 +49,7 @@ export function alertLink(a) {
     case "closing":
       return "/receipts";
     case "lag":
+    case "behind":
       return "/branches";
     default:
       return null;
@@ -65,6 +66,8 @@ export function severity(a) {
   if (a.kind === "closing") return "high";
   // Отставание — повод разобраться, но не бежать сию секунду
   if (a.kind === "lag") return "medium";
+  // Провал вдвое от своей же нормы — это уже не «присмотреться»
+  if (a.kind === "behind") return (a.pct ?? 100) < 40 ? "high" : "medium";
   if (a.kind === "negstock") return a.count > 1 ? "high" : "medium";
   // Минус по всей сети — одна строка, но самая важная в ленте
   if (a.kind === "negstockAll") return "high";
@@ -107,6 +110,12 @@ export function describe(a) {
         icon: "ti-package-off",
         title: `${a.spot} — поставки не проводят ${a.days} ${plural(a.days, "день", "дня", "дней")}`,
         hint: "Товар привозят, а в Poster его не заводят",
+      };
+    case "behind":
+      return {
+        icon: "ti-chart-arrows-vertical",
+        title: `${a.spot} — ${a.pct}% от обычного дня`,
+        hint: `${money(a.got)} против обычных ${money(a.usual)} к этому часу (по ${a.sample} дням)`,
       };
     case "lag":
       return {
