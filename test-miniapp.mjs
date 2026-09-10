@@ -35,7 +35,7 @@ await build({
   jsx: "automatic", loader: { ".css": "empty" }, logLevel: "silent",
 });
 
-const { Give, Warehouse, Today, screenFor, ROLE_NAME } =
+const { Give, Warehouse, Today, History, screenFor, tabsFor, ROLE_NAME } =
   await import(new URL(`./${out}`, import.meta.url).href);
 rmSync(dir, { recursive: true, force: true });
 
@@ -60,12 +60,23 @@ const noop = async () => ({});
 section("Кому какой экран");
 
 {
-  eq(screenFor("supplier"), { canGive: true, canStock: false, tabs: false, home: "give" }, "снабженец — только развоз");
-  eq(screenFor("admin"), { canGive: true, canStock: true, tabs: true, home: "stock" }, "владелец — оба экрана");
-  eq(screenFor("viewer"), { canGive: false, canStock: true, tabs: false, home: "stock" }, "наблюдатель — только смотреть");
-  eq(screenFor(null), { canGive: false, canStock: false, tabs: false, home: "stock" }, "без роли — ничего");
+  eq(screenFor("supplier"), { canGive: true, canStock: false, canHistory: false, home: "give" }, "снабженец — только развоз");
+  eq(screenFor("admin"), { canGive: true, canStock: true, canHistory: true, home: "stock" }, "владелец — всё");
+  eq(screenFor("viewer"), { canGive: false, canStock: true, canHistory: true, home: "stock" }, "наблюдатель — смотреть и историю");
+  eq(screenFor(null), { canGive: false, canStock: false, canHistory: false, home: "stock" }, "без роли — ничего");
   eq(screenFor("выдуманная"), screenFor(null), "незнакомая роль не открывает лишнего");
   ok(ROLE_NAME.viewer && ROLE_NAME.admin && ROLE_NAME.supplier, "у каждой роли есть подпись");
+}
+
+section("Вкладки по правам");
+
+{
+  eq(tabsFor("admin").map((t) => t.id), ["stock", "give", "history"], "владельцу три вкладки");
+  eq(tabsFor("viewer").map((t) => t.id), ["stock", "history"], "наблюдателю склад и история");
+  eq(tabsFor("supplier"), [], "снабженцу одна страница — подписывать нечего");
+  eq(tabsFor(null), [], "без роли вкладок нет");
+  ok(!tabsFor("viewer").some((t) => t.id === "give"), "наблюдателю развоз не предлагают");
+  ok(!tabsFor("supplier").some((t) => t.id === "history"), "снабженцу история не нужна");
 }
 
 section("Наблюдатель не видит ни одной кнопки записи");
@@ -122,6 +133,31 @@ section("Что записано сегодня");
   eq(render(h(Today, { moves: undefined, skus: SKUS })), "", "и отсутствующий журнал не роняет экран");
   eq(render(h(Today, { moves: [{ kind: "in", sku: "350", qty: 10, at }], skus: SKUS })), "",
      "день с одним приходом — тоже пусто на развозе");
+}
+
+section("История");
+
+{
+  const at = Date.parse("2026-09-10T10:00:00+05:00");
+  const answer = {
+    from: "2026-09-01", to: "2026-09-10",
+    in: { "350": 5000, "450": 0 },
+    out: { "350": 900, "450": 100 },
+    branches: [
+      { branch: "Абая", qty: { "350": 500, "450": 100 }, trips: 2, last: at },
+      { branch: "Дубай", qty: { "350": 400, "450": 0 }, trips: 1, last: at },
+    ],
+  };
+  const api = async () => answer;
+
+  // Первый кадр — до ответа сервера
+  const first = render(h(History, { api, today: "2026-09-10", keepDays: 365, skus: SKUS }));
+  ok(first.includes("Сегодня") && first.includes("Этот месяц"), "кнопки периодов на месте");
+  ok(first.includes("Другой месяц"), "выбор месяца есть");
+  ok(first.includes('type="date"'), "и выбор дня — родным полем даты");
+  ok(first.includes('max="2026-09-10"'), "будущие дни выбрать нельзя");
+  ok(first.includes("сентябрь 2026") && first.includes("октябрь 2025"), "в списке месяцев год назад");
+  ok(!first.includes("NaN") && !first.includes("undefined"), "и до ответа сервера ничего не сломано");
 }
 
 section("Пустое состояние не роняет экраны");

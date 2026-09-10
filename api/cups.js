@@ -5,8 +5,8 @@
 // при чём: снабженец не заводит аккаунт на сайте, он открывает бота.
 
 import { verifyInitData, roleOf, canWrite } from "./_lib/telegramAuth.js";
-import { getConfig, getCupState, applyCupMoves, getCupDay } from "./_lib/store.js";
-import { SKUS } from "./_lib/cups.js";
+import { getConfig, getCupState, applyCupMoves, getCupDay, getCupDays } from "./_lib/store.js";
+import { SKUS, summarizePeriod, KEEP_DAYS, retentionCutoff } from "./_lib/cups.js";
 import { BRANCH_ORDER } from "./_lib/branches.js";
 
 function almatyDay() {
@@ -14,6 +14,13 @@ function almatyDay() {
     timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 }
+
+// «2026-09-10» и ничего кроме: дата уходит прямо в запрос к базе.
+const ymd = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null);
+
+// Историю видят все, кроме снабженца: ему она без надобности, а лишний
+// экран в приложении, которое заполняют стоя у машины, только мешает.
+const canSee = (role) => role === "admin" || role === "viewer";
 
 function initDataOf(req) {
   const h = req.headers?.["x-telegram-init-data"];
@@ -52,8 +59,26 @@ export default async function handler(req, res) {
   const today = almatyDay();
 
   if (req.method === "GET") {
+    // ?from=&to= — история за отрезок. Отдельным ответом, а не куском
+    // общего: открытие приложения не должно тянуть журнал за месяц.
+    const { from, to } = req.query || {};
+    if (from || to) {
+      if (!canSee(role)) { res.status(403).json({ error: "У вас нет доступа к истории" }); return; }
+      const a = ymd(from), b = ymd(to);
+      if (!a || !b || a > b) { res.status(400).json({ error: "Не понял даты" }); return; }
+      // Дальше границы хранения смотреть нечего — там пусто по замыслу
+      const floor = retentionCutoff(today, config.cupKeepDays ?? KEEP_DAYS);
+      const days = await getCupDays(a < floor ? floor : a, b > today ? today : b);
+      res.status(200).json({ from: a, to: b, ...summarizePeriod(days) });
+      return;
+    }
+
     const [state, day] = await Promise.all([getCupState(), getCupDay(today)]);
-    res.status(200).json({ who, state, skus: SKUS, branches: BRANCH_ORDER, today: day?.moves || [] });
+    res.status(200).json({
+      who, state, skus: SKUS, branches: BRANCH_ORDER,
+      date: today, today: day?.moves || [],
+      keepDays: config.cupKeepDays ?? KEEP_DAYS,
+    });
     return;
   }
 

@@ -166,6 +166,7 @@ export const DEFAULT_CONFIG = {
   cupSuppliers: [],
   // Кто только смотрит: склад и развоз видит, записать не может ничего.
   cupViewers: [],
+  cupKeepDays: 365,        // сколько держим журнал выдач, дальше — само удаляется
   cupStaleDays: 7,         // столько дней без завоза стаканов — уже напоминание
   cupLowStock: 500,        // меньше этого на складе — пора закупать
 
@@ -343,7 +344,7 @@ export function botStore() {
   return {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
-    getCupState, applyCupMoves, getCupDays, getCupDay,
+    getCupState, applyCupMoves, getCupDays, getCupDay, purgeCupDays,
   };
 }
 
@@ -407,11 +408,44 @@ export async function applyCupMoves(moves, { day, opId = null, branches = null }
   });
 }
 
+// Журнал за отрезок — одним запросом по диапазону, а не чтением каждого
+// дня по отдельности: за месяц это 31 чтение вместо одного запроса, а
+// пустых дней в журнале большинство.
 export async function getCupDays(from, to) {
-  const dates = enumerateDates(from, to);
-  if (!dates.length) return [];
-  const db = getDb();
-  const refs = dates.map((d) => db.collection("cupDays").doc(d));
-  const snaps = await db.getAll(...refs);
-  return snaps.filter((s) => s.exists).map((s) => s.data());
+  if (!from || !to || from > to) return [];
+  try {
+    const snap = await getDb().collection("cupDays")
+      .where("date", ">=", from).where("date", "<=", to)
+      .orderBy("date").get();
+    return snap.docs.map((d) => d.data());
+  } catch (e) {
+    console.error("[cups] журнал за период не прочитался:", e?.message);
+    return [];
+  }
+}
+
+// Убираем всё старше года.
+//
+// Firestore умеет TTL сам, но политику надо заводить руками в консоли —
+// то есть она живёт вне репозитория и однажды не переедет вместе с ним.
+// Здесь же удаление видно в коде и покрыто тестом.
+//
+// За один заход берём ограниченную пачку: уборка висит хвостом у
+// утренней сводки, и растянуть её на несколько дней не жалко.
+export async function purgeCupDays(before, { limit = 200 } = {}) {
+  if (!before) return 0;
+  try {
+    const db = getDb();
+    const snap = await db.collection("cupDays")
+      .where("date", "<", before).orderBy("date").limit(limit).get();
+    if (snap.empty) return 0;
+
+    const batch = db.batch();
+    for (const d of snap.docs) batch.delete(d.ref);
+    await batch.commit();
+    return snap.size;
+  } catch (e) {
+    console.error("[cups] старые дни не удалились:", e?.message);
+    return 0;
+  }
 }

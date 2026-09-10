@@ -10,18 +10,32 @@ export const ROLE_NAME = {
   viewer: "смотрит",
 };
 
+export const TABS = [
+  { id: "stock", title: "Склад", need: "canStock" },
+  { id: "give", title: "Развоз", need: "canGive" },
+  { id: "history", title: "История", need: "canHistory" },
+];
+
+// Какие вкладки показать. Одна — значит показывать нечего: подпись над
+// единственным экраном только занимает место на маленьком экране.
+export function tabsFor(role) {
+  const v = screenFor(role);
+  const list = TABS.filter((t) => v[t.need]);
+  return list.length > 1 ? list : [];
+}
+
 export function screenFor(role) {
   switch (role) {
     // Снабженец приходит раздавать. Склад и «куда давно не возили» ему
     // не показываем не из секретности, а чтобы не листал лишнее.
     case "supplier":
-      return { canGive: true, canStock: false, tabs: false, home: "give" };
+      return { canGive: true, canStock: false, canHistory: false, home: "give" };
     case "admin":
-      return { canGive: true, canStock: true, tabs: true, home: "stock" };
+      return { canGive: true, canStock: true, canHistory: true, home: "stock" };
     // Наблюдатель видит ровно то же, что владелец, и ни одной кнопки записи
     case "viewer":
-      return { canGive: false, canStock: true, tabs: false, home: "stock" };
+      return { canGive: false, canStock: true, canHistory: true, home: "stock" };
     default:
-      return { canGive: false, canStock: false, tabs: false, home: "stock" };
+      return { canGive: false, canStock: false, canHistory: false, home: "stock" };
   }
 }

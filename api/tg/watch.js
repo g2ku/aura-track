@@ -12,7 +12,7 @@
 // Раз в 10–15 минут. Всё остальное — время сводки, пороги, тихие часы —
 // настраивается командами бота и лежит в его настройках.
 
-import { getConfig, setConfig, getDoc, getCupState } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, getCupState, purgeCupDays } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
@@ -90,12 +90,18 @@ export default async function handler(req, res) {
       // Не собралось — сводка уходит без него: цифры за вчера важнее.
       let cupsTail = "";
       try {
-        const { formatCupReminder } = await import("../_lib/cups.js");
+        const { formatCupReminder, retentionCutoff } = await import("../_lib/cups.js");
         cupsTail = formatCupReminder(await getCupState(), BRANCHES.map((b) => b.name), {
           days: config.cupStaleDays,
           low: config.cupLowStock,
           now: Date.now(),
         });
+
+        // Уборка журнала — раз в сутки, хвостом к сводке. Отдельного
+        // расписания заводить не за чем: ветка и так выполняется один
+        // раз в день, а спешить с удалением годовалых записей некуда.
+        const gone = await purgeCupDays(retentionCutoff(today, config.cupKeepDays));
+        if (gone) out.cupsPurged = gone;
       } catch (e) {
         console.error("[cups] напоминание не собралось:", e?.message);
       }

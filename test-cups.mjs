@@ -9,6 +9,7 @@ import { createHmac } from "node:crypto";
 import {
   SKUS, SKU_IDS, emptyState, validateMove, applyMove, applyMoves,
   daysSinceOut, staleBranches, planWrite,
+  shiftDay, monthRange, periodRange, recentMonths, summarizePeriod, retentionCutoff, KEEP_DAYS,
   formatCupReminder, skuName,
 } from "./api/_lib/cups.js";
 import { verifyInitData, roleOf, canWrite, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
@@ -240,6 +241,85 @@ section("Филиал сверяется со справочником");
   // Приход на склад филиала не имеет — справочник ему не мешает
   ok(!validateMove({ kind: "in", sku: "350", qty: 500 }, st, { branches: BR }),
      "приход без филиала проходит");
+}
+
+section("Отрезки времени");
+
+{
+  eq(shiftDay("2026-09-10", -1), "2026-09-09", "день назад");
+  eq(shiftDay("2026-03-01", -1), "2026-02-28", "через границу месяца");
+  eq(shiftDay("2028-03-01", -1), "2028-02-29", "високосный февраль");
+  eq(shiftDay("2026-01-01", -1), "2025-12-31", "через новый год");
+  eq(shiftDay("2026-09-10", 0), "2026-09-10", "ноль дней — тот же день");
+
+  eq(periodRange("today", "2026-09-10"), { from: "2026-09-10", to: "2026-09-10" }, "сегодня");
+  eq(periodRange("yesterday", "2026-09-10"), { from: "2026-09-09", to: "2026-09-09" }, "вчера");
+  eq(periodRange("7", "2026-09-10"), { from: "2026-09-04", to: "2026-09-10" }, "7 дней — это семь, включая сегодня");
+  eq(periodRange("30", "2026-09-10"), { from: "2026-08-12", to: "2026-09-10" }, "30 дней");
+  eq(periodRange("month", "2026-09-10"), { from: "2026-09-01", to: "2026-09-10" }, "этот месяц — с первого по сегодня");
+  eq(periodRange("чепуха", "2026-09-10"), { from: "2026-09-10", to: "2026-09-10" }, "незнакомый период — сегодня");
+
+  eq(monthRange("2026-02"), { from: "2026-02-01", to: "2026-02-28" }, "февраль обычного года");
+  eq(monthRange("2028-02"), { from: "2028-02-01", to: "2028-02-29" }, "февраль високосного");
+  eq(monthRange("2026-12"), { from: "2026-12-01", to: "2026-12-31" }, "декабрь");
+  eq(monthRange("2026-13"), null, "тринадцатого месяца нет");
+  eq(monthRange("ерунда"), null, "мусор не разбирается");
+
+  const ms = recentMonths("2026-01-15", 3);
+  eq(ms, ["2026-01", "2025-12", "2025-11"], "список месяцев уходит назад через год");
+}
+
+section("Сколько храним");
+
+{
+  eq(KEEP_DAYS, 365, "год");
+  eq(retentionCutoff("2026-09-10"), "2025-09-10", "удаляем всё раньше этой даты");
+  eq(retentionCutoff("2026-09-10", 30), "2026-08-11", "срок настраивается");
+  // Граница: ровно годовалый день ещё живёт, день до него — уже нет
+  ok(retentionCutoff("2026-09-10") <= "2025-09-10", "день ровно год назад остаётся");
+  ok(retentionCutoff("2026-09-10") > "2025-09-09", "а днём раньше — удаляется");
+}
+
+section("Что было за период");
+
+{
+  const t = Date.parse("2026-09-10T10:00:00+05:00");
+  const days = [
+    { date: "2026-09-09", moves: [
+      { kind: "in", sku: "350", qty: 5000, at: t - 86400000 },
+      { kind: "out", sku: "350", qty: 300, branch: "Абая", at: t - 86400000 },
+    ] },
+    { date: "2026-09-10", moves: [
+      // одна поездка: две строки подряд по одной точке
+      { kind: "out", sku: "350", qty: 200, branch: "Абая", at: t },
+      { kind: "out", sku: "450", qty: 100, branch: "Абая", at: t + 500 },
+      // другая точка
+      { kind: "out", sku: "350", qty: 400, branch: "Дубай", at: t + 3600000 },
+      // мусор, который не должен попасть в счёт
+      { kind: "out", sku: "999", qty: 50, branch: "Абая", at: t },
+      { kind: "out", sku: "350", qty: 0, branch: "Абая", at: t },
+      { kind: "out", sku: "350", qty: 10, at: t },
+    ] },
+  ];
+
+  const r = summarizePeriod(days);
+  eq(r.in, { "350": 5000, "450": 0 }, "приход посчитан");
+  eq(r.out, { "350": 900, "450": 100 }, "выдача посчитана, чужой стакан не в счёт");
+
+  const abaya = r.branches.find((b) => b.branch === "Абая");
+  eq(abaya.qty, { "350": 500, "450": 100 }, "по Абая сложились оба дня");
+  eq(abaya.trips, 2, "два заезда, а не четыре строки");
+
+  const dubai = r.branches.find((b) => b.branch === "Дубай");
+  eq(dubai.trips, 1, "на Дубай один заезд");
+  eq(r.branches.length, 2, "выдача без филиала не создала третью точку");
+  eq(r.branches[0].branch, "Абая", "первым идёт тот, кому досталось больше");
+  ok(abaya.last >= t, "видно, когда возили в последний раз");
+
+  eq(summarizePeriod([]), { in: { "350": 0, "450": 0 }, out: { "350": 0, "450": 0 }, branches: [], moves: [] },
+     "пустой период считается в нули");
+  eq(summarizePeriod(null).branches, [], "и отсутствующий журнал не роняет");
+  eq(summarizePeriod([{ date: "x" }]).branches, [], "день без движений тоже");
 }
 
 section("Названия для человека");

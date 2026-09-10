@@ -12,7 +12,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Give from "./Give.jsx";
 import Warehouse from "./Warehouse.jsx";
-import { ROLE_NAME, screenFor } from "./roles.js";
+import History from "./History.jsx";
+import { ROLE_NAME, screenFor, tabsFor } from "./roles.js";
 
 const initData = () => window.Telegram?.WebApp?.initData || "";
 
@@ -71,10 +72,11 @@ export default function App({ tg }) {
   const { who, state, skus, branches, today = [] } = data;
   const isAdmin = who.role === "admin";
   const view = screenFor(who.role);
-  const active = tab ?? view.home;
-  // Экран выбираем от прав, а не от вкладки: у снабженца склада нет
-  // вовсе, и запасной ветке ternary туда падать не должно.
-  const showGive = view.canGive && (active === "give" || !view.canStock);
+  const tabs = tabsFor(who.role);
+  // Экран выбираем от прав, а не от вкладки: попасть на чужой нельзя
+  // даже случайно, а сервер всё равно проверит ещё раз.
+  const wanted = tab ?? view.home;
+  const active = view[`can${wanted[0].toUpperCase()}${wanted.slice(1)}`] ? wanted : view.home;
 
   return (
     <>
@@ -83,18 +85,21 @@ export default function App({ tg }) {
         {who.name} · {ROLE_NAME[who.role] || who.role}
       </div>
 
-      {view.tabs && (
+      {tabs.length > 0 && (
         <div className="tabs">
-          <button className={`tab${active === "stock" ? " on" : ""}`} onClick={() => setTab("stock")}>Склад</button>
-          <button className={`tab${active === "give" ? " on" : ""}`} onClick={() => setTab("give")}>Развоз</button>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              className={`tab${active === t.id ? " on" : ""}`}
+              onClick={() => setTab(t.id)}
+            >{t.title}</button>
+          ))}
         </div>
       )}
 
-      {showGive
-        ? <Give state={state} skus={skus} branches={branches} today={today} onSend={send} />
-        : view.canStock
-          ? <Warehouse state={state} skus={skus} branches={branches} today={today} onSend={send} isAdmin={isAdmin} />
-          : null}
+      {active === "give" && <Give state={state} skus={skus} branches={branches} today={today} onSend={send} />}
+      {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} onSend={send} isAdmin={isAdmin} />}
+      {active === "history" && <History api={api} today={data.date} keepDays={data.keepDays} skus={skus} />}
     </>
   );
 }

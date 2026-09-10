@@ -161,3 +161,108 @@ export function formatCupReminder(state, branches, opts = {}) {
 
   return lines.join("\n");
 }
+
+// ─── Периоды ──────────────────────────────────────────────────────────
+//
+// Даты здесь — строки «ГГГГ-ММ-ДД» по Алматы, и считаются они строковой
+// арифметикой через UTC. Брать сегодняшнее число из new Date() на
+// телефоне нельзя: у снабженца часы могут быть чужого пояса, и «сегодня»
+// разъедется с тем днём, под которым запись легла в базу.
+
+export function shiftDay(ymd, days) {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// «2026-09» → последний день месяца
+export function monthRange(ym) {
+  const [y, m] = String(ym).split("-").map(Number);
+  if (!y || !m || m < 1 || m > 12) return null;
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, "0")}` };
+}
+
+export const PERIODS = [
+  { id: "today", title: "Сегодня" },
+  { id: "yesterday", title: "Вчера" },
+  { id: "7", title: "7 дней" },
+  { id: "30", title: "30 дней" },
+  { id: "month", title: "Этот месяц" },
+];
+
+export function periodRange(kind, today) {
+  switch (String(kind)) {
+    case "today": return { from: today, to: today };
+    case "yesterday": { const d = shiftDay(today, -1); return { from: d, to: d }; }
+    case "7": return { from: shiftDay(today, -6), to: today };
+    case "30": return { from: shiftDay(today, -29), to: today };
+    case "month": return { from: `${today.slice(0, 7)}-01`, to: today };
+    default: return { from: today, to: today };
+  }
+}
+
+// Последние 12 месяцев для выпадающего списка. Дальше не показываем:
+// журнал всё равно живёт год.
+export function recentMonths(today, n = 12) {
+  const out = [];
+  let [y, m] = today.slice(0, 7).split("-").map(Number);
+  for (let i = 0; i < n; i++) {
+    out.push(`${y}-${String(m).padStart(2, "0")}`);
+    if (--m === 0) { m = 12; y--; }
+  }
+  return out;
+}
+
+// ─── Что было за период ───────────────────────────────────────────────
+//
+// Считаем из журнала, а не из накопительного счётчика в состоянии.
+// Счётчик растёт с начала времён, и через год «на Абая — 41 300» уже
+// ни о чём не говорит; вопрос всегда про отрезок: этот месяц, тот день.
+export function summarizePeriod(days) {
+  const moves = [];
+  for (const d of days || []) for (const m of d?.moves || []) moves.push(m);
+
+  const zero = () => Object.fromEntries(SKU_IDS.map((id) => [id, 0]));
+  const totalIn = zero();
+  const totalOut = zero();
+  const byBranch = {};
+
+  for (const m of moves) {
+    const sku = String(m?.sku ?? "");
+    if (!SKU_IDS.includes(sku)) continue;
+    const qty = int(m?.qty);
+    if (qty <= 0) continue;
+
+    if (m.kind === "in") { totalIn[sku] += qty; continue; }
+    if (m.kind !== "out" || !m.branch) continue;
+
+    const b = (byBranch[m.branch] ||= { branch: m.branch, qty: zero(), trips: 0, last: null, lastTrip: null });
+    b.qty[sku] += qty;
+    totalOut[sku] += qty;
+    if (!b.last || m.at > b.last) b.last = m.at || null;
+
+    // Одна поездка — несколько строк подряд по одной точке. Считать
+    // строки бессмысленно: два стакана на точку — это один заезд.
+    if (b.lastTrip == null || Math.abs((m.at || 0) - b.lastTrip) > 60000) b.trips++;
+    b.lastTrip = m.at || 0;
+  }
+
+  const branches = Object.values(byBranch)
+    .map(({ lastTrip, ...b }) => b)
+    .sort((a, z) => SKU_IDS.reduce((s, id) => s + z.qty[id] - a.qty[id], 0));
+
+  return { in: totalIn, out: totalOut, branches, moves };
+}
+
+// ─── Сколько храним ───────────────────────────────────────────────────
+//
+// Год — и журнал сам подчищается. Без этого коллекция растёт вечно, а
+// пользы от выдачи двухлетней давности нет никакой: сверять её не с чем,
+// в Poster тех остатков уже не найти.
+export const KEEP_DAYS = 365;
+
+// Всё строго РАНЬШЕ этой даты подлежит удалению.
+export function retentionCutoff(today, keepDays = KEEP_DAYS) {
+  return shiftDay(today, -keepDays);
+}

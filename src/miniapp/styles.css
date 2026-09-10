@@ -46,7 +46,7 @@ h1 { font-size: 20px; margin: 4px 0 2px; }
 .stock-l { color: var(--muted); font-size: 13px; margin-top: 2px; }
 
 /* 16px — не про красоту: на меньшем размере iOS зумит страницу при фокусе */
-input[type="number"], select {
+input[type="number"], input[type="date"], select {
   width: 100%;
   font-size: 16px;
   padding: 11px 12px;
@@ -81,6 +81,18 @@ button.primary:disabled { opacity: .5; }
   background: var(--bg); color: var(--muted); font-size: 14px; font-weight: 600;
 }
 .tab.on { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+
+/* Периоды: в отличие от вкладок их пять, и на узком экране они должны
+   переноситься, а не сжиматься в нечитаемые обрубки */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.chip {
+  padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--muted); font-size: 14px;
+}
+.chip.on { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+
+/* Айфон рисует пустое date-поле по-своему узким; выравниваем с select */
+input[type="date"] { min-height: 44px; }
 
 .msg { padding: 12px 14px; border-radius: 12px; margin-bottom: 12px; font-size: 14px; }
 .msg.err { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
