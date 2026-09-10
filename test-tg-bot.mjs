@@ -75,6 +75,8 @@ function message(text, opts = {}) {
     msg.message_thread_id = opts.threadId;
     msg.chat.is_forum = true;
   }
+  // Ответ на чужое сообщение: так владелец назначает снабженца
+  if (opts.replyTo) msg.reply_to_message = opts.replyTo;
   // Фото с подписью: Telegram кладёт текст в caption, поле text отсутствует
   if (opts.asPhoto) {
     msg.photo = [{ file_id: "AgAC", width: 1280, height: 960 }];
@@ -1017,6 +1019,64 @@ section("botSeen не копится вечно");
   ok(/\.limit\(limit\)/.test(src), "за раз удаляется ограниченная пачка");
   ok(/olderThanMs = 24 \* 60 \* 60 \* 1000/.test(src),
      "срок — сутки: Telegram повторяет доставку в пределах минут");
+}
+
+section("Стаканы: склад и снабженцы");
+
+{
+  const store = makeStore({ admins: [777] });
+  // Складом заведует то же поддельное хранилище
+  let cups = null;
+  store.getCupState = async () => cups;
+
+  // Назначение ответом — единственный путь, который есть у владельца:
+  // id человека он нигде не видит.
+  const кайрат = { id: 555, first_name: "Кайрат", username: "kairat" };
+  let r = await run(store, "/снабженец", { chatType: "private", chatId: 777, replyTo: { from: кайрат } });
+  ok(r.text.includes("@kairat"), "снабженец назначен ответом на его сообщение");
+  eq(store.config.cupSuppliers, ["555"], "id попал в настройки");
+
+  r = await run(store, "/снабженец", { chatType: "private", chatId: 777, replyTo: { from: кайрат } });
+  ok(r.text.includes("уже в списке"), "повторное назначение не плодит дублей");
+  eq(store.config.cupSuppliers, ["555"], "список не вырос");
+
+  // Бот сам собой снабженцем не станет
+  r = await run(store, "/снабженец", { chatType: "private", chatId: 777, replyTo: { from: { id: 42, is_bot: true, first_name: "AuraBot" } } });
+  ok(!r.text.includes("Добавил"), "бота в снабженцы не берём");
+
+  r = await run(store, "/снабженец", { chatType: "private", chatId: 777 });
+  ok(r.text.includes("555"), "без аргументов — список");
+
+  r = await run(store, "/снабженец нет 555", { chatType: "private", chatId: 777 });
+  eq(store.config.cupSuppliers, [], "и убрать можно");
+
+  // Посторонний не назначает снабженцев
+  r = await run(store, "/снабженец", { chatType: "private", chatId: 9, userId: 9, replyTo: { from: кайрат } });
+  ok(r.text.includes("Только для админа"), "чужому нельзя");
+  eq(store.config.cupSuppliers, [], "и ничего не записалось");
+}
+
+{
+  const store = makeStore({ admins: [777] });
+  const NOW = Date.now();
+  store.getCupState = async () => ({
+    stock: { "350": 1200, "450": 40 },
+    branches: { "Абая": { "350": 300, "450": 100 } },
+    lastOut: { "Абая": NOW - 20 * 86400000 },
+  });
+
+  const r = await run(store, "/склад", { chatType: "private", chatId: 777 });
+  ok(r.text.includes("1 200") || r.text.includes("1200"), "склад показывает остаток 350");
+  ok(r.text.includes("40"), "и остаток 450");
+  ok(/Абая\s*—\s*20/.test(r.text), "и что на Абая не возили 20 дней");
+  ok(r.text.includes("Дубай") || r.text.includes("ни разу"), "точки без завоза тоже видно");
+}
+
+{
+  // Кнопку ставит только владелец, и только когда известен адрес
+  const store = makeStore({ admins: [777] });
+  const r = await run(store, "/приложение", { chatType: "private", chatId: 5, userId: 5 });
+  ok(r.text.includes("Только для админа"), "кнопку ставит не всякий");
 }
 
 console.log("\n══════════════════════════════════════════════════");

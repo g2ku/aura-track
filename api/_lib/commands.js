@@ -8,7 +8,7 @@
 import { parseInvoiceMessage } from "./tgParser.js";
 import { BRANCHES, BRANCH_ORDER, branchNamesFor, matchIpGroup, matchBranch } from "./branches.js";
 import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
-import { parseCommand, setMenuButton, siteUrl } from "./telegram.js";
+import { parseCommand, setMenuButton, siteUrl, authorName } from "./telegram.js";
 import { posterSuppliesByBranch, reconcile, formatReconcile } from "./reconcile.js";
 import { applyCatalog } from "./products.js";
 
@@ -480,10 +480,23 @@ async function handleCommand({ cmd, args }, ctx) {
       const list = (config.cupSuppliers || []).map(String);
       const arg = String(args || "").trim();
 
+      // Ответ на сообщение человека — единственный способ узнать его id,
+      // не заставляя владельца искать цифры на стороне. Пересылка не
+      // годится: Telegram прячет отправителя, если тот закрыл профиль,
+      // а reply отдаёт from всегда.
+      const replied = msg.reply_to_message?.from;
+      if (!arg && replied && !replied.is_bot) {
+        const id = String(replied.id);
+        const who = authorName(replied) || replied.first_name || id;
+        if (list.includes(id)) return { text: `${escapeHtml(who)} уже в списке.` };
+        await store.setConfig({ cupSuppliers: [...list, id] });
+        return { text: `Добавил ${escapeHtml(who)} — <code>${id}</code>. Пусть откроет приложение у бота.` };
+      }
+
       if (!arg) {
         return { text: list.length
-          ? `<b>Возят стаканы</b>\n${list.map((i) => `• <code>${i}</code>`).join("\n")}\n\nДобавить: перешлите мне его сообщение и напишите <code>/снабженец</code> в ответ.`
-          : "Снабженцы не назначены.\n\nПерешлите мне сообщение человека и ответьте на него <code>/снабженец</code> — добавлю." };
+          ? `<b>Возят стаканы</b>\n${list.map((i) => `• <code>${i}</code>`).join("\n")}\n\nДобавить: ответьте <code>/снабженец</code> на любое сообщение человека в чате.\nУбрать: <code>/снабженец нет 12345</code>`
+          : "Снабженцы не назначены.\n\nОтветьте <code>/снабженец</code> на любое сообщение человека в чате — добавлю." };
       }
 
       if (/^нет|^убрать|^-/.test(arg)) {
