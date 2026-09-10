@@ -1,0 +1,46 @@
+// Что уже записано сегодня.
+//
+// Главная защита от двойного ввода — не хитрая логика на сервере, а
+// возможность посмотреть. Связь в машине рвётся, приложение
+// перезапускается, и снабженец честно не помнит, ушла Абая или нет.
+// Список отвечает на это за секунду.
+
+const time = (ms) => {
+  if (!ms) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(Number(ms)));
+};
+
+export default function Today({ moves, skus }) {
+  const outs = (moves || []).filter((m) => m.kind === "out");
+  if (!outs.length) return null;
+
+  // Одна поездка на точку — одна строка, стаканы в ней рядом
+  const byTrip = [];
+  for (const m of outs) {
+    const last = byTrip[byTrip.length - 1];
+    if (last && last.branch === m.branch && Math.abs(last.at - m.at) < 60000) {
+      last.items.push(m);
+    } else {
+      byTrip.push({ branch: m.branch, at: m.at, items: [m] });
+    }
+  }
+
+  const short = (id) => skus.find((s) => s.id === id)?.short || id;
+
+  return (
+    <div className="card" style={{ marginTop: 18 }}>
+      <div className="muted" style={{ marginBottom: 10 }}>Записано сегодня</div>
+      {byTrip.map((t, i) => (
+        <div className="branch-line" key={`${t.branch}-${t.at}-${i}`}>
+          <span className="grow name">{t.branch}</span>
+          <span className="muted num">
+            {t.items.map((m) => `${m.qty} × ${short(m.sku)}`).join(", ")}
+          </span>
+          <span className="days muted">{time(t.at)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}

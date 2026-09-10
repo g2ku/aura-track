@@ -4,30 +4,47 @@
 // форма на восемь филиалов разом означала бы прокрутку и ошибки.
 // Отправил — поле очистилось, поехал дальше.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import Today from "./Today.jsx";
 
-export default function Give({ state, skus, branches, onSend }) {
+// Метка отправки живёт, пока не изменилась сама партия. Нажал дважды
+// или связь оборвалась и он повторил — сервер узнает ту же метку и не
+// проведёт выдачу второй раз.
+const newOpId = () =>
+  (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+export default function Give({ state, skus, branches, today, onSend }) {
   const [branch, setBranch] = useState("");
   const [qty, setQty] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
 
   const set = (id, v) => setQty((q) => ({ ...q, [id]: v.replace(/[^\d]/g, "") }));
-  const bump = (id, d) => setQty((q) => ({ ...q, [id]: String(Math.max(0, (Number(q[id]) || 0) + d)) }));
+  const bump = (id, d) => setQty((q) => {
+    const next = (Number(q[id]) || 0) + d;
+    return { ...q, [id]: next <= 0 ? "" : String(next) };
+  });
 
   const moves = skus
     .map((s) => ({ kind: "out", sku: s.id, qty: Number(qty[s.id]) || 0, branch }))
     .filter((m) => m.qty > 0);
 
-  const canSend = branch && moves.length > 0 && !busy;
+  // Метка привязана к содержимому: пока в форме то же самое, повтор
+  // отправки считается той же самой попыткой, а не новой выдачей.
+  const opId = useMemo(newOpId, [branch, JSON.stringify(qty)]);
+
+  const overdrawn = moves.find((m) => m.qty > (state.stock?.[m.sku] ?? 0));
+  const canSend = branch && moves.length > 0 && !busy && !overdrawn;
 
   async function submit() {
     setBusy(true);
     setMsg(null);
     try {
-      await onSend(moves);
+      const r = await onSend(moves, opId);
       const what = moves.map((m) => `${m.qty} × ${m.sku}`).join(", ");
-      setMsg({ kind: "ok", text: `${branch}: записал ${what}` });
+      setMsg(r?.duplicate
+        ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
+        : { kind: "ok", text: `${branch}: записал ${what}` });
       setQty(Object.fromEntries(skus.map((s) => [s.id, ""])));
       setBranch("");
     } catch (e) {
@@ -68,9 +85,17 @@ export default function Give({ state, skus, branches, onSend }) {
         </div>
       ))}
 
+      {overdrawn && (
+        <div className="msg err">
+          На складе только {state.stock?.[overdrawn.sku] ?? 0} шт «{overdrawn.sku}»
+        </div>
+      )}
+
       <button className="primary" disabled={!canSend} onClick={submit}>
         {busy ? "Записываю…" : "Записать выдачу"}
       </button>
+
+      <Today moves={today} skus={skus} />
     </>
   );
 }

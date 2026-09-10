@@ -3,7 +3,8 @@
 // «Давно не возили» — главное здесь. Что стаканы кончаются, выясняется
 // обычно тогда, когда они кончились; эта строка говорит на неделю раньше.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import Today from "./Today.jsx";
 
 const DAY = 86400000;
 const WARN_DAYS = 7;
@@ -22,7 +23,7 @@ function daysWord(n) {
   return `${n} ${w} назад`;
 }
 
-export default function Warehouse({ state, skus, branches, onSend, isAdmin }) {
+export default function Warehouse({ state, skus, branches, today, onSend, isAdmin }) {
   const [add, setAdd] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -31,12 +32,19 @@ export default function Warehouse({ state, skus, branches, onSend, isAdmin }) {
     .map((s) => ({ kind: "in", sku: s.id, qty: Number(add[s.id]) || 0 }))
     .filter((m) => m.qty > 0);
 
+  // Та же метка, что и на развозе: приход, записанный дважды, — это
+  // склад, которого нет, и он потом всплывёт минусом на точках.
+  const opId = useMemo(
+    () => (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    [JSON.stringify(add)],
+  );
+
   async function submit() {
     setBusy(true);
     setMsg(null);
     try {
-      await onSend(moves);
-      setMsg({ kind: "ok", text: "Склад пополнен" });
+      const r = await onSend(moves, opId);
+      setMsg({ kind: "ok", text: r?.duplicate ? "Это уже было записано" : "Склад пополнен" });
       setAdd(Object.fromEntries(skus.map((s) => [s.id, ""])));
     } catch (e) {
       setMsg({ kind: "err", text: e.message });
@@ -104,6 +112,8 @@ export default function Warehouse({ state, skus, branches, onSend, isAdmin }) {
           </button>
         </div>
       )}
+
+      <Today moves={today} skus={skus} />
     </>
   );
 }

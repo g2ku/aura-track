@@ -61,6 +61,7 @@ const ADMIN_HELP = `
 /анализ месяц мон — что приходило под этим названием и от кого
 /склад — стаканы: остаток и куда давно не возили
 /снабженец — кто возит стаканы (ответом на его сообщение)
+/наблюдатель — кто может только смотреть склад
 /приложение — поставить кнопку «Стаканы» у поля ввода
 /сторож — тревоги о зависших чеках и тишине на точках
 /график — во сколько точки открываются и закрываются
@@ -457,6 +458,40 @@ async function handleCommand({ cmd, args }, ctx) {
       }
       lines.push("", "Раздача и пополнение — в приложении: кнопка «Открыть» внизу слева.");
       return { text: lines.join("\n") };
+    }
+
+    case "наблюдатель":
+    case "viewer": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const list = (config.cupViewers || []).map(String);
+      const arg = String(args || "").trim();
+
+      const replied = msg.reply_to_message?.from;
+      if (!arg && replied && !replied.is_bot) {
+        const id = String(replied.id);
+        const who = authorName(replied) || replied.first_name || id;
+        if (list.includes(id)) return { text: `${escapeHtml(who)} уже смотрит.` };
+        await store.setConfig({ cupViewers: [...list, id] });
+        return { text: `Добавил ${escapeHtml(who)} — <code>${id}</code>. Сможет смотреть склад, менять — нет.` };
+      }
+
+      if (!arg) {
+        return { text: list.length
+          ? `<b>Смотрят склад</b>\n${list.map((i) => `• <code>${i}</code>`).join("\n")}\n\nДобавить: ответьте <code>/наблюдатель</code> на сообщение человека.\nУбрать: <code>/наблюдатель нет 12345</code>`
+          : "Наблюдателей нет.\n\nОтветьте <code>/наблюдатель</code> на любое сообщение человека — он сможет смотреть склад, но ничего не запишет." };
+      }
+
+      if (/^нет|^убрать|^-/.test(arg)) {
+        const id = arg.replace(/^\D+/, "").trim();
+        await store.setConfig({ cupViewers: list.filter((i) => i !== id) });
+        return { text: `Убрал <code>${escapeHtml(id)}</code> из наблюдателей.` };
+      }
+
+      const id = arg.replace(/\D/g, "");
+      if (!id) return { text: "Не понял id. Ответьте <code>/наблюдатель</code> на сообщение человека." };
+      if (list.includes(id)) return { text: "Он уже смотрит." };
+      await store.setConfig({ cupViewers: [...list, id] });
+      return { text: `Добавил <code>${escapeHtml(id)}</code>. Сможет смотреть склад, менять — нет.` };
     }
 
     case "приложение":

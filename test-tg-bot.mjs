@@ -1058,6 +1058,26 @@ section("Стаканы: склад и снабженцы");
 
 {
   const store = makeStore({ admins: [777] });
+  const петр = { id: 333, first_name: "Пётр" };
+
+  let r = await run(store, "/наблюдатель", { chatType: "private", chatId: 777, replyTo: { from: петр } });
+  ok(r.text.includes("Пётр"), "наблюдатель назначен ответом");
+  eq(store.config.cupViewers, ["333"], "id попал в отдельный список, не к снабженцам");
+  eq(store.config.cupSuppliers, [], "снабженцы не тронуты");
+
+  r = await run(store, "/наблюдатель", { chatType: "private", chatId: 777, replyTo: { from: петр } });
+  ok(r.text.includes("уже смотрит"), "дважды не добавляется");
+
+  r = await run(store, "/наблюдатель нет 333", { chatType: "private", chatId: 777 });
+  eq(store.config.cupViewers, [], "и убрать можно");
+
+  r = await run(store, "/наблюдатель", { chatType: "private", chatId: 4, userId: 4, replyTo: { from: петр } });
+  ok(r.text.includes("Только для админа"), "чужому нельзя");
+  eq(store.config.cupViewers, [], "и ничего не записалось");
+}
+
+{
+  const store = makeStore({ admins: [777] });
   const NOW = Date.now();
   store.getCupState = async () => ({
     stock: { "350": 1200, "450": 40 },

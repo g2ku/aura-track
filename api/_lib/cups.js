@@ -32,7 +32,11 @@ const int = (v) => {
 
 // Проверка движения ДО записи: приложение может прислать что угодно,
 // а склад в минусе — это уже не учёт, а его видимость.
-export function validateMove(move, state) {
+//
+// branches — справочник филиалов. Клиенту тут верить нельзя даже без
+// злого умысла: опечатка или старое название осядут отдельной точкой,
+// которой нет, и «куда давно не возили» будет считать её вечно забытой.
+export function validateMove(move, state, { branches = null } = {}) {
   const kind = move?.kind;
   const sku = String(move?.sku ?? "");
   const qty = int(move?.qty);
@@ -44,6 +48,7 @@ export function validateMove(move, state) {
 
   if (kind === "out") {
     if (!move.branch) return "Не указан филиал";
+    if (branches && !branches.includes(String(move.branch))) return `Не знаю филиал «${move.branch}»`;
     const have = int(state?.stock?.[sku]);
     if (qty > have) return `На складе только ${have} шт «${skuName(sku)}»`;
   }
@@ -78,14 +83,34 @@ export function applyMove(state, move) {
 
 // Несколько движений разом: одна поездка снабженца — это несколько точек.
 // Либо проходит всё, либо ничего: половина развоза в базе хуже, чем ничего.
-export function applyMoves(state, moves) {
+export function applyMoves(state, moves, opts = {}) {
   let cur = state || emptyState();
   for (const m of moves || []) {
-    const err = validateMove(m, cur);
+    const err = validateMove(m, cur, opts);
     if (err) return { error: err, move: m };
     cur = applyMove(cur, m);
   }
   return { state: cur };
+}
+
+// Что записать за одну отправку: новое состояние склада и новый журнал
+// дня. Вся логика записи здесь, а не внутри транзакции Firestore, —
+// иначе её пришлось бы проверять на живой базе.
+//
+// opId — метка отправки. Связь в машине рвётся посреди запроса чаще, чем
+// кажется: ответ не дошёл, снабженец жмёт ещё раз, и на точке оказывается
+// вдвое больше стаканов, чем он привёз. Ту же метку узнаём и не проводим.
+export function planWrite(state, prevMoves, moves, { opId = null, branches = null } = {}) {
+  const prev = prevMoves || [];
+  if (opId && prev.some((m) => m.opId === opId)) {
+    return { duplicate: true, state: state || emptyState(), moves: prev };
+  }
+
+  const res = applyMoves(state, moves, { branches });
+  if (res.error) return { error: res.error, move: res.move };
+
+  const stamped = opId ? (moves || []).map((m) => ({ ...m, opId })) : (moves || []);
+  return { state: res.state, moves: [...prev, ...stamped] };
 }
 
 // Сколько дней на точке не было завоза. null — не возили ни разу.

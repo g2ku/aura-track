@@ -4,9 +4,9 @@
 // выведенным из токена бота, и подделать его нельзя. Firebase здесь не
 // при чём: снабженец не заводит аккаунт на сайте, он открывает бота.
 
-import { verifyInitData, roleOf } from "./_lib/telegramAuth.js";
-import { getConfig, getCupState, applyCupMoves } from "./_lib/store.js";
-import { SKUS, emptyState } from "./_lib/cups.js";
+import { verifyInitData, roleOf, canWrite } from "./_lib/telegramAuth.js";
+import { getConfig, getCupState, applyCupMoves, getCupDay } from "./_lib/store.js";
+import { SKUS } from "./_lib/cups.js";
 import { BRANCH_ORDER } from "./_lib/branches.js";
 
 function almatyDay() {
@@ -24,29 +24,42 @@ function initDataOf(req) {
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
 
   const auth = verifyInitData(initDataOf(req), process.env.TELEGRAM_BOT_TOKEN);
   if (!auth.ok) { res.status(401).json({ error: auth.reason }); return; }
 
-  let config = {};
-  try { config = await getConfig(); } catch (e) { console.warn("[cups] настройки:", e?.message); }
+  // Настройки читаем строго: не прочитались — отказываем.
+  //
+  // Раньше здесь стоял try/catch, оставлявший config пустым. А пустой
+  // список админов означает «админы ещё не назначены, открыто всем» —
+  // то есть сбой Firestore превращал в администратора любого из полусотни
+  // бариста, кто нажал кнопку. Недоступная база должна закрывать дверь,
+  // а не распахивать её.
+  let config;
+  try {
+    config = await getConfig();
+  } catch (e) {
+    console.error("[cups] настройки не прочитались:", e?.message);
+    res.status(503).json({ error: "База недоступна. Попробуйте через минуту." });
+    return;
+  }
 
   const role = roleOf(auth.user.id, config);
   if (!role) { res.status(403).json({ error: "Вас нет в списке. Попросите владельца добавить." }); return; }
 
   const who = { ...auth.user, role };
+  const today = almatyDay();
 
   if (req.method === "GET") {
-    const state = await getCupState();
-    res.status(200).json({ who, state, skus: SKUS, branches: BRANCH_ORDER });
+    const [state, day] = await Promise.all([getCupState(), getCupDay(today)]);
+    res.status(200).json({ who, state, skus: SKUS, branches: BRANCH_ORDER, today: day?.moves || [] });
     return;
   }
 
   if (req.method !== "POST") { res.status(405).json({ error: "Метод не поддерживается" }); return; }
+
+  if (!canWrite(role)) { res.status(403).json({ error: "У вас доступ только на просмотр" }); return; }
 
   const moves = Array.isArray(req.body?.moves) ? req.body.moves : [];
   if (!moves.length) { res.status(400).json({ error: "Нечего записывать" }); return; }
@@ -69,10 +82,26 @@ export default async function handler(req, res) {
     at: now,
   }));
 
+  // Метка отправки: одна и та же партия дважды не запишется.
+  //
+  // Связь в машине рвётся посреди запроса чаще, чем кажется: ответ не
+  // дошёл, снабженец жмёт ещё раз — и на точке оказывается вдвое больше
+  // стаканов, чем он привёз. Клиент шлёт метку, сервер вторую попытку с
+  // той же меткой узнаёт и молча возвращает прежний результат.
+  const opId = String(req.body?.opId || "").slice(0, 64) || null;
+
   try {
-    const r = await applyCupMoves(prepared, { day: almatyDay() });
+    // Справочник филиалов уходит в проверку внутрь транзакции: там же,
+    // где считается остаток, а не только на входе.
+    const r = await applyCupMoves(prepared, { day: today, opId, branches: BRANCH_ORDER });
     if (r.error) { res.status(400).json({ error: r.error, move: r.move }); return; }
-    res.status(200).json({ ok: true, state: r.state, saved: prepared.length });
+    res.status(200).json({
+      ok: true,
+      state: r.state,
+      saved: r.duplicate ? 0 : prepared.length,
+      duplicate: !!r.duplicate,
+      today: r.day?.moves || [],
+    });
   } catch (e) {
     console.error("[cups] запись не прошла:", e?.message);
     res.status(500).json({ error: "Не удалось записать. Попробуйте ещё раз." });

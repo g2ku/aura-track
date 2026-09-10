@@ -164,6 +164,8 @@ export const DEFAULT_CONFIG = {
   // Кто возит стаканы: telegram id. Роль отдельная от админской —
   // снабженец раздаёт со склада, но не пополняет его.
   cupSuppliers: [],
+  // Кто только смотрит: склад и развоз видит, записать не может ничего.
+  cupViewers: [],
   cupStaleDays: 7,         // столько дней без завоза стаканов — уже напоминание
   cupLowStock: 500,        // меньше этого на складе — пора закупать
 
@@ -341,7 +343,7 @@ export function botStore() {
   return {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
-    getCupState, applyCupMoves, getCupDays,
+    getCupState, applyCupMoves, getCupDays, getCupDay,
   };
 }
 
@@ -364,10 +366,22 @@ export async function getCupState() {
   }
 }
 
+// Журнал за один день — им приложение показывает «что уже записано»,
+// чтобы снабженец не вводил одну и ту же поездку дважды.
+export async function getCupDay(day) {
+  try {
+    const snap = await getDb().collection("cupDays").doc(day).get();
+    return snap.exists ? snap.data() : { date: day, moves: [] };
+  } catch (e) {
+    console.error("[cups] журнал дня не прочитался:", e?.message);
+    return { date: day, moves: [] };
+  }
+}
+
 // Записываем движения ОДНОЙ транзакцией: одна поездка снабженца — это
 // несколько точек, и половина развоза в базе хуже, чем ничего.
-export async function applyCupMoves(moves, { day }) {
-  const { emptyState, applyMoves } = await import("./cups.js");
+export async function applyCupMoves(moves, { day, opId = null, branches = null }) {
+  const { emptyState, planWrite } = await import("./cups.js");
   const db = getDb();
   const stateRef = db.doc(CUPS_STATE);
   const dayRef = db.collection("cupDays").doc(day);
@@ -376,15 +390,20 @@ export async function applyCupMoves(moves, { day }) {
     const snap = await tx.get(stateRef);
     const cur = snap.exists ? { ...emptyState(), ...snap.data() } : emptyState();
 
-    const res = applyMoves(cur, moves);
-    if (res.error) return { error: res.error, move: res.move };
-
     const daySnap = await tx.get(dayRef);
     const prev = daySnap.exists ? (daySnap.data()?.moves || []) : [];
 
-    tx.set(stateRef, res.state);
-    tx.set(dayRef, { date: day, moves: [...prev, ...moves] }, { merge: true });
-    return { state: res.state };
+    const plan = planWrite(cur, prev, moves, { opId, branches });
+    if (plan.error) return { error: plan.error, move: plan.move };
+
+    // Повтор той же отправки: писать нечего, отвечаем прежним.
+    if (plan.duplicate) {
+      return { state: plan.state, day: { date: day, moves: plan.moves }, duplicate: true };
+    }
+
+    tx.set(stateRef, plan.state);
+    tx.set(dayRef, { date: day, moves: plan.moves }, { merge: true });
+    return { state: plan.state, day: { date: day, moves: plan.moves } };
   });
 }
 

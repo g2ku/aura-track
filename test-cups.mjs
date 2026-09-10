@@ -8,10 +8,10 @@
 import { createHmac } from "node:crypto";
 import {
   SKUS, SKU_IDS, emptyState, validateMove, applyMove, applyMoves,
-  daysSinceOut, staleBranches,
+  daysSinceOut, staleBranches, planWrite,
   formatCupReminder, skuName,
 } from "./api/_lib/cups.js";
-import { verifyInitData, roleOf, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
+import { verifyInitData, roleOf, canWrite, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -147,6 +147,99 @@ section("Кто что может");
   eq(roleOf(111, { admins: [777], cupSuppliers: [555] }), null, "посторонний — никто");
   eq(roleOf(777, {}), "admin", "пока админы не назначены, открыто всем — как и в командах бота");
   eq(roleOf("555", { admins: ["777"], cupSuppliers: ["555"] }), "supplier", "id как строка тоже узнаётся");
+}
+
+section("Повтор отправки не удваивает выдачу");
+
+{
+  const BR = ["Абая", "Дубай"];
+  let st = emptyState();
+  st = applyMove(st, { kind: "in", sku: "350", qty: 1000 });
+
+  const partia = [{ kind: "out", sku: "350", qty: 300, branch: "Абая", at: 1 }];
+
+  // Первая отправка проходит
+  const a = planWrite(st, [], partia, { opId: "abc", branches: BR });
+  eq(a.state.stock["350"], 700, "со склада ушло 300");
+  eq(a.moves.length, 1, "в журнале одна строка");
+  eq(a.moves[0].opId, "abc", "метка сохранена вместе с движением");
+
+  // Ответ не дошёл, снабженец повторил — той же меткой
+  const b = planWrite(a.state, a.moves, partia, { opId: "abc", branches: BR });
+  ok(b.duplicate, "повтор узнан");
+  eq(b.state.stock["350"], 700, "склад не изменился второй раз");
+  eq(b.moves.length, 1, "и в журнале по-прежнему одна строка");
+
+  // А вот вторая настоящая поездка на ту же точку пройти обязана
+  const c = planWrite(a.state, a.moves, partia, { opId: "xyz", branches: BR });
+  ok(!c.duplicate, "другая метка — другая поездка");
+  eq(c.state.stock["350"], 400, "и она проводится");
+  eq(c.moves.length, 2, "в журнале две строки");
+
+  // Без метки старое поведение: пишем как есть
+  const d = planWrite(st, [], partia, { branches: BR });
+  eq(d.moves.length, 1, "без метки тоже пишется");
+  ok(d.moves[0].opId === undefined, "и метка не выдумывается");
+
+  // Метка не спасает от нехватки на складе
+  let low = emptyState();
+  low = applyMove(low, { kind: "in", sku: "350", qty: 100 });
+  const e = planWrite(low, [], partia, { opId: "ppp", branches: BR });
+  ok(e.error, "не хватило на складе — отказ");
+  ok(!e.moves, "и журнал не тронут");
+}
+
+section("Наблюдатель смотрит, но не пишет");
+
+{
+  const cfg = { admins: [777], cupSuppliers: [555], cupViewers: [333] };
+  eq(roleOf(333, cfg), "viewer", "наблюдатель узнан");
+  eq(canWrite("viewer"), false, "и записать ничего не может");
+  eq(canWrite("admin"), true, "владелец пишет");
+  eq(canWrite("supplier"), true, "снабженец пишет");
+  eq(canWrite(null), false, "никто не пишет");
+
+  // Роли не должны налезать друг на друга
+  eq(roleOf(777, cfg), "admin", "владелец остался владельцем");
+  eq(roleOf(555, cfg), "supplier", "снабженец остался снабженцем");
+  eq(roleOf(111, cfg), null, "посторонний — по-прежнему никто");
+
+  // Один и тот же человек и снабженец, и наблюдатель — берём права выше
+  eq(roleOf(555, { admins: [777], cupSuppliers: [555], cupViewers: [555] }), "supplier",
+     "если человек в обоих списках — остаются права повыше");
+
+  // Ловушка, из-за которой сбой базы делал админом кого угодно:
+  // пустой список админов означает «ещё не назначены, открыто всем».
+  // Поэтому api/cups.js обязан отвечать 503, а не подставлять {}.
+  eq(roleOf(999, {}), "admin", "пустые настройки открыты всем — читать их надо строго");
+}
+
+section("Филиал сверяется со справочником");
+
+{
+  const BR = ["Абая", "Дубай"];
+  let st = emptyState();
+  st = applyMove(st, { kind: "in", sku: "350", qty: 1000 });
+
+  ok(!validateMove({ kind: "out", sku: "350", qty: 10, branch: "Абая" }, st, { branches: BR }),
+     "known филиал проходит");
+  ok(validateMove({ kind: "out", sku: "350", qty: 10, branch: "Абаяя" }, st, { branches: BR }),
+     "опечатка не проходит");
+  ok(validateMove({ kind: "out", sku: "350", qty: 10, branch: "Мой карман" }, st, { branches: BR }),
+     "выдуманная точка не проходит");
+  ok(!validateMove({ kind: "out", sku: "350", qty: 10, branch: "что угодно" }, st),
+     "без справочника проверять нечем — старое поведение сохранено");
+
+  const r = applyMoves(st, [
+    { kind: "out", sku: "350", qty: 10, branch: "Абая" },
+    { kind: "out", sku: "350", qty: 10, branch: "Нету такой" },
+  ], { branches: BR });
+  ok(r.error, "весь развоз отклонён из-за одной незнакомой точки");
+  eq(st.stock["350"], 1000, "и со склада ничего не ушло");
+
+  // Приход на склад филиала не имеет — справочник ему не мешает
+  ok(!validateMove({ kind: "in", sku: "350", qty: 500 }, st, { branches: BR }),
+     "приход без филиала проходит");
 }
 
 section("Названия для человека");
