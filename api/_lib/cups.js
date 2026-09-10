@@ -242,7 +242,7 @@ export function formatCupReminder(state, branches, opts = {}) {
   // когда ехать, а «не возили 7 дней» — просто наблюдение. Где прогноз
   // есть, календарное правило для этой точки молчит, иначе одна и та же
   // точка попадёт в сообщение дважды.
-  const fc = journal ? forecast(state, branches, journal, { now, soonDays }) : [];
+  const fc = journal ? forecast(state, branches, journal, { now }) : [];
   const soon = runningOut(fc, soonDays);
   const predicted = new Set(fc.filter((f) => f.daysLeft != null).map((f) => f.branch));
 
@@ -444,7 +444,7 @@ export function consumptionByBranch(days, { now = Date.now() } = {}) {
 // четыре дня, тихая растянет на три недели. Первая молчит, пока не
 // кончится, вторая шлёт ложные тревоги. Прогноз отвечает на тот вопрос,
 // который на самом деле задают: когда ехать.
-export function forecast(state, branches, days, { now = Date.now(), soonDays = 4 } = {}) {
+export function forecast(state, branches, days, { now = Date.now() } = {}) {
   const rates = consumptionByBranch(days, { now });
   const out = [];
 

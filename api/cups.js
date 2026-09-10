@@ -144,7 +144,9 @@ export default async function handler(req, res) {
       who, state, skus: SKUS, branches: BRANCH_ORDER,
       date: today, today: day?.moves || [],
       keepDays: config.cupKeepDays ?? KEEP_DAYS,
-      forecast: forecast(state, BRANCH_ORDER, recent, { soonDays: config.cupSoonDays }),
+      forecast: forecast(state, BRANCH_ORDER, recent),
+      // Порог «скоро кончатся» решает владелец, а не экран
+      soonDays: config.cupSoonDays ?? 4,
     });
     return;
   }

@@ -34,7 +34,7 @@ function daysWord(n) {
   return `${n} ${w} назад`;
 }
 
-export default function Warehouse({ state, skus, branches, today, forecast, onSend, onUndo, isAdmin }) {
+export default function Warehouse({ state, skus, branches, today, forecast, soonDays = 4, onSend, onUndo, isAdmin }) {
   const [add, setAdd] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -78,7 +78,7 @@ export default function Warehouse({ state, skus, branches, today, forecast, onSe
       return (b.days ?? 9999) - (a.days ?? 9999);
     });
 
-  const soon = rows.filter((r) => r.f?.daysLeft != null && r.f.daysLeft <= 4);
+  const soon = rows.filter((r) => r.f?.daysLeft != null && r.f.daysLeft <= soonDays);
 
   return (
     <>
@@ -113,7 +113,7 @@ export default function Warehouse({ state, skus, branches, today, forecast, onSe
               </span>
             </span>
             {r.f?.daysLeft != null ? (
-              <span className={`days${r.f.daysLeft <= 4 ? " warn" : " muted"}`}>{leftWord(r.f.daysLeft)}</span>
+              <span className={`days${r.f.daysLeft <= soonDays ? " warn" : " muted"}`}>{leftWord(r.f.daysLeft)}</span>
             ) : (
               <span className={`days${r.days == null || r.days >= WARN_DAYS ? " warn" : " muted"}`}>
                 {daysWord(r.days)}
