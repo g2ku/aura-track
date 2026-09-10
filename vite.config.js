@@ -66,7 +66,16 @@ export default defineConfig({
     target: "es2020",
     chunkSizeWarningLimit: 2500,
     rollupOptions: {
+      // Две точки входа: сайт и мини-приложение телеграма. У приложения
+      // своя сборка намеренно — тащить в webview 200 КБ основного сайта
+      // (скрипт, Firebase, стили) незачем, ему нужны три экрана.
+      input: {
+        main: resolve("index.html"),
+        miniapp: resolve("miniapp.html"),
+      },
       output: {
+        // Firebase — только для сайта. В сборку приложения он не попадёт:
+        // вход там через подпись Telegram, а не через аккаунт.
         manualChunks: {
           firebase: ["firebase/app", "firebase/firestore"],
         },

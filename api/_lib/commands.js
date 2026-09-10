@@ -6,9 +6,9 @@
 // в тестах подставляется поддельное хранилище.
 
 import { parseInvoiceMessage } from "./tgParser.js";
-import { BRANCHES, branchNamesFor, matchIpGroup, matchBranch } from "./branches.js";
+import { BRANCHES, BRANCH_ORDER, branchNamesFor, matchIpGroup, matchBranch } from "./branches.js";
 import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
-import { parseCommand } from "./telegram.js";
+import { parseCommand, setMenuButton, siteUrl } from "./telegram.js";
 import { posterSuppliesByBranch, reconcile, formatReconcile } from "./reconcile.js";
 import { applyCatalog } from "./products.js";
 
@@ -59,6 +59,9 @@ const ADMIN_HELP = `
 /это абая — закрепить тему форума за филиалом
 /темы — какие темы за какими филиалами
 /анализ месяц мон — что приходило под этим названием и от кого
+/склад — стаканы: остаток и куда давно не возили
+/снабженец — кто возит стаканы (ответом на его сообщение)
+/приложение — поставить кнопку «Стаканы» у поля ввода
 /сторож — тревоги о зависших чеках и тишине на точках
 /график — во сколько точки открываются и закрываются
 /сводка — итог вчерашнего дня по утрам`;
@@ -429,6 +432,73 @@ async function handleCommand({ cmd, args }, ctx) {
     // Цифра в отчёте есть, а кто и когда её прислал — до сих пор было не
     // восстановить. Бот хранит исходный текст каждого сообщения, так что
     // сверять можно буквально по написанному.
+    // ─── Стаканы ──────────────────────────────────────────────────
+    case "склад":
+    case "stock": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      if (!store.getCupState) return { text: "Учёт стаканов недоступен." };
+
+      const { SKUS } = await import("./cups.js");
+      const st = await store.getCupState();
+      const lines = ["<b>Склад стаканов</b>", ""];
+      for (const s of SKUS) lines.push(`• ${escapeHtml(s.name)} — ${fmtInt(st.stock?.[s.id] || 0)} шт`);
+
+      const now = Date.now();
+      const stale = BRANCH_ORDER
+        .map((b) => ({ b, at: st.lastOut?.[b] || null }))
+        .filter((x) => !x.at || now - x.at >= 7 * 86400000);
+
+      if (stale.length) {
+        lines.push("", "<b>Давно не возили</b>");
+        for (const x of stale) {
+          const d = x.at ? Math.floor((now - x.at) / 86400000) : null;
+          lines.push(`• ${escapeHtml(x.b)} — ${d == null ? "ни разу" : `${d} дн. назад`}`);
+        }
+      }
+      lines.push("", "Раздача и пополнение — в приложении: кнопка «Открыть» внизу слева.");
+      return { text: lines.join("\n") };
+    }
+
+    case "приложение":
+    case "webapp": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const base = siteUrl();
+      if (!base) return { text: "Не знаю адрес сайта. Задайте SITE_URL в переменных окружения." };
+
+      const url = `${base}/miniapp.html`;
+      try {
+        await setMenuButton(url);
+        return { text: `Готово. Кнопка «Стаканы» — внизу слева у поля ввода.\n\n<code>${escapeHtml(url)}</code>` };
+      } catch (e) {
+        return { text: `Не вышло поставить кнопку: ${escapeHtml(e?.message || "ошибка")}` };
+      }
+    }
+
+    case "снабженец":
+    case "supplier": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const list = (config.cupSuppliers || []).map(String);
+      const arg = String(args || "").trim();
+
+      if (!arg) {
+        return { text: list.length
+          ? `<b>Возят стаканы</b>\n${list.map((i) => `• <code>${i}</code>`).join("\n")}\n\nДобавить: перешлите мне его сообщение и напишите <code>/снабженец</code> в ответ.`
+          : "Снабженцы не назначены.\n\nПерешлите мне сообщение человека и ответьте на него <code>/снабженец</code> — добавлю." };
+      }
+
+      if (/^нет|^убрать|^-/.test(arg)) {
+        const id = arg.replace(/^\D+/, "").trim();
+        await store.setConfig({ cupSuppliers: list.filter((i) => i !== id) });
+        return { text: `Убрал <code>${escapeHtml(id)}</code> из снабженцев.` };
+      }
+
+      const id = arg.replace(/\D/g, "");
+      if (!id) return { text: "Не понял id. Ответьте <code>/снабженец</code> на сообщение человека." };
+      if (list.includes(id)) return { text: "Он уже в списке." };
+      await store.setConfig({ cupSuppliers: [...list, id] });
+      return { text: `Добавил <code>${escapeHtml(id)}</code>. Пусть откроет приложение у бота.` };
+    }
+
     case "анализ":
     case "analyze": {
       // Только владелец: в ответе суммы по всей сети и кто что присылал.

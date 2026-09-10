@@ -12,13 +12,14 @@
 // Раз в 10–15 минут. Всё остальное — время сводки, пороги, тихие часы —
 // настраивается командами бота и лежит в его настройках.
 
-import { getConfig, setConfig, getDoc } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, getCupState } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
+import { BRANCHES } from "../_lib/branches.js";
 import { sendMessage } from "../_lib/telegram.js";
 
 function almatyHM(now = new Date()) {
@@ -81,12 +82,33 @@ export default async function handler(req, res) {
         supplies = Object.values(doc?.totals || {}).reduce((s, v) => s + v, 0) || null;
       } catch (_) {}
 
-      const text = formatBriefing({
-        day: summarizeDay(yRows),
-        prev: summarizeDay(bRows),
-        dateLabel: formatDayLabel(yesterday),
-        supplies,
-      });
+      // Стаканы — хвостом к сводке, а не отдельным сообщением.
+      //
+      // Отдельное сообщение утром — это второй звук уведомления, и его
+      // начинают глушить вместе со сводкой. Здесь же напоминание
+      // попадается на глаза тому, кто и так читает цифры за вчера.
+      // Не собралось — сводка уходит без него: цифры за вчера важнее.
+      let cupsTail = "";
+      try {
+        const { formatCupReminder } = await import("../_lib/cups.js");
+        cupsTail = formatCupReminder(await getCupState(), BRANCHES.map((b) => b.name), {
+          days: config.cupStaleDays,
+          low: config.cupLowStock,
+          now: Date.now(),
+        });
+      } catch (e) {
+        console.error("[cups] напоминание не собралось:", e?.message);
+      }
+
+      const text = [
+        formatBriefing({
+          day: summarizeDay(yRows),
+          prev: summarizeDay(bRows),
+          dateLabel: formatDayLabel(yesterday),
+          supplies,
+        }),
+        cupsTail,
+      ].filter(Boolean).join("\n\n");
 
       await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
 
