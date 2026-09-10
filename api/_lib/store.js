@@ -166,6 +166,10 @@ export const DEFAULT_CONFIG = {
   cupSuppliers: [],
   // Кто только смотрит: склад и развоз видит, записать не может ничего.
   cupViewers: [],
+  // Привязка стакан → ингредиент Poster, если найденное по названию не
+  // подошло: { "350": "<ingredient_id>" }
+  cupPoster: {},
+  cupSoonDays: 4,          // «хватит меньше чем на столько» — уже повод ехать
   cupKeepDays: 365,        // сколько держим журнал выдач, дальше — само удаляется
   cupStaleDays: 7,         // столько дней без завоза стаканов — уже напоминание
   cupLowStock: 500,        // меньше этого на складе — пора закупать
@@ -344,7 +348,7 @@ export function botStore() {
   return {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
-    getCupState, applyCupMoves, getCupDays, getCupDay, purgeCupDays,
+    getCupState, applyCupMoves, undoCupMoves, getCupDays, getCupDay, purgeCupDays,
   };
 }
 
@@ -411,6 +415,30 @@ export async function applyCupMoves(moves, { day, opId = null, branches = null }
 // Журнал за отрезок — одним запросом по диапазону, а не чтением каждого
 // дня по отдельности: за месяц это 31 чтение вместо одного запроса, а
 // пустых дней в журнале большинство.
+// Отмена поездки. Тем же способом, что и запись: транзакция на состояние
+// склада и журнал дня, иначе половина отмены — хуже, чем её отсутствие.
+export async function undoCupMoves(opId, { day, by = null, recent = [] }) {
+  const { emptyState, planUndo } = await import("./cups.js");
+  const db = getDb();
+  const stateRef = db.doc(CUPS_STATE);
+  const dayRef = db.collection("cupDays").doc(day);
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(stateRef);
+    const cur = snap.exists ? { ...emptyState(), ...snap.data() } : emptyState();
+
+    const daySnap = await tx.get(dayRef);
+    const prev = daySnap.exists ? (daySnap.data()?.moves || []) : [];
+
+    const plan = planUndo(cur, prev, recent, opId, { by });
+    if (plan.error) return { error: plan.error };
+
+    tx.set(stateRef, plan.state);
+    tx.set(dayRef, { date: day, moves: plan.moves }, { merge: true });
+    return { state: plan.state, day: { date: day, moves: plan.moves }, undone: plan.undone };
+  });
+}
+
 export async function getCupDays(from, to) {
   if (!from || !to || from > to) return [];
   try {

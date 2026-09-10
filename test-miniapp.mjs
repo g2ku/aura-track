@@ -160,6 +160,66 @@ section("История");
   ok(!first.includes("NaN") && !first.includes("undefined"), "и до ответа сервера ничего не сломано");
 }
 
+section("Прогноз и отмена на экранах");
+
+{
+  const fc = [
+    { branch: "Дубай", daysLeft: 2, left: { "350": 100, "450": 40 }, perDay: { "350": 50 } },
+    { branch: "Абая", daysLeft: 12, left: { "350": 600, "450": 200 }, perDay: { "350": 50 } },
+    { branch: "Рамс", daysLeft: null, why: "нет двух пересчётов", left: null },
+  ];
+  const html = render(h(Warehouse, {
+    state, skus: SKUS, branches: ["Абая", "Дубай", "Рамс"], today: [], forecast: fc,
+    onSend: noop, isAdmin: true,
+  }));
+  ok(html.includes("Скоро кончатся"), "предупреждение вверху");
+  ok(html.includes("Дубай (2 дн.)"), "и названа та точка, где горит");
+  ok(!html.includes("Абая (12"), "а та, где 12 дней, в предупреждение не попала");
+  ok(html.includes("хватит на 2 дня") && html.includes("хватит на 12 дней"), "склонения на месте");
+  ok(html.indexOf("Дубай") < html.indexOf("Абая"), "кто ближе к нулю — тот выше");
+  ok(html.includes("на точке ~600 / 200"), "видно, сколько сейчас на точке");
+
+  // Без прогноза экран должен вести себя как раньше
+  const plain = render(h(Warehouse, {
+    state, skus: SKUS, branches: ["Абая", "Дубай"], today: [], forecast: [],
+    onSend: noop, isAdmin: true,
+  }));
+  ok(!plain.includes("Скоро кончатся"), "нечего предсказывать — нечего и пугать");
+  ok(plain.includes("не возили ни разу"), "остаётся дата завоза");
+}
+
+{
+  const at = Date.parse("2026-09-10T14:30:00+05:00");
+  const moves = [
+    { kind: "out", sku: "350", qty: 300, branch: "Абая", at, opId: "рейс1" },
+    { kind: "out", sku: "450", qty: 100, branch: "Абая", at: at + 1000, opId: "рейс1" },
+    { kind: "out", sku: "350", qty: 200, branch: "Дубай", at: at + 2000, opId: "рейс2" },
+    { kind: "out", sku: "350", qty: 50, branch: "OBI", at: at + 3000 },
+  ];
+  const withUndo = render(h(Today, { moves, skus: SKUS, onUndo: () => {} }));
+  eq((withUndo.match(/class="undo"/g) || []).length, 2, "кнопка отмены у каждой поездки с меткой");
+  ok(!/OBI[\s\S]*?class="undo"/.test(withUndo.split("OBI")[1] || ""), "у записи без метки отменять нечего");
+
+  const readOnly = render(h(Today, { moves, skus: SKUS }));
+  ok(!readOnly.includes("class=\"undo\""), "без права отмены кнопок нет");
+
+  // Две поездки на одну точку подряд не должны слипнуться в одну
+  const twice = [
+    { kind: "out", sku: "350", qty: 100, branch: "Абая", at, opId: "первая" },
+    { kind: "out", sku: "350", qty: 100, branch: "Абая", at: at + 2000, opId: "вторая" },
+  ];
+  const html = render(h(Today, { moves: twice, skus: SKUS, onUndo: () => {} }));
+  eq((html.match(/class="undo"/g) || []).length, 2, "разные метки — разные строки");
+}
+
+{
+  // Поле «было на точке» на экране развоза
+  const html = render(h(Give, { state, skus: SKUS, branches: BRANCHES, today: [], onSend: noop }));
+  // Считаем сами поля, а не упоминания: пояснение внизу тоже называет их
+  eq((html.match(/placeholder="не считал"/g) || []).length, SKUS.length, "поле у каждого стакана");
+  ok(html.includes("Было на точке"), "и подписано понятно");
+}
+
 section("Пустое состояние не роняет экраны");
 
 {

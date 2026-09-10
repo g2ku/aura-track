@@ -57,6 +57,20 @@ export default function App({ tg }) {
     return r;
   }, [tg]);
 
+  // Отмена спрашивает подтверждение родным окном телеграма: палец на
+  // маленьком экране попадает не туда, а отменённую выдачу вернуть
+  // нечем — только вводить заново.
+  const undo = useCallback(async (opId, branch) => {
+    const yes = await new Promise((resolve) => {
+      if (tg?.showConfirm) tg.showConfirm(`Убрать запись по «${branch}»?`, resolve);
+      else resolve(globalThis.confirm?.(`Убрать запись по «${branch}»?`) ?? false);
+    });
+    if (!yes) return;
+    const r = await api("/api/cups", { method: "POST", body: JSON.stringify({ undo: opId }) });
+    setData((d) => (d ? { ...d, state: r.state, today: r.today || [] } : d));
+    tg?.HapticFeedback?.notificationOccurred?.("warning");
+  }, [tg]);
+
   if (error && !data) {
     return (
       <>
@@ -97,8 +111,8 @@ export default function App({ tg }) {
         </div>
       )}
 
-      {active === "give" && <Give state={state} skus={skus} branches={branches} today={today} onSend={send} />}
-      {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} onSend={send} isAdmin={isAdmin} />}
+      {active === "give" && <Give state={state} skus={skus} branches={branches} today={today} onSend={send} onUndo={undo} />}
+      {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} forecast={data.forecast} onSend={send} onUndo={isAdmin ? undo : null} isAdmin={isAdmin} />}
       {active === "history" && <History api={api} today={data.date} keepDays={data.keepDays} skus={skus} />}
     </>
   );

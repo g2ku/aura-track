@@ -12,7 +12,7 @@
 // Раз в 10–15 минут. Всё остальное — время сводки, пороги, тихие часы —
 // настраивается командами бота и лежит в его настройках.
 
-import { getConfig, setConfig, getDoc, getCupState, purgeCupDays } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
@@ -90,10 +90,16 @@ export default async function handler(req, res) {
       // Не собралось — сводка уходит без него: цифры за вчера важнее.
       let cupsTail = "";
       try {
-        const { formatCupReminder, retentionCutoff } = await import("../_lib/cups.js");
-        cupsTail = formatCupReminder(await getCupState(), BRANCHES.map((b) => b.name), {
+        const { formatCupReminder, retentionCutoff, shiftDay } = await import("../_lib/cups.js");
+        const [cupState, journal] = await Promise.all([
+          getCupState(),
+          getCupDays(shiftDay(today, -60), today),
+        ]);
+        cupsTail = formatCupReminder(cupState, BRANCHES.map((b) => b.name), {
           days: config.cupStaleDays,
           low: config.cupLowStock,
+          soonDays: config.cupSoonDays,
+          journal,
           now: Date.now(),
         });
 

@@ -13,9 +13,12 @@ import Today from "./Today.jsx";
 const newOpId = () =>
   (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export default function Give({ state, skus, branches, today, onSend }) {
+export default function Give({ state, skus, branches, today, onSend, onUndo }) {
   const [branch, setBranch] = useState("");
   const [qty, setQty] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
+  // Сколько было на точке ДО завоза. Необязательно, но два таких числа
+  // подряд дают точный расход — и прогноз «на сколько хватит».
+  const [before, setBefore] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -26,12 +29,15 @@ export default function Give({ state, skus, branches, today, onSend }) {
   });
 
   const moves = skus
-    .map((s) => ({ kind: "out", sku: s.id, qty: Number(qty[s.id]) || 0, branch }))
+    .map((s) => ({
+      kind: "out", sku: s.id, qty: Number(qty[s.id]) || 0, branch,
+      ...(before[s.id] === "" ? {} : { before: Number(before[s.id]) || 0 }),
+    }))
     .filter((m) => m.qty > 0);
 
   // Метка привязана к содержимому: пока в форме то же самое, повтор
   // отправки считается той же самой попыткой, а не новой выдачей.
-  const opId = useMemo(newOpId, [branch, JSON.stringify(qty)]);
+  const opId = useMemo(newOpId, [branch, JSON.stringify(qty), JSON.stringify(before)]);
 
   const overdrawn = moves.find((m) => m.qty > (state.stock?.[m.sku] ?? 0));
   const canSend = branch && moves.length > 0 && !busy && !overdrawn;
@@ -46,6 +52,7 @@ export default function Give({ state, skus, branches, today, onSend }) {
         ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
         : { kind: "ok", text: `${branch}: записал ${what}` });
       setQty(Object.fromEntries(skus.map((s) => [s.id, ""])));
+      setBefore(Object.fromEntries(skus.map((s) => [s.id, ""])));
       setBranch("");
     } catch (e) {
       setMsg({ kind: "err", text: e.message });
@@ -82,8 +89,22 @@ export default function Give({ state, skus, branches, today, onSend }) {
             />
             <button className="step" onClick={() => bump(s.id, 50)} aria-label="плюс 50">+</button>
           </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <span className="grow muted">Было на точке</span>
+            <input
+              type="number" inputMode="numeric" placeholder="не считал" style={{ width: 130 }}
+              value={before[s.id]}
+              onChange={(e) => setBefore((b) => ({ ...b, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
+            />
+          </div>
         </div>
       ))}
+
+      <div className="muted" style={{ fontSize: 12, margin: "-4px 0 14px" }}>
+        «Было на точке» — сколько там оставалось до вашего приезда. Не
+        обязательно, но два таких числа подряд показывают, на сколько
+        дней точке хватает завоза.
+      </div>
 
       {overdrawn && (
         <div className="msg err">
@@ -95,7 +116,7 @@ export default function Give({ state, skus, branches, today, onSend }) {
         {busy ? "Записываю…" : "Записать выдачу"}
       </button>
 
-      <Today moves={today} skus={skus} />
+      <Today moves={today} skus={skus} onUndo={onUndo} />
     </>
   );
 }

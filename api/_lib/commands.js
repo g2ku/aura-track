@@ -59,7 +59,8 @@ const ADMIN_HELP = `
 /это абая — закрепить тему форума за филиалом
 /темы — какие темы за какими филиалами
 /анализ месяц мон — что приходило под этим названием и от кого
-/склад — стаканы: остаток и куда давно не возили
+/стаканы — склад, на сколько хватит, сводка за период
+/склад — то же самое
 /снабженец — кто возит стаканы (ответом на его сообщение)
 /наблюдатель — кто может только смотреть склад
 /приложение — поставить кнопку «Стаканы» у поля ввода
@@ -83,6 +84,93 @@ function plural(n, one, few, many) {
   if (a === 1 && b !== 11) return one;
   if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
   return many;
+}
+
+// «месяц», «7 дней», «вчера» → период из справочника cups.js
+function matchPeriod(text) {
+  const t = String(text || "").trim().toLowerCase();
+  if (!t) return null;
+  if (/^сегодн/.test(t)) return { id: "today", title: "сегодня" };
+  if (/^вчера/.test(t)) return { id: "yesterday", title: "вчера" };
+  if (/^недел|^7/.test(t)) return { id: "7", title: "7 дней" };
+  if (/^30|^месяц$|^за месяц/.test(t)) return { id: "30", title: "30 дней" };
+  if (/^этот месяц|^текущ/.test(t)) return { id: "month", title: "этот месяц" };
+  return null;
+}
+
+// Что Poster знает про стаканы: список кандидатов и текущая привязка.
+async function cupsBind(store, config, arg) {
+  const { resolveCupIngredients, matchIngredient } = await import("./cupsPoster.js");
+  const { SKU_IDS, skuName } = await import("./cups.js");
+
+  const set = arg.match(/(\d{3,4})\s+(\d+)/);
+  if (set) {
+    const [, sku, id] = set;
+    if (!SKU_IDS.includes(sku)) return { text: `Не знаю такой стакан: ${escapeHtml(sku)}` };
+    await store.setConfig({ cupPoster: { ...(config.cupPoster || {}), [sku]: String(id) } });
+    return { text: `Привязал «${escapeHtml(skuName(sku))}» к ингредиенту <code>${escapeHtml(id)}</code>.` };
+  }
+
+  let ingredients = [];
+  try {
+    const { posterCall } = await import("./poster.js");
+    ingredients = (await posterCall("menu.getIngredients", {}))?.response || [];
+  } catch (e) {
+    return { text: `Poster не ответил: ${escapeHtml(e?.message || "ошибка")}` };
+  }
+
+  const map = resolveCupIngredients(ingredients, config);
+  const lines = ["<b>Стаканы в справочнике Poster</b>", ""];
+  for (const sku of SKU_IDS) {
+    const m = map[sku];
+    lines.push(m
+      ? `• ${escapeHtml(skuName(sku))} → <code>${escapeHtml(m.id)}</code> ${escapeHtml(m.name)}`
+        + (m.manual ? " (задано вами)" : m.ambiguous ? " ⚠️ несколько подходящих" : "")
+      : `• ${escapeHtml(skuName(sku))} → <b>не нашёл</b>`);
+
+    const alt = map[sku]?.others?.length ? map[sku].others : matchIngredient(ingredients, sku)?.others || [];
+    for (const o of alt) lines.push(`   <code>${escapeHtml(o.id)}</code> ${escapeHtml(o.name)}`);
+  }
+  lines.push("", "Поменять: <code>/стаканы связать 350 12345</code>");
+  return { text: lines.join("\n") };
+}
+
+// Сверка выдачи с расходом Poster — тем же кодом, что и в приложении.
+async function cupsReconcile(sum, from, to, config) {
+  try {
+    const { posterCall } = await import("./poster.js");
+    const { movementParams, normalizeMovement } = await import("./movement.js");
+    const { branchByStorage } = await import("./reconcile.js");
+    const { resolveCupIngredients, reconcileCups, formatReconcile } = await import("./cupsPoster.js");
+
+    const ingredients = (await posterCall("menu.getIngredients", {}))?.response || [];
+    const map = resolveCupIngredients(ingredients, config);
+    const ids = Object.fromEntries(Object.entries(map).map(([sku, v]) => [v.id, sku]));
+    if (!Object.keys(ids).length) return "Не нашёл стаканы в справочнике Poster. Привяжите: /стаканы связать";
+
+    const storages = ((await posterCall("storage.getStorages", {}))?.response || [])
+      .map((st) => ({ id: String(st.storage_id), branch: branchByStorage(st.storage_name) }))
+      .filter((st) => st.branch);
+
+    const spent = {};
+    await Promise.all(storages.map(async (st) => {
+      const r = await posterCall("storage.getReportMovement", movementParams(from, to, st.id));
+      const rows = normalizeMovement(r?.response || []);
+      const bySku = {};
+      for (const [ingId, v] of Object.entries(rows)) {
+        const sku = ids[ingId];
+        if (sku) bySku[sku] = Math.round(v.spent);
+      }
+      if (Object.keys(bySku).length) spent[st.branch] = bySku;
+    }));
+
+    const given = {};
+    for (const b of sum.branches || []) given[b.branch] = b.qty;
+    const names = BRANCH_ORDER.filter((n) => given[n] || spent[n]);
+    return formatReconcile(reconcileCups(given, spent, names)) || "Сверять нечего.";
+  } catch (e) {
+    return `Poster не ответил: ${escapeHtml(e?.message || "ошибка")}`;
+  }
 }
 
 function isAdmin(config, userId) {
@@ -435,19 +523,82 @@ async function handleCommand({ cmd, args }, ctx) {
     // сверять можно буквально по написанному.
     // ─── Стаканы ──────────────────────────────────────────────────
     case "склад":
+    case "стаканы":
     case "stock": {
       if (!isAdmin(config, userId)) return { text: "Только для админа." };
       if (!store.getCupState) return { text: "Учёт стаканов недоступен." };
 
-      const { SKUS } = await import("./cups.js");
+      const cups = await import("./cups.js");
+      const { SKUS, shiftDay, periodRange, summarizePeriod, forecast, fmtDaysLeft } = cups;
+      const today = todayAlmaty();
+      const arg = String(args || "").trim().toLowerCase();
+
+      // ─── Привязка к справочнику Poster ───
+      if (/^связ/.test(arg)) return cupsBind(store, config, arg);
+
+      // ─── Сводка за отрезок ───
+      const period = matchPeriod(arg.replace(/^сверк\S*\s*/, ""));
+      if (period || /^сверк/.test(arg)) {
+        const { from, to } = period
+          ? periodRange(period.id, today)
+          : periodRange("month", today);
+        const days = await store.getCupDays(from, to);
+        const sum = summarizePeriod(days);
+
+        const lines = [`<b>Стаканы: ${escapeHtml(period?.title || "этот месяц")}</b>`,
+          `<i>${from} — ${to}</i>`, ""];
+        // Нули не пишем: «0 × 450» в сообщении — это строка, которую
+        // читают и не находят в ней смысла.
+        const named = (totals) => SKUS
+          .filter((s) => totals[s.id] > 0)
+          .map((s) => `${fmtInt(totals[s.id])} × ${s.short}`)
+          .join(", ");
+
+        lines.push(`Выдано: ${named(sum.out) || "ничего"}`);
+        if (named(sum.in)) lines.push(`Пришло на склад: ${named(sum.in)}`);
+
+        if (sum.branches.length) {
+          lines.push("", "<b>По точкам</b> (" + SKUS.map((s) => s.short).join(" / ") + ")");
+          for (const b of sum.branches) {
+            lines.push(`• ${escapeHtml(b.branch)} — ${SKUS.map((s) => fmtInt(b.qty[s.id] || 0)).join(" / ")}`
+              + ` · ${b.trips} ${plural(b.trips, "заезд", "заезда", "заездов")}`);
+          }
+        } else {
+          lines.push("", "Выдач за этот период не было.");
+        }
+
+        if (/^сверк/.test(arg)) {
+          const rec = await cupsReconcile(sum, from, to, config);
+          lines.push("", "<b>Выдано / списано в Poster</b>");
+          lines.push(rec);
+          lines.push("", "<i>Плюс — выдали больше, чем Poster списал с продаж: бой, брак, «на пробу» и всё, что ушло мимо кассы.</i>");
+        }
+
+        return { text: lines.join("\n") };
+      }
+
+      // ─── Что на складе и когда ехать ───
       const st = await store.getCupState();
       const lines = ["<b>Склад стаканов</b>", ""];
       for (const s of SKUS) lines.push(`• ${escapeHtml(s.name)} — ${fmtInt(st.stock?.[s.id] || 0)} шт`);
 
+      let fc = [];
+      try {
+        const days = await store.getCupDays(shiftDay(today, -60), today);
+        fc = forecast(st, BRANCH_ORDER, days, { soonDays: config.cupSoonDays });
+      } catch (_) { /* прогноза не будет, склад покажем всё равно */ }
+
+      const known = fc.filter((f) => f.daysLeft != null);
+      if (known.length) {
+        lines.push("", "<b>На сколько хватит</b>");
+        for (const f of known) lines.push(`• ${escapeHtml(f.branch)} — ${fmtDaysLeft(f.daysLeft)}`);
+      }
+
       const now = Date.now();
       const stale = BRANCH_ORDER
+        .filter((b) => !known.some((f) => f.branch === b))
         .map((b) => ({ b, at: st.lastOut?.[b] || null }))
-        .filter((x) => !x.at || now - x.at >= 7 * 86400000);
+        .filter((x) => !x.at || now - x.at >= (config.cupStaleDays || 7) * 86400000);
 
       if (stale.length) {
         lines.push("", "<b>Давно не возили</b>");
@@ -456,7 +607,10 @@ async function handleCommand({ cmd, args }, ctx) {
           lines.push(`• ${escapeHtml(x.b)} — ${d == null ? "ни разу" : `${d} дн. назад`}`);
         }
       }
-      lines.push("", "Раздача и пополнение — в приложении: кнопка «Открыть» внизу слева.");
+
+      lines.push("", "<code>/стаканы месяц</code> — сколько ушло за период",
+        "<code>/стаканы сверка месяц</code> — против списаний Poster",
+        "Раздача и пополнение — в приложении: кнопка «Открыть» внизу слева.");
       return { text: lines.join("\n") };
     }
 

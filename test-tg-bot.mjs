@@ -1093,6 +1093,45 @@ section("Стаканы: склад и снабженцы");
 }
 
 {
+  const D = 86400000, now = Date.now();
+  const store = makeStore({ admins: [777] });
+  const days = [{ date: "2026-09-01", moves: [
+    { kind: "in", sku: "350", qty: 9000, at: now - 20 * D },
+    { kind: "out", sku: "350", qty: 500, branch: "Абая", before: 100, at: now - 12 * D, opId: "a" },
+    { kind: "out", sku: "350", qty: 500, branch: "Абая", before: 100, at: now - 2 * D, opId: "b" },
+    { kind: "out", sku: "450", qty: 200, branch: "Дубай", at: now - 3 * D, opId: "c" },
+  ] }];
+  store.getCupState = async () => ({
+    stock: { "350": 1200, "450": 40 },
+    branches: { "Абая": { "350": 1000 }, "Дубай": { "450": 200 } },
+    lastOut: { "Абая": now - 2 * D, "Дубай": now - 3 * D },
+    onHand: { "Абая": { "350": 600, "450": 0 } },
+    countedAt: { "Абая": now - 2 * D },
+  });
+  store.getCupDays = async () => days;
+
+  let r = await run(store, "/стаканы", { chatType: "private", chatId: 777 });
+  ok(r.text.includes("1 200") || r.text.includes("1200"), "остаток склада");
+  ok(/Абая — хватит на \d+ дн/.test(r.text), "по Абая есть прогноз, а не дата завоза");
+  ok(!r.text.includes("Абая — 2 дн. назад"), "и старой строчки про «давно не возили» для неё нет");
+  ok(r.text.includes("Гагарина — ни разу"), "а куда не возили вовсе — по-прежнему видно");
+
+  r = await run(store, "/стаканы месяц", { chatType: "private", chatId: 777 });
+  ok(r.text.includes("Выдано:"), "сводка за период");
+  ok(r.text.includes("1 000 × 350") || r.text.includes("1000 × 350"), "и сколько ушло");
+  // «Пришло на склад» перечисляет только то, что реально пришло: 450 в
+  // журнале не было, и строки про него быть не должно
+  ok(!/Пришло[^\n]*450/.test(r.text), "нулевые позиции в приход не пишутся");
+  ok(r.text.includes("2 заезда"), "заезды посчитаны и просклонены");
+
+  r = await run(store, "/стаканы вчера", { chatType: "private", chatId: 777 });
+  ok(r.text.includes("вчера"), "период «вчера» узнан");
+
+  r = await run(store, "/стаканы", { chatType: "private", chatId: 3, userId: 3 });
+  ok(r.text.includes("Только для админа"), "чужому нельзя");
+}
+
+{
   // Кнопку ставит только владелец, и только когда известен адрес
   const store = makeStore({ admins: [777] });
   const r = await run(store, "/приложение", { chatType: "private", chatId: 5, userId: 5 });

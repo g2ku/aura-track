@@ -94,6 +94,15 @@ button.primary:disabled { opacity: .5; }
 /* Айфон рисует пустое date-поле по-своему узким; выравниваем с select */
 input[type="date"] { min-height: 44px; }
 
+/* Крестик отмены: заметный ровно настолько, чтобы найти, и не настолько,
+   чтобы нажать случайно — подтверждение всё равно спросят */
+.undo {
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+  font-size: 16px; line-height: 1; margin-left: 4px;
+}
+.undo:active { background: var(--card); color: var(--danger); }
+
 .msg { padding: 12px 14px; border-radius: 12px; margin-bottom: 12px; font-size: 14px; }
 .msg.err { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .msg.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }

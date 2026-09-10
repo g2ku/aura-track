@@ -24,6 +24,9 @@ const dayTitle = (ymd) => {
 
 export default function History({ api, today, keepDays, skus }) {
   const [pick, setPick] = useState({ kind: "month" });
+  // Сверка ходит в Poster и потому по кнопке: открытие вкладки не должно
+  // ждать чужой сервис.
+  const [withPoster, setWithPoster] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,12 +44,12 @@ export default function History({ api, today, keepDays, skus }) {
     let alive = true;
     setBusy(true);
     setError("");
-    api(`/api/cups?from=${from}&to=${to}`)
+    api(`/api/cups?from=${from}&to=${to}${withPoster ? "&poster=1" : ""}`)
       .then((d) => { if (alive) setData(d); })
       .catch((e) => { if (alive) { setError(e.message); setData(null); } })
       .finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
-  }, [api, from, to]);
+  }, [api, from, to, withPoster]);
 
   const title = pick.kind === "day" ? dayTitle(pick.day)
     : pick.kind === "pickedMonth" ? monthTitle(pick.month)
@@ -132,6 +135,39 @@ export default function History({ api, today, keepDays, skus }) {
               Числа — {skus.map((s) => s.short).join(" / ")}. Журнал хранится {keepDays || 365} дней.
             </div>
           </div>
+
+          {!withPoster && (
+            <button className="primary" onClick={() => setWithPoster(true)} disabled={busy}>
+              Сверить с Poster
+            </button>
+          )}
+
+          {withPoster && data.poster?.error && <div className="msg err">{data.poster.error}</div>}
+
+          {withPoster && data.poster?.rows && (
+            <div className="card">
+              <div className="muted" style={{ marginBottom: 10 }}>Выдано / списано в Poster</div>
+              {data.poster.rows.map((r) => (
+                <div className="branch-line" key={r.branch}>
+                  <span className="grow name">{r.branch}</span>
+                  <span className="muted num">
+                    {skus.map((s) => {
+                      const c = r.bySku[s.id];
+                      return c.spent == null ? "—" : `${c.given}/${c.spent}`;
+                    }).join(" · ")}
+                  </span>
+                  <span className={`days${r.diff != null && Math.abs(r.diff) >= 50 ? " warn" : " muted"}`}>
+                    {r.diff == null ? "нет данных" : r.diff > 0 ? `+${r.diff}` : r.diff}
+                  </span>
+                </div>
+              ))}
+              <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+                Плюс — выдали больше, чем Poster списал с продаж. Это бой,
+                брак, стакан «на пробу» и всё, что ушло мимо кассы. Само по
+                себе не обвинение; важно, что цифру наконец видно.
+              </div>
+            </div>
+          )}
         </>
       )}
     </>

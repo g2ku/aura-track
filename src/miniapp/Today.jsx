@@ -12,7 +12,7 @@ const time = (ms) => {
   }).format(new Date(Number(ms)));
 };
 
-export default function Today({ moves, skus }) {
+export default function Today({ moves, skus, onUndo }) {
   const outs = (moves || []).filter((m) => m.kind === "out");
   if (!outs.length) return null;
 
@@ -20,10 +20,10 @@ export default function Today({ moves, skus }) {
   const byTrip = [];
   for (const m of outs) {
     const last = byTrip[byTrip.length - 1];
-    if (last && last.branch === m.branch && Math.abs(last.at - m.at) < 60000) {
+    if (last && last.branch === m.branch && last.opId === m.opId && Math.abs(last.at - m.at) < 60000) {
       last.items.push(m);
     } else {
-      byTrip.push({ branch: m.branch, at: m.at, items: [m] });
+      byTrip.push({ branch: m.branch, at: m.at, opId: m.opId, items: [m] });
     }
   }
 
@@ -39,6 +39,11 @@ export default function Today({ moves, skus }) {
             {t.items.map((m) => `${m.qty} × ${short(m.sku)}`).join(", ")}
           </span>
           <span className="days muted">{time(t.at)}</span>
+          {/* Отменить можно только то, у чего есть метка поездки: без
+              неё непонятно, что именно убирать из журнала. */}
+          {onUndo && t.opId && (
+            <button className="undo" onClick={() => onUndo(t.opId, t.branch)} aria-label="отменить">×</button>
+          )}
         </div>
       ))}
     </div>
