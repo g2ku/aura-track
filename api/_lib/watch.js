@@ -9,6 +9,7 @@
 
 import { spotNameByPosterId, BRANCHES } from "./branches.js";
 import { posterStringToMs } from "./time.js";
+import { siteUrl } from "./telegram.js";
 
 export const WATCH_DEFAULTS = {
   stuckCheckMin: 15,   // чек висит открытым дольше — уже не «делают напиток»
@@ -275,20 +276,6 @@ function plural(n, one, few, many) {
   if (a === 1 && b !== 11) return one;
   if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
   return many;
-}
-
-// Адрес сайта для ссылок из сообщений.
-//
-// Vercel сам кладёт домен в окружение, поэтому настраивать обычно нечего.
-// Не нашли — вернём пустоту, и заголовки останутся просто текстом: лучше
-// без ссылки, чем со ссылкой в никуда.
-function siteUrl() {
-  const raw = process.env.SITE_URL
-    || process.env.VERCEL_PROJECT_PRODUCTION_URL
-    || process.env.VERCEL_URL
-    || "";
-  if (!raw) return "";
-  return /^https?:\/\//.test(raw) ? raw.replace(/\/+$/, "") : `https://${raw}`;
 }
 
 // Заголовок раздела ведёт туда, где с этим разбираются.

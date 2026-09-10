@@ -58,3 +58,28 @@ export function setMessageReaction(chatId, messageId, emoji) {
     reaction: [{ type: "emoji", emoji }],
   });
 }
+
+// Адрес сайта для ссылок из сообщений.
+//
+// Vercel сам кладёт домен в окружение, поэтому настраивать обычно нечего.
+// Не нашли — вернём пустоту, и заголовки останутся просто текстом: лучше
+// без ссылки, чем со ссылкой в никуда.
+export function siteUrl() {
+  const raw = process.env.SITE_URL
+    || process.env.VERCEL_PROJECT_PRODUCTION_URL
+    || process.env.VERCEL_URL
+    || "";
+  if (!raw) return "";
+  return /^https?:\/\//.test(raw) ? raw.replace(/\/+$/, "") : `https://${raw}`;
+}
+
+// Кнопка «Открыть» слева от поля ввода.
+//
+// Ставится один раз командой, а не руками в BotFather: адрес приложения
+// меняется вместе с доменом, и держать его в двух местах — верный способ
+// однажды открыть старую версию.
+export async function setMenuButton(url) {
+  return tgCall("setChatMenuButton", {
+    menu_button: { type: "web_app", text: "Стаканы", web_app: { url } },
+  });
+}

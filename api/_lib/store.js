@@ -161,6 +161,11 @@ export const DEFAULT_CONFIG = {
   // Счётчики тревог по дням и точкам: { "2026-09-01": { "10": { late: 2 } } }.
   // Нужны, чтобы видеть не сегодняшний шум, а какая точка проблемная вообще.
   alertLog: {},
+  // Кто возит стаканы: telegram id. Роль отдельная от админской —
+  // снабженец раздаёт со склада, но не пополняет его.
+  cupSuppliers: [],
+  cupStaleDays: 7,         // столько дней без завоза стаканов — уже напоминание
+  cupLowStock: 500,        // меньше этого на складе — пора закупать
 
   // Сверка накладных с Poster в конце вечернего отчёта. Выключена, пока
   // не обкатана: она цепляется к сообщению, которое и так уходит каждый
@@ -336,5 +341,58 @@ export function botStore() {
   return {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
+    getCupState, applyCupMoves, getCupDays,
   };
+}
+
+// ─── Учёт стаканов ───────────────────────────────────────────────────
+//
+// Состояние склада — один документ: он читается на каждое открытие
+// приложения, и собирать его из журнала было бы расточительно.
+// Журнал — по дням, как накладные: нужен, чтобы разобрать спорную выдачу.
+
+const CUPS_STATE = "cups/state";
+
+export async function getCupState() {
+  const { emptyState } = await import("./cups.js");
+  try {
+    const snap = await getDb().doc(CUPS_STATE).get();
+    return snap.exists ? { ...emptyState(), ...snap.data() } : emptyState();
+  } catch (e) {
+    console.error("[cups] состояние не прочиталось:", e?.message);
+    return emptyState();
+  }
+}
+
+// Записываем движения ОДНОЙ транзакцией: одна поездка снабженца — это
+// несколько точек, и половина развоза в базе хуже, чем ничего.
+export async function applyCupMoves(moves, { day }) {
+  const { emptyState, applyMoves } = await import("./cups.js");
+  const db = getDb();
+  const stateRef = db.doc(CUPS_STATE);
+  const dayRef = db.collection("cupDays").doc(day);
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(stateRef);
+    const cur = snap.exists ? { ...emptyState(), ...snap.data() } : emptyState();
+
+    const res = applyMoves(cur, moves);
+    if (res.error) return { error: res.error, move: res.move };
+
+    const daySnap = await tx.get(dayRef);
+    const prev = daySnap.exists ? (daySnap.data()?.moves || []) : [];
+
+    tx.set(stateRef, res.state);
+    tx.set(dayRef, { date: day, moves: [...prev, ...moves] }, { merge: true });
+    return { state: res.state };
+  });
+}
+
+export async function getCupDays(from, to) {
+  const dates = enumerateDates(from, to);
+  if (!dates.length) return [];
+  const db = getDb();
+  const refs = dates.map((d) => db.collection("cupDays").doc(d));
+  const snaps = await db.getAll(...refs);
+  return snaps.filter((s) => s.exists).map((s) => s.data());
 }

@@ -1,0 +1,92 @@
+/* Цвета берём у Telegram: приложение должно выглядеть частью клиента,
+   а не сайтом в рамке. Значения подставляет сам Telegram. */
+:root {
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --card: var(--tg-theme-secondary-bg-color, #f4f4f5);
+  --text: var(--tg-theme-text-color, #111214);
+  --muted: var(--tg-theme-hint-color, #8a8a8e);
+  --accent: var(--tg-theme-button-color, #2f7cf6);
+  --on-accent: var(--tg-theme-button-text-color, #ffffff);
+  --danger: #d9453c;
+  --ok: #2e9b57;
+  --line: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 12px 14px calc(24px + env(safe-area-inset-bottom));
+}
+
+h1 { font-size: 20px; margin: 4px 0 2px; }
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+
+.card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.row { display: flex; align-items: center; gap: 10px; }
+.row + .row { margin-top: 10px; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.name { font-weight: 600; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); font-size: 13px; }
+
+.stock { display: flex; gap: 10px; }
+.stock-item { flex: 1; background: var(--card); border-radius: 14px; padding: 14px; }
+.stock-n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stock-n.low { color: var(--danger); }
+.stock-l { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+/* 16px — не про красоту: на меньшем размере iOS зумит страницу при фокусе */
+input[type="number"], select {
+  width: 100%;
+  font-size: 16px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.qty { display: flex; align-items: center; gap: 8px; }
+.qty input { text-align: center; }
+.step {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  font-size: 22px; line-height: 1;
+}
+.step:active { background: var(--card); }
+
+button.primary {
+  width: 100%; padding: 14px; border: none; border-radius: 12px;
+  background: var(--accent); color: var(--on-accent);
+  font-size: 16px; font-weight: 600;
+}
+button.primary:disabled { opacity: .5; }
+
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.tab {
+  flex: 1; padding: 9px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--muted); font-size: 14px; font-weight: 600;
+}
+.tab.on { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+
+.msg { padding: 12px 14px; border-radius: 12px; margin-bottom: 12px; font-size: 14px; }
+.msg.err { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.msg.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+
+.branch-line { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.branch-line:last-child { border-bottom: none; }
+.days { font-size: 13px; }
+.days.warn { color: var(--danger); font-weight: 600; }
