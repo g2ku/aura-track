@@ -8,19 +8,10 @@
 
 import { useEffect, useState } from "react";
 import { PERIODS, periodRange, monthRange, recentMonths } from "../../api/_lib/cups.js";
+import { num, dayRu, rangeRu, monthRu } from "./fmt.js";
 
-const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь",
-  "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
-
-const monthTitle = (ym) => {
-  const [y, m] = ym.split("-").map(Number);
-  return `${MONTHS[m - 1]} ${y}`;
-};
-
-const dayTitle = (ymd) => {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return `${d} ${MONTHS[m - 1]} ${y}`;
-};
+const monthTitle = monthRu;
+const dayTitle = dayRu;
 
 export default function History({ api, today, keepDays, skus }) {
   const [pick, setPick] = useState({ kind: "month" });
@@ -105,7 +96,7 @@ export default function History({ api, today, keepDays, skus }) {
           <div className="stock">
             {skus.map((s) => (
               <div className="stock-item" key={s.id}>
-                <div className="stock-n">{(data.out?.[s.id] || 0).toLocaleString("ru-RU")}</div>
+                <div className="stock-n">{num(data.out?.[s.id])}</div>
                 <div className="stock-l">{s.short} · выдано</div>
               </div>
             ))}
@@ -113,13 +104,13 @@ export default function History({ api, today, keepDays, skus }) {
 
           <div className="card">
             <div className="muted" style={{ marginBottom: 10 }}>
-              {title} · {from === to ? from : `${from} — ${to}`}
+              {title} · {rangeRu(from, to)}
             </div>
 
             {data.branches?.length ? data.branches.map((b) => (
               <div className="branch-line" key={b.branch}>
                 <span className="grow name">{b.branch}</span>
-                <span className="muted num">{skus.map((s) => b.qty?.[s.id] || 0).join(" / ")}</span>
+                <span className="muted num">{skus.map((s) => num(b.qty?.[s.id])).join(" / ")}</span>
                 <span className="days muted">{b.trips} {b.trips === 1 ? "заезд" : "заезд" + (b.trips % 10 >= 2 && b.trips % 10 <= 4 && (b.trips % 100 < 12 || b.trips % 100 > 14) ? "а" : "ов")}</span>
               </div>
             )) : <div className="muted">За этот период выдач не было</div>}
@@ -127,7 +118,7 @@ export default function History({ api, today, keepDays, skus }) {
             {!!total(data.in) && (
               <div className="branch-line" style={{ marginTop: 10 }}>
                 <span className="grow name">Пришло на склад</span>
-                <span className="muted num">{skus.map((s) => data.in?.[s.id] || 0).join(" / ")}</span>
+                <span className="muted num">{skus.map((s) => num(data.in?.[s.id])).join(" / ")}</span>
               </div>
             )}
 
@@ -153,11 +144,11 @@ export default function History({ api, today, keepDays, skus }) {
                   <span className="muted num">
                     {skus.map((s) => {
                       const c = r.bySku[s.id];
-                      return c.spent == null ? "—" : `${c.given}/${c.spent}`;
+                      return c.spent == null ? "—" : `${num(c.given)}/${num(c.spent)}`;
                     }).join(" · ")}
                   </span>
                   <span className={`days${r.diff != null && Math.abs(r.diff) >= 50 ? " warn" : " muted"}`}>
-                    {r.diff == null ? "нет данных" : r.diff > 0 ? `+${r.diff}` : r.diff}
+                    {r.diff == null ? "нет данных" : r.diff > 0 ? `+${num(r.diff)}` : num(r.diff)}
                   </span>
                 </div>
               ))}

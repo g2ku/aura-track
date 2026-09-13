@@ -39,7 +39,8 @@ h1 { font-size: 20px; margin: 4px 0 2px; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); font-size: 13px; }
 
-.stock { display: flex; gap: 10px; }
+/* Тот же нижний отступ, что у карточки: иначе плитки прилипают к списку под ними */
+.stock { display: flex; gap: 10px; margin-bottom: 12px; }
 .stock-item { flex: 1; background: var(--card); border-radius: 14px; padding: 14px; }
 .stock-n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stock-n.low { color: var(--danger); }
@@ -108,6 +109,12 @@ input[type="date"] { min-height: 44px; }
 .msg.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
 
 .branch-line { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.branch-line .detail { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.branch-line .days { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Карточка первого шага: чуть заметнее остальных, но не тревожная —
+   ничего плохого ещё не случилось */
+.card.intro { border-left: 3px solid var(--accent); }
 .branch-line:last-child { border-bottom: none; }
 .days { font-size: 13px; }
 .days.warn { color: var(--danger); font-weight: 600; }

@@ -35,7 +35,7 @@ await build({
   jsx: "automatic", loader: { ".css": "empty" }, logLevel: "silent",
 });
 
-const { Give, Warehouse, Today, History, screenFor, tabsFor, ROLE_NAME } =
+const { Give, Warehouse, Today, History, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu } =
   await import(new URL(`./${out}`, import.meta.url).href);
 rmSync(dir, { recursive: true, force: true });
 
@@ -218,6 +218,86 @@ section("Прогноз и отмена на экранах");
   // Считаем сами поля, а не упоминания: пояснение внизу тоже называет их
   eq((html.match(/placeholder="не считал"/g) || []).length, SKUS.length, "поле у каждого стакана");
   ok(html.includes("Было на точке"), "и подписано понятно");
+}
+
+section("Ответ сервера, который не JSON, — ошибка, а не белый экран");
+
+{
+  globalThis.window = globalThis.window || { Telegram: null };
+  const html = (status) => async () => new Response("<!doctype html><title>Wi-Fi</title>", { status, headers: { "Content-Type": "text/html" } });
+  const json = (status, body) => async () => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  let err = null;
+  try { await api("/api/cups", {}, html(200)); } catch (e) { err = e; }
+  ok(err && /не тем, что ждали/.test(err.message), "200 c HTML — понятная ошибка, а не {}");
+
+  err = null;
+  try { await api("/api/cups", {}, html(502)); } catch (e) { err = e; }
+  ok(err && /502/.test(err.message), "502 без JSON — код в ошибке");
+
+  err = null;
+  try { await api("/api/cups", {}, json(403, { error: "Вас нет в списке" })); } catch (e) { err = e; }
+  ok(err && err.message === "Вас нет в списке", "ошибка сервера доходит словами");
+
+  const ok200 = await api("/api/cups", {}, json(200, { who: { role: "admin" } }));
+  eq(ok200.who.role, "admin", "нормальный ответ проходит как раньше");
+}
+
+section("Одна строка — одна мысль");
+
+{
+  // Свежая установка: ничего не возили. Раньше «не возили ни разу» стояло
+  // и под названием, и справа — по два раза на каждую из восьми точек.
+  const empty = { stock: { "350": 0, "450": 0 }, branches: {}, lastOut: {}, onHand: {}, countedAt: {} };
+  const html = render(h(Warehouse, { state: empty, skus: SKUS, branches: BRANCHES, today: [], forecast: [], onSend: noop, isAdmin: true }));
+  eq((html.match(/не возили ни разу/g) || []).length, BRANCHES.length, "фраза ровно по одному разу на точку");
+  ok(!/branch-line[^]*?class="detail"/.test(html.split("Точки")[1] || ""), "без данных под названием пусто, а не повтор");
+
+  // «Ни разу» — не тревога: красного на свежей установке быть не должно
+  ok(!/days warn/.test(html), "ни одной красной строки, пока тревожиться нечему");
+
+  // Свежая установка: подсказка и форма прихода — первыми
+  ok(html.includes("Учёт ещё не начат"), "объяснено, что делать");
+  ok(html.indexOf("Пополнить склад") < html.indexOf("Точки"), "форма прихода выше списка точек");
+  ok(html.indexOf("Учёт ещё не начат") < html.indexOf("Пополнить склад"), "а подсказка — над формой");
+
+  // Наблюдателю на свежей установке — другое объяснение и без формы
+  const v = render(h(Warehouse, { state: empty, skus: SKUS, branches: BRANCHES, today: [], forecast: [], onSend: noop, isAdmin: false }));
+  ok(v.includes("Владелец ещё не завёл приход"), "наблюдателю сказано, кого ждать");
+  ok(!v.includes("Пополнить склад"), "и формы у него нет");
+
+  // Рабочее состояние: тревога красная, «ни разу» — нет, и порядок правильный
+  const D = 86400000, now = Date.now();
+  const st = { stock: { "350": 4200, "450": 380 }, branches: { "Рамс": { "350": 300 } },
+    lastOut: { "Рамс": now - 9 * D, "OBI": now - D }, onHand: {}, countedAt: {} };
+  const w = render(h(Warehouse, { state: st, skus: SKUS, branches: ["Гагарина", "Рамс", "OBI"], today: [], forecast: [], onSend: noop, isAdmin: true }));
+  ok(!w.includes("Учёт ещё не начат"), "рабочее состояние — без вступления");
+  ok(/Рамс[^]*?days warn[^]*?9 дней назад/.test(w), "девять дней — красным");
+  ok(w.indexOf("Рамс") < w.indexOf("OBI") && w.indexOf("OBI") < w.indexOf("Гагарина"), "давнее — выше, «ни разу» — в самом низу");
+  ok(w.includes("выдано всего 300 / 0"), "под точкой с выдачей — сколько выдано");
+
+  // Экран развоза при пустом складе объясняет, почему нечего раздавать
+  const g = render(h(Give, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop }));
+  ok(g.includes("На складе пока пусто"), "снабженцу сказано, что склад пуст");
+}
+
+section("Числа и даты — одним способом");
+
+{
+  eq(num(4200).replace(/\u00a0/g, " "), "4 200", "тысячи с пробелом");
+  eq(num(0), "0", "ноль");
+  eq(num(undefined), "0", "пусто — ноль, а не NaN");
+  eq(dayRu("2026-09-14"), "14 сентября 2026", "день по-русски");
+  eq(rangeRu("2026-09-01", "2026-09-14"), "1 — 14 сентября 2026", "отрезок внутри месяца");
+  eq(rangeRu("2026-08-28", "2026-09-14"), "28 августа — 14 сентября 2026", "через границу месяца");
+  eq(rangeRu("2026-09-14", "2026-09-14"), "14 сентября 2026", "один день — не отрезок");
+  eq(monthRu("2026-02"), "февраль 2026", "месяц в именительном");
+
+  const html = render(h(Warehouse, {
+    state: { stock: { "350": 4200, "450": 380 }, branches: { "Абая": { "350": 1300 } }, lastOut: { "Абая": Date.now() }, onHand: {}, countedAt: {} },
+    skus: SKUS, branches: ["Абая"], today: [], forecast: [], onSend: noop, isAdmin: true,
+  }));
+  ok(html.includes("4 200") && html.includes("1 300"), "и в плитках, и в строках — одинаково");
 }
 
 section("Пустое состояние не роняет экраны");

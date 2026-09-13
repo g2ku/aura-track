@@ -14,22 +14,7 @@ import Give from "./Give.jsx";
 import Warehouse from "./Warehouse.jsx";
 import History from "./History.jsx";
 import { ROLE_NAME, screenFor, tabsFor } from "./roles.js";
-
-const initData = () => window.Telegram?.WebApp?.initData || "";
-
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Telegram-Init-Data": initData(),
-      ...(opts.headers || {}),
-    },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
-  return data;
-}
+import { api } from "./api.js";
 
 export default function App({ tg }) {
   const [data, setData] = useState(null);
@@ -42,7 +27,9 @@ export default function App({ tg }) {
   const load = useCallback(async () => {
     try {
       setError("");
-      setData(await api("/api/cups"));
+      const d = await api("/api/cups");
+      if (!d?.who) throw new Error("Сервер вернул пустой ответ. Попробуйте ещё раз.");
+      setData(d);
     } catch (e) {
       setError(e.message);
     }

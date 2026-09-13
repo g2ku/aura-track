@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from "react";
 import Today from "./Today.jsx";
+import { num } from "./fmt.js";
 
 const DAY = 86400000;
 const WARN_DAYS = 7;
@@ -66,8 +67,9 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
 
   const fc = Object.fromEntries((forecast || []).map((f) => [f.branch, f]));
 
-  // Порядок по прогнозу, где он есть: у кого скоро кончатся — тот выше.
-  // Где прогноза нет — по тому, как давно не возили, как раньше.
+  // Порядок: сначала у кого есть прогноз (ближе к нулю — выше), потом по
+  // давности завоза, а «ни разу» — в самый низ. Это не тревога, а
+  // отсутствие данных, и тревоге («9 дней назад») место над ней.
   const rows = branches
     .map((b) => ({ branch: b, days: daysAgo(state.lastOut?.[b]), got: state.branches?.[b] || {}, f: fc[b] }))
     .sort((a, b) => {
@@ -75,21 +77,82 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
       if (A != null && B != null) return A - B;
       if (A != null) return -1;
       if (B != null) return 1;
-      return (b.days ?? 9999) - (a.days ?? 9999);
+      return (b.days ?? -1) - (a.days ?? -1);
     });
 
   const soon = rows.filter((r) => r.f?.daysLeft != null && r.f.daysLeft <= soonDays);
 
+  // Учёт ещё не начат: склад пуст и ни одного завоза. В этот момент
+  // экран из восьми красных строк говорит «всё плохо», хотя плохого ещё
+  // ничего не случилось — просто не с чего начать. Вместо этого
+  // говорим, что делать первым, и ставим форму прихода на первое место.
+  const fresh = skus.every((s) => !(state.stock?.[s.id] > 0)) && !Object.keys(state.lastOut || {}).length;
+
+  // Одна строка на одну мысль. Справа — статус: прогноз, а если его нет,
+  // давность завоза. Под названием — деталь: сколько на точке или сколько
+  // выдано. Раньше «не возили ни разу» стояло и там, и там.
+  const detailOf = (r) => {
+    if (r.f?.left) return `на точке ~${skus.map((s) => num(r.f.left[s.id])).join(" / ")}`;
+    const total = skus.reduce((n, s) => n + (r.got[s.id] || 0), 0);
+    if (total > 0) return `выдано всего ${skus.map((s) => num(r.got[s.id])).join(" / ")}`;
+    return null;
+  };
+
+  // «Ни разу» — не тревога. На свежей установке это все точки подряд, и
+  // если красить их красным, красный перестают замечать к третьей строке.
+  // Тревога — это когда возили и давно, или когда вот-вот кончатся.
+  const statusOf = (r) => {
+    if (r.f?.daysLeft != null) {
+      return { text: leftWord(r.f.daysLeft), warn: r.f.daysLeft <= soonDays };
+    }
+    return { text: daysWord(r.days), warn: r.days != null && r.days >= WARN_DAYS };
+  };
+
+  const intake = isAdmin && (
+    <div className="card">
+      <div className="muted" style={{ marginBottom: 10 }}>Пополнить склад</div>
+      {skus.map((s) => (
+        <div className="row" key={s.id}>
+          <span className="grow name">{s.short}</span>
+          <input
+            type="number" inputMode="numeric" placeholder="0" style={{ width: 120 }}
+            value={add[s.id]}
+            onChange={(e) => setAdd((a) => ({ ...a, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
+          />
+        </div>
+      ))}
+      <button
+        className="primary" style={{ marginTop: 12 }}
+        disabled={!moves.length || busy} onClick={submit}
+      >
+        {busy ? "Записываю…" : "Добавить на склад"}
+      </button>
+    </div>
+  );
+
   return (
     <>
       {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
+
+      {fresh && (
+        <div className="card intro">
+          <div className="name" style={{ marginBottom: 6 }}>Учёт ещё не начат</div>
+          <div className="muted">
+            {isAdmin
+              ? "Первый шаг — заведите приход: сколько стаканов сейчас лежит на складе. Дальше снабженец раздаёт отсюда по точкам."
+              : "Владелец ещё не завёл приход на склад. Как появится — здесь будут остатки и прогноз по точкам."}
+          </div>
+        </div>
+      )}
+
+      {fresh && intake}
 
       <div className="stock">
         {skus.map((s) => {
           const n = state.stock?.[s.id] ?? 0;
           return (
             <div className="stock-item" key={s.id}>
-              <div className={`stock-n${n < 500 ? " low" : ""}`}>{n.toLocaleString("ru-RU")}</div>
+              <div className={`stock-n${n < 500 ? " low" : ""}`}>{num(n)}</div>
               <div className="stock-l">{s.short} · на складе</div>
             </div>
           );
@@ -104,51 +167,28 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
 
       <div className="card">
         <div className="muted" style={{ marginBottom: 10 }}>Точки</div>
-        {rows.map((r) => (
-          <div className="branch-line" key={r.branch}>
-            <span className="grow">
-              <span className="name">{r.branch}</span>
-              <span className="muted" style={{ display: "block", fontSize: 12 }}>
-                {r.f?.left ? `на точке ~${skus.map((s) => r.f.left[s.id] ?? 0).join(" / ")}` : daysWord(r.days)}
+        {rows.map((r) => {
+          const detail = detailOf(r);
+          const st = statusOf(r);
+          return (
+            <div className="branch-line" key={r.branch}>
+              <span className="grow">
+                <span className="name">{r.branch}</span>
+                {detail && <span className="detail">{detail}</span>}
               </span>
-            </span>
-            {r.f?.daysLeft != null ? (
-              <span className={`days${r.f.daysLeft <= soonDays ? " warn" : " muted"}`}>{leftWord(r.f.daysLeft)}</span>
-            ) : (
-              <span className={`days${r.days == null || r.days >= WARN_DAYS ? " warn" : " muted"}`}>
-                {daysWord(r.days)}
-              </span>
-            )}
+              <span className={`days ${st.warn ? "warn" : "muted"}`}>{st.text}</span>
+            </div>
+          );
+        })}
+        {!fresh && (
+          <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+            «Хватит на» появляется после двух пересчётов подряд — когда
+            снабженец отмечает «было на точке». Числа — {skus.map((s) => s.short).join(" / ")}.
           </div>
-        ))}
-        <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-          «Хватит на» считается по двум пересчётам подряд. Пока снабженец не
-          отметит, сколько было на точке, здесь будет только дата завоза.
-          Числа — {skus.map((s) => s.short).join(" / ")}.
-        </div>
+        )}
       </div>
 
-      {isAdmin && (
-        <div className="card">
-          <div className="muted" style={{ marginBottom: 10 }}>Пополнить склад</div>
-          {skus.map((s) => (
-            <div className="row" key={s.id}>
-              <span className="grow name">{s.short}</span>
-              <input
-                type="number" inputMode="numeric" placeholder="0" style={{ width: 120 }}
-                value={add[s.id]}
-                onChange={(e) => setAdd((a) => ({ ...a, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
-              />
-            </div>
-          ))}
-          <button
-            className="primary" style={{ marginTop: 12 }}
-            disabled={!moves.length || busy} onClick={submit}
-          >
-            {busy ? "Записываю…" : "Добавить на склад"}
-          </button>
-        </div>
-      )}
+      {!fresh && intake}
 
       <Today moves={today} skus={skus} onUndo={onUndo} />
     </>

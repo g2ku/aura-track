@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from "react";
 import Today from "./Today.jsx";
+import { num } from "./fmt.js";
 
 // Метка отправки живёт, пока не изменилась сама партия. Нажал дважды
 // или связь оборвалась и он повторил — сервер узнает ту же метку и не
@@ -42,6 +43,10 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
   const overdrawn = moves.find((m) => m.qty > (state.stock?.[m.sku] ?? 0));
   const canSend = branch && moves.length > 0 && !busy && !overdrawn;
 
+  // Склад пуст — раздавать нечего. Сказать это сразу, а не после того,
+  // как человек выберет точку, наберёт число и упрётся в «только 0 шт».
+  const empty = skus.every((s) => !(state.stock?.[s.id] > 0));
+
   async function submit() {
     setBusy(true);
     setMsg(null);
@@ -65,6 +70,13 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
     <>
       {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
 
+      {empty && (
+        <div className="card intro">
+          <div className="name" style={{ marginBottom: 6 }}>На складе пока пусто</div>
+          <div className="muted">Приход заводит владелец. Как только он отметит, сколько стаканов на складе, здесь можно будет записывать выдачу.</div>
+        </div>
+      )}
+
       <div className="card">
         <div className="muted" style={{ marginBottom: 8 }}>Куда оставили</div>
         <select value={branch} onChange={(e) => setBranch(e.target.value)}>
@@ -78,7 +90,7 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
           <div className="row" style={{ marginBottom: 10 }}>
             <div className="grow">
               <div className="name">{s.name}</div>
-              <div className="muted">на складе {state.stock?.[s.id] ?? 0} шт</div>
+              <div className="muted">на складе {num(state.stock?.[s.id])} шт</div>
             </div>
           </div>
           <div className="qty">
@@ -108,7 +120,7 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
 
       {overdrawn && (
         <div className="msg err">
-          На складе только {state.stock?.[overdrawn.sku] ?? 0} шт «{overdrawn.sku}»
+          На складе только {num(state.stock?.[overdrawn.sku])} шт «{overdrawn.sku}»
         </div>
       )}
 

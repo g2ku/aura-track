@@ -5,6 +5,8 @@
 // перезапускается, и снабженец честно не помнит, ушла Абая или нет.
 // Список отвечает на это за секунду.
 
+import { num } from "./fmt.js";
+
 const time = (ms) => {
   if (!ms) return "";
   return new Intl.DateTimeFormat("ru-RU", {
@@ -36,7 +38,7 @@ export default function Today({ moves, skus, onUndo }) {
         <div className="branch-line" key={`${t.branch}-${t.at}-${i}`}>
           <span className="grow name">{t.branch}</span>
           <span className="muted num">
-            {t.items.map((m) => `${m.qty} × ${short(m.sku)}`).join(", ")}
+            {t.items.map((m) => `${num(m.qty)} × ${short(m.sku)}`).join(", ")}
           </span>
           <span className="days muted">{time(t.at)}</span>
           {/* Отменить можно только то, у чего есть метка поездки: без
