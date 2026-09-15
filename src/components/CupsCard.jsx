@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchCups, fetchCupsPeriod } from "../poster";
-import { runningOutSoon, reconcileSummary, monthStart, daysWord } from "../cupsView.js";
+import { runningOutSoon, reconcileSummary, monthStart, daysWord, consumptionRows } from "../cupsView.js";
 
 const nf = new Intl.NumberFormat("ru-RU");
 
@@ -47,6 +47,7 @@ export default function CupsCard() {
   const { state, skus, forecast = [], soonDays = 4 } = data;
   const soon = runningOutSoon(forecast, soonDays);
   const sum = reconcileSummary(rec);
+  const use = consumptionRows(forecast, skus);
 
   return (
     <div className="supply-warnings" style={{ marginTop: 16 }}>
@@ -81,6 +82,36 @@ export default function CupsCard() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {use.rows.length > 0 && (
+        <div className="card cups-rate" style={{ marginTop: 12, padding: 16 }}>
+          <div className="stat-label" style={{ marginBottom: 2 }}>Расход стаканов, в день</div>
+          <div className="text-muted" style={{ fontSize: 12, marginBottom: 12 }}>
+            По двум последним пересчётам на точке. Вся сеть — {nf.format(Math.round(use.total))} в день.
+          </div>
+
+          {use.rows.map((r) => (
+            <div
+              className="cups-rate-row"
+              key={r.branch}
+              title={skus.map((s) => `${s.short}: ${nf.format(Math.round(r.bySku[s.id]))}/день`).join("\n")}
+            >
+              <span className="cups-rate-name">{r.branch}</span>
+              <span className="cups-rate-track">
+                <span className="cups-rate-fill" style={{ width: `${Math.max(2, r.share * 100)}%` }} />
+              </span>
+              <span className="cups-rate-val">{nf.format(Math.round(r.perDay))}</span>
+            </div>
+          ))}
+
+          {use.unknown.length > 0 && (
+            <div className="text-muted" style={{ marginTop: 10, fontSize: 12 }}>
+              Пока не знаем: {use.unknown.join(", ")}. Расход считается по двум
+              пересчётам подряд — когда снабженец отмечает «было на точке».
+            </div>
+          )}
         </div>
       )}
 

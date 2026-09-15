@@ -16,7 +16,7 @@ import {
 } from "./api/_lib/cups.js";
 import { verifyInitData, roleOf, canWrite, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
 import { matchIngredient, resolveCupIngredients, reconcileCups, formatReconcile } from "./api/_lib/cupsPoster.js";
-import { runningOutSoon, reconcileSummary, monthStart, daysWord } from "./src/cupsView.js";
+import { runningOutSoon, reconcileSummary, monthStart, daysWord, consumptionRows } from "./src/cupsView.js";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -791,6 +791,38 @@ section("Плитка на дашборде");
   eq(daysWord(5), "дней", "5 дней");
   eq(daysWord(11), "дней", "11 дней, а не «11 день»");
   eq(daysWord(21), "день", "21 день");
+}
+
+section("Расход по точкам на график");
+
+{
+  const SK = [{ id: "350", short: "350" }, { id: "450", short: "450" }];
+  const fc = [
+    { branch: "Дубай", perDay: { "350": 30, "450": 7 }, samples: 2 },
+    { branch: "Абая", perDay: { "350": 41, "450": 9 }, samples: 3 },
+    { branch: "Рамс", daysLeft: null, why: "нет двух пересчётов" },
+    { branch: "OBI", perDay: { "350": 9, "450": 2 }, samples: 2 },
+    // Точка, где расход посчитался в ноль, — это не «мы знаем, что ноль»
+    { branch: "Коктем", perDay: { "350": 0, "450": 0 }, samples: 2 },
+  ];
+
+  const r = consumptionRows(fc, SK);
+  eq(r.rows.map((x) => x.branch), ["Абая", "Дубай", "OBI"], "по убыванию расхода");
+  eq(r.rows[0].perDay, 50, "оба стакана сложены");
+  eq(r.rows[0].bySku, { "350": 41, "450": 9 }, "и разбивка сохранена для подсказки");
+  eq(r.total, 98, "сумма по сети: 50 + 37 + 11");
+  eq(r.max, 50, "максимум — длина самого длинного столбика");
+
+  // Столбики меряются от максимума: сравниваем точки между собой,
+  // а не делим целое на части
+  eq(r.rows[0].share, 1, "у самой большой — полная длина");
+  eq(Math.round(r.rows[2].share * 100), 22, "у OBI — доля от максимума, а не от суммы");
+
+  eq(r.unknown, ["Рамс", "Коктем"], "без пересчётов и с нулём — не в график, а в «пока не знаем»");
+  ok(!r.rows.some((x) => x.branch === "Рамс"), "нулевым столбиком «не знаем» не рисуем");
+
+  eq(consumptionRows([], SK), { rows: [], unknown: [], max: 0, total: 0 }, "пусто");
+  eq(consumptionRows(null, SK).rows, [], "и на отсутствующем прогнозе");
 }
 
 console.log("\n══════════════════════════════════════════════════");
