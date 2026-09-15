@@ -173,6 +173,9 @@ export const DEFAULT_CONFIG = {
   // Еженедельная сверка с Poster: 1 — понедельник, 0 — выключить
   cupReconcileDay: 1,
   lastCupReconcileDate: null,
+  // Разница прошлой недели — чтобы сказать, куда цифра едет, не ходя
+  // в Poster второй раз
+  lastCupReconcileTotal: null,
   // Ежедневное по стаканам — рассылка снабженцу и уборка журнала.
   // Своя метка: со сводкой это не связано, она бывает выключена.
   lastCupDailyDate: null,
@@ -363,6 +366,23 @@ export function botStore() {
 // Состояние склада — один документ: он читается на каждое открытие
 // приложения, и собирать его из журнала было бы расточительно.
 // Журнал — по дням, как накладные: нужен, чтобы разобрать спорную выдачу.
+
+// Роль сотрудника на сайте: "admin" | "manager" | "curator" | "".
+//
+// Сервер её до сих пор нигде не читал — все защищённые ручки пускали
+// любого, кто вошёл. Для стаканов это важно: у куратора дашборд сужен до
+// его точки, и было бы странно, если бы та же ручка отдавала ему сеть
+// целиком в обход интерфейса.
+export async function getSiteRole(uid) {
+  if (!uid) return "";
+  try {
+    const snap = await getDb().collection("users").doc(String(uid)).get();
+    return snap.exists ? String(snap.data()?.role || "") : "";
+  } catch (e) {
+    console.error("[auth] роль не прочиталась:", e?.message);
+    return "";
+  }
+}
 
 const CUPS_STATE = "cups/state";
 

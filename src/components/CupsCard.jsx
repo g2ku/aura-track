@@ -9,11 +9,11 @@
 
 import { useEffect, useState } from "react";
 import { fetchCups, fetchCupsPeriod } from "../poster";
-import { runningOutSoon, reconcileSummary, monthStart, daysWord, consumptionRows } from "../cupsView.js";
+import { runningOutSoon, reconcileSummary, monthStart, daysWord, consumptionRows, diffTrend, revenuePerCup } from "../cupsView.js";
 
 const nf = new Intl.NumberFormat("ru-RU");
 
-export default function CupsCard() {
+export default function CupsCard({ revenueByBranch, revenueDays = 1, revenueLabel = "" }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [rec, setRec] = useState(null);
@@ -31,7 +31,7 @@ export default function CupsCard() {
     if (!data?.date) return;
     setRecBusy(true);
     try {
-      const d = await fetchCupsPeriod(monthStart(data.date), data.date, { poster: true });
+      const d = await fetchCupsPeriod(monthStart(data.date), data.date, { poster: true, compare: true });
       setRec(d.poster || { error: "Poster не ответил" });
     } catch (e) {
       setRec({ error: e.message });
@@ -47,7 +47,9 @@ export default function CupsCard() {
   const { state, skus, forecast = [], soonDays = 4 } = data;
   const soon = runningOutSoon(forecast, soonDays);
   const sum = reconcileSummary(rec);
+  const trend = diffTrend(sum?.total, rec?.prev?.total);
   const use = consumptionRows(forecast, skus);
+  const perCup = revenuePerCup(use.rows, revenueByBranch, revenueDays);
 
   return (
     <div className="supply-warnings" style={{ marginTop: 16 }}>
@@ -112,6 +114,27 @@ export default function CupsCard() {
               пересчётам подряд — когда снабженец отмечает «было на точке».
             </div>
           )}
+
+          {perCup.length > 1 && (
+            <>
+              <div className="stat-label" style={{ marginTop: 16, marginBottom: 2 }}>
+                Выручка на стакан{revenueLabel ? `, ${revenueLabel}` : ""}
+              </div>
+              <div className="text-muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                Грубо: в выручку входит еда и зерно, а стакан бывает двух размеров.
+                Годится, чтобы сравнить точки между собой.
+              </div>
+              {perCup.map((r) => (
+                <div key={r.branch} className="cups-rate-row">
+                  <span className="cups-rate-name">{r.branch}</span>
+                  <span className="text-muted" style={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                    {nf.format(Math.round(r.revPerDay))} ₸/день · {Math.round(r.perDay)} стак.
+                  </span>
+                  <span className="cups-rate-val">{nf.format(Math.round(r.perCup))} ₸</span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
 
@@ -155,9 +178,18 @@ export default function CupsCard() {
             {sum && (
               <div className="text-muted" style={{ marginTop: 10, fontSize: 13 }}>
                 Всего {sum.total > 0 ? `+${nf.format(sum.total)}` : nf.format(sum.total)},
-                хуже всех — {sum.worst.branch}. Плюс значит, что выдали больше, чем
-                списалось с продаж: бой, брак, «на пробу». Вопрос не в цифре,
-                а в том, растёт ли она от месяца к месяцу.
+                хуже всех — {sum.worst.branch}.
+                {trend && (trend.same
+                  ? ` В прошлом месяце было столько же.`
+                  : ` В прошлом месяце — ${nf.format(trend.prev)}, то есть ${trend.better ? "лучше" : "хуже"} на ${nf.format(Math.abs(trend.delta))}.`)}
+                {" "}Плюс значит, что выдали больше, чем списалось с продаж: бой,
+                брак, «на пробу». Вопрос не в цифре, а в том, растёт ли она.
+              </div>
+            )}
+
+            {rec.failed?.length > 0 && (
+              <div className="text-muted" style={{ marginTop: 6, fontSize: 12 }}>
+                Не ответили по складам: {rec.failed.join(", ")}.
               </div>
             )}
           </>

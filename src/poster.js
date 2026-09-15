@@ -433,9 +433,10 @@ export async function fetchCups(opts = {}) {
 }
 
 // Сверка за период. Ходит в Poster, поэтому вызывается отдельно и по делу.
-export async function fetchCupsPeriod(from, to, { poster = false, ...opts } = {}) {
+export async function fetchCupsPeriod(from, to, { poster = false, compare = false, ...opts } = {}) {
   const qs = new URLSearchParams({ from, to });
   if (poster) qs.set("poster", "1");
+  if (compare) qs.set("compare", "1");
   const res = await fetch(`/api/cups?${qs}`, { headers: await apiHeaders(), signal: opts.signal });
   const data = await res.json().catch(() => null);
   if (!res.ok || !data) throw new Error(data?.error || `HTTP ${res.status}`);

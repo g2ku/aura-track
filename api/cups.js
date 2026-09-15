@@ -5,11 +5,11 @@
 // при чём: снабженец не заводит аккаунт на сайте, он открывает бота.
 
 import { verifyInitData, roleOf, canWrite } from "./_lib/telegramAuth.js";
-import { getConfig, getCupState, applyCupMoves, undoCupMoves, getCupDay, getCupDays } from "./_lib/store.js";
+import { getConfig, getCupState, applyCupMoves, undoCupMoves, getCupDay, getCupDays, getSiteRole } from "./_lib/store.js";
 import {
-  SKUS, summarizePeriod, KEEP_DAYS, retentionCutoff, shiftDay, forecast,
+  SKUS, summarizePeriod, KEEP_DAYS, retentionCutoff, shiftDay, forecast, journalFeed,
 } from "./_lib/cups.js";
-import { reconcileFromPoster, givenFrom } from "./_lib/cupsPoster.js";
+import { reconcileFromPoster, givenFrom, totalDiff } from "./_lib/cupsPoster.js";
 import { BRANCH_ORDER } from "./_lib/branches.js";
 
 function almatyDay() {
@@ -24,6 +24,9 @@ const ymd = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : nu
 // Историю видят все, кроме снабженца: ему она без надобности, а лишний
 // экран в приложении, которое заполняют стоя у машины, только мешает.
 const canSee = (role) => role === "admin" || role === "viewer";
+
+// Сколько дней в отрезке, включая оба конца
+const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
 function initDataOf(req) {
   const h = req.headers?.["x-telegram-init-data"];
@@ -51,6 +54,14 @@ async function whoIs(req) {
   const { requireUser } = await import("./_lib/requireUser.js");
   const site = await requireUser(req);
   if (!site.ok) return { ok: false, status: site.status, error: site.message };
+
+  // Сеть целиком — владельцу и управляющим. Куратору дашборд и так сужен
+  // до его точки: отдавать ему всю сеть в обход интерфейса было бы
+  // дырой, которую видно только тому, кто откроет ручку напрямую.
+  const role = await getSiteRole(site.uid);
+  if (role !== "admin" && role !== "manager") {
+    return { ok: false, status: 403, error: "Стаканы видит владелец или управляющий" };
+  }
   return { ok: true, user: { id: `site:${site.uid}`, name: site.email || "с сайта", username: "" }, via: "site" };
 }
 
@@ -103,13 +114,36 @@ export default async function handler(req, res) {
       if (String(req.query.poster || "") === "1") {
         try {
           poster = await reconcileFromPoster(givenFrom(sum), a, b, config);
+
+          // И тот же счёт за предыдущий равный отрезок. Важна не сама
+          // разница, а куда она едет: +162 после +40 — тревога, после
+          // +300 — победа. Не собралось — покажем хотя бы текущее.
+          if (String(req.query.compare || "") === "1") {
+            try {
+              const span = daysBetween(a, b);
+              const pb = shiftDay(a, -1);
+              const pa = shiftDay(pb, -span);
+              const prevSum = summarizePeriod(await getCupDays(pa, pb));
+              const prevRec = await reconcileFromPoster(givenFrom(prevSum), pa, pb, config);
+              poster.prev = { from: pa, to: pb, total: totalDiff(prevRec) };
+            } catch (e) {
+              console.warn("[cups] прошлый период не собрался:", e?.message);
+            }
+          }
         } catch (e) {
           console.error("[cups] сверка не собралась:", e?.message);
           poster = { error: "Poster не ответил" };
         }
       }
 
-      res.status(200).json({ from: a, to: b, ...sum, poster });
+      // moves из сводки наружу не отдаём: экран рисует итоги по точкам,
+      // а журнал за месяц — это каждая строка с тем, кто её записал,
+      // на телефоне по мобильной связи.
+      const { moves, ...totals } = sum;
+      // Лента — по запросу: экран итогов её не рисует, а за месяц это
+      // каждая строка журнала.
+      const feed = String(req.query.feed || "") === "1" ? journalFeed(days) : null;
+      res.status(200).json({ from: a, to: b, ...totals, poster, feed });
       return;
     }
 
@@ -140,7 +174,10 @@ export default async function handler(req, res) {
   // владелец — любую сегодняшнюю. Вчерашнее уже вошло в сводку, такое
   // исправляют разговором, а не тихой правкой задним числом.
   if (req.body?.undo) {
-    const recent = await getCupDays(shiftDay(today, -60), today);
+    // Весь срок хранения, а не последние недели: отмена пересобирает
+    // филиал из журнала, и с коротким окном она стирала бы дату завоза
+    // у точки, куда возили давно.
+    const recent = await getCupDays(retentionCutoff(today, config.cupKeepDays ?? KEEP_DAYS), today);
     const flat = [];
     for (const d of recent) for (const m of d?.moves || []) flat.push(m);
 

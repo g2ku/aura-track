@@ -35,7 +35,7 @@ await build({
   jsx: "automatic", loader: { ".css": "empty" }, logLevel: "silent",
 });
 
-const { Give, Warehouse, Today, History, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu } =
+const { Give, Warehouse, Today, History, Feed, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu } =
   await import(new URL(`./${out}`, import.meta.url).href);
 rmSync(dir, { recursive: true, force: true });
 
@@ -298,6 +298,31 @@ section("Числа и даты — одним способом");
     skus: SKUS, branches: ["Абая"], today: [], forecast: [], onSend: noop, isAdmin: true,
   }));
   ok(html.includes("4 200") && html.includes("1 300"), "и в плитках, и в строках — одинаково");
+}
+
+section("Дневник на экране");
+
+{
+  const at = Date.parse("2026-09-15T14:30:00+05:00");
+  const trips = [
+    { kind: "out", branch: "Дубай", by: "@kairat", at: at + 3600000,
+      items: [{ sku: "350", qty: 200, before: null }] },
+    { kind: "out", branch: "Абая", by: "@kairat", at,
+      items: [{ sku: "350", qty: 300, before: 120 }, { sku: "450", qty: 100, before: null }] },
+    { kind: "in", branch: null, by: "@ravil", at: at - 3600000,
+      items: [{ sku: "350", qty: 5000, before: null }] },
+  ];
+  const html = render(h(Feed, { trips, skus: SKUS }));
+  ok(html.includes("Кто что записал"), "заголовок");
+  ok(html.includes("300 × 350, 100 × 450"), "поездка одной строкой");
+  ok(html.includes("было 120 / —"), "пересчёт показан, а где его нет — прочерк");
+  ok(html.includes("@kairat") && html.includes("@ravil"), "видно, кто записал");
+  ok(html.includes("Приход на склад"), "у прихода вместо филиала — что это приход");
+  ok(html.includes("15.09") && html.includes("15:30"), "дата и время по Алматы");
+  ok(html.indexOf("Дубай") < html.indexOf("Абая"), "свежее сверху");
+
+  eq(render(h(Feed, { trips: [], skus: SKUS })), "", "пустой дневник ничего не рисует");
+  eq(render(h(Feed, { skus: SKUS })), "", "и отсутствующий");
 }
 
 section("Пустое состояние не роняет экраны");

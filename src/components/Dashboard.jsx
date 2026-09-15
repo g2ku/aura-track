@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import CupsCard from "./CupsCard.jsx";
+import { BRANCHES as BRANCH_MAP } from "../branches";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, clearPosterCache, getCachedCashBySpot, OPEN_CHECK_STUCK_MIN } from "../poster";
@@ -170,6 +171,24 @@ export default function Dashboard({
     }
     return filtered;
   }, [cashBySpot, userBranch, spotName, selectedIP, ipGroups]);
+
+  // Выручка по филиалам в том же виде, каким её знает учёт стаканов:
+  // по названию точки, а не по spot_id Poster.
+  const cupRevenue = useMemo(() => {
+    const byId = {};
+    for (const c of cashBySpot) if (c.spotId != null) byId[String(c.spotId)] = Number(c.total) || 0;
+    const out = {};
+    for (const v of Object.values(BRANCH_MAP)) {
+      if (byId[String(v.spotId)] != null) out[v.spotName] = byId[String(v.spotId)];
+    }
+    return out;
+  }, [cashBySpot]);
+
+  const rangeDays = useMemo(() => {
+    const a = Date.parse(`${dateFrom}T00:00:00Z`), b = Date.parse(`${dateTo}T00:00:00Z`);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 1;
+    return Math.round((b - a) / 86400000) + 1;
+  }, [dateFrom, dateTo]);
 
   const displaySupplyStatus = useMemo(() => {
     let filtered = supplyStatus;
@@ -794,7 +813,13 @@ export default function Dashboard({
           )}
 
           {/* Стаканы — сети целиком, поэтому не куратору одной точки */}
-          {!userBranch && <CupsCard />}
+          {!userBranch && (
+            <CupsCard
+              revenueByBranch={cupRevenue}
+              revenueDays={rangeDays}
+              revenueLabel={dateFrom === dateTo ? "за сегодня" : `за ${dateFrom} — ${dateTo}`}
+            />
+          )}
 
           {!userBranch && agg.branches.length > 0 && (
             <div className="card table-card" style={{ overflow: "auto", marginTop: 16 }}>

@@ -125,8 +125,12 @@ export async function reconcileFromPoster(givenByBranch, from, to, config = {}) 
     .map((st) => ({ id: String(st.storage_id), branch: branchByStorage(st.storage_name) }))
     .filter((st) => st.branch);
 
+  // allSettled, а не all: один упавший склад не должен выбрасывать семь
+  // посчитанных. Те, что не ответили, попадут в отчёт как «Poster
+  // молчит» — это честнее, чем отсутствие отчёта целиком.
   const spent = {};
-  await Promise.all(storages.map(async (st) => {
+  const failed = [];
+  const results = await Promise.allSettled(storages.map(async (st) => {
     const r = await posterCall("storage.getReportMovement", movementParams(from, to, st.id));
     const rows = normalizeMovement(r?.response || []);
     const bySku = {};
@@ -134,11 +138,27 @@ export async function reconcileFromPoster(givenByBranch, from, to, config = {}) 
       const sku = ids[ingId];
       if (sku) bySku[sku] = Math.round(v.spent);
     }
-    if (Object.keys(bySku).length) spent[st.branch] = bySku;
+    return { branch: st.branch, bySku };
   }));
 
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      failed.push(storages[i].branch);
+      console.warn(`[cups] склад ${storages[i].branch} не ответил:`, r.reason?.message);
+      return;
+    }
+    if (Object.keys(r.value.bySku).length) spent[r.value.branch] = r.value.bySku;
+  });
+
   const names = BRANCH_ORDER.filter((n) => givenByBranch[n] || spent[n]);
-  return { map, rows: reconcileCups(givenByBranch, spent, names) };
+  return { map, failed, rows: reconcileCups(givenByBranch, spent, names) };
+}
+
+// Итог разницы по сети. null — Poster не ответил ни по одной точке,
+// и «ноль» тут был бы враньём.
+export function totalDiff(rec) {
+  const rows = (rec?.rows || []).filter((r) => r.diff != null);
+  return rows.length ? rows.reduce((n, r) => n + r.diff, 0) : null;
 }
 
 // { branch: { sku: qty } } из сводки за период — вход для сверки.

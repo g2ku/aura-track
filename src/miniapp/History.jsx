@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { PERIODS, periodRange, monthRange, recentMonths } from "../../api/_lib/cups.js";
 import { num, dayRu, rangeRu, monthRu } from "./fmt.js";
+import Feed from "./Feed.jsx";
 
 const monthTitle = monthRu;
 const dayTitle = dayRu;
@@ -18,6 +19,7 @@ export default function History({ api, today, keepDays, skus }) {
   // Сверка ходит в Poster и потому по кнопке: открытие вкладки не должно
   // ждать чужой сервис.
   const [withPoster, setWithPoster] = useState(false);
+  const [withFeed, setWithFeed] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,12 +37,12 @@ export default function History({ api, today, keepDays, skus }) {
     let alive = true;
     setBusy(true);
     setError("");
-    api(`/api/cups?from=${from}&to=${to}${withPoster ? "&poster=1" : ""}`)
+    api(`/api/cups?from=${from}&to=${to}${withPoster ? "&poster=1" : ""}${withFeed ? "&feed=1" : ""}`)
       .then((d) => { if (alive) setData(d); })
       .catch((e) => { if (alive) { setError(e.message); setData(null); } })
       .finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
-  }, [api, from, to, withPoster]);
+  }, [api, from, to, withPoster, withFeed]);
 
   const title = pick.kind === "day" ? dayTitle(pick.day)
     : pick.kind === "pickedMonth" ? monthTitle(pick.month)
@@ -126,6 +128,15 @@ export default function History({ api, today, keepDays, skus }) {
               Числа — {skus.map((s) => s.short).join(" / ")}. Журнал хранится {keepDays || 365} дней.
             </div>
           </div>
+
+          {!withFeed && (
+            <button className="tab" style={{ width: "100%", marginBottom: 12 }}
+              onClick={() => setWithFeed(true)} disabled={busy}>
+              Кто что записал
+            </button>
+          )}
+
+          {withFeed && <Feed trips={data.feed} skus={skus} />}
 
           {!withPoster && (
             <button className="primary" onClick={() => setWithPoster(true)} disabled={busy}>

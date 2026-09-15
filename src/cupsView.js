@@ -22,6 +22,14 @@ export function reconcileSummary(rec) {
 // Первое число того же месяца: период сверки на дашборде — «с начала месяца»
 export const monthStart = (ymd) => `${String(ymd || "").slice(0, 7)}-01`;
 
+// Куда едет разница. Само число мало о чём говорит: +162 после +40 —
+// тревога, после +300 — победа.
+export function diffTrend(total, prevTotal) {
+  if (total == null || prevTotal == null || !Number.isFinite(Number(prevTotal))) return null;
+  const delta = total - Number(prevTotal);
+  return { prev: Number(prevTotal), delta, better: delta < 0, same: delta === 0 };
+}
+
 export function daysWord(n) {
   const a = n % 10, b = n % 100;
   if (a === 1 && b !== 11) return "день";
@@ -64,4 +72,25 @@ export function consumptionRows(forecast, skus) {
   for (const r of rows) r.share = max > 0 ? r.perDay / max : 0;
 
   return { rows, unknown, max, total };
+}
+
+// ─── Выручка на стакан ────────────────────────────────────────────────
+//
+// Расход сам по себе говорит о потоке, но не о том, чем этот поток
+// торгует. «Абая — 50 стаканов в день и 180 000 ₸, Коктем — 15 и
+// 90 000» значит, что второй продаёт вдвое дороже за стакан: другой
+// ассортимент или другой средний чек. Это уже разговор про меню.
+//
+// Число приблизительное по построению, и врать про это не надо: в
+// выручку входит еда и зерно, а стакан бывает двух размеров. Оно годится
+// для сравнения точек между собой, а не как показатель сам по себе.
+export function revenuePerCup(rows, revenueByBranch, days) {
+  const d = Math.max(1, Number(days) || 1);
+  const out = [];
+  for (const r of rows || []) {
+    const rev = Number(revenueByBranch?.[r.branch]);
+    if (!Number.isFinite(rev) || rev <= 0 || !(r.perDay > 0)) continue;
+    out.push({ branch: r.branch, perCup: rev / d / r.perDay, perDay: r.perDay, revPerDay: rev / d });
+  }
+  return out.sort((a, b) => b.perCup - a.perCup);
 }

@@ -10,13 +10,13 @@ import {
   SKUS, SKU_IDS, emptyState, validateMove, applyMove, applyMoves,
   daysSinceOut, staleBranches, planWrite,
   shiftDay, monthRange, periodRange, recentMonths, summarizePeriod, retentionCutoff, KEEP_DAYS,
-  consumptionByBranch, forecast, runningOut, planUndo,
+  consumptionByBranch, forecast, runningOut, planUndo, rebuildBranch, countedAtOf, journalFeed,
   formatSupplierNudge, formatWeeklyReconcile, weekdayOf,
   formatCupReminder, skuName,
 } from "./api/_lib/cups.js";
 import { verifyInitData, roleOf, canWrite, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
-import { matchIngredient, resolveCupIngredients, reconcileCups, formatReconcile } from "./api/_lib/cupsPoster.js";
-import { runningOutSoon, reconcileSummary, monthStart, daysWord, consumptionRows } from "./src/cupsView.js";
+import { matchIngredient, resolveCupIngredients, reconcileCups, formatReconcile, totalDiff } from "./api/_lib/cupsPoster.js";
+import { runningOutSoon, reconcileSummary, monthStart, daysWord, consumptionRows, diffTrend, revenuePerCup } from "./src/cupsView.js";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -257,12 +257,12 @@ section("Остаток на точке");
   // Пересчитал перед завозом: на точке было 120, привезли 300
   st = applyMove(st, { kind: "out", sku: "350", qty: 300, branch: "Абая", before: 120, at: t });
   eq(st.onHand["Абая"]["350"], 420, "остаток = что было плюс что привезли");
-  eq(st.countedAt["Абая"], t, "время пересчёта записано");
+  eq(st.countedAt["Абая"], { "350": t }, "время пересчёта записано — по стакану, а не на филиал");
 
   // Не пересчитал: просто прибавили
   st = applyMove(st, { kind: "out", sku: "350", qty: 100, branch: "Абая", at: t + 86400000 });
   eq(st.onHand["Абая"]["350"], 520, "без пересчёта остаток растёт на привезённое");
-  eq(st.countedAt["Абая"], t, "а время пересчёта осталось прежним — числу веры меньше");
+  eq(st.countedAt["Абая"], { "350": t }, "а время пересчёта осталось прежним — числу веры меньше");
 
   eq(st.branches["Абая"]["350"], 400, "выдано всего — отдельно от остатка");
 
@@ -270,6 +270,41 @@ section("Остаток на точке");
   ok(validateMove({ kind: "out", sku: "350", qty: 10, branch: "Абая", before: "ерунда" }, st), "не число не принимается");
   ok(!validateMove({ kind: "out", sku: "350", qty: 10, branch: "Абая", before: 0 }, st), "ноль — законный ответ");
   ok(!validateMove({ kind: "out", sku: "350", qty: 10, branch: "Абая" }, st), "и без пересчёта можно");
+}
+
+section("Пересчёт — по каждому стакану отдельно");
+
+{
+  const D = 86400000, NOW = Date.parse("2026-09-15T10:00:00+05:00");
+  let st = emptyState();
+  st = applyMove(st, { kind: "in", sku: "350", qty: 9000, at: NOW - 40 * D });
+  st = applyMove(st, { kind: "in", sku: "450", qty: 9000, at: NOW - 40 * D });
+
+  // Снабженец считает 350 и никогда не считает 450
+  for (let i = 6; i >= 1; i--) {
+    st = applyMove(st, { kind: "out", sku: "350", qty: 300, branch: "Абая", before: 100, at: NOW - i * 5 * D });
+    st = applyMove(st, { kind: "out", sku: "450", qty: 200, branch: "Абая", at: NOW - i * 5 * D });
+  }
+
+  eq(st.onHand["Абая"]["350"], 400, "по 350 остаток измерен");
+  eq(st.onHand["Абая"]["450"], 1200, "по 450 копится всё привезённое — это не остаток");
+  ok(countedAtOf(st, "Абая", "350"), "350 пересчитывали");
+  eq(countedAtOf(st, "Абая", "450"), null, "450 — ни разу");
+
+  // Главное: ненадёжное число не должно показываться как остаток
+  const journal = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 300, branch: "Абая", before: 100, at: NOW - 10 * D },
+    { kind: "out", sku: "350", qty: 300, branch: "Абая", before: 100, at: NOW - 5 * D },
+  ] }];
+  const f = forecast(st, ["Абая"], journal, { now: NOW })[0];
+  ok(f.left["350"] != null, "измеренный остаток показываем");
+  eq(f.left["450"], null, "а накопленный — нет, вместо числа пусто");
+
+  // Старая форма (одно число на филиал) должна читаться
+  const old = { ...st, countedAt: { "Абая": NOW - 5 * D } };
+  eq(countedAtOf(old, "Абая", "350"), NOW - 5 * D, "состояние, записанное до правки, читается");
+  eq(countedAtOf(old, "Абая", "450"), NOW - 5 * D, "и для второго стакана тоже");
+  eq(countedAtOf(emptyState(), "Абая", "350"), null, "пустое состояние — null");
 }
 
 section("Расход считается по двум пересчётам");
@@ -311,6 +346,25 @@ section("Расход считается по двум пересчётам");
     { kind: "out", sku: "350", qty: 100, branch: "Коктем", before: 150, at: t0 + 3600000 },
   ] }];
   ok(!consumptionByBranch(sameDay)["Коктем"], "час между заездами — не норма расхода");
+
+  // Заезд без пересчёта между двумя пересчётами: раньше норма удваивалась
+  const skipped = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 500, branch: "Рамс", before: 100, at: t0 },
+    { kind: "out", sku: "350", qty: 500, branch: "Рамс", at: t0 + 5 * D },
+    { kind: "out", sku: "350", qty: 500, branch: "Рамс", before: 600, at: t0 + 10 * D },
+  ] }];
+  eq(Math.round(consumptionByBranch(skipped)["Рамс"].perDay["350"]), 50,
+     "заезд без пересчёта не завышает норму: было 100 + привезли 1000 − осталось 600 = 500 за 10 дней");
+
+  // Два пропуска подряд — тоже
+  const skipped2 = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 300, branch: "OBI", before: 100, at: t0 },
+    { kind: "out", sku: "350", qty: 300, branch: "OBI", at: t0 + 3 * D },
+    { kind: "out", sku: "350", qty: 300, branch: "OBI", at: t0 + 6 * D },
+    { kind: "out", sku: "350", qty: 300, branch: "OBI", before: 100, at: t0 + 9 * D },
+  ] }];
+  eq(Math.round(consumptionByBranch(skipped2)["OBI"].perDay["350"]), 100,
+     "два пропуска подряд: 100 + 900 − 100 = 900 за 9 дней");
 
   eq(consumptionByBranch([]), {}, "пустой журнал");
   eq(consumptionByBranch(null), {}, "и отсутствующий");
@@ -378,9 +432,12 @@ section("Отмена поездки");
   eq(u.undone, 1, "одна строка отменена");
   eq(u.state.stock["350"], 4800, "склад вернулся");
   eq(u.state.branches["Абая"]["350"], 200, "выдано всего — снова только вчерашнее");
-  eq(u.state.onHand["Абая"]["350"], 100, "и остаток вернулся к вчерашнему");
+  // 250 — это 50 было + 200 привезли вчера, то есть состояние ДО
+  // сегодняшней поездки. Раньше отмена давала 100: сегодняшний замер,
+  // оставшийся от вычитания, со вчерашним временем пересчёта.
+  eq(u.state.onHand["Абая"]["350"], 250, "остаток вернулся к тому, что было после вчерашнего завоза");
   eq(u.state.lastOut["Абая"], t0, "последний завоз снова вчерашний, а не сегодняшний");
-  eq(u.state.countedAt["Абая"], t0, "и пересчёт тоже");
+  eq(u.state.countedAt["Абая"], { "350": t0 }, "и пересчёт тоже");
   eq(u.moves.length, 0, "из журнала за сегодня запись ушла");
 
   // Чужую отменить нельзя
@@ -425,6 +482,27 @@ section("Отмена поездки");
   let clean = applyMove(emptyState(), приход);
   const c = planUndo(clean, [приход], [приход], "накладная");
   eq(c.state.stock["350"], 0, "нетронутый приход отменяется");
+}
+
+section("Отмена не теряет давнюю дату завоза");
+
+{
+  const D = 86400000, now = Date.parse("2026-09-15T10:00:00+05:00");
+  let st = emptyState();
+  st = applyMove(st, { kind: "in", sku: "350", qty: 1000, at: now - 100 * D });
+  const давно = { kind: "out", sku: "350", qty: 200, branch: "Рамс", at: now - 90 * D, opId: "давно" };
+  const сегодня = { kind: "out", sku: "350", qty: 100, branch: "Рамс", at: now, opId: "сегодня", byId: "5" };
+  st = applyMove(st, давно);
+  st = applyMove(st, сегодня);
+
+  // Журнал за весь срок хранения — так его теперь и передаёт обработчик
+  const u = planUndo(st, [сегодня], [давно, сегодня], "сегодня");
+  eq(u.state.lastOut["Рамс"], now - 90 * D, "дата завоза девяностодневной давности сохранилась");
+  ok(daysSinceOut(u.state, "Рамс", now) === 90, "и точка честно показывает 90 дней, а не «ни разу»");
+
+  // Если в журнале и правда ничего нет — тогда «ни разу» законно
+  const bare = planUndo(st, [сегодня], [сегодня], "сегодня");
+  eq(bare.state.lastOut["Рамс"], undefined, "пустая история — «не возили ни разу»");
 }
 
 section("Отрезки времени");
@@ -823,6 +901,76 @@ section("Расход по точкам на график");
 
   eq(consumptionRows([], SK), { rows: [], unknown: [], max: 0, total: 0 }, "пусто");
   eq(consumptionRows(null, SK).rows, [], "и на отсутствующем прогнозе");
+}
+
+section("Дневник: кто что записал");
+
+{
+  const t = Date.parse("2026-09-15T10:00:00+05:00");
+  const days = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 300, branch: "Абая", before: 120, at: t, opId: "a", by: "@kairat", byId: "5" },
+    { kind: "out", sku: "450", qty: 100, branch: "Абая", at: t + 500, opId: "a", by: "@kairat", byId: "5" },
+    { kind: "out", sku: "350", qty: 200, branch: "Дубай", at: t + 3600000, opId: "b", by: "@kairat", byId: "5" },
+    { kind: "in", sku: "350", qty: 5000, at: t - 3600000, opId: "c", by: "@ravil", byId: "7" },
+  ] }];
+
+  const f = journalFeed(days);
+  eq(f.length, 3, "три записи: две поездки и приход");
+  eq(f[0].branch, "Дубай", "свежее — сверху");
+  eq(f[1].items.length, 2, "две строки одной поездки слиплись");
+  eq(f[1].items.map((i) => i.sku), ["350", "450"], "внутри поездки — порядок справочника, как везде");
+  eq(f[1].items[0].before, 120, "пересчёт виден — по нему понятно, откуда прогноз");
+  eq(f[1].by, "@kairat", "и кто записал");
+  eq(f[2].kind, "in", "приход отдельной записью");
+  eq(f[2].branch, null, "у прихода филиала нет");
+
+  // Разные люди в одну секунду на одну точку — разные записи
+  const two = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 100, branch: "Абая", at: t, opId: "x", byId: "5" },
+    { kind: "out", sku: "350", qty: 100, branch: "Абая", at: t, opId: "y", byId: "9" },
+  ] }];
+  eq(journalFeed(two).length, 2, "разные метки — разные записи, даже секунда в секунду");
+
+  eq(journalFeed([]), [], "пусто");
+  eq(journalFeed(null), [], "и на отсутствующем журнале");
+  eq(journalFeed(days, { limit: 1 }).length, 1, "предел соблюдается");
+}
+
+section("Куда едет разница");
+
+{
+  eq(totalDiff({ rows: [{ diff: 10 }, { diff: -3 }, { diff: null }] }), 7, "итог без точек, где Poster молчит");
+  eq(totalDiff({ rows: [{ diff: null }] }), null, "молчат все — не ноль, а «не знаем»");
+  eq(totalDiff(null), null, "пусто");
+
+  eq(diffTrend(162, 40), { prev: 40, delta: 122, better: false, same: false }, "стало хуже");
+  eq(diffTrend(162, 300), { prev: 300, delta: -138, better: true, same: false }, "стало лучше");
+  eq(diffTrend(100, 100).same, true, "не изменилось");
+  eq(diffTrend(162, null), null, "не с чем сравнивать");
+  eq(diffTrend(null, 40), null, "и нечего сравнивать");
+}
+
+section("Выручка на стакан");
+
+{
+  const rows = [
+    { branch: "Абая", perDay: 50 },
+    { branch: "Коктем", perDay: 15 },
+    { branch: "Рамс", perDay: 0 },
+  ];
+  // Выручка за 7 дней
+  const rev = { "Абая": 1260000, "Коктем": 630000, "Рамс": 100000 };
+  const r = revenuePerCup(rows, rev, 7);
+
+  eq(r.length, 2, "точка без расхода в счёт не идёт — на ноль не делим");
+  eq(r[0].branch, "Коктем", "дороже за стакан — выше");
+  eq(Math.round(r[0].perCup), 6000, "Коктем: 90 000 ₸ в день на 15 стаканов");
+  eq(Math.round(r[1].perCup), 3600, "Абая: 180 000 ₸ на 50 стаканов");
+  eq(Math.round(r[0].revPerDay), 90000, "выручка в день посчитана от периода");
+
+  eq(revenuePerCup(rows, {}, 7), [], "без выручки — пусто");
+  eq(revenuePerCup(rows, rev, 0).length, 2, "нулевой период не роняет: считаем как один день");
+  eq(revenuePerCup(null, rev, 7), [], "и на пустых строках");
 }
 
 console.log("\n══════════════════════════════════════════════════");

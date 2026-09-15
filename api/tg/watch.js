@@ -199,24 +199,40 @@ export default async function handler(req, res) {
       try {
         const { weekdayOf, shiftDay, summarizePeriod, formatWeeklyReconcile } = await import("../_lib/cups.js");
         if (weekdayOf(today) === Number(config.cupReconcileDay)) {
+          // Метку ставим ДО похода в Poster, а не после.
+          //
+          // Раньше она стояла следом за вызовом, и падение Poster уводило
+          // выполнение в catch мимо неё: сторож просыпается каждые
+          // пятнадцать минут, то есть весь понедельник ломился бы в чужой
+          // сервис по полсотни заходов. Сверка — не то, ради чего стоит
+          // повторять попытки: не собралась сегодня, соберётся через
+          // неделю.
+          patch.lastCupReconcileDate = today;
+          await setConfig({ lastCupReconcileDate: today }).catch(() => {});
+
           const from = shiftDay(today, -7);
           const to = shiftDay(today, -1);
           const days = await getCupDays(from, to);
           const sum = summarizePeriod(days);
 
           if (sum.branches.length) {
-            const { reconcileFromPoster, givenFrom } = await import("../_lib/cupsPoster.js");
+            const { reconcileFromPoster, givenFrom, totalDiff } = await import("../_lib/cupsPoster.js");
             const rec = await reconcileFromPoster(givenFrom(sum), from, to, config);
-            const text = formatWeeklyReconcile(rec, { from, to });
+
+            // Сравниваем с прошлой неделей по сохранённому числу, а не
+            // вторым походом в Poster: важно, куда цифра едет, и ради
+            // этого незачем удваивать десяток запросов в чужой сервис.
+            const text = formatWeeklyReconcile(rec, { from, to, prevTotal: config.lastCupReconcileTotal });
             if (text) {
               await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
               out.reconciled = `${from}—${to}`;
             }
+            const now = totalDiff(rec);
+            if (now != null) {
+              patch.lastCupReconcileTotal = now;
+              await setConfig({ lastCupReconcileTotal: now }).catch(() => {});
+            }
           }
-          // Метку ставим в любом случае: не сошлось сегодня — ждём
-          // следующей недели, а не долбим Poster каждые пятнадцать минут.
-          patch.lastCupReconcileDate = today;
-          await setConfig({ lastCupReconcileDate: today }).catch(() => {});
         }
       } catch (e) {
         console.error("[cups] недельная сверка не собралась:", e?.message);

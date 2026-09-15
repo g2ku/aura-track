@@ -23,6 +23,10 @@ export function emptyState() {
     lastOut: {},
     // Сколько сейчас лежит на точке и когда это в последний раз считали
     // руками. Разница важная: между пересчётами число — предположение.
+    //
+    // countedAt — по каждому стакану отдельно: снабженец может пересчитать
+    // 350 и не считать 450, и тогда первое число измерено, а второе
+    // накоплено. Один штамп на филиал выдавал накопленное за измеренное.
     onHand: {},
     countedAt: {},
     updatedAt: null,
@@ -30,6 +34,16 @@ export function emptyState() {
 }
 
 const zeroBySku = () => Object.fromEntries(SKU_IDS.map((id) => [id, 0]));
+
+// countedAt раньше был одним числом на филиал. Читаем обе формы, чтобы
+// состояние, записанное до этой правки, не пришлось чинить руками.
+export function countedAtOf(state, branch, sku) {
+  const v = state?.countedAt?.[branch];
+  if (v == null) return null;
+  if (typeof v === "number") return v;
+  const n = Number(v?.[sku]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 // Числа в сообщениях — с разделителем тысяч. «7400» и «7 400» в соседних
 // строках одного сообщения выглядят как два разных отчёта.
@@ -79,7 +93,7 @@ export function applyMove(state, move) {
     branches: JSON.parse(JSON.stringify(state?.branches || {})),
     lastOut: { ...(state?.lastOut || {}) },
     onHand: JSON.parse(JSON.stringify(state?.onHand || {})),
-    countedAt: { ...(state?.countedAt || {}) },
+    countedAt: JSON.parse(JSON.stringify(state?.countedAt || {})),
     updatedAt: move.at || Date.now(),
   };
   for (const id of SKU_IDS) next.stock[id] = int(next.stock[id]);
@@ -104,7 +118,10 @@ export function applyMove(state, move) {
   const oh = (next.onHand[move.branch] ||= zeroBySku());
   if (move.before != null && Number.isFinite(Number(move.before))) {
     oh[sku] = int(move.before) + qty;
-    next.countedAt[move.branch] = move.at || Date.now();
+    const ca = next.countedAt[move.branch];
+    next.countedAt[move.branch] = typeof ca === "number" || ca == null
+      ? { ...(typeof ca === "number" ? Object.fromEntries(SKU_IDS.map((i) => [i, ca])) : {}), [sku]: move.at || Date.now() }
+      : { ...ca, [sku]: move.at || Date.now() };
   } else {
     oh[sku] = int(oh[sku]) + qty;
   }
@@ -199,18 +216,55 @@ export function planUndo(state, prevMoves, recent, opId, { by = null } = {}) {
     if (int(next.stock[id2]) < 0) return { error: "Стаканы уже развезли — сначала отмените выдачу" };
   }
 
+  // Филиал пересобираем из журнала целиком, а не правим по кусочкам.
+  //
+  // Вычитание привезённого возвращало склад верно, но оставляло смесь:
+  // остаток — сегодняшний замер, а время пересчёта откатывалось на
+  // прошлый заезд. Прогноз списывал с сегодняшнего числа расход за
+  // десять дней и объявлял, что стаканы кончились, когда их полторы
+  // сотни. Пересборка исключает такие пары по построению.
   const left = (recent || []).filter((m) => m.opId !== id);
   for (const br of touched) {
-    const outs = left.filter((m) => m.kind === "out" && m.branch === br);
-    const last = outs.reduce((mx, m) => Math.max(mx, Number(m.at) || 0), 0);
-    if (last) next.lastOut[br] = last; else delete next.lastOut[br];
-
-    const counted = outs.filter((m) => m.before != null && Number.isFinite(Number(m.before)));
-    const lastCount = counted.reduce((mx, m) => Math.max(mx, Number(m.at) || 0), 0);
-    if (lastCount) next.countedAt[br] = lastCount; else delete next.countedAt[br];
+    const r = rebuildBranch(left, br);
+    if (r.lastOut) next.lastOut[br] = r.lastOut; else delete next.lastOut[br];
+    if (Object.keys(r.countedAt).length) next.countedAt[br] = r.countedAt; else delete next.countedAt[br];
+    next.onHand[br] = r.onHand;
   }
 
   return { state: next, moves: (prevMoves || []).filter((m) => m.opId !== id), undone: gone.length };
+}
+
+// Заново пройти по журналу одного филиала теми же правилами, что и при
+// записи. Нужно для отмены: так после неё остаток, время пересчёта и
+// дата завоза заведомо описывают одно и то же состояние.
+//
+// ВАЖНО: журнал должен покрывать всю историю филиала, а не последние
+// недели. С коротким окном отмена стирала дату завоза у точки, куда
+// возили девяносто дней назад, и та превращалась в «не возили ни разу».
+export function rebuildBranch(moves, branch) {
+  const outs = (moves || [])
+    .filter((m) => m?.kind === "out" && m.branch === branch && SKU_IDS.includes(String(m.sku)))
+    .sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+
+  const onHand = zeroBySku();
+  const countedAt = {};
+  let lastOut = 0;
+
+  for (const m of outs) {
+    const sku = String(m.sku);
+    const qty = int(m.qty);
+    const at = Number(m.at) || 0;
+    if (at > lastOut) lastOut = at;
+
+    if (m.before != null && Number.isFinite(Number(m.before))) {
+      onHand[sku] = int(m.before) + qty;
+      countedAt[sku] = at;
+    } else {
+      onHand[sku] = int(onHand[sku]) + qty;
+    }
+  }
+
+  return { onHand, countedAt, lastOut: lastOut || null };
 }
 
 // Сколько дней на точке не было завоза. null — не возили ни разу.
@@ -370,6 +424,49 @@ export function summarizePeriod(days) {
   return { in: totalIn, out: totalOut, branches, moves };
 }
 
+// ─── Дневник ──────────────────────────────────────────────────────────
+//
+// «Я же привозил» — спор, который нечем закрыть, пока журнал виден
+// только через итоги по точкам. Лента отвечает за секунду: кто, куда,
+// сколько и когда.
+//
+// Поездка, а не строка: два стакана на одну точку — один заезд, и
+// читать это надо одной строкой.
+export function journalFeed(days, { limit = 60 } = {}) {
+  const all = [];
+  for (const d of days || []) for (const m of d?.moves || []) all.push(m);
+  all.sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+
+  const trips = [];
+  for (const m of all) {
+    const last = trips[trips.length - 1];
+    const sameTrip = last
+      && last.kind === m.kind
+      && last.branch === (m.branch || null)
+      && last.byId === (m.byId ?? null)
+      && (last.opId != null ? last.opId === m.opId : Math.abs(last.at - (Number(m.at) || 0)) < 60000);
+
+    if (sameTrip) { last.items.push({ sku: String(m.sku), qty: int(m.qty), before: m.before ?? null }); continue; }
+
+    trips.push({
+      kind: m.kind === "in" ? "in" : "out",
+      branch: m.branch || null,
+      by: m.by || "",
+      byId: m.byId ?? null,
+      opId: m.opId ?? null,
+      at: Number(m.at) || 0,
+      items: [{ sku: String(m.sku), qty: int(m.qty), before: m.before ?? null }],
+    });
+    if (trips.length >= limit) break;
+  }
+
+  // Внутри поездки — порядок справочника, а не обратно-хронологический.
+  // Лента идёт сверху вниз от свежего, но «450 / 350» в одной строке
+  // читается как опечатка: везде в приложении сперва 350.
+  for (const t of trips) t.items.sort((a, b) => SKU_IDS.indexOf(a.sku) - SKU_IDS.indexOf(b.sku));
+  return trips;
+}
+
 // ─── Сколько храним ───────────────────────────────────────────────────
 //
 // Год — и журнал сам подчищается. Без этого коллекция растёт вечно, а
@@ -398,8 +495,19 @@ export function consumptionByBranch(days, { now = Date.now() } = {}) {
   }
   moves.sort((a, b) => (a.at || 0) - (b.at || 0));
 
-  // { branch: { sku: { after, at } } } — что было на точке после заезда
-  const left = {};
+  // Опорой служит только ПЕРЕСЧЁТ, а не всякий заезд.
+  //
+  // Раньше опорой был любой заезд: к прошлой оценке прибавлялось
+  // привезённое, а съеденное между заездами не вычиталось — и оценка
+  // росла. Следующий пересчёт сравнивался с этой раздутой оценкой, и
+  // расход выходил завышенным ровно во столько раз, во сколько весь
+  // отрезок длиннее последнего промежутка: один заезд без пересчёта
+  // между двумя пересчётами давал двойную норму, два — тройную.
+  //
+  // Теперь между пересчётами копится только привезённое, а расход
+  // считается честно: было + привезли − осталось.
+  const anchor = {};     // { branch: { sku: { measured, at } } }
+  const delivered = {};  // { branch: { sku: сколько привезли после опоры } }
   const acc = {};
 
   for (const m of moves) {
@@ -409,23 +517,30 @@ export function consumptionByBranch(days, { now = Date.now() } = {}) {
     const at = Number(m.at) || 0;
     const counted = m.before != null && Number.isFinite(Number(m.before));
 
-    const prev = left[br]?.[sku];
-    if (counted && prev && at > prev.at) {
-      const spent = prev.after - int(m.before);
-      const dayspan = (at - prev.at) / 86400000;
+    if (!counted) {
+      // Заезд без пересчёта опорой не становится — только копит привоз
+      if (anchor[br]?.[sku]) (delivered[br] ||= {})[sku] = int(delivered[br]?.[sku]) + qty;
+      continue;
+    }
+
+    const a = anchor[br]?.[sku];
+    if (a && at > a.at) {
+      const spent = a.measured + int(delivered[br]?.[sku]) - int(m.before);
+      const dayspan = (at - a.at) / 86400000;
       // Расход меньше нуля — значит на точке нашлись стаканы, которых мы
       // не привозили: перевозка между точками или недосчёт. В среднее
       // такое пускать нельзя, оно занизит норму и прогноз соврёт.
       if (spent >= 0 && dayspan >= 0.5) {
-        const a = (acc[br] ||= {});
-        const c = (a[sku] ||= { spent: 0, days: 0, samples: 0 });
+        const bucket = (acc[br] ||= {});
+        const c = (bucket[sku] ||= { spent: 0, days: 0, samples: 0 });
         c.spent += spent;
         c.days += dayspan;
         c.samples++;
       }
     }
 
-    (left[br] ||= {})[sku] = { after: (counted ? int(m.before) : (prev?.after || 0)) + qty, at };
+    (anchor[br] ||= {})[sku] = { measured: int(m.before), at };
+    (delivered[br] ||= {})[sku] = qty;
   }
 
   const out = {};
@@ -455,19 +570,25 @@ export function forecast(state, branches, days, { now = Date.now() } = {}) {
   for (const b of branches || []) {
     const rate = rates[b];
     const on = state?.onHand?.[b];
-    const countedAt = state?.countedAt?.[b] || null;
+    const anyCount = SKU_IDS.some((id) => countedAtOf(state, b, id));
 
-    if (!rate || !on || !countedAt) {
+    if (!rate || !on || !anyCount) {
       out.push({ branch: b, daysLeft: null, why: !rate ? "нет двух пересчётов" : "не пересчитывали", left: on || null });
       continue;
     }
 
-    // С момента пересчёта прошло время, и часть уже съели
-    const elapsed = Math.max(0, (now - countedAt) / 86400000);
     let worst = null;
     const leftNow = {};
     for (const id of SKU_IDS) {
       const per = rate.perDay[id] || 0;
+      const countedAt = countedAtOf(state, b, id);
+      // Стакан, который ни разу не пересчитывали, — это не остаток, а
+      // сумма всего привезённого. Показывать её как «на точке» значит
+      // выдавать накопленное за измеренное.
+      if (!countedAt) { leftNow[id] = null; continue; }
+
+      // С момента пересчёта прошло время, и часть уже съели
+      const elapsed = Math.max(0, (now - countedAt) / 86400000);
       const nowLeft = Math.max(0, int(on[id]) - per * elapsed);
       leftNow[id] = Math.round(nowLeft);
       if (per <= 0) continue;
@@ -549,7 +670,7 @@ export function formatSupplierNudge(state, branches, journal, opts = {}) {
 // Цифра, на которую надо специально нажать, через месяц перестаёт
 // нажиматься. Раз в неделю она приходит сама и называет худшую точку —
 // дальше это уже разговор, а не кнопка.
-export function formatWeeklyReconcile(rec, { from, to } = {}) {
+export function formatWeeklyReconcile(rec, { from, to, prevTotal = null } = {}) {
   if (!rec || rec.error) return "";
   const rows = (rec.rows || []).filter((r) => r.diff != null);
   if (!rows.length) return "";
@@ -571,6 +692,21 @@ export function formatWeeklyReconcile(rec, { from, to } = {}) {
   lines.push(total === 0
     ? "Сходится."
     : `Всего разница ${total > 0 ? `+${fmt(total)}` : fmt(total)}, хуже всех — ${worst.branch}.`);
-  lines.push("<i>Плюс — выдали больше, чем списалось с продаж: бой, брак, «на пробу». Вопрос не в цифре, а в том, растёт ли она.</i>");
+
+  // Куда цифра едет, важнее самой цифры: +162 после +40 — это тревога,
+  // +162 после +300 — это победа. Без этой строки отчёт каждую неделю
+  // выглядит одинаково.
+  if (prevTotal != null && Number.isFinite(Number(prevTotal))) {
+    const d = total - Number(prevTotal);
+    lines.push(d === 0
+      ? `Неделей раньше было столько же — ${fmt(prevTotal)}.`
+      : `Неделей раньше — ${fmt(prevTotal)}, то есть ${d > 0 ? "хуже" : "лучше"} на ${fmt(Math.abs(d))}.`);
+  }
+
+  if (rec.failed?.length) {
+    lines.push(`<i>Не ответили по складам: ${rec.failed.join(", ")}.</i>`);
+  }
+
+  lines.push("<i>Плюс — выдали больше, чем списалось с продаж: бой, брак, «на пробу».</i>");
   return lines.join("\n");
 }
