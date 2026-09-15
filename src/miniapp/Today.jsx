@@ -32,8 +32,8 @@ export default function Today({ moves, skus, onUndo }) {
   const short = (id) => skus.find((s) => s.id === id)?.short || id;
 
   return (
-    <div className="card" style={{ marginTop: 18 }}>
-      <div className="muted" style={{ marginBottom: 10 }}>Записано сегодня</div>
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="label">Записано сегодня</div>
       {byTrip.map((t, i) => (
         <div className="branch-line" key={`${t.branch}-${t.at}-${i}`}>
           <span className="grow name">{t.branch}</span>

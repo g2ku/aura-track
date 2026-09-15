@@ -18,8 +18,8 @@ export default function Feed({ trips, skus }) {
   const short = (id) => skus.find((s) => s.id === id)?.short || id;
 
   return (
-    <div className="card" style={{ marginTop: 12 }}>
-      <div className="muted" style={{ marginBottom: 10 }}>Кто что записал</div>
+    <div className="card">
+      <div className="label">Кто что записал</div>
       {trips.map((t, i) => (
         <div className="branch-line" key={`${t.at}-${t.branch}-${i}`}>
           <span className="grow">

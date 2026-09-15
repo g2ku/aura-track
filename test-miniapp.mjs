@@ -463,6 +463,36 @@ section("Причины пропуска — кнопками");
   ok(SKIP_REASONS.every((r) => r.length <= 12), "короткие — под палец на узком экране");
 }
 
+section("Стили: одна шкала, одно определение, цвета от темы");
+
+{
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync("src/miniapp/styles.css", "utf8");
+  const rules = (sel) => (css.match(new RegExp(`(^|\\n)${sel.replace(/[.]/g, "\\.")}\\s*\\{`, "g")) || []).length;
+
+  // Второе определение .chip молча перебивало первое — филиалы становились серыми
+  eq(rules(".chip"), 1, "у .chip одно определение");
+  eq(rules(".chips"), 1, "и у .chips");
+
+  // Размеры — только через шкалу, без россыпи пиксельных значений
+  const raw = (css.match(/font-size:\s*\d+px/g) || []).filter((m) => !/--fs-/.test(m));
+  eq(raw, [], "font-size только через переменные шкалы");
+  ok(/--fs-cap: 12px/.test(css) && /--fs-hero: 26px/.test(css), "шкала объявлена");
+
+  // Статусные цвета смешаны с цветом текста темы: на тёмной светлеют, на светлой темнеют
+  ok(/--ok: color-mix\(in srgb, #2e9b57 \d+%, var\(--text\)\)/.test(css), "зелёный зависит от темы");
+  ok(/--danger: color-mix\(in srgb, #d9453c \d+%, var\(--text\)\)/.test(css), "красный тоже");
+
+  // Анимации на сообщениях нет: после неё они оставались полупрозрачными
+  ok(!/\.msg\s*\{[^}]*animation/.test(css) && !/@keyframes msg-in/.test(css), "сообщения без анимации");
+
+  // Цель для пальца — у всех нажимаемых
+  ok(/\.chip \{[^}]*min-height: var\(--tap\)/.test(css), "кнопки филиалов — 44px");
+  ok(/\.step \{[^}]*height: var\(--tap\)/.test(css), "степпер — 44px");
+  ok(/\.help::before \{[^}]*inset: -10px/.test(css), "у знака вопроса зона нажатия шире кружка");
+  ok(/\.undo::before \{[^}]*inset: -8px/.test(css), "и у крестика отмены");
+}
+
 section("Пустое состояние не роняет экраны");
 
 {

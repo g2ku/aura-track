@@ -9,7 +9,7 @@
 // минус экран прокрутки на каждом заезде. Главная кнопка — телеграма,
 // над клавиатурой, чтобы не тянуться под неё.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Today from "./Today.jsx";
 import { num } from "./fmt.js";
 import { byUrgency } from "./route.js";
@@ -37,6 +37,15 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [help, setHelp] = useState(false);
+
+  // Подтверждение гаснет само. Записал, уехал, открыл через час — и первое,
+  // что видел, было старое «записал 200 × 350». Ошибка не гаснет: её надо
+  // прочитать и что-то сделать.
+  useEffect(() => {
+    if (!msg || msg.kind === "err") return undefined;
+    const t = setTimeout(() => setMsg(null), 5000);
+    return () => clearTimeout(t);
+  }, [msg]);
   const [skipping, setSkipping] = useState(false);
 
   const set = (id, v) => setQty((q) => ({ ...q, [id]: v.replace(/[^\d]/g, "") }));
@@ -82,10 +91,14 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
       const what = moves.map((m) => `${num(m.qty)} × ${m.sku}`).join(", ");
       // Подтверждение одинаковое, ушло оно сразу или встало в очередь:
       // для него работа сделана в обоих случаях. Ожидание связи живёт
-      // строкой наверху, где счётчик.
+      // строкой наверху, где счётчик. А «на складе осталось» — та цифра,
+      // которую он иначе пошёл бы смотреть на другую вкладку.
+      const left = r?.state?.stock
+        ? ` · на складе ${skus.map((s) => num(r.state.stock[s.id])).join(" / ")}`
+        : "";
       setMsg(r?.duplicate
         ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
-        : { kind: "ok", text: `${branch}: записал ${what}` });
+        : { kind: "ok", text: `${branch}: записал ${what}${left}` });
       reset();
     } catch (e) {
       setMsg({ kind: "err", text: e.message });
@@ -108,8 +121,16 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
     }
   }
 
+  // В подписи кнопки — куда и сколько. Он выбирает точку кнопкой из
+  // восьми, и нажать соседнюю — самая вероятная ошибка в этих данных.
+  // «Записать: Дубай, 200 × 350» ловит её до отправки, а не в дневнике.
+  const summary = moves.length
+    ? `${branch}, ${moves.map((m) => `${num(m.qty)} × ${m.sku}`).join(", ")}`
+    : branch;
+  const buttonText = busy ? "Записываю…" : canSend ? `Записать: ${summary}` : "Записать выдачу";
+
   useMainButton(tg, {
-    text: busy ? "Записываю…" : "Записать выдачу",
+    text: buttonText,
     visible: Boolean(branch) && !skipping,
     enabled: canSend,
     busy,
@@ -123,7 +144,7 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
 
       {emptyStock && (
         <div className="card intro">
-          <div className="name" style={{ marginBottom: 6 }}>На складе пока пусто</div>
+          <div className="name" style={{ marginBottom: 4 }}>На складе пока пусто</div>
           <div className="muted">Приход заводит владелец. Как только он отметит, сколько стаканов на складе, здесь можно будет записывать выдачу.</div>
         </div>
       )}
@@ -131,7 +152,7 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
       <div className="card">
         {/* Срочные точки не дублируем отдельной карточкой: кнопки и так
             отсортированы по срочности и выделены. */}
-        <div className="muted" style={{ marginBottom: 8 }}>
+        <div className="label">
           {route.length > 0
             ? <>Сегодня стоит заехать: <b className="urgent-text">{route.join(", ")}</b></>
             : "Куда оставили"}
@@ -162,16 +183,16 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
           это были две карточки по четыре строки — экран прокрутки на
           каждом заезде. */}
       <div className="card">
-        <div className="row" style={{ marginBottom: 6 }}>
+        <div className="row" style={{ marginBottom: 4 }}>
           <span className="grow muted">Сколько оставили</span>
-          <span className="muted" style={{ fontSize: 12 }}>
+          <span className="muted cap">
             было на точке
-            <button className="help" onClick={() => setHelp((v) => !v)} aria-label="что это">?</button>
+            <button className="help" onClick={() => setHelp((v) => !v)} aria-label="что это" aria-expanded={help}>?</button>
           </span>
         </div>
 
         {help && (
-          <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+          <div className="muted cap" style={{ marginBottom: 8 }}>
             «Было на точке» — сколько там оставалось до вашего приезда.
             Необязательно, но два таких числа подряд показывают, на сколько
             дней точке хватает завоза.
@@ -188,14 +209,16 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
               <div className="qty">
                 <button className="step" onClick={() => bump(s.id, -50)} aria-label="минус 50">−</button>
                 <input
-                  type="number" inputMode="numeric" placeholder="0"
+                  type="number" inputMode="numeric" enterKeyHint="done" placeholder="0"
+                  aria-label={`${s.short}: сколько оставили`}
                   value={qty[s.id]} onChange={(e) => set(s.id, e.target.value)}
                 />
                 <button className="step" onClick={() => bump(s.id, 50)} aria-label="плюс 50">+</button>
               </div>
               <input
                 className="before"
-                type="number" inputMode="numeric" placeholder="не считал"
+                type="number" inputMode="numeric" enterKeyHint="done" placeholder="не считал"
+                aria-label={`${s.short}: было на точке`}
                 value={before[s.id]}
                 onChange={(e) => setBefore((b) => ({ ...b, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
               />
@@ -212,7 +235,7 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
 
       {ownButton && (
         <button className="primary" disabled={!canSend} onClick={submit}>
-          {busy ? "Записываю…" : "Записать выдачу"}
+          {buttonText}
         </button>
       )}
 
@@ -226,7 +249,7 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
       )}
       {branch && skipping && (
         <div className="card">
-          <div className="muted" style={{ marginBottom: 8 }}>{branch}: почему не вышло</div>
+          <div className="label">{branch}: почему не вышло</div>
           <div className="chips">
             {SKIP_REASONS.map((r) => (
               <button key={r} className="chip" disabled={busy} onClick={() => skip(r)}>{r}</button>

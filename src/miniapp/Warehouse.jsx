@@ -124,19 +124,20 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
 
   const intake = isAdmin && (
     <div className="card">
-      <div className="muted" style={{ marginBottom: 10 }}>Пополнить склад</div>
+      <div className="label">Пополнить склад</div>
       {skus.map((s) => (
         <div className="row" key={s.id}>
           <span className="grow name">{s.short}</span>
           <input
-            type="number" inputMode="numeric" placeholder="0" style={{ width: 120 }}
+            type="number" inputMode="numeric" enterKeyHint="done" placeholder="0" style={{ width: 120 }}
+            aria-label={`${s.short}: приход на склад`}
             value={add[s.id]}
             onChange={(e) => setAdd((a) => ({ ...a, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
           />
         </div>
       ))}
       <button
-        className="primary" style={{ marginTop: 12 }}
+        className="primary" style={{ marginTop: 16 }}
         disabled={!moves.length || busy} onClick={submit}
       >
         {busy ? "Записываю…" : "Добавить на склад"}
@@ -150,7 +151,7 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
 
       {fresh && (
         <div className="card intro">
-          <div className="name" style={{ marginBottom: 6 }}>Учёт ещё не начат</div>
+          <div className="name" style={{ marginBottom: 4 }}>Учёт ещё не начат</div>
           <div className="muted">
             {isAdmin
               ? "Первый шаг — заведите приход: сколько стаканов сейчас лежит на складе. Дальше снабженец раздаёт отсюда по точкам."
@@ -169,7 +170,7 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
       )}
 
       <div className="card">
-        <div className="muted" style={{ marginBottom: 10 }}>Точки</div>
+        <div className="label">Точки</div>
         {rows.map((r) => {
           const detail = detailOf(r);
           const st = statusOf(r);
@@ -184,7 +185,7 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
           );
         })}
         {!fresh && (
-          <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+          <div className="note">
             «Хватит на» появляется после двух пересчётов подряд — когда
             снабженец отмечает «было на точке». Числа — {skus.map((s) => s.short).join(" / ")}.
           </div>

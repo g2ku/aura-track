@@ -116,7 +116,7 @@ export default function App({ tg }) {
     );
   }
 
-  if (!data) return <div className="muted" style={{ padding: "40px 0", textAlign: "center" }}>Загрузка…</div>;
+  if (!data) return <div className="muted" style={{ padding: "48px 0", textAlign: "center" }}>Загрузка…</div>;
 
   const { who, state, skus, branches, today = [] } = data;
   const isAdmin = who.role === "admin";

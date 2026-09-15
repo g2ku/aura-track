@@ -52,7 +52,7 @@ export default function History({ api, today, keepDays, skus }) {
 
   return (
     <>
-      <div className="chips">
+      <div className="chips compact">
         {PERIODS.map((p) => (
           <button
             key={p.id}
@@ -63,7 +63,7 @@ export default function History({ api, today, keepDays, skus }) {
       </div>
 
       <div className="card">
-        <div className="row" style={{ marginBottom: 10 }}>
+        <div className="row">
           <span className="grow muted">Другой месяц</span>
           <select
             value={pick.kind === "pickedMonth" ? pick.month : ""}
@@ -105,7 +105,7 @@ export default function History({ api, today, keepDays, skus }) {
           </div>
 
           <div className="card">
-            <div className="muted" style={{ marginBottom: 10 }}>
+            <div className="label">
               {title} · {rangeRu(from, to)}
             </div>
 
@@ -118,20 +118,19 @@ export default function History({ api, today, keepDays, skus }) {
             )) : <div className="muted">За этот период выдач не было</div>}
 
             {!!total(data.in) && (
-              <div className="branch-line" style={{ marginTop: 10 }}>
+              <div className="branch-line" style={{ marginTop: 8 }}>
                 <span className="grow name">Пришло на склад</span>
                 <span className="muted num">{skus.map((s) => num(data.in?.[s.id])).join(" / ")}</span>
               </div>
             )}
 
-            <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+            <div className="note">
               Числа — {skus.map((s) => s.short).join(" / ")}. Журнал хранится {keepDays || 365} дней.
             </div>
           </div>
 
           {!withFeed && (
-            <button className="tab" style={{ width: "100%", marginBottom: 12 }}
-              onClick={() => setWithFeed(true)} disabled={busy}>
+            <button className="tab repeat" onClick={() => setWithFeed(true)} disabled={busy}>
               Кто что записал
             </button>
           )}
@@ -148,7 +147,7 @@ export default function History({ api, today, keepDays, skus }) {
 
           {withPoster && data.poster?.rows && (
             <div className="card">
-              <div className="muted" style={{ marginBottom: 10 }}>Выдано / списано в Poster</div>
+              <div className="label">Выдано / списано в Poster</div>
               {data.poster.rows.map((r) => (
                 <div className="branch-line" key={r.branch}>
                   <span className="grow name">{r.branch}</span>
@@ -163,7 +162,7 @@ export default function History({ api, today, keepDays, skus }) {
                   </span>
                 </div>
               ))}
-              <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+              <div className="note">
                 Плюс — выдали больше, чем Poster списал с продаж. Это бой,
                 брак, стакан «на пробу» и всё, что ушло мимо кассы. Само по
                 себе не обвинение; важно, что цифру наконец видно.
