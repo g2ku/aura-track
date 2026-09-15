@@ -4,15 +4,16 @@
 // форма на восемь филиалов разом означала бы прокрутку и ошибки.
 // Отправил — поле очистилось, поехал дальше.
 //
-// Всё здесь считается касаниями. Выпадающий список — это три касания
-// (нажать, пролистать, нажать); кнопки — одно. Прошлый завоз подставить
-// дешевле, чем набирать четыре поля пальцем. Порядок точек — по
-// срочности, чтобы нужная была первой, а не четвёртой по алфавиту.
+// Всё здесь считается касаниями и прокруткой. Кнопки вместо списка —
+// одно касание вместо трёх. Стаканы в одной карточке двумя строками —
+// минус экран прокрутки на каждом заезде. Главная кнопка — телеграма,
+// над клавиатурой, чтобы не тянуться под неё.
 
 import { useMemo, useState } from "react";
 import Today from "./Today.jsx";
 import { num } from "./fmt.js";
 import { byUrgency } from "./route.js";
+import { useMainButton, hasMainButton } from "./mainButton.js";
 
 // Метка отправки живёт, пока не изменилась сама партия. Нажал дважды
 // или связь оборвалась и он повторил — сервер узнает ту же метку и не
@@ -22,7 +23,12 @@ const newOpId = () =>
 
 const empty = (skus) => Object.fromEntries(skus.map((s) => [s.id, ""]));
 
-export default function Give({ state, skus, branches, today, forecast, lastTrip, soonDays = 4, onSend, onUndo }) {
+// Причины пропуска — готовые, а не текстом: три касания на весь выбор,
+// и «не успел» на одной точке из раза в раз — это уже про маршрут, а не
+// про снабженца.
+export const SKIP_REASONS = ["закрыто", "не успел", "не пустили"];
+
+export default function Give({ tg, state, skus, branches, today, forecast, lastTrip, soonDays = 4, onSend, onUndo }) {
   const [branch, setBranch] = useState("");
   const [qty, setQty] = useState(() => empty(skus));
   // Сколько было на точке ДО завоза. Необязательно, но два таких числа
@@ -30,6 +36,8 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
   const [before, setBefore] = useState(() => empty(skus));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [help, setHelp] = useState(false);
+  const [skipping, setSkipping] = useState(false);
 
   const set = (id, v) => setQty((q) => ({ ...q, [id]: v.replace(/[^\d]/g, "") }));
   const bump = (id, d) => setQty((q) => {
@@ -47,10 +55,7 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
   const opId = useMemo(newOpId, [branch, JSON.stringify(qty), JSON.stringify(before)]);
 
   const overdrawn = moves.find((m) => m.qty > (state.stock?.[m.sku] ?? 0));
-  const canSend = branch && moves.length > 0 && !busy && !overdrawn;
-
-  // Склад пуст — раздавать нечего. Сказать это сразу, а не после того,
-  // как человек выберет точку, наберёт число и упрётся в «только 0 шт».
+  const canSend = Boolean(branch) && moves.length > 0 && !busy && !overdrawn;
   const emptyStock = skus.every((s) => !(state.stock?.[s.id] > 0));
 
   const order = useMemo(
@@ -65,9 +70,11 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
     setQty(empty(skus));
     setBefore(empty(skus));
     setBranch("");
+    setSkipping(false);
   }
 
   async function submit() {
+    if (!canSend) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -75,13 +82,10 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
       const what = moves.map((m) => `${num(m.qty)} × ${m.sku}`).join(", ");
       // Подтверждение одинаковое, ушло оно сразу или встало в очередь:
       // для него работа сделана в обоих случаях. Ожидание связи живёт
-      // строкой наверху, где счётчик, и не устаревает вместе с этой
-      // надписью — раньше она так и висела жёлтой после успешной досылки.
-      setMsg(r?.queued
-        ? { kind: "ok", text: `${branch}: записал ${what}` }
-        : r?.duplicate
-          ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
-          : { kind: "ok", text: `${branch}: записал ${what}` });
+      // строкой наверху, где счётчик.
+      setMsg(r?.duplicate
+        ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
+        : { kind: "ok", text: `${branch}: записал ${what}` });
       reset();
     } catch (e) {
       setMsg({ kind: "err", text: e.message });
@@ -90,12 +94,12 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
     }
   }
 
-  async function skip() {
+  async function skip(reason) {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await onSend([{ kind: "skip", branch }], newOpId());
-      setMsg({ kind: "ok", text: `${branch}: отметил, что заехать не вышло` });
+      await onSend([{ kind: "skip", branch, reason }], newOpId());
+      setMsg({ kind: "ok", text: `${branch}: отметил — ${reason}` });
       reset();
     } catch (e) {
       setMsg({ kind: "err", text: e.message });
@@ -103,6 +107,15 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
       setBusy(false);
     }
   }
+
+  useMainButton(tg, {
+    text: busy ? "Записываю…" : "Записать выдачу",
+    visible: Boolean(branch) && !skipping,
+    enabled: canSend,
+    busy,
+    onClick: submit,
+  });
+  const ownButton = !hasMainButton(tg);
 
   return (
     <>
@@ -117,8 +130,7 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
 
       <div className="card">
         {/* Срочные точки не дублируем отдельной карточкой: кнопки и так
-            отсортированы по срочности и выделены. Карточка добавляла
-            вторую строку тех же названий — «одна мысль, одна строка». */}
+            отсортированы по срочности и выделены. */}
         <div className="muted" style={{ marginBottom: 8 }}>
           {route.length > 0
             ? <>Сегодня стоит заехать: <b className="urgent-text">{route.join(", ")}</b></>
@@ -129,7 +141,7 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
             <button
               key={b.branch}
               className={`chip${branch === b.branch ? " on" : b.urgent ? " urgent" : ""}`}
-              onClick={() => setBranch(branch === b.branch ? "" : b.branch)}
+              onClick={() => { setBranch(branch === b.branch ? "" : b.branch); setSkipping(false); }}
             >
               {b.branch}
             </button>
@@ -146,37 +158,50 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
         </button>
       )}
 
-      {skus.map((s) => (
-        <div className="card" key={s.id}>
-          <div className="row" style={{ marginBottom: 10 }}>
-            <div className="grow">
-              <div className="name">{s.name}</div>
-              <div className="muted">на складе {num(state.stock?.[s.id])} шт</div>
+      {/* Оба стакана в одной карточке, по две строки на каждый. Раньше
+          это были две карточки по четыре строки — экран прокрутки на
+          каждом заезде. */}
+      <div className="card">
+        <div className="row" style={{ marginBottom: 6 }}>
+          <span className="grow muted">Сколько оставили</span>
+          <span className="muted" style={{ fontSize: 12 }}>
+            было на точке
+            <button className="help" onClick={() => setHelp((v) => !v)} aria-label="что это">?</button>
+          </span>
+        </div>
+
+        {help && (
+          <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+            «Было на точке» — сколько там оставалось до вашего приезда.
+            Необязательно, но два таких числа подряд показывают, на сколько
+            дней точке хватает завоза.
+          </div>
+        )}
+
+        {skus.map((s) => (
+          <div className="sku" key={s.id}>
+            <div className="sku-head">
+              <span className="name">{s.short}</span>
+              <span className="muted"> · на складе {num(state.stock?.[s.id])}</span>
+            </div>
+            <div className="sku-row">
+              <div className="qty">
+                <button className="step" onClick={() => bump(s.id, -50)} aria-label="минус 50">−</button>
+                <input
+                  type="number" inputMode="numeric" placeholder="0"
+                  value={qty[s.id]} onChange={(e) => set(s.id, e.target.value)}
+                />
+                <button className="step" onClick={() => bump(s.id, 50)} aria-label="плюс 50">+</button>
+              </div>
+              <input
+                className="before"
+                type="number" inputMode="numeric" placeholder="не считал"
+                value={before[s.id]}
+                onChange={(e) => setBefore((b) => ({ ...b, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
+              />
             </div>
           </div>
-          <div className="qty">
-            <button className="step" onClick={() => bump(s.id, -50)} aria-label="минус 50">−</button>
-            <input
-              type="number" inputMode="numeric" placeholder="0"
-              value={qty[s.id]} onChange={(e) => set(s.id, e.target.value)}
-            />
-            <button className="step" onClick={() => bump(s.id, 50)} aria-label="плюс 50">+</button>
-          </div>
-          <div className="row" style={{ marginTop: 10 }}>
-            <span className="grow muted">Было на точке</span>
-            <input
-              type="number" inputMode="numeric" placeholder="не считал" style={{ width: 130 }}
-              value={before[s.id]}
-              onChange={(e) => setBefore((b) => ({ ...b, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
-            />
-          </div>
-        </div>
-      ))}
-
-      <div className="muted" style={{ fontSize: 12, margin: "-4px 0 14px" }}>
-        «Было на точке» — сколько там оставалось до вашего приезда. Не
-        обязательно, но два таких числа подряд показывают, на сколько
-        дней точке хватает завоза.
+        ))}
       </div>
 
       {overdrawn && (
@@ -185,16 +210,31 @@ export default function Give({ state, skus, branches, today, forecast, lastTrip,
         </div>
       )}
 
-      <button className="primary" disabled={!canSend} onClick={submit}>
-        {busy ? "Записываю…" : "Записать выдачу"}
-      </button>
+      {ownButton && (
+        <button className="primary" disabled={!canSend} onClick={submit}>
+          {busy ? "Записываю…" : "Записать выдачу"}
+        </button>
+      )}
 
       {/* Молчание выглядит одинаково и когда он не доехал, и когда точка
-          ещё в очереди. Эта кнопка превращает пустоту в факт. Без
-          выбранного филиала отмечать нечего — поэтому заблокирована. */}
-      <button className="tab skip" disabled={busy || !branch} onClick={skip}>
-        Не смог заехать
-      </button>
+          ещё в очереди. Причина — готовыми кнопками: «не успел» на одной
+          точке из раза в раз — это уже про маршрут. */}
+      {branch && !skipping && (
+        <button className="tab skip" disabled={busy} onClick={() => setSkipping(true)}>
+          Не смог заехать
+        </button>
+      )}
+      {branch && skipping && (
+        <div className="card">
+          <div className="muted" style={{ marginBottom: 8 }}>{branch}: почему не вышло</div>
+          <div className="chips">
+            {SKIP_REASONS.map((r) => (
+              <button key={r} className="chip" disabled={busy} onClick={() => skip(r)}>{r}</button>
+            ))}
+            <button className="chip" disabled={busy} onClick={() => setSkipping(false)}>отмена</button>
+          </div>
+        </div>
+      )}
 
       <Today moves={today} skus={skus} onUndo={onUndo} />
     </>

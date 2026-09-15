@@ -108,6 +108,20 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
     return { text: daysWord(r.days), warn: r.days != null && r.days >= WARN_DAYS };
   };
 
+  const stockTiles = (
+    <div className="stock">
+      {skus.map((s) => {
+        const n = state.stock?.[s.id] ?? 0;
+        return (
+          <div className="stock-item" key={s.id}>
+            <div className={`stock-n${n < 500 ? " low" : ""}`}>{num(n)}</div>
+            <div className="stock-l">{s.short} · на складе</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   const intake = isAdmin && (
     <div className="card">
       <div className="muted" style={{ marginBottom: 10 }}>Пополнить склад</div>
@@ -146,18 +160,7 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
       )}
 
       {fresh && intake}
-
-      <div className="stock">
-        {skus.map((s) => {
-          const n = state.stock?.[s.id] ?? 0;
-          return (
-            <div className="stock-item" key={s.id}>
-              <div className={`stock-n${n < 500 ? " low" : ""}`}>{num(n)}</div>
-              <div className="stock-l">{s.short} · на складе</div>
-            </div>
-          );
-        })}
-      </div>
+      {fresh && stockTiles}
 
       {soon.length > 0 && (
         <div className="msg err">
@@ -187,6 +190,12 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
           </div>
         )}
       </div>
+
+      {/* Остаток склада — после точек. Владелец заходит с вопросом «где
+          горит», а не «сколько на складе»; вторая цифра нужна, когда
+          первая уже прочитана. На свежей установке порядок обратный —
+          там кроме склада смотреть не на что. */}
+      {!fresh && stockTiles}
 
       {!fresh && intake}
 

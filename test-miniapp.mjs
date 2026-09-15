@@ -35,7 +35,7 @@ await build({
   jsx: "automatic", loader: { ".css": "empty" }, logLevel: "silent",
 });
 
-const { Give, Warehouse, Today, History, Feed, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu, byUrgency, outbox } =
+const { Give, SKIP_REASONS, Warehouse, Today, History, Feed, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu, byUrgency, outbox } =
   await import(new URL(`./${out}`, import.meta.url).href);
 rmSync(dir, { recursive: true, force: true });
 
@@ -108,7 +108,7 @@ section("Экран развоза");
   for (const b of BRANCHES) ok(html.includes(`>${b}</button>`), `филиал ${b} кнопкой`);
   ok(html.includes("Записать выдачу"), "кнопка отправки на месте");
   ok(html.includes("disabled"), "и она заблокирована, пока ничего не введено");
-  ok(html.includes("на складе 1200 шт") || html.includes("на складе 1 200 шт"), "остаток по 350 виден");
+  ok(html.includes("на складе 1 200"), "остаток по 350 виден");
 }
 
 section("Что записано сегодня");
@@ -217,7 +217,9 @@ section("Прогноз и отмена на экранах");
   const html = render(h(Give, { state, skus: SKUS, branches: BRANCHES, today: [], onSend: noop }));
   // Считаем сами поля, а не упоминания: пояснение внизу тоже называет их
   eq((html.match(/placeholder="не считал"/g) || []).length, SKUS.length, "поле у каждого стакана");
-  ok(html.includes("Было на точке"), "и подписано понятно");
+  ok(html.includes("было на точке"), "и подписано понятно");
+  ok(html.includes('class="help"'), "а пояснение — по знаку вопроса, не четырьмя строками на каждом экране");
+  ok(!html.includes("сколько там оставалось до вашего приезда"), "и по умолчанию свёрнуто");
 }
 
 section("Ответ сервера, который не JSON, — ошибка, а не белый экран");
@@ -432,19 +434,40 @@ section("Развоз: касания вместо списка");
   // Порядок: срочная первой, а не по алфавиту
   ok(idle.indexOf(">Дубай</button>") < idle.indexOf(">Абая</button>"), "срочная выше");
 
-  // «Не смог заехать» без выбранного филиала отмечать нечего
-  ok(/Не смог заехать/.test(idle), "кнопка пропуска есть");
-  ok(/disabled=""[^>]*>\s*Не смог заехать|Не смог заехать/.test(idle), "и она на месте");
+  // «Не смог заехать» без выбранного филиала отмечать нечего — и кнопки нет
+  ok(!/Не смог заехать/.test(idle), "пропуск не предлагается, пока не выбран филиал");
 
   // Повтора нет, пока не выбран филиал
   ok(!idle.includes("повторить"), "повтор появляется только у выбранной точки");
+}
+
+section("Владелец: сначала где горит, потом сколько на складе");
+
+{
+  const fc = [{ branch: "Дубай", daysLeft: 2, left: { "350": 90, "450": 40 } }];
+  const html = render(h(Warehouse, { state, skus: SKUS, branches: BRANCHES, today: [], forecast: fc, onSend: noop, isAdmin: true }));
+  ok(html.indexOf("Скоро кончатся") < html.indexOf('class="stock"'), "тревога выше плиток склада");
+  ok(html.indexOf("Точки") < html.indexOf('class="stock"'), "и список точек тоже");
+  ok(html.indexOf('class="stock"') < html.indexOf("Пополнить склад"), "склад — перед приходом");
+
+  // На свежей установке порядок обратный: кроме склада смотреть не на что
+  const empty = { stock: { "350": 0, "450": 0 }, branches: {}, lastOut: {}, onHand: {}, countedAt: {} };
+  const fresh = render(h(Warehouse, { state: empty, skus: SKUS, branches: BRANCHES, today: [], forecast: [], onSend: noop, isAdmin: true }));
+  ok(fresh.indexOf("Пополнить склад") < fresh.indexOf('class="stock"'), "на пустой установке форма прихода первой");
+}
+
+section("Причины пропуска — кнопками");
+
+{
+  eq(SKIP_REASONS, ["закрыто", "не успел", "не пустили"], "три готовых причины, без свободного текста");
+  ok(SKIP_REASONS.every((r) => r.length <= 12), "короткие — под палец на узком экране");
 }
 
 section("Пустое состояние не роняет экраны");
 
 {
   const empty = {};
-  ok(render(h(Give, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop })).includes("на складе 0 шт"),
+  ok(render(h(Give, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop })).includes("на складе 0"),
      "развоз при пустом складе показывает ноль");
   const w = render(h(Warehouse, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop, isAdmin: true }));
   ok(w.includes("не возили ни разу"), "склад при пустом состоянии не падает");

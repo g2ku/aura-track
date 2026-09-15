@@ -126,6 +126,8 @@ export default function App({ tg }) {
   // даже случайно, а сервер всё равно проверит ещё раз.
   const wanted = tab ?? view.home;
   const active = view[`can${wanted[0].toUpperCase()}${wanted.slice(1)}`] ? wanted : view.home;
+  // Главная кнопка телеграма принадлежит развозу; на других экранах её
+  // не должно быть видно — Give при размонтировании её прячет сам.
 
   return (
     <>
@@ -154,6 +156,7 @@ export default function App({ tg }) {
 
       {active === "give" && (
         <Give
+          tg={tg}
           state={state} skus={skus} branches={branches} today={today}
           forecast={data.forecast} lastTrip={data.lastTrip} soonDays={data.soonDays}
           onSend={send} onUndo={undo}
