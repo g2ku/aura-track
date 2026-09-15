@@ -58,6 +58,35 @@ section("Аварийный путь не теряет отправленное"
   ok(/console\.error/.test(tail), "и пишет причину в лог, а не молчит");
 }
 
+section("Стаканы не зависят от того, включена ли сводка");
+
+{
+  const body = code.slice(code.indexOf("export default async function handler"));
+
+  // Сводка по умолчанию выключена. Пока рассылка снабженцу и уборка
+  // журнала жили внутри её ветки, у владельца с выключенной сводкой
+  // снабженец не получал ни одного письма, а журнал рос вечно.
+  const briefAt = body.indexOf("config.briefingEnabled");
+  const dailyAt = body.indexOf("config.lastCupDailyDate !== today");
+  ok(dailyAt > 0, "у ежедневного по стаканам своя ветка");
+
+  // Ветка сводки заканчивается до начала ежедневного — значит одно не
+  // вложено в другое
+  ok(briefAt > 0 && dailyAt > briefAt, "и она идёт после сводки, а не внутри");
+  ok(!/briefingEnabled[\s\S]*?nudgeSuppliers[\s\S]*?lastBriefingDate = today/.test(body),
+     "рассылка снабженцу не внутри ветки сводки");
+  ok(!/briefingEnabled[\s\S]*?purgeCupDays[\s\S]*?lastBriefingDate = today/.test(body),
+     "и уборка журнала тоже");
+
+  // Своя метка, чтобы не рассылать по разу на каждый запуск сторожа
+  ok(/patch\.lastCupDailyDate = today/.test(body), "метка «сегодня уже» ставится");
+  ok(/setConfig\(\{ lastCupDailyDate: today \}\)/.test(body), "и сохраняется сразу, как у сводки");
+
+  // Недельная сверка — тоже своя метка и свой день
+  ok(/config\.lastCupReconcileDate !== today/.test(body), "у недельной сверки своя метка");
+  ok(/weekdayOf\(today\) === Number\(config\.cupReconcileDay\)/.test(body), "и свой день недели");
+}
+
 section("Условие отправки осталось прежним");
 
 {

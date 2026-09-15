@@ -113,34 +113,18 @@ export default async function handler(req, res) {
       // Не собралось — сводка уходит без него: цифры за вчера важнее.
       let cupsTail = "";
       try {
-        const cups = await import("../_lib/cups.js");
-        const { formatCupReminder, formatSupplierNudge, retentionCutoff, shiftDay } = cups;
-        const branchNames = BRANCHES.map((b) => b.name);
+        const { formatCupReminder, shiftDay } = await import("../_lib/cups.js");
         const [cupState, journal] = await Promise.all([
           getCupState(),
           getCupDays(shiftDay(today, -60), today),
         ]);
-        cupsTail = formatCupReminder(cupState, branchNames, {
+        cupsTail = formatCupReminder(cupState, BRANCHES.map((b) => b.name), {
           days: config.cupStaleDays,
           low: config.cupLowStock,
           soonDays: config.cupSoonDays,
           journal,
           now: Date.now(),
         });
-
-        // Снабженцу — то же самое, но лично и в повелительном наклонении.
-        // Владельцу сводка сообщает, снабженцу — говорит, куда ехать.
-        out.nudged = await nudgeSuppliers(config, formatSupplierNudge(cupState, branchNames, journal, {
-          soonDays: config.cupSoonDays,
-          staleDays: config.cupStaleDays,
-          now: Date.now(),
-        }));
-
-        // Уборка журнала — раз в сутки, хвостом к сводке. Отдельного
-        // расписания заводить не за чем: ветка и так выполняется один
-        // раз в день, а спешить с удалением годовалых записей некуда.
-        const gone = await purgeCupDays(retentionCutoff(today, config.cupKeepDays));
-        if (gone) out.cupsPurged = gone;
       } catch (e) {
         console.error("[cups] напоминание не собралось:", e?.message);
       }
@@ -170,6 +154,39 @@ export default async function handler(req, res) {
         console.error("[tg] метка сводки не сохранилась:", e?.message);
       }
       out.briefing = yesterday;
+    }
+
+    // ─── Стаканы: ежедневное, своим расписанием ──────────────────────
+    //
+    // Отдельно от утренней сводки, а не хвостом к ней. Сводка по
+    // умолчанию выключена, и, пока это висело внутри неё, у владельца с
+    // выключенной сводкой снабженец не получал ни одного письма, а
+    // журнал не чистился вовсе — годовой срок хранения существовал бы
+    // только на бумаге. Своя метка, своя ветка.
+    if (config.lastCupDailyDate !== today && nowHM >= config.briefingTime) {
+      try {
+        const { formatSupplierNudge, retentionCutoff, shiftDay } = await import("../_lib/cups.js");
+        const [cupState, journal] = await Promise.all([
+          getCupState(),
+          getCupDays(shiftDay(today, -60), today),
+        ]);
+
+        // Снабженцу — то же, что владельцу, но лично и в повелительном
+        // наклонении: владельцу сводка сообщает, снабженцу — говорит,
+        // куда ехать.
+        out.nudged = await nudgeSuppliers(config, formatSupplierNudge(
+          cupState, BRANCHES.map((b) => b.name), journal,
+          { soonDays: config.cupSoonDays, staleDays: config.cupStaleDays, now: Date.now() },
+        ));
+
+        const gone = await purgeCupDays(retentionCutoff(today, config.cupKeepDays));
+        if (gone) out.cupsPurged = gone;
+
+        patch.lastCupDailyDate = today;
+        await setConfig({ lastCupDailyDate: today }).catch(() => {});
+      } catch (e) {
+        console.error("[cups] ежедневное не отработало:", e?.message);
+      }
     }
 
     // ─── Сверка с Poster раз в неделю ────────────────────────────────
