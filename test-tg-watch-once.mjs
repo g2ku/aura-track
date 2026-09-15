@@ -42,14 +42,18 @@ section("Метка пишется сразу после отправки");
 section("Аварийный путь не теряет отправленное");
 
 {
+  // Смотрим только тело обработчика: выше него живут помощники со
+  // своими try, и поиск «первого try в файле» находил их, а не этот.
+  const body = code.slice(code.indexOf("export default async function handler"));
+
   // patch объявлен снаружи try, иначе из catch до него не дотянуться
-  const patchAt = code.indexOf("const patch = {}");
-  const tryAt = code.indexOf("try {");
+  const patchAt = body.indexOf("const patch = {}");
+  const tryAt = body.indexOf("try {");
   ok(patchAt > 0 && patchAt < tryAt, "patch объявлен до try");
 
-  const catchAt = code.indexOf("} catch (e) {");
+  const catchAt = body.indexOf("} catch (e) {");
   ok(catchAt > 0, "аварийный путь есть");
-  const tail = code.slice(catchAt);
+  const tail = body.slice(catchAt);
   ok(/setConfig\(patch\)/.test(tail), "и он тоже сохраняет отправленное");
   ok(/console\.error/.test(tail), "и пишет причину в лог, а не молчит");
 }

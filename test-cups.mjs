@@ -11,10 +11,12 @@ import {
   daysSinceOut, staleBranches, planWrite,
   shiftDay, monthRange, periodRange, recentMonths, summarizePeriod, retentionCutoff, KEEP_DAYS,
   consumptionByBranch, forecast, runningOut, planUndo,
+  formatSupplierNudge, formatWeeklyReconcile, weekdayOf,
   formatCupReminder, skuName,
 } from "./api/_lib/cups.js";
 import { verifyInitData, roleOf, canWrite, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
 import { matchIngredient, resolveCupIngredients, reconcileCups, formatReconcile } from "./api/_lib/cupsPoster.js";
+import { runningOutSoon, reconcileSummary, monthStart, daysWord } from "./src/cupsView.js";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -673,6 +675,122 @@ section("Прогноз в утренней сводке");
   const old = formatCupReminder(st, B, { now: NOW });
   ok(!old.includes("кончаются"), "без журнала прогноза нет");
   ok(old.includes("Абая") || old.includes("давно не возили"), "и остаётся календарное правило");
+}
+
+section("Утро снабженца");
+
+{
+  const D = 86400000;
+  const NOW = Date.parse("2026-09-15T06:00:00+05:00");
+  const B = ["Абая", "Дубай", "Рамс", "OBI"];
+
+  const journal = [{ date: "x", moves: [
+    // Абая: два пересчёта, 50/день, на 13-е было 600
+    { kind: "out", sku: "350", qty: 500, branch: "Абая", before: 100, at: NOW - 12 * D },
+    { kind: "out", sku: "350", qty: 500, branch: "Абая", before: 100, at: NOW - 2 * D },
+    // Дубай: возили давно и без пересчётов
+    { kind: "out", sku: "350", qty: 300, branch: "Дубай", at: NOW - 20 * D },
+    // OBI: возили вчера
+    { kind: "out", sku: "350", qty: 300, branch: "OBI", at: NOW - D },
+  ] }];
+
+  let st = emptyState();
+  st = applyMove(st, { kind: "in", sku: "350", qty: 9000, at: NOW - 30 * D });
+  st = applyMove(st, { kind: "in", sku: "450", qty: 9000, at: NOW - 30 * D });
+  for (const m of journal[0].moves) st = applyMove(st, m);
+
+  const t = formatSupplierNudge(st, B, journal, { now: NOW, soonDays: 20, staleDays: 7 });
+  ok(t.includes("Куда сегодня со стаканами"), "письмо адресовано тому, кто за рулём");
+  ok(/Абая<\/b> — хватит на \d+ дн/.test(t), "по прогнозу — Абая, и она выделена");
+  ok(t.includes("Дубай — не возили 20 дн."), "по календарю — Дубай");
+  ok(!t.includes("OBI"), "куда возили вчера — не зовём");
+  ok(!t.includes("Рамс"), "«ни разу» сюда не берём: он и так знает, что там не был");
+  ok(/На складе — 350: [\d\u00a0\u202f ]+/.test(t), "сказано, хватит ли на складе");
+
+  // Ехать некуда — молчим
+  const quiet = formatSupplierNudge(st, ["OBI"], journal, { now: NOW, soonDays: 1, staleDays: 7 });
+  eq(quiet, "", "нечего сказать — ничего не пишем");
+  eq(formatSupplierNudge(emptyState(), [], [], { now: NOW }), "", "и на пустом состоянии тоже");
+}
+
+section("День недели считается по дате, а не по часам сервера");
+
+{
+  eq(weekdayOf("2026-09-14"), 1, "понедельник");
+  eq(weekdayOf("2026-09-20"), 7, "воскресенье");
+  eq(weekdayOf("2026-09-15"), 2, "вторник");
+  // Сервер Vercel живёт по UTC: в воскресенье вечером у него уже
+  // понедельник, и считать через new Date() было бы враньём
+  eq(weekdayOf("2026-01-01"), 4, "новый год 2026 — четверг");
+}
+
+section("Недельная сверка сообщением");
+
+{
+  const rec = { rows: [
+    { branch: "Абая", bySku: { "350": { given: 800, spent: 640, diff: 160 }, "450": { given: 200, spent: 198, diff: 2 } }, diff: 162 },
+    { branch: "Дубай", bySku: { "350": { given: 500, spent: 495, diff: 5 }, "450": { given: 0, spent: 0, diff: 0 } }, diff: 5 },
+    { branch: "Рамс", bySku: { "350": { given: 300, spent: null, diff: null }, "450": { given: 0, spent: null, diff: null } }, diff: null },
+  ] };
+
+  const t = formatWeeklyReconcile(rec, { from: "2026-09-08", to: "2026-09-14" });
+  ok(t.includes("2026-09-08 — 2026-09-14"), "период назван");
+  ok(t.includes("Абая — 350: 800/640, 450: 200/198"), "строка по точке читается");
+  ok(t.includes("хуже всех — Абая"), "названа худшая точка");
+  ok(t.replace(/[\u00a0\u202f]/g, " ").includes("+167"), "итог сложен по точкам, где Poster ответил");
+  ok(!t.includes("Рамс"), "точка без данных Poster в счёт не идёт");
+
+  // Сошлось — так и говорим
+  const even = formatWeeklyReconcile({ rows: [
+    { branch: "Абая", bySku: { "350": { given: 100, spent: 100, diff: 0 }, "450": { given: 0, spent: 0, diff: 0 } }, diff: 0 },
+  ] });
+  ok(even.includes("Сходится."), "нулевая разница названа прямо");
+
+  eq(formatWeeklyReconcile({ error: "Poster не ответил" }), "", "ошибка — не сообщение");
+  eq(formatWeeklyReconcile(null), "", "пусто — не сообщение");
+  eq(formatWeeklyReconcile({ rows: [] }), "", "нет строк — не сообщение");
+  eq(formatWeeklyReconcile({ rows: [{ branch: "Рамс", bySku: {}, diff: null }] }), "",
+     "если Poster промолчал по всем — писать не о чем");
+}
+
+section("Плитка на дашборде");
+
+{
+  const fc = [
+    { branch: "Абая", daysLeft: 12 },
+    { branch: "Дубай", daysLeft: 2 },
+    { branch: "Рамс", daysLeft: null, why: "нет двух пересчётов" },
+    { branch: "OBI", daysLeft: 0 },
+  ];
+  eq(runningOutSoon(fc, 4).map((f) => f.branch), ["OBI", "Дубай"], "кто ближе к нулю — тот первым");
+  eq(runningOutSoon(fc, 20).map((f) => f.branch), ["OBI", "Дубай", "Абая"], "порог двигается");
+  eq(runningOutSoon(fc, 4).some((f) => f.branch === "Рамс"), false, "без прогноза в тревогу не попадают");
+  eq(runningOutSoon([], 4), [], "пусто");
+  eq(runningOutSoon(undefined, 4), [], "и undefined");
+
+  const rec = { rows: [
+    { branch: "Абая", diff: 162 },
+    { branch: "Дубай", diff: -5 },
+    { branch: "Рамс", diff: null },
+  ] };
+  const sum = reconcileSummary(rec);
+  eq(sum.total, 157, "точка без данных Poster в сумму не идёт");
+  eq(sum.worst.branch, "Абая", "худшая — по модулю разницы");
+  eq(sum.rows.length, 2, "и в таблицу идут только те, где есть что сравнить");
+
+  // Минус тоже бывает худшим: списали больше, чем привозили
+  eq(reconcileSummary({ rows: [{ branch: "A", diff: 10 }, { branch: "B", diff: -90 }] }).worst.branch, "B",
+     "большой минус важнее маленького плюса");
+
+  eq(reconcileSummary({ rows: [{ branch: "Рамс", diff: null }] }), null, "нечего показывать — null");
+  eq(reconcileSummary(null), null, "и на пустом входе");
+
+  eq(monthStart("2026-09-15"), "2026-09-01", "сверка на дашборде — с начала месяца");
+  eq(daysWord(1), "день", "1 день");
+  eq(daysWord(2), "дня", "2 дня");
+  eq(daysWord(5), "дней", "5 дней");
+  eq(daysWord(11), "дней", "11 дней, а не «11 день»");
+  eq(daysWord(21), "день", "21 день");
 }
 
 console.log("\n══════════════════════════════════════════════════");

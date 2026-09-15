@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
+import CupsCard from "./CupsCard.jsx";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, clearPosterCache, getCachedCashBySpot, OPEN_CHECK_STUCK_MIN } from "../poster";
@@ -791,6 +792,9 @@ export default function Dashboard({
               </div>
             </div>
           )}
+
+          {/* Стаканы — сети целиком, поэтому не куратору одной точки */}
+          {!userBranch && <CupsCard />}
 
           {!userBranch && agg.branches.length > 0 && (
             <div className="card table-card" style={{ overflow: "auto", marginTop: 16 }}>

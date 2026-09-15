@@ -135,44 +135,6 @@ async function cupsBind(store, config, arg) {
   return { text: lines.join("\n") };
 }
 
-// Сверка выдачи с расходом Poster — тем же кодом, что и в приложении.
-async function cupsReconcile(sum, from, to, config) {
-  try {
-    const { posterCall } = await import("./poster.js");
-    const { movementParams, normalizeMovement } = await import("./movement.js");
-    const { branchByStorage } = await import("./reconcile.js");
-    const { resolveCupIngredients, reconcileCups, formatReconcile } = await import("./cupsPoster.js");
-
-    const ingredients = (await posterCall("menu.getIngredients", {}))?.response || [];
-    const map = resolveCupIngredients(ingredients, config);
-    const ids = Object.fromEntries(Object.entries(map).map(([sku, v]) => [v.id, sku]));
-    if (!Object.keys(ids).length) return "Не нашёл стаканы в справочнике Poster. Привяжите: /стаканы связать";
-
-    const storages = ((await posterCall("storage.getStorages", {}))?.response || [])
-      .map((st) => ({ id: String(st.storage_id), branch: branchByStorage(st.storage_name) }))
-      .filter((st) => st.branch);
-
-    const spent = {};
-    await Promise.all(storages.map(async (st) => {
-      const r = await posterCall("storage.getReportMovement", movementParams(from, to, st.id));
-      const rows = normalizeMovement(r?.response || []);
-      const bySku = {};
-      for (const [ingId, v] of Object.entries(rows)) {
-        const sku = ids[ingId];
-        if (sku) bySku[sku] = Math.round(v.spent);
-      }
-      if (Object.keys(bySku).length) spent[st.branch] = bySku;
-    }));
-
-    const given = {};
-    for (const b of sum.branches || []) given[b.branch] = b.qty;
-    const names = BRANCH_ORDER.filter((n) => given[n] || spent[n]);
-    return formatReconcile(reconcileCups(given, spent, names)) || "Сверять нечего.";
-  } catch (e) {
-    return `Poster не ответил: ${escapeHtml(e?.message || "ошибка")}`;
-  }
-}
-
 function isAdmin(config, userId) {
   // Пока список админов пуст, настройки доступны всем: иначе после первого
   // деплоя никто не сможет назначить первого администратора.
@@ -568,9 +530,11 @@ async function handleCommand({ cmd, args }, ctx) {
         }
 
         if (/^сверк/.test(arg)) {
-          const rec = await cupsReconcile(sum, from, to, config);
+          const { reconcileFromPoster, givenFrom, formatReconcile } = await import("./cupsPoster.js");
+          const rec = await reconcileFromPoster(givenFrom(sum), from, to, config)
+            .catch((e) => ({ error: e?.message || "Poster не ответил" }));
           lines.push("", "<b>Выдано / списано в Poster</b>");
-          lines.push(rec);
+          lines.push(rec.error ? escapeHtml(rec.error) : (formatReconcile(rec.rows) || "Сверять нечего."));
           lines.push("", "<i>Плюс — выдали больше, чем Poster списал с продаж: бой, брак, «на пробу» и всё, что ушло мимо кассы.</i>");
         }
 

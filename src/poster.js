@@ -419,6 +419,29 @@ export async function fetchSupplyStatus(spots, opts = {}) {
   }
 }
 
+// ─── Стаканы ────────────────────────────────────────────────────────────
+//
+// Тот же /api/cups, что и у мини-приложения в телеграме. С сайта он
+// отдаёт только чтение: записывают выдачу с телефона, стоя у машины.
+
+export async function fetchCups(opts = {}) {
+  const url = `/api/cups${opts.fresh ? `?_fresh=${Date.now()}` : ""}`;
+  const res = await fetch(url, { headers: await apiHeaders(), signal: opts.signal });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data;
+}
+
+// Сверка за период. Ходит в Poster, поэтому вызывается отдельно и по делу.
+export async function fetchCupsPeriod(from, to, { poster = false, ...opts } = {}) {
+  const qs = new URLSearchParams({ from, to });
+  if (poster) qs.set("poster", "1");
+  const res = await fetch(`/api/cups?${qs}`, { headers: await apiHeaders(), signal: opts.signal });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data;
+}
+
 // ─── Что не так прямо сейчас ────────────────────────────────────────────
 //
 // Правила считает сервер — те же, что у сторожа в телеграме.

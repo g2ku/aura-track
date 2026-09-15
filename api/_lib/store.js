@@ -170,6 +170,9 @@ export const DEFAULT_CONFIG = {
   // подошло: { "350": "<ingredient_id>" }
   cupPoster: {},
   cupSoonDays: 4,          // «хватит меньше чем на столько» — уже повод ехать
+  // Еженедельная сверка с Poster: 1 — понедельник, 0 — выключить
+  cupReconcileDay: 1,
+  lastCupReconcileDate: null,
   cupKeepDays: 365,        // сколько держим журнал выдач, дальше — само удаляется
   cupStaleDays: 7,         // столько дней без завоза стаканов — уже напоминание
   cupLowStock: 500,        // меньше этого на складе — пора закупать

@@ -31,6 +31,10 @@ export function emptyState() {
 
 const zeroBySku = () => Object.fromEntries(SKU_IDS.map((id) => [id, 0]));
 
+// Числа в сообщениях — с разделителем тысяч. «7400» и «7 400» в соседних
+// строках одного сообщения выглядят как два разных отчёта.
+const fmt = (v) => (Number(v) || 0).toLocaleString("ru-RU");
+
 const int = (v) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? n : 0;
@@ -267,7 +271,7 @@ export function formatCupReminder(state, branches, opts = {}) {
   if (short.length) {
     if (lines.length) lines.push("");
     lines.push("📦 <b>Склад пустеет</b>");
-    for (const s of short) lines.push(`• ${s.name} — ${s.left} шт`);
+    for (const s of short) lines.push(`• ${s.name} — ${fmt(s.left)} шт`);
   }
 
   return lines.join("\n");
@@ -496,5 +500,77 @@ export function fmtDaysLeft(n) {
   return `хватит на ${n} ${w}`;
 }
 
+// День недели по Алматы: 1 — понедельник, 7 — воскресенье. Считается из
+// строки даты, а не из часового пояса машины: сервер Vercel живёт по UTC,
+// и в воскресенье вечером у него уже понедельник.
+export function weekdayOf(ymd) {
+  const d = new Date(`${ymd}T00:00:00Z`).getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
 export const runningOut = (rows, soonDays = 4) =>
   (rows || []).filter((r) => r.daysLeft != null && r.daysLeft <= soonDays);
+
+// ─── Утро снабженца ───────────────────────────────────────────────────
+//
+// Сводка «на Дубае хватит на 2 дня» уходит владельцу. Но ехать не ему.
+// Пока прогноз только информирует хозяина, он не двигает машину —
+// поэтому то же самое, короче и в повелительном наклонении, уходит тому,
+// кто за рулём.
+//
+// Молчим, когда ехать некуда: письмо, которое приходит каждое утро и
+// каждое утро говорит «всё в порядке», перестают открывать.
+export function formatSupplierNudge(state, branches, journal, opts = {}) {
+  const { now = Date.now(), soonDays = 4, staleDays = 7 } = opts;
+
+  const fc = forecast(state, branches, journal || [], { now });
+  const soon = runningOut(fc, soonDays);
+  const predicted = new Set(fc.filter((f) => f.daysLeft != null).map((f) => f.branch));
+
+  // «Ни разу» сюда не берём: на новой точке снабженец и так знает, что
+  // не был. Зовём туда, где возили и давно перестали.
+  const stale = staleBranches(state, branches, { days: staleDays, now })
+    .filter((x) => !predicted.has(x.branch) && x.days != null);
+
+  if (!soon.length && !stale.length) return "";
+
+  const lines = ["<b>Куда сегодня со стаканами</b>", ""];
+  for (const f of soon) lines.push(`• <b>${f.branch}</b> — ${fmtDaysLeft(f.daysLeft)}`);
+  for (const x of stale) lines.push(`• ${x.branch} — не возили ${x.days} дн.`);
+
+  const short = SKUS.map((s) => `${s.short}: ${fmt(state?.stock?.[s.id])}`).join(", ");
+  lines.push("", `На складе — ${short}.`);
+  lines.push("Отметить выдачу — кнопка «Стаканы» внизу слева.");
+  return lines.join("\n");
+}
+
+// Еженедельная сверка сообщением.
+//
+// Цифра, на которую надо специально нажать, через месяц перестаёт
+// нажиматься. Раз в неделю она приходит сама и называет худшую точку —
+// дальше это уже разговор, а не кнопка.
+export function formatWeeklyReconcile(rec, { from, to } = {}) {
+  if (!rec || rec.error) return "";
+  const rows = (rec.rows || []).filter((r) => r.diff != null);
+  if (!rows.length) return "";
+
+  const total = rows.reduce((n, r) => n + r.diff, 0);
+  const worst = rows.reduce((a, b) => (Math.abs(b.diff) > Math.abs(a.diff) ? b : a));
+
+  const lines = ["🥤 <b>Стаканы: выдано против списанного в Poster</b>"];
+  if (from && to) lines.push(`<i>${from} — ${to}</i>`);
+  lines.push("");
+  for (const r of rows) {
+    const sign = r.diff > 0 ? `+${r.diff}` : String(r.diff);
+    lines.push(`• ${r.branch} — ${SKUS.map((s) => {
+      const c = r.bySku[s.id];
+      return c.spent == null ? `${s.short}: —` : `${s.short}: ${fmt(c.given)}/${fmt(c.spent)}`;
+    }).join(", ")} → <b>${sign}</b>`);
+  }
+  lines.push("");
+  lines.push(total === 0
+    ? "Сходится."
+    : `Всего разница ${total > 0 ? `+${fmt(total)}` : fmt(total)}, хуже всех — ${worst.branch}.`);
+  lines.push("<i>Плюс — выдали больше, чем списалось с продаж: бой, брак, «на пробу». Вопрос не в цифре, а в том, растёт ли она.</i>");
+  return lines.join("\n");
+}

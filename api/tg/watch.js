@@ -36,6 +36,29 @@ function shiftYmd(ymd, days) {
 
 const toPoster = (ymd) => ymd.replace(/-/g, "");
 
+// Разослать снабженцам. Личка, а не общий чат: в чате накладных это
+// прочтут полсотни бариста, а нужно одному человеку.
+//
+// Бот не может написать первым тому, кто его не открывал, — Telegram
+// вернёт 403. Это не ошибка настройки, а нормальное состояние до первого
+// «/start», поэтому падать из-за этого нельзя: остальные должны получить.
+async function nudgeSuppliers(config, text) {
+  if (!text) return 0;
+  const ids = (config.cupSuppliers || []).map(String).filter(Boolean);
+  if (!ids.length) return 0;
+
+  let sent = 0;
+  for (const id of ids) {
+    try {
+      await sendMessage(id, text);
+      sent++;
+    } catch (e) {
+      console.warn(`[cups] снабженцу ${id} не ушло:`, e?.message);
+    }
+  }
+  return sent;
+}
+
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   if (secret) {
@@ -90,18 +113,28 @@ export default async function handler(req, res) {
       // Не собралось — сводка уходит без него: цифры за вчера важнее.
       let cupsTail = "";
       try {
-        const { formatCupReminder, retentionCutoff, shiftDay } = await import("../_lib/cups.js");
+        const cups = await import("../_lib/cups.js");
+        const { formatCupReminder, formatSupplierNudge, retentionCutoff, shiftDay } = cups;
+        const branchNames = BRANCHES.map((b) => b.name);
         const [cupState, journal] = await Promise.all([
           getCupState(),
           getCupDays(shiftDay(today, -60), today),
         ]);
-        cupsTail = formatCupReminder(cupState, BRANCHES.map((b) => b.name), {
+        cupsTail = formatCupReminder(cupState, branchNames, {
           days: config.cupStaleDays,
           low: config.cupLowStock,
           soonDays: config.cupSoonDays,
           journal,
           now: Date.now(),
         });
+
+        // Снабженцу — то же самое, но лично и в повелительном наклонении.
+        // Владельцу сводка сообщает, снабженцу — говорит, куда ехать.
+        out.nudged = await nudgeSuppliers(config, formatSupplierNudge(cupState, branchNames, journal, {
+          soonDays: config.cupSoonDays,
+          staleDays: config.cupStaleDays,
+          now: Date.now(),
+        }));
 
         // Уборка журнала — раз в сутки, хвостом к сводке. Отдельного
         // расписания заводить не за чем: ветка и так выполняется один
@@ -137,6 +170,40 @@ export default async function handler(req, res) {
         console.error("[tg] метка сводки не сохранилась:", e?.message);
       }
       out.briefing = yesterday;
+    }
+
+    // ─── Сверка с Poster раз в неделю ────────────────────────────────
+    //
+    // Отдельным сообщением, а не хвостом к сводке: это не «что было
+    // вчера», а счёт за неделю, и читается он иначе. Идёт следом за
+    // сводкой, в тот же день недели — цифра, за которой надо тянуться,
+    // перестаёт смотреться на второй месяц.
+    if (config.cupReconcileDay && config.lastCupReconcileDate !== today && nowHM >= config.briefingTime) {
+      try {
+        const { weekdayOf, shiftDay, summarizePeriod, formatWeeklyReconcile } = await import("../_lib/cups.js");
+        if (weekdayOf(today) === Number(config.cupReconcileDay)) {
+          const from = shiftDay(today, -7);
+          const to = shiftDay(today, -1);
+          const days = await getCupDays(from, to);
+          const sum = summarizePeriod(days);
+
+          if (sum.branches.length) {
+            const { reconcileFromPoster, givenFrom } = await import("../_lib/cupsPoster.js");
+            const rec = await reconcileFromPoster(givenFrom(sum), from, to, config);
+            const text = formatWeeklyReconcile(rec, { from, to });
+            if (text) {
+              await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+              out.reconciled = `${from}—${to}`;
+            }
+          }
+          // Метку ставим в любом случае: не сошлось сегодня — ждём
+          // следующей недели, а не долбим Poster каждые пятнадцать минут.
+          patch.lastCupReconcileDate = today;
+          await setConfig({ lastCupReconcileDate: today }).catch(() => {});
+        }
+      } catch (e) {
+        console.error("[cups] недельная сверка не собралась:", e?.message);
+      }
     }
 
     // ─── Сторож ──────────────────────────────────────────────────────

@@ -9,8 +9,7 @@ import { getConfig, getCupState, applyCupMoves, undoCupMoves, getCupDay, getCupD
 import {
   SKUS, summarizePeriod, KEEP_DAYS, retentionCutoff, shiftDay, forecast,
 } from "./_lib/cups.js";
-import { resolveCupIngredients, reconcileCups } from "./_lib/cupsPoster.js";
-import { BRANCHES } from "./_lib/branches.js";
+import { reconcileFromPoster, givenFrom } from "./_lib/cupsPoster.js";
 import { BRANCH_ORDER } from "./_lib/branches.js";
 
 function almatyDay() {
@@ -33,53 +32,34 @@ function initDataOf(req) {
   return "";
 }
 
-// Сверка выдачи с расходом Poster.
+// Два входа, одна дверь.
 //
-// Poster считает списание по складам, а склад к филиалу привязан только
-// названием — тем же способом, что и в остальном коде.
-async function reconcileWithPoster(sum, from, to, config) {
-  const { posterCall } = await import("./_lib/poster.js");
-  const { movementParams, normalizeMovement } = await import("./_lib/movement.js");
-  const { branchByStorage } = await import("./_lib/reconcile.js");
-
-  const ingredients = (await posterCall("menu.getIngredients", {}))?.response || [];
-  const map = resolveCupIngredients(ingredients, config);
-  const ids = Object.fromEntries(Object.entries(map).map(([sku, v]) => [v.id, sku]));
-  if (!Object.keys(ids).length) {
-    return { error: "Не нашёл стаканы в справочнике Poster. Привяжите: /стаканы связать" };
+// Снабженец приходит из телеграма — подпись initData. Владелец смотрит
+// с дашборда, где вход через Firebase, и заводить ему второй аккаунт в
+// телеграме ради плитки было бы издевательством.
+//
+// Сайту даём только чтение. Записи (приход, выдача, отмена) остаются за
+// подписью телеграма: там роль привязана к человеку, который физически
+// возит стаканы, а на сайте — к любому сотруднику с логином.
+async function whoIs(req) {
+  const initData = initDataOf(req);
+  if (initData) {
+    const auth = verifyInitData(initData, process.env.TELEGRAM_BOT_TOKEN);
+    return auth.ok ? { ok: true, user: auth.user, via: "telegram" } : { ok: false, status: 401, error: auth.reason };
   }
 
-  const storages = ((await posterCall("storage.getStorages", {}))?.response || [])
-    .map((st) => ({ id: String(st.storage_id), branch: branchByStorage(st.storage_name) }))
-    .filter((st) => st.branch);
-
-  const spent = {};
-  await Promise.all(storages.map(async (st) => {
-    const r = await posterCall("storage.getReportMovement", movementParams(from, to, st.id));
-    const rows = normalizeMovement(r?.response || []);
-    const bySku = {};
-    for (const [ingId, v] of Object.entries(rows)) {
-      const sku = ids[ingId];
-      if (sku) bySku[sku] = Math.round(v.spent);
-    }
-    if (Object.keys(bySku).length) spent[st.branch] = bySku;
-  }));
-
-  const given = {};
-  for (const b of sum.branches || []) given[b.branch] = b.qty;
-
-  const branches = BRANCHES.map((b) => b.name)
-    .filter((n) => given[n] || spent[n]);
-
-  return { map, rows: reconcileCups(given, spent, branches) };
+  const { requireUser } = await import("./_lib/requireUser.js");
+  const site = await requireUser(req);
+  if (!site.ok) return { ok: false, status: site.status, error: site.message };
+  return { ok: true, user: { id: `site:${site.uid}`, name: site.email || "с сайта", username: "" }, via: "site" };
 }
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
 
-  const auth = verifyInitData(initDataOf(req), process.env.TELEGRAM_BOT_TOKEN);
-  if (!auth.ok) { res.status(401).json({ error: auth.reason }); return; }
+  const auth = await whoIs(req);
+  if (!auth.ok) { res.status(auth.status || 401).json({ error: auth.error }); return; }
 
   // Настройки читаем строго: не прочитались — отказываем.
   //
@@ -97,7 +77,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  const role = roleOf(auth.user.id, config);
+  // С сайта — всегда только смотреть, кем бы человек ни был в боте.
+  const role = auth.via === "site" ? "viewer" : roleOf(auth.user.id, config);
   if (!role) { res.status(403).json({ error: "Вас нет в списке. Попросите владельца добавить." }); return; }
 
   const who = { ...auth.user, role };
@@ -121,7 +102,7 @@ export default async function handler(req, res) {
       let poster = null;
       if (String(req.query.poster || "") === "1") {
         try {
-          poster = await reconcileWithPoster(sum, a, b, config);
+          poster = await reconcileFromPoster(givenFrom(sum), a, b, config);
         } catch (e) {
           console.error("[cups] сверка не собралась:", e?.message);
           poster = { error: "Poster не ответил" };

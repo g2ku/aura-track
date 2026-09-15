@@ -99,3 +99,51 @@ export function formatReconcile(rows, { skus = SKUS } = {}) {
   }
   return lines.join("\n");
 }
+
+// ─── Поход в Poster ───────────────────────────────────────────────────
+//
+// Один раз на всё приложение: тем же кодом отвечает вкладка «История»,
+// команда /стаканы сверка и еженедельная рассылка. Раньше это было
+// написано дважды, и расходиться они начали бы на первой же правке.
+//
+// Импорты ленивые: выше в этом файле только чистые функции, и тесты
+// должны импортировать его, не поднимая ни Poster, ни Firestore.
+export async function reconcileFromPoster(givenByBranch, from, to, config = {}) {
+  const { posterCall } = await import("./poster.js");
+  const { movementParams, normalizeMovement } = await import("./movement.js");
+  const { branchByStorage } = await import("./reconcile.js");
+  const { BRANCH_ORDER } = await import("./branches.js");
+
+  const ingredients = (await posterCall("menu.getIngredients", {}))?.response || [];
+  const map = resolveCupIngredients(ingredients, config);
+  const ids = Object.fromEntries(Object.entries(map).map(([sku, v]) => [v.id, sku]));
+  if (!Object.keys(ids).length) {
+    return { error: "Не нашёл стаканы в справочнике Poster. Привяжите: /стаканы связать" };
+  }
+
+  const storages = ((await posterCall("storage.getStorages", {}))?.response || [])
+    .map((st) => ({ id: String(st.storage_id), branch: branchByStorage(st.storage_name) }))
+    .filter((st) => st.branch);
+
+  const spent = {};
+  await Promise.all(storages.map(async (st) => {
+    const r = await posterCall("storage.getReportMovement", movementParams(from, to, st.id));
+    const rows = normalizeMovement(r?.response || []);
+    const bySku = {};
+    for (const [ingId, v] of Object.entries(rows)) {
+      const sku = ids[ingId];
+      if (sku) bySku[sku] = Math.round(v.spent);
+    }
+    if (Object.keys(bySku).length) spent[st.branch] = bySku;
+  }));
+
+  const names = BRANCH_ORDER.filter((n) => givenByBranch[n] || spent[n]);
+  return { map, rows: reconcileCups(givenByBranch, spent, names) };
+}
+
+// { branch: { sku: qty } } из сводки за период — вход для сверки.
+export function givenFrom(sum) {
+  const out = {};
+  for (const b of sum?.branches || []) out[b.branch] = b.qty;
+  return out;
+}
