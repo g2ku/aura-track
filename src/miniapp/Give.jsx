@@ -3,10 +3,16 @@
 // Одна точка за раз — намеренно. Он заполняет это, стоя у машины, и
 // форма на восемь филиалов разом означала бы прокрутку и ошибки.
 // Отправил — поле очистилось, поехал дальше.
+//
+// Всё здесь считается касаниями. Выпадающий список — это три касания
+// (нажать, пролистать, нажать); кнопки — одно. Прошлый завоз подставить
+// дешевле, чем набирать четыре поля пальцем. Порядок точек — по
+// срочности, чтобы нужная была первой, а не четвёртой по алфавиту.
 
 import { useMemo, useState } from "react";
 import Today from "./Today.jsx";
 import { num } from "./fmt.js";
+import { byUrgency } from "./route.js";
 
 // Метка отправки живёт, пока не изменилась сама партия. Нажал дважды
 // или связь оборвалась и он повторил — сервер узнает ту же метку и не
@@ -14,12 +20,14 @@ import { num } from "./fmt.js";
 const newOpId = () =>
   (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export default function Give({ state, skus, branches, today, onSend, onUndo }) {
+const empty = (skus) => Object.fromEntries(skus.map((s) => [s.id, ""]));
+
+export default function Give({ state, skus, branches, today, forecast, lastTrip, soonDays = 4, onSend, onUndo }) {
   const [branch, setBranch] = useState("");
-  const [qty, setQty] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
+  const [qty, setQty] = useState(() => empty(skus));
   // Сколько было на точке ДО завоза. Необязательно, но два таких числа
   // подряд дают точный расход — и прогноз «на сколько хватит».
-  const [before, setBefore] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
+  const [before, setBefore] = useState(() => empty(skus));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -36,8 +44,6 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
     }))
     .filter((m) => m.qty > 0);
 
-  // Метка привязана к содержимому: пока в форме то же самое, повтор
-  // отправки считается той же самой попыткой, а не новой выдачей.
   const opId = useMemo(newOpId, [branch, JSON.stringify(qty), JSON.stringify(before)]);
 
   const overdrawn = moves.find((m) => m.qty > (state.stock?.[m.sku] ?? 0));
@@ -45,20 +51,52 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
 
   // Склад пуст — раздавать нечего. Сказать это сразу, а не после того,
   // как человек выберет точку, наберёт число и упрётся в «только 0 шт».
-  const empty = skus.every((s) => !(state.stock?.[s.id] > 0));
+  const emptyStock = skus.every((s) => !(state.stock?.[s.id] > 0));
+
+  const order = useMemo(
+    () => byUrgency(branches, forecast, state, { soonDays }),
+    [branches, forecast, state, soonDays],
+  );
+  const route = order.filter((b) => b.urgent).map((b) => b.branch);
+  const repeat = branch ? lastTrip?.[branch] : null;
+  const canRepeat = repeat && skus.some((s) => repeat[s.id] > 0);
+
+  function reset() {
+    setQty(empty(skus));
+    setBefore(empty(skus));
+    setBranch("");
+  }
 
   async function submit() {
     setBusy(true);
     setMsg(null);
     try {
       const r = await onSend(moves, opId);
-      const what = moves.map((m) => `${m.qty} × ${m.sku}`).join(", ");
-      setMsg(r?.duplicate
-        ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
-        : { kind: "ok", text: `${branch}: записал ${what}` });
-      setQty(Object.fromEntries(skus.map((s) => [s.id, ""])));
-      setBefore(Object.fromEntries(skus.map((s) => [s.id, ""])));
-      setBranch("");
+      const what = moves.map((m) => `${num(m.qty)} × ${m.sku}`).join(", ");
+      // Подтверждение одинаковое, ушло оно сразу или встало в очередь:
+      // для него работа сделана в обоих случаях. Ожидание связи живёт
+      // строкой наверху, где счётчик, и не устаревает вместе с этой
+      // надписью — раньше она так и висела жёлтой после успешной досылки.
+      setMsg(r?.queued
+        ? { kind: "ok", text: `${branch}: записал ${what}` }
+        : r?.duplicate
+          ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
+          : { kind: "ok", text: `${branch}: записал ${what}` });
+      reset();
+    } catch (e) {
+      setMsg({ kind: "err", text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function skip() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await onSend([{ kind: "skip", branch }], newOpId());
+      setMsg({ kind: "ok", text: `${branch}: отметил, что заехать не вышло` });
+      reset();
     } catch (e) {
       setMsg({ kind: "err", text: e.message });
     } finally {
@@ -70,7 +108,7 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
     <>
       {msg && <div className={`msg ${msg.kind}`}>{msg.text}</div>}
 
-      {empty && (
+      {emptyStock && (
         <div className="card intro">
           <div className="name" style={{ marginBottom: 6 }}>На складе пока пусто</div>
           <div className="muted">Приход заводит владелец. Как только он отметит, сколько стаканов на складе, здесь можно будет записывать выдачу.</div>
@@ -78,12 +116,35 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
       )}
 
       <div className="card">
-        <div className="muted" style={{ marginBottom: 8 }}>Куда оставили</div>
-        <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-          <option value="">Выберите филиал</option>
-          {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-        </select>
+        {/* Срочные точки не дублируем отдельной карточкой: кнопки и так
+            отсортированы по срочности и выделены. Карточка добавляла
+            вторую строку тех же названий — «одна мысль, одна строка». */}
+        <div className="muted" style={{ marginBottom: 8 }}>
+          {route.length > 0
+            ? <>Сегодня стоит заехать: <b className="urgent-text">{route.join(", ")}</b></>
+            : "Куда оставили"}
+        </div>
+        <div className="chips">
+          {order.map((b) => (
+            <button
+              key={b.branch}
+              className={`chip${branch === b.branch ? " on" : b.urgent ? " urgent" : ""}`}
+              onClick={() => setBranch(branch === b.branch ? "" : b.branch)}
+            >
+              {b.branch}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {canRepeat && (
+        <button
+          className="tab repeat"
+          onClick={() => setQty(Object.fromEntries(skus.map((s) => [s.id, repeat[s.id] ? String(repeat[s.id]) : ""])))}
+        >
+          В прошлый раз: {skus.filter((s) => repeat[s.id] > 0).map((s) => `${num(repeat[s.id])} × ${s.short}`).join(", ")} — повторить
+        </button>
+      )}
 
       {skus.map((s) => (
         <div className="card" key={s.id}>
@@ -126,6 +187,13 @@ export default function Give({ state, skus, branches, today, onSend, onUndo }) {
 
       <button className="primary" disabled={!canSend} onClick={submit}>
         {busy ? "Записываю…" : "Записать выдачу"}
+      </button>
+
+      {/* Молчание выглядит одинаково и когда он не доехал, и когда точка
+          ещё в очереди. Эта кнопка превращает пустоту в факт. Без
+          выбранного филиала отмечать нечего — поэтому заблокирована. */}
+      <button className="tab skip" disabled={busy || !branch} onClick={skip}>
+        Не смог заехать
       </button>
 
       <Today moves={today} skus={skus} onUndo={onUndo} />

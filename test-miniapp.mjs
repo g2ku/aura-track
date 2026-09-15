@@ -35,7 +35,7 @@ await build({
   jsx: "automatic", loader: { ".css": "empty" }, logLevel: "silent",
 });
 
-const { Give, Warehouse, Today, History, Feed, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu } =
+const { Give, Warehouse, Today, History, Feed, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu, byUrgency, outbox } =
   await import(new URL(`./${out}`, import.meta.url).href);
 rmSync(dir, { recursive: true, force: true });
 
@@ -105,7 +105,7 @@ section("Экран развоза");
 
 {
   const html = render(h(Give, { state, skus: SKUS, branches: BRANCHES, today: [], onSend: noop }));
-  for (const b of BRANCHES) ok(html.includes(`>${b}</option>`), `филиал ${b} в списке`);
+  for (const b of BRANCHES) ok(html.includes(`>${b}</button>`), `филиал ${b} кнопкой`);
   ok(html.includes("Записать выдачу"), "кнопка отправки на месте");
   ok(html.includes("disabled"), "и она заблокирована, пока ничего не введено");
   ok(html.includes("на складе 1200 шт") || html.includes("на складе 1 200 шт"), "остаток по 350 виден");
@@ -323,6 +323,121 @@ section("Дневник на экране");
 
   eq(render(h(Feed, { trips: [], skus: SKUS })), "", "пустой дневник ничего не рисует");
   eq(render(h(Feed, { skus: SKUS })), "", "и отсутствующий");
+}
+
+section("Очередь: связь пропала — запись не пропала");
+
+{
+  // Поддельное хранилище: то же поведение, но в node и без localStorage
+  const mem = () => {
+    const box = {};
+    return { getItem: (k) => box[k] ?? null, setItem: (k, v) => { box[k] = String(v); } };
+  };
+
+  const st = mem();
+  eq(outbox.size(st), 0, "пусто с начала");
+
+  outbox.enqueue({ opId: "a", body: { moves: [1] } }, st);
+  outbox.enqueue({ opId: "b", body: { moves: [2] } }, st);
+  eq(outbox.size(st), 2, "две записи ждут");
+
+  outbox.enqueue({ opId: "a", body: { moves: [1] } }, st);
+  eq(outbox.size(st), 2, "та же метка второй раз в очередь не встаёт");
+
+  // Связь вернулась — уходит всё, по порядку
+  const sent = [];
+  let r = await outbox.flush(async (i) => { sent.push(i.opId); }, st);
+  eq(sent, ["a", "b"], "досылается по порядку: развоз — это последовательность");
+  eq(r.left, 0, "очередь опустела");
+
+  // Связи всё ещё нет — очередь держится и останавливается на первой же
+  outbox.enqueue({ opId: "c", body: {} }, st);
+  outbox.enqueue({ opId: "d", body: {} }, st);
+  const offline = Object.assign(new Error("Нет связи"), { offline: true });
+  r = await outbox.flush(async () => { throw offline; }, st);
+  eq(r.left, 2, "ничего не потеряно");
+  eq(r.done.length, 0, "и ничего не ушло");
+
+  // 401 при холодном старте: телеграм ещё не отдал подпись. Это первое,
+  // что случилось на живой проверке, и запись тогда пропала совсем.
+  const unauth = Object.assign(new Error("Нужен вход"), { status: 401, retriable: true });
+  r = await outbox.flush(async () => { throw unauth; }, st);
+  eq(r.left, 2, "401 очередь не съедает — вход подхватится и всё уйдёт");
+
+  const boom = Object.assign(new Error("Не удалось записать"), { status: 500, retriable: true });
+  r = await outbox.flush(async () => { throw boom; }, st);
+  eq(r.left, 2, "и 500 тоже: сервер полежит и встанет");
+
+  // А вот отказ по существу повтором не исправится
+  const nope = Object.assign(new Error("На складе только 0"), { status: 400, retriable: false });
+  r = await outbox.flush(async (i) => {
+    if (i.opId === "c") throw nope;
+    return true;
+  }, st);
+  eq(r.left, 0, "400 очередь не держит: иначе «ждёт отправки» до конца времён");
+  eq(r.failed.length, 1, "но о нём сообщают");
+  ok(r.failed[0].error.includes("На складе"), "с причиной от сервера");
+
+  // Хранилище, которое бросает (приватное окно) — не должно ронять
+  const broken = { getItem() { throw new Error("nope"); }, setItem() { throw new Error("nope"); } };
+  eq(outbox.all(broken), [], "нечитаемое хранилище — пустая очередь, а не падение");
+  outbox.enqueue({ opId: "x", body: {} }, broken);
+  eq(outbox.size(broken), 0, "и записать в него молча не выходит");
+}
+
+section("Порядок точек — по срочности, а не по алфавиту");
+
+{
+  const D = 86400000, now = Date.now();
+  const BR = ["Гагарина", "Абая", "Дубай", "Рамс", "OBI"];
+  const fc = [
+    { branch: "Абая", daysLeft: 12 },
+    { branch: "Дубай", daysLeft: 2 },
+    { branch: "Гагарина", daysLeft: null },
+  ];
+  const state = { lastOut: { "Гагарина": now - 20 * D, "OBI": now - D, "Рамс": null } };
+
+  const o = byUrgency(BR, fc, state, { soonDays: 4, staleDays: 7, now });
+  eq(o.map((x) => x.branch), ["Дубай", "Гагарина", "Абая", "OBI", "Рамс"],
+     "сперва срочные, потом по прогнозу, потом по давности, «ни разу» — в конце");
+  eq(o.filter((x) => x.urgent).map((x) => x.branch), ["Дубай", "Гагарина"],
+     "срочно — либо скоро кончатся, либо давно не возили");
+  eq(o.find((x) => x.branch === "Рамс").urgent, false,
+     "«ни разу» срочностью не считаем: покрасить половину списка значит не покрасить ничего");
+
+  eq(byUrgency([], [], {}), [], "пусто");
+  eq(byUrgency(BR, null, null, { now }).length, 5, "без прогноза и состояния — просто список");
+}
+
+section("Развоз: касания вместо списка");
+
+{
+  const D = 86400000, now = Date.now();
+  const fc = [{ branch: "Дубай", daysLeft: 2 }, { branch: "Абая", daysLeft: 12 }];
+  const st = { stock: { "350": 4200, "450": 380 }, lastOut: { "Абая": now - D } };
+
+  const idle = render(h(Give, {
+    state: st, skus: SKUS, branches: BRANCHES, today: [], forecast: fc,
+    lastTrip: { "Абая": { "350": 300, "450": 100 } }, soonDays: 4, onSend: noop,
+  }));
+  ok(idle.includes("Сегодня стоит заехать"), "маршрут сверху");
+  ok(idle.includes(">Дубай</button>"), "и в нём та точка, где горит");
+  ok(!/<select/.test(idle), "выпадающего списка больше нет — он стоил трёх касаний");
+
+  // class="chips" начинается с chip, поэтому считаем только сами кнопки
+  eq((idle.match(/class="chip(?: [^"]*)?"/g) || []).length, BRANCHES.length,
+     "по кнопке на филиал и ни одной лишней: срочные не дублируются второй строкой");
+  ok(idle.includes('class="chip urgent"'), "срочная выделена");
+
+  // Порядок: срочная первой, а не по алфавиту
+  ok(idle.indexOf(">Дубай</button>") < idle.indexOf(">Абая</button>"), "срочная выше");
+
+  // «Не смог заехать» без выбранного филиала отмечать нечего
+  ok(/Не смог заехать/.test(idle), "кнопка пропуска есть");
+  ok(/disabled=""[^>]*>\s*Не смог заехать|Не смог заехать/.test(idle), "и она на месте");
+
+  // Повтора нет, пока не выбран филиал
+  ok(!idle.includes("повторить"), "повтор появляется только у выбранной точки");
 }
 
 section("Пустое состояние не роняет экраны");

@@ -9,6 +9,8 @@
   --on-accent: var(--tg-theme-button-text-color, #ffffff);
   --danger: #d9453c;
   --ok: #2e9b57;
+  /* Ожидание — не ошибка и не успех: работа сделана, просто ещё не уехала */
+  --wait: #b8791f;
   --line: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
@@ -76,6 +78,29 @@ button.primary {
 }
 button.primary:disabled { opacity: .5; }
 
+/* Филиалы кнопками, а не списком: выпадающий список — три касания
+   (нажать, пролистать, нажать), кнопка — одно. Их восемь, поэтому
+   переносятся, а не сжимаются в нечитаемые обрубки. */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); font-size: 15px;
+  /* 44px — минимальная цель для пальца; он жмёт это стоя у машины */
+  min-height: 44px;
+}
+.chip.urgent { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+.chip.on {
+  background: var(--accent); color: var(--on-accent);
+  border-color: transparent; font-weight: 600;
+}
+
+/* Та же мысль, что в утреннем письме, одной строкой над кнопками */
+.urgent-text { color: var(--danger); }
+
+/* Вторичные действия: заметные, но не спорящие с главной кнопкой */
+.tab.repeat, .tab.skip { width: 100%; margin-bottom: 12px; min-height: 44px; }
+.tab.skip { margin-top: 10px; color: var(--muted); }
+
 .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
 .tab {
   flex: 1; padding: 9px; border-radius: 10px; border: 1px solid var(--line);
@@ -107,6 +132,9 @@ input[type="date"] { min-height: 44px; }
 .msg { padding: 12px 14px; border-radius: 12px; margin-bottom: 12px; font-size: 14px; }
 .msg.err { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .msg.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+/* Ожидание связи — не ошибка и не успех: работа сделана, просто ещё не
+   уехала. Своим цветом, чтобы не путалось ни с тем, ни с другим. */
+.msg.wait { background: color-mix(in srgb, var(--wait) 14%, transparent); color: var(--wait); }
 
 .branch-line { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .branch-line .detail { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }

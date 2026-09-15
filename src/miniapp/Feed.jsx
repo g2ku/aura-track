@@ -25,7 +25,9 @@ export default function Feed({ trips, skus }) {
           <span className="grow">
             <span className="name">{t.kind === "in" ? "Приход на склад" : t.branch}</span>
             <span className="detail">
-              {t.items.map((it) => `${num(it.qty)} × ${short(it.sku)}`).join(", ")}
+              {t.kind === "skip"
+                ? `не смог заехать${t.reason ? `: ${t.reason}` : ""}`
+                : t.items.map((it) => `${num(it.qty)} × ${short(it.sku)}`).join(", ")}
               {/* Пересчёт показываем: по нему видно, откуда взялся прогноз */}
               {t.items.some((it) => it.before != null) && (
                 ` · было ${t.items.map((it) => (it.before == null ? "—" : num(it.before))).join(" / ")}`

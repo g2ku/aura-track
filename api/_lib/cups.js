@@ -29,6 +29,8 @@ export function emptyState() {
     // накоплено. Один штамп на филиал выдавал накопленное за измеренное.
     onHand: {},
     countedAt: {},
+    // Когда снабженец в последний раз отметил «не смог заехать»
+    skipped: {},
     updatedAt: null,
   };
 }
@@ -65,6 +67,16 @@ export function validateMove(move, state, { branches = null } = {}) {
   const sku = String(move?.sku ?? "");
   const qty = int(move?.qty);
 
+  // «Не смог заехать» — тоже запись, но склада она не касается. Молчание
+  // выглядит одинаково и когда он не доехал, и когда точка ещё в очереди;
+  // эта строка превращает пустоту в факт.
+  if (kind === "skip") {
+    if (!move.branch) return "Не указан филиал";
+    if (branches && !branches.includes(String(move.branch))) return `Не знаю филиал «${move.branch}»`;
+    if (String(move.reason || "").length > 200) return "Слишком длинная причина";
+    return null;
+  }
+
   if (kind !== "in" && kind !== "out") return "Неизвестный вид движения";
   if (!SKU_IDS.includes(sku)) return `Не знаю такой стакан: ${sku || "—"}`;
   if (qty <= 0) return "Количество должно быть больше нуля";
@@ -94,9 +106,16 @@ export function applyMove(state, move) {
     lastOut: { ...(state?.lastOut || {}) },
     onHand: JSON.parse(JSON.stringify(state?.onHand || {})),
     countedAt: JSON.parse(JSON.stringify(state?.countedAt || {})),
+    skipped: { ...(state?.skipped || {}) },
     updatedAt: move.at || Date.now(),
   };
   for (const id of SKU_IDS) next.stock[id] = int(next.stock[id]);
+
+  // Пропуск в журнал попадает, а на склад — нет
+  if (move.kind === "skip") {
+    next.skipped = { ...(state?.skipped || {}), [move.branch]: move.at || Date.now() };
+    return next;
+  }
 
   const sku = String(move.sku);
   const qty = int(move.qty);
@@ -424,6 +443,28 @@ export function summarizePeriod(days) {
   return { in: totalIn, out: totalOut, branches, moves };
 }
 
+// Что возили на каждую точку в прошлый раз. Он возит примерно одно и то
+// же, и подставить прошлые числа дешевле, чем набирать четыре поля
+// пальцем, стоя у машины.
+export function lastTripByBranch(days) {
+  const outs = [];
+  for (const d of days || []) for (const m of d?.moves || []) {
+    if (m?.kind === "out" && m.branch && SKU_IDS.includes(String(m.sku))) outs.push(m);
+  }
+  outs.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+
+  // Последняя поездка, а не последняя строка: две строки одной поездки
+  // должны дать оба стакана.
+  const out = {};
+  for (const m of outs) {
+    const br = m.branch;
+    const key = m.opId != null ? `op:${m.opId}` : `at:${Math.round((Number(m.at) || 0) / 60000)}`;
+    if (out[br]?.key !== key) out[br] = { key, qty: zeroBySku() };
+    out[br].qty[String(m.sku)] = int(m.qty);
+  }
+  return Object.fromEntries(Object.entries(out).map(([br, v]) => [br, v.qty]));
+}
+
 // ─── Дневник ──────────────────────────────────────────────────────────
 //
 // «Я же привозил» — спор, который нечем закрыть, пока журнал виден
@@ -442,6 +483,7 @@ export function journalFeed(days, { limit = 60 } = {}) {
     const last = trips[trips.length - 1];
     const sameTrip = last
       && last.kind === m.kind
+      && m.kind !== "skip"
       && last.branch === (m.branch || null)
       && last.byId === (m.byId ?? null)
       && (last.opId != null ? last.opId === m.opId : Math.abs(last.at - (Number(m.at) || 0)) < 60000);
@@ -449,7 +491,8 @@ export function journalFeed(days, { limit = 60 } = {}) {
     if (sameTrip) { last.items.push({ sku: String(m.sku), qty: int(m.qty), before: m.before ?? null }); continue; }
 
     trips.push({
-      kind: m.kind === "in" ? "in" : "out",
+      kind: m.kind === "in" ? "in" : m.kind === "skip" ? "skip" : "out",
+      ...(m.reason ? { reason: String(m.reason) } : {}),
       branch: m.branch || null,
       by: m.by || "",
       byId: m.byId ?? null,

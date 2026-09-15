@@ -8,6 +8,7 @@ import { verifyInitData, roleOf, canWrite } from "./_lib/telegramAuth.js";
 import { getConfig, getCupState, applyCupMoves, undoCupMoves, getCupDay, getCupDays, getSiteRole } from "./_lib/store.js";
 import {
   SKUS, summarizePeriod, KEEP_DAYS, retentionCutoff, shiftDay, forecast, journalFeed,
+  lastTripByBranch,
 } from "./_lib/cups.js";
 import { reconcileFromPoster, givenFrom, totalDiff } from "./_lib/cupsPoster.js";
 import { BRANCH_ORDER } from "./_lib/branches.js";
@@ -160,6 +161,8 @@ export default async function handler(req, res) {
       date: today, today: day?.moves || [],
       keepDays: config.cupKeepDays ?? KEEP_DAYS,
       forecast: forecast(state, BRANCH_ORDER, recent),
+      // Что возили в прошлый раз — чтобы подставить одним касанием
+      lastTrip: lastTripByBranch(recent),
       // Порог «скоро кончатся» решает владелец, а не экран
       soonDays: config.cupSoonDays ?? 4,
     });
@@ -202,11 +205,13 @@ export default async function handler(req, res) {
   }
 
   const now = Date.now();
+  const KINDS = ["in", "out", "skip"];
   const prepared = moves.map((m) => ({
-    kind: m.kind === "in" ? "in" : "out",
+    kind: KINDS.includes(m.kind) ? m.kind : "out",
     sku: String(m.sku ?? ""),
     qty: Math.round(Number(m.qty) || 0),
     branch: m.branch ? String(m.branch) : null,
+    ...(m.kind === "skip" && m.reason ? { reason: String(m.reason).slice(0, 200) } : {}),
     ...(m.before != null && Number.isFinite(Number(m.before)) ? { before: Math.round(Number(m.before)) } : {}),
     by: who.name,
     byId: who.id,

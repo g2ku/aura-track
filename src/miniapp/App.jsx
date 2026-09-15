@@ -15,6 +15,7 @@ import Warehouse from "./Warehouse.jsx";
 import History from "./History.jsx";
 import { ROLE_NAME, screenFor, tabsFor } from "./roles.js";
 import { api } from "./api.js";
+import * as outbox from "./queue.js";
 
 export default function App({ tg }) {
   const [data, setData] = useState(null);
@@ -37,12 +38,59 @@ export default function App({ tg }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Сколько записей ждёт связи. Показывается всегда, когда не ноль:
+  // человек должен видеть, что его работа не пропала, и не вводить её
+  // заново.
+  const [pending, setPending] = useState(() => outbox.size());
+
+  const post = useCallback((body) =>
+    api("/api/cups", { method: "POST", body: JSON.stringify(body) }), []);
+
   const send = useCallback(async (moves, opId) => {
-    const r = await api("/api/cups", { method: "POST", body: JSON.stringify({ moves, opId }) });
-    setData((d) => (d ? { ...d, state: r.state, today: r.today || d.today } : d));
-    tg?.HapticFeedback?.notificationOccurred?.("success");
+    const body = { moves, opId };
+    try {
+      const r = await post(body);
+      setData((d) => (d ? { ...d, state: r.state, today: r.today || d.today } : d));
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+      return r;
+    } catch (e) {
+      // Связи нет — кладём в очередь и отвечаем как об успехе: для него
+      // работа сделана, и заставлять вводить заново нельзя.
+      if (e?.offline && opId) {
+        outbox.enqueue({ opId, body });
+        setPending(outbox.size());
+        tg?.HapticFeedback?.notificationOccurred?.("warning");
+        return { queued: true };
+      }
+      throw e;
+    }
+  }, [post, tg]);
+
+  // Досылка: при открытии, при возвращении сети и когда телеграм снова
+  // показывает окно — связь обычно возвращается именно в этот момент.
+  const flush = useCallback(async () => {
+    if (!outbox.size()) return;
+    const r = await outbox.flush((item) => post(item.body));
+    setPending(r.left);
+    if (r.done.length) {
+      const last = await api("/api/cups").catch(() => null);
+      if (last?.who) setData(last);
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+    }
     return r;
-  }, [tg]);
+  }, [post, tg]);
+
+  useEffect(() => {
+    flush();
+    const onOnline = () => flush();
+    const onVisible = () => { if (!document.hidden) flush(); };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [flush]);
 
   // Отмена спрашивает подтверждение родным окном телеграма: палец на
   // маленьком экране попадает не туда, а отменённую выдачу вернуть
@@ -86,6 +134,12 @@ export default function App({ tg }) {
         {who.name} · {ROLE_NAME[who.role] || who.role}
       </div>
 
+      {pending > 0 && (
+        <div className="msg wait">
+          {pending === 1 ? "Одна запись ждёт связи" : `${pending} записи ждут связи`} — отправлю сам, как появится.
+        </div>
+      )}
+
       {tabs.length > 0 && (
         <div className="tabs">
           {tabs.map((t) => (
@@ -98,7 +152,13 @@ export default function App({ tg }) {
         </div>
       )}
 
-      {active === "give" && <Give state={state} skus={skus} branches={branches} today={today} onSend={send} onUndo={undo} />}
+      {active === "give" && (
+        <Give
+          state={state} skus={skus} branches={branches} today={today}
+          forecast={data.forecast} lastTrip={data.lastTrip} soonDays={data.soonDays}
+          onSend={send} onUndo={undo}
+        />
+      )}
       {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} forecast={data.forecast} soonDays={data.soonDays} onSend={send} onUndo={isAdmin ? undo : null} isAdmin={isAdmin} />}
       {active === "history" && <History api={api} today={data.date} keepDays={data.keepDays} skus={skus} />}
     </>

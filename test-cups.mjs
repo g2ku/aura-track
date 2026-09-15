@@ -11,6 +11,7 @@ import {
   daysSinceOut, staleBranches, planWrite,
   shiftDay, monthRange, periodRange, recentMonths, summarizePeriod, retentionCutoff, KEEP_DAYS,
   consumptionByBranch, forecast, runningOut, planUndo, rebuildBranch, countedAtOf, journalFeed,
+  lastTripByBranch,
   formatSupplierNudge, formatWeeklyReconcile, weekdayOf,
   formatCupReminder, skuName,
 } from "./api/_lib/cups.js";
@@ -971,6 +972,68 @@ section("Выручка на стакан");
   eq(revenuePerCup(rows, {}, 7), [], "без выручки — пусто");
   eq(revenuePerCup(rows, rev, 0).length, 2, "нулевой период не роняет: считаем как один день");
   eq(revenuePerCup(null, rev, 7), [], "и на пустых строках");
+}
+
+section("«Не смог заехать» — запись, а не движение");
+
+{
+  const t = Date.parse("2026-09-15T10:00:00+05:00");
+  const BR = ["Абая", "Дубай"];
+  let st = emptyState();
+  st = applyMove(st, { kind: "in", sku: "350", qty: 1000, at: t });
+  const before = JSON.stringify(st.stock);
+
+  ok(!validateMove({ kind: "skip", branch: "Абая" }, st, { branches: BR }), "пропуск проходит проверку");
+  ok(validateMove({ kind: "skip" }, st, { branches: BR }), "без филиала — нет");
+  ok(validateMove({ kind: "skip", branch: "Нету" }, st, { branches: BR }), "выдуманный филиал — нет");
+  ok(validateMove({ kind: "skip", branch: "Абая", reason: "я".repeat(300) }, st), "слишком длинная причина — нет");
+
+  const next = applyMove(st, { kind: "skip", branch: "Абая", at: t, reason: "закрыто" });
+  eq(JSON.stringify(next.stock), before, "склад не тронут");
+  ok(!next.branches["Абая"], "и в выдачах точка не появилась");
+  eq(next.skipped["Абая"], t, "но отметка о пропуске есть");
+
+  // Пропуск не должен влиять на расход и на «давно не возили»
+  const days = [{ date: "x", moves: [{ kind: "skip", branch: "Абая", at: t }] }];
+  eq(consumptionByBranch(days), {}, "пропуск в расход не идёт");
+  eq(daysSinceOut(next, "Абая", t), null, "и завозом не считается");
+
+  // Зато виден в дневнике
+  const f = journalFeed([{ date: "x", moves: [
+    { kind: "skip", branch: "Абая", at: t, by: "@kairat", reason: "закрыто" },
+    { kind: "skip", branch: "Дубай", at: t + 1000, by: "@kairat" },
+  ] }]);
+  eq(f.length, 2, "два пропуска — две записи, не слиплись");
+  eq(f[1].kind, "skip", "вид сохранён");
+  eq(f[1].reason, "закрыто", "и причина");
+}
+
+section("Что возили в прошлый раз");
+
+{
+  const t = Date.parse("2026-09-15T10:00:00+05:00"), D = 86400000;
+  const days = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 200, branch: "Абая", at: t - 7 * D, opId: "старая" },
+    { kind: "out", sku: "350", qty: 300, branch: "Абая", at: t - D, opId: "свежая" },
+    { kind: "out", sku: "450", qty: 100, branch: "Абая", at: t - D + 500, opId: "свежая" },
+    { kind: "out", sku: "350", qty: 150, branch: "Дубай", at: t - 2 * D, opId: "д" },
+    { kind: "in", sku: "350", qty: 5000, at: t, opId: "приход" },
+  ] }];
+
+  const last = lastTripByBranch(days);
+  eq(last["Абая"], { "350": 300, "450": 100 }, "последняя поездка целиком, оба стакана");
+  eq(last["Дубай"], { "350": 150, "450": 0 }, "у кого один стакан — второй ноль");
+  ok(!last["приход"] && Object.keys(last).length === 2, "приход на склад сюда не попадает");
+
+  eq(lastTripByBranch([]), {}, "пусто");
+  eq(lastTripByBranch(null), {}, "и на отсутствующем журнале");
+
+  // Без метки поездки строки одной минуты всё равно считаются одной
+  const noOp = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 10, branch: "Рамс", at: t },
+    { kind: "out", sku: "450", qty: 20, branch: "Рамс", at: t + 1000 },
+  ] }];
+  eq(lastTripByBranch(noOp)["Рамс"], { "350": 10, "450": 20 }, "старые записи без метки тоже собираются");
 }
 
 console.log("\n══════════════════════════════════════════════════");
