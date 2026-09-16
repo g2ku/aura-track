@@ -503,3 +503,35 @@ export async function purgeCupDays(before, { limit = 200 } = {}) {
     return 0;
   }
 }
+
+// ─── Память исправлений ассистента ─────────────────────────────────
+//
+// Один документ chat/learned на всю сеть: см. chatMemory.js. Читается
+// целиком, пишется транзакцией — две вкладки, исправившие ассистента
+// одновременно, не затирают друг друга.
+
+const CHAT_LEARNED = "chat/learned";
+
+export async function getChatLearned() {
+  const { emptyLearned } = await import("./chatMemory.js");
+  try {
+    const snap = await getDb().doc(CHAT_LEARNED).get();
+    return snap.exists ? { ...emptyLearned(), ...snap.data() } : emptyLearned();
+  } catch (e) {
+    console.error("[chat] память не прочиталась:", e?.message);
+    return emptyLearned();
+  }
+}
+
+// fn получает текущий документ и возвращает новый (или null — ничего не менять)
+export async function updateChatLearned(fn) {
+  const { emptyLearned } = await import("./chatMemory.js");
+  const ref = getDb().doc(CHAT_LEARNED);
+  return getDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? { ...emptyLearned(), ...snap.data() } : emptyLearned();
+    const next = fn(cur);
+    if (next) tx.set(ref, next);
+    return next || cur;
+  });
+}

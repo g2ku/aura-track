@@ -3,7 +3,7 @@ import { parseQuestion, describeParsed, mergeFollowUp, preferFollowUp } from "..
 import { executeQuery } from "../chat/executor.js";
 import { smartParse } from "../chat/smart.js";
 import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
-import { remember, recall, LINK_WINDOW_MS } from "../chat/memory.js";
+import { remember, recallEntry, shareLearned, syncShared, forgetShared, LINK_WINDOW_MS } from "../chat/memory.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.jsx";
 
@@ -215,6 +215,9 @@ export default function DataChat() {
 
   useEffect(() => {
     inputRef.current?.focus();
+    // Общая память исправлений: подтянуть чужие, дослать свои. Без сети
+    // или без ответа сервера ассистент живёт на локальной копии.
+    syncShared().catch(() => {});
   }, []);
 
   const checkScroll = useCallback(() => {
@@ -304,6 +307,20 @@ export default function DataChat() {
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     setLoading(true);
+
+    // Кнопка «Забыть подсказку «…»» — не вопрос, а команда памяти
+    const forgetCmd = q.match(/^забыть подсказку «(.+)»$/i);
+    if (forgetCmd) {
+      const gone = await forgetShared(forgetCmd[1]);
+      setMessages(prev => [...prev, {
+        id: Date.now() + 1, role: "assistant",
+        text: gone
+          ? `Забыл: «${forgetCmd[1]}» больше не подставляется — ни у вас, ни у остальных.`
+          : `У вас забыл, но общую память править может только админ.`,
+      }]);
+      setLoading(false);
+      return;
+    }
     saveHistory(q);
 
     // Порядок понимания — от дешёвого к дорогому, и всё до модели бесплатно:
@@ -323,11 +340,12 @@ export default function DataChat() {
       if (merged) parsed = merged;
     }
     if (!parsed) parsed = fresh;
+    let learnedHit = null;
     if (!parsed) {
-      const learned = recall(q);
-      if (learned) {
-        parsed = await parseQuestion(learned);
-        if (parsed) note = `Понял как «${learned}».`;
+      learnedHit = recallEntry(q);
+      if (learnedHit) {
+        parsed = await parseQuestion(learnedHit.q);
+        if (parsed) note = `Понял как «${learnedHit.q}».`;
       }
     }
     if (!parsed) {
@@ -351,7 +369,11 @@ export default function DataChat() {
     // Понятный вопрос сразу после непонятого — это исправление. Запомним,
     // и в следующий раз первая формулировка поймётся сама.
     const fail = lastFailRef.current;
-    if (fail && Date.now() - fail.at < LINK_WINDOW_MS && !parsed.followUpOf) remember(fail.q, q);
+    if (fail && Date.now() - fail.at < LINK_WINDOW_MS && !parsed.followUpOf && remember(fail.q, q)) {
+      // И сразу в общую память — чтобы на других устройствах и у коллег
+      // ассистент тоже понял. Не дошло — досылается при следующем открытии.
+      shareLearned(fail.q, q).catch(() => {});
+    }
     lastFailRef.current = null;
 
     const result = await executeQuery(parsed, userBranchObj);
@@ -370,6 +392,8 @@ export default function DataChat() {
       followUps = result.data.suggestions.map((n) => `Продажи «${n}» ${when}`.trim());
     }
     if (!followUps.length) followUps = generateFollowUps(parsed, result);
+    // Ответ пришёл из памяти исправлений — админ может её поправить одним касанием
+    if (learnedHit && isAdmin()) followUps = [`Забыть подсказку «${learnedHit.key}»`, ...followUps];
     setSuggestions(followUps);
     setContext(parsed);
 

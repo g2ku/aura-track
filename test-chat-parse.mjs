@@ -535,7 +535,8 @@ section("Исполнитель и клиент собраны правильн�
   const dc = readFileSync("src/components/DataChat.jsx", "utf8");
   ok(dc.includes("mergeFollowUp(") && dc.includes("preferFollowUp("), "клиент продолжает диалог по полям");
   ok(!dc.includes("actualQuery"), "склейки строк больше нет");
-  ok(dc.includes("recall(") && dc.includes("remember("), "память исправлений подключена");
+  ok(dc.includes("recallEntry(") && dc.includes("remember("), "память исправлений подключена");
+  ok(dc.includes("syncShared(") && dc.includes("shareLearned("), "и она общая: синхронизация при открытии, отправка при исправлении");
   ok(dc.includes("alternatives("), "альтернативы показываются");
   ok(dc.indexOf("parseQuestion(q)") < dc.indexOf("smartParse("), "правила — до модели");
 }

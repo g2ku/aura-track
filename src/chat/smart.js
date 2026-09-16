@@ -6,17 +6,9 @@
 // Сервер без ключа ответит { available: false }, и мы запомним это на
 // вкладку, чтобы не стучаться каждый раз.
 
-let availability = null; // null — не знаем, true/false — знаем
+import { authHeaders } from "./authFetch.js";
 
-async function headers() {
-  const h = { "Content-Type": "application/json" };
-  try {
-    const { getIdToken } = await import("../firebase.js");
-    const token = await getIdToken();
-    if (token) h.Authorization = `Bearer ${token}`;
-  } catch (_) { /* без входа сервер и так откажет */ }
-  return h;
-}
+let availability = null; // null — не знаем, true/false — знаем
 
 export function smartAvailable() { return availability; }
 
@@ -28,7 +20,7 @@ export async function smartParse(question, context = null, fetchImpl = globalThi
   try {
     const res = await fetchImpl("/api/chat-parse", {
       method: "POST",
-      headers: await headers(),
+      headers: await authHeaders(),
       body: JSON.stringify({ question, context: compact(context) }),
     });
     const data = await res.json().catch(() => null);
