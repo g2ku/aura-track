@@ -3,6 +3,7 @@
 import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay, getMenuCategories } from "../poster.js";
 import { resolveSpecialCategory, productNamesIn, seasonTitle } from "./categories.js";
 import { productMatches, closestNames } from "./normalize.js";
+import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt } from "../utils.js";
 import { BRANCHES } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
@@ -119,6 +120,42 @@ function changeEmoji(pct) {
   if (pct < 0) return `📉 ${pct.toFixed(1)}%`;
   return `➡️ 0%`;
 }
+
+// Строка-опора к цифре: «−8 % к прошлому вторнику · +3 % к среднему за
+// 4 недели». pick(rows) — как из строк по точкам получить ту самую
+// цифру (касса, чеки, средний чек). Дни за прошлые недели лежат в
+// суточном кэше, так что обычно это ноль лишних запросов; не собралось —
+// цифра уйдёт без опоры, а не с ошибкой.
+async function contextLine(period, spot, ipGroup, pick) {
+  const base = baselinePeriods(period);
+  if (!base) return "";
+  try {
+    const valueOf = async (p) => {
+      const rows = await filterByIPGroup((await fetchCashBySpot(p.from, p.to)).filter((d) => matchesSpot(d, spot)), ipGroup);
+      return pick(rows);
+    };
+    if (base.kind === "weekday") {
+      const four = await Promise.all(base.lastFour.map(valueOf));
+      return { base, lastWeek: four[0], avg4: averageOf(four) };
+    }
+    return { base, prev: await valueOf(base.prev) };
+  } catch (_) {
+    return "";
+  }
+}
+
+// Дописать опору к готовому ответу
+async function withContext(result, value, period, spot, ipGroup, pick) {
+  const ctx = await contextLine(period, spot, ipGroup, pick);
+  if (!ctx) return result;
+  const line = formatContext(ctx.base, { value, lastWeek: ctx.lastWeek, avg4: ctx.avg4, prev: ctx.prev });
+  if (!line) return result;
+  return { ...result, text: `${result.text}\n${line}`, data: { ...(result.data || {}), context: line } };
+}
+
+const sumCash = (rows) => rows.reduce((s, d) => s + (d.total || 0), 0);
+const sumTx = (rows) => rows.reduce((s, d) => s + (d.txCount || 0), 0);
+const avgCheckOf = (rows) => { const t = sumTx(rows); return t ? sumCash(rows) / t : null; };
 
 // ─── Главная ──────────────────────────────────────────────────────
 
@@ -425,17 +462,17 @@ async function handleCash(operation, spot, period, ipGroup) {
 
   if (!isAll(spot) && filtered.length === 1) {
     const d = filtered[0];
-    return {
+    return withContext({
       text: `Касса ${d.spotName}${ipLabel} за ${pl}:\n${fmt(d.total)}\nЧеков: ${d.txCount.toLocaleString("ru-RU")}\nСредний чек: ${fmt(d.avgCheck)}`,
       data: d,
-    };
+    }, d.total, period, spot, ipGroup, sumCash);
   }
 
   const lines = filtered.map(d => `• ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
-  return {
+  return withContext({
     text: `Касса ${sl}${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)} | Чеков: ${totalTx.toLocaleString("ru-RU")}`,
     data: { filtered, totalCash, totalTx },
-  };
+  }, totalCash, period, spot, ipGroup, sumCash);
 }
 
 // ─── Чеки ─────────────────────────────────────────────────────────
@@ -458,16 +495,16 @@ async function handleChecks(operation, spot, period, ipGroup) {
   if (!isAll(spot) && filtered.length === 1) {
     const d = filtered[0];
     const days = d.daysCount || 1;
-    return {
+    return withContext({
       text: `Чеки ${d.spotName}${ipLabel} за ${pl}:\nВсего: ${d.txCount.toLocaleString("ru-RU")}\nВ среднем: ${Math.round(d.txCount / days)}/день`,
       data: d,
-    };
+    }, d.txCount, period, spot, ipGroup, sumTx);
   }
 
-  return {
+  return withContext({
     text: `Количество чеков ${sl}${ipLabel} за ${pl}:\n${totalTx.toLocaleString("ru-RU")}`,
     data: { totalTx },
-  };
+  }, totalTx, period, spot, ipGroup, sumTx);
 }
 
 // ─── Средний чек ──────────────────────────────────────────────────
@@ -494,10 +531,10 @@ async function handleAvgCheck(operation, spot, period, ipGroup) {
     };
   }
 
-  return {
+  return withContext({
     text: `Средний чек ${sl}${ipLabel} за ${pl}:\n${fmt(avg)}`,
     data: { avg },
-  };
+  }, avg, period, spot, ipGroup, avgCheckOf);
 }
 
 // ─── Товары ───────────────────────────────────────────────────────

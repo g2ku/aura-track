@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import CupsCard from "./CupsCard.jsx";
+import PinnedTiles from "./PinnedTiles.jsx";
 import { BRANCHES as BRANCH_MAP } from "../branches";
 import { fmt, downloadCsv } from "../utils";
 import { Button } from "../ui";
@@ -575,9 +576,19 @@ export default function Dashboard({
         </div>
       </div>
 
+      {/* Пока Poster отвечает — макет будущих плиток, а не спиннер: та же
+          сетка, те же размеры, глазу есть за что зацепиться */}
       {posterLoading && (
-        <div className="card" style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
-          <i className="ti ti-loader-2 spin" /> Загрузка данных Poster...
+        <div className="kpi-grid" aria-busy="true" aria-label="Загрузка данных Poster">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="kpi-card kpi-loading" aria-hidden="true">
+              <div className="pin-skeleton">
+                <span style={{ width: "40%", height: 8 }} />
+                <span style={{ width: "70%", height: 18 }} />
+                <span style={{ width: "55%", height: 8 }} />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -811,6 +822,9 @@ export default function Dashboard({
               </div>
             </div>
           )}
+
+          {/* Закреплённые вопросы ассистента — что владелец спрашивает каждое утро */}
+          <PinnedTiles />
 
           {/* Стаканы — сети целиком, поэтому не куратору одной точки */}
           {!userBranch && (

@@ -4,6 +4,7 @@ import { executeQuery } from "../chat/executor.js";
 import { smartParse } from "../chat/smart.js";
 import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
 import { remember, recallEntry, shareLearned, syncShared, forgetShared, LINK_WINDOW_MS } from "../chat/memory.js";
+import { addPin, isPinned, ASK_KEY } from "../chat/pins.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.jsx";
 
@@ -134,6 +135,7 @@ export default function DataChat() {
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [context, setContext] = useState(null); // last parsed query for follow-ups
   const [suggestions, setSuggestions] = useState(initialExamples);
+  const [pinnedIds, setPinnedIds] = useState(() => new Set());
   const endRef = useRef(null);
   const messagesRef = useRef(null);
   const inputRef = useRef(null);
@@ -218,7 +220,19 @@ export default function DataChat() {
     // Общая память исправлений: подтянуть чужие, дослать свои. Без сети
     // или без ответа сервера ассистент живёт на локальной копии.
     syncShared().catch(() => {});
+    // Пришли с плитки дашборда — сразу задаём её вопрос
+    try {
+      const ask = sessionStorage.getItem(ASK_KEY);
+      if (ask) { sessionStorage.removeItem(ASK_KEY); handleSend(ask); }
+    } catch (_) { /* без sessionStorage — просто пустой чат */ }
   }, []);
+
+  // Закрепить ответ плиткой на дашборде
+  function pinMessage(msg) {
+    if (!msg?.question) return;
+    addPin({ question: msg.question, parsed: msg.parsed || null });
+    setPinnedIds((prev) => new Set([...prev, msg.id]));
+  }
 
   const checkScroll = useCallback(() => {
     const el = sugRef.current;
@@ -404,6 +418,11 @@ export default function DataChat() {
       debug: debugInfo,
       data: result.data,
       followUps,
+      // Для «Закрепить»: продолжение диалога само по себе не разбирается,
+      // поэтому плиткой становится понятый смысл, а не «а сегодня?»
+      question: parsed.followUpOf ? null : q,
+      parsed,
+      pinnable: !!result.data && !parsed.followUpOf && parsed.metric !== "math",
     }]);
     setLoading(false);
   }
@@ -451,9 +470,16 @@ export default function DataChat() {
               )}
             </div>
             {/* Follow-up suggestions after bot messages */}
-            {msg.role === "assistant" && msg.followUps && msg.followUps.length > 0 && (
+            {msg.role === "assistant" && ((msg.followUps && msg.followUps.length > 0) || msg.pinnable) && (
               <div className="chat-followups">
-                {msg.followUps.map((fu, i) => (
+                {msg.pinnable && (
+                  pinnedIds.has(msg.id) || isPinned(msg.question)
+                    ? <span className="chat-followup-btn chat-pin-btn on"><i className="ti ti-pin-filled" /> На дашборде</span>
+                    : <button className="chat-suggestion-btn chat-followup-btn chat-pin-btn" onClick={() => pinMessage(msg)} title="Плиткой на дашборд">
+                        <i className="ti ti-pin" /> Закрепить
+                      </button>
+                )}
+                {(msg.followUps || []).map((fu, i) => (
                   <button
                     key={i}
                     className="chat-suggestion-btn chat-followup-btn"
@@ -469,9 +495,10 @@ export default function DataChat() {
 
         {loading && (
           <div className="chat-row chat-row-bot">
-            <div className="chat-bubble chat-bubble-bot">
-              <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", marginRight: 6 }} />
-              Загрузка…
+            <div className="chat-bubble chat-bubble-bot" aria-busy="true" aria-label="Считаю…">
+              <div className="chat-skeleton" aria-hidden="true">
+                <span style={{ width: 180 }} /><span style={{ width: 120 }} /><span style={{ width: 150 }} />
+              </div>
             </div>
           </div>
         )}

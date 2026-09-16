@@ -16,6 +16,8 @@ import { mergeFollowUp, preferFollowUp, fuzzyMetric, hasExplicitPeriod } from ".
 import { normalize, stem, distance, matchWord, productMatches, closestNames } from "./src/chat/normalize.js";
 import { alternatives, understoodLine, periodPhrase } from "./src/chat/clarify.js";
 import { remember, recall, loadLearned, LINK_WINDOW_MS } from "./src/chat/memory.js";
+import { baselinePeriods, formatContext, averageOf } from "./src/chat/context.js";
+import { listPins, addPin, removePin, isPinned, titleOf, tileLines, MAX_PINS } from "./src/chat/pins.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -524,6 +526,95 @@ section("Товары: по словам и с подсказкой");
   eq(closestNames("флет", names), ["Флэт уайт"], "подсказка ближайшего");
   eq(closestNames("лате", names)[0], "Латте 0,4", "«лате» → латте");
   eq(closestNames("ничегоподобного", names), [], "далёкое не подсказываем");
+}
+
+section("Цифра с опорой: тот же день недели, предыдущий отрезок");
+
+{
+  const today = "2026-09-16"; // среда
+  // Вчера (вторник) — опоры: прошлый вторник и четыре вторника
+  const b = baselinePeriods({ from: "2026-09-15", to: "2026-09-15" }, { today });
+  eq(b.kind, "weekday", "один день — по дням недели");
+  eq(b.weekdayTo, "прошлому вторнику", "и это вторник, в дательном падеже");
+  eq(b.lastWeek, { from: "2026-09-08", to: "2026-09-08" }, "неделю назад");
+  eq(b.lastFour.map((p) => p.from), ["2026-09-08", "2026-09-01", "2026-08-25", "2026-08-18"], "четыре вторника подряд");
+  eq(baselinePeriods({ from: "2026-09-13", to: "2026-09-13" }, { today }).weekdayTo, "прошлому воскресенью", "воскресенье — среднего рода");
+  eq(baselinePeriods({ from: "2026-09-12", to: "2026-09-12" }, { today }).weekdayTo, "прошлой субботе", "суббота — женского");
+
+  // Отрезок — такой же перед ним
+  const w = baselinePeriods({ from: "2026-09-09", to: "2026-09-15" }, { today });
+  eq(w.kind, "span", "неделя — отрезок");
+  eq(w.days, 7, "семь дней");
+  eq(w.prev, { from: "2026-09-02", to: "2026-09-08" }, "предыдущие семь — вплотную");
+  eq(baselinePeriods({ from: "2026-09-01", to: "2026-09-10" }, { today }).prev, { from: "2026-08-22", to: "2026-08-31" }, "через границу месяца");
+
+  // Когда опоры нет
+  eq(baselinePeriods({ from: today, to: today }, { today }), null, "сегодня — день не кончился");
+  eq(baselinePeriods({ from: "2026-09-01", to: "2026-09-30" }, { today }), null, "период до сегодня и дальше — нет");
+  eq(baselinePeriods({ from: "2026-06-01", to: "2026-08-31" }, { today }), null, "больше месяца — нужен тренд, не проценты");
+  eq(baselinePeriods(null, { today }), null, "нет периода — нет опоры");
+
+  // Текст
+  eq(formatContext(b, { value: 920, lastWeek: 1000, avg4: 900 }), "−8,0 % к прошлому вторнику · +2,2 % к среднему за 4 недели", "две опоры через точку");
+  eq(formatContext(b, { value: 920, lastWeek: 0, avg4: 900 }), "+2,2 % к среднему за 4 недели", "нулевая опора пропускается, а не даёт бесконечность");
+  eq(formatContext(b, { value: 920, lastWeek: 920, avg4: null }), "0,0 % к прошлому вторнику", "без изменений — так и пишем");
+  eq(formatContext(w, { value: 1100, prev: 1000 }), "+10,0 % к предыдущим 7 дн.", "отрезок — к предыдущему");
+  eq(formatContext(b, { value: 3000, lastWeek: 1000 }), "+200 % к прошлому вторнику", "большие проценты — без десятых");
+  eq(formatContext(null, { value: 1 }), "", "без опоры — пусто");
+  eq(formatContext(b, { value: null, lastWeek: 1 }), "", "без цифры — пусто");
+  eq(averageOf([100, 0, 200, null]), 150, "среднее — только по дням с продажами");
+  eq(averageOf([]), null, "пусто — null");
+
+  const ex = readFileSync("src/chat/executor.js", "utf8");
+  const between = (a, b) => ex.slice(ex.indexOf(a), ex.indexOf(b));
+  ok(/withContext\(/.test(between("async function handleCash(", "async function handleChecks(")), "касса отвечает с опорой");
+  ok(/withContext\(/.test(between("async function handleChecks(", "async function handleAvgCheck(")), "чеки — тоже");
+  ok(/withContext\(/.test(between("async function handleAvgCheck(", "async function handleProducts(")), "и средний чек");
+  ok(/catch \(_\) \{\s*return "";/.test(ex.slice(ex.indexOf("async function contextLine("))), "не собралась опора — цифра уходит без неё, а не с ошибкой");
+}
+
+section("Вопрос → плитка на дашборде");
+
+{
+  const mem = new Map();
+  const store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
+  eq(listPins(store), [], "пусто");
+  const p1 = addPin({ question: "касса вчера?", parsed: { metric: "cash", operation: "sum", spot: { branchId: "all" }, period: { from: "a", to: "b" }, raw: "касса вчера?", assumed: { metric: false } } }, store, { now: 1000 });
+  eq(p1.length, 1, "одна плитка");
+  eq(p1[0].question, "касса вчера?", "вопрос — как спросили");
+  eq(Object.keys(p1[0].parsed).includes("assumed"), false, "служебные поля разбора в хранилище не тащим");
+  ok(isPinned("Касса вчера", store), "закреплённость — без учёта регистра и знака вопроса");
+  ok(!isPinned("чеки вчера", store), "другой вопрос — нет");
+  const p2 = addPin({ question: "Касса вчера" }, store, { now: 2000 });
+  eq(p2.length, 1, "тот же вопрос — не дубль");
+  eq(p2[0].at, 2000, "а обновление");
+  for (let i = 0; i < 10; i++) addPin({ question: `вопрос ${i}` }, store, { now: 3000 + i });
+  eq(listPins(store).length, MAX_PINS, "не больше лимита");
+  eq(listPins(store)[0].question, "вопрос 9", "свежие — первыми");
+  const id = listPins(store)[0].id;
+  eq(removePin(id, store).some((p) => p.id === id), false, "убрали");
+  eq(addPin({ question: "   " }, store).length, listPins(store).length, "пустой вопрос не закрепляется");
+  eq(listPins({ getItem: () => "{oops", setItem: () => {} }), [], "мусор в хранилище — пусто, не падение");
+
+  eq(titleOf("касса вчера?"), "Касса вчера", "заголовок — с большой буквы, без «?»");
+  eq(titleOf(""), "", "пусто — пусто");
+
+  const t = tileLines("Касса Abaya за 15 сентября 2026 г.:\n1 240 000 ₸\nЧеков: 312\nСредний чек: 3 974 ₸\n−8,0 % к прошлому вторнику · +2,2 % к среднему за 4 недели");
+  eq(t.body, ["Касса Abaya за 15 сентября 2026 г.:", "1 240 000 ₸", "Чеков: 312", "Средний чек: 3 974 ₸"], "строки ответа");
+  eq(t.context, "−8,0 % к прошлому вторнику · +2,2 % к среднему за 4 недели", "опора — отдельно");
+  eq(t.more, 0, "ничего не спрятано");
+  const long = tileLines(Array.from({ length: 12 }, (_, i) => `строка ${i}`).join("\n"), { max: 5 });
+  eq(long.body.length, 5, "длинный ответ обрезан");
+  eq(long.more, 7, "и сказано, сколько ещё");
+
+  const tiles = readFileSync("src/components/PinnedTiles.jsx", "utf8");
+  ok(tiles.includes("parseQuestion(pin.question)") && tiles.includes("|| pin.parsed"), "плитка разбирает вопрос заново, запас — сохранённый разбор");
+  ok(tiles.includes("executeQuery("), "и считает тем же исполнителем, что чат");
+  ok(readFileSync("src/components/Dashboard.jsx", "utf8").includes("<PinnedTiles />"), "плитки на дашборде");
+  const dc = readFileSync("src/components/DataChat.jsx", "utf8");
+  ok(dc.includes("addPin(") && dc.includes("ASK_KEY"), "в чате — «Закрепить», и плитка умеет вернуть в чат");
+  ok(/pinnable: !!result\.data && !parsed\.followUpOf/.test(dc), "продолжение диалога плиткой не становится");
+  ok(dc.includes("chat-skeleton") && !dc.includes("Загрузка…"), "вместо спиннера — скелетон ответа");
 }
 
 section("Исполнитель и клиент собраны правильно");

@@ -6505,3 +6505,41 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   text-align: right;
   color: var(--text-secondary);
 }
+
+/* ─── Закреплённые вопросы ассистента на дашборде ─────────────────────── */
+.pins-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.pin-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+.pin-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.pin-title {
+  background: none; border: 0; padding: 0; text-align: left; cursor: pointer;
+  font: inherit; font-size: var(--fs-13, 13px); font-weight: 600; color: var(--text);
+  text-wrap: balance;
+}
+.pin-title:hover { color: var(--text-accent); }
+.pin-remove {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; border: 0; background: none;
+  color: var(--text-muted); cursor: pointer; display: grid; place-items: center;
+}
+.pin-remove:hover { background: var(--bg-hover, rgba(255,255,255,0.05)); color: var(--text); }
+.pin-body { font-size: var(--fs-12, 12px); color: var(--text-secondary); line-height: 1.5; font-variant-numeric: tabular-nums; white-space: pre-wrap; }
+.pin-body > div:first-child { color: var(--text); font-weight: 500; }
+.pin-more { color: var(--text-muted); }
+.pin-context { font-size: var(--fs-11, 11px); color: var(--text-accent); font-weight: 600; }
+.pin-error { font-size: var(--fs-12, 12px); color: var(--text-danger); }
+.chat-pin-btn.on { cursor: default; opacity: 0.8; }
+
+/* Скелетон: серые строки будущего ответа — читается быстрее спиннера */
+.pin-skeleton, .chat-skeleton { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; }
+.pin-skeleton > span, .chat-skeleton > span {
+  display: block; height: 10px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--border) 0%, var(--bg-hover, rgba(255,255,255,0.06)) 50%, var(--border) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .pin-skeleton > span, .chat-skeleton > span { animation: none; } }
+.kpi-card.kpi-loading { justify-content: center; min-height: 96px; }
