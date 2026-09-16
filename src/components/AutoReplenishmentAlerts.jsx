@@ -173,11 +173,11 @@ export default function AutoReplenishmentAlerts() {
         </div>
         <div className="waste-summary-card">
           <div className="waste-summary-label">Критических</div>
-          <div className="waste-summary-value" style={{ color: "#ef4444" }}>{criticalCount}</div>
+          <div className="waste-summary-value" style={{ color: "var(--text-danger)" }}>{criticalCount}</div>
         </div>
         <div className="waste-summary-card">
           <div className="waste-summary-label">Предупреждений</div>
-          <div className="waste-summary-value" style={{ color: "#f59e0b" }}>{warningCount}</div>
+          <div className="waste-summary-value" style={{ color: "var(--text-warning)" }}>{warningCount}</div>
         </div>
       </div>
 
@@ -211,7 +211,7 @@ export default function AutoReplenishmentAlerts() {
                   <td>{a.unit}</td>
                   <td className="text-right">{a.dailyRate}</td>
                   <td className="text-right" style={{
-                    color: a.urgency === "critical" ? "#ef4444" : a.urgency === "warning" ? "#f59e0b" : "#22c55e",
+                    color: a.urgency === "critical" ? "var(--text-danger)" : a.urgency === "warning" ? "var(--text-warning)" : "var(--text-success)",
                     fontWeight: 600,
                   }}>
                     {a.daysLeft}

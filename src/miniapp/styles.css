@@ -1,3 +1,7 @@
+/* Шкала шрифтов, оттенки статусов и цель для пальца — общие с сайтом:
+   src/tokens-shared.css. Здесь только то, что берём у Telegram. */
+@import "../tokens-shared.css";
+
 /* Цвета берём у Telegram: приложение должно выглядеть частью клиента,
    а не сайтом в рамке. Значения подставляет сам Telegram. */
 :root {
@@ -7,26 +11,14 @@
   --muted: var(--tg-theme-hint-color, #8a8a8e);
   --accent: var(--tg-theme-button-color, #2f7cf6);
   --on-accent: var(--tg-theme-button-text-color, #ffffff);
-  /* Цвета статусов — не константы, а смесь с цветом текста темы: на
-     светлой теме они темнеют к чёрному, на тёмной светлеют к белому.
-     Жёсткий #2e9b57 на тёмном фоне телеграма был еле виден. */
-  --danger: color-mix(in srgb, #d9453c 72%, var(--text));
-  --ok: color-mix(in srgb, #2e9b57 65%, var(--text));
+  /* Цвета статусов — не константы, а смесь общего оттенка с цветом текста
+     темы: на светлой теме они темнеют к чёрному, на тёмной светлеют к
+     белому. Жёсткий #2e9b57 на тёмном фоне телеграма был еле виден. */
+  --danger: color-mix(in srgb, var(--hue-danger) 72%, var(--text));
+  --ok: color-mix(in srgb, var(--hue-ok) 65%, var(--text));
   /* Ожидание — не ошибка и не успех: работа сделана, просто ещё не уехала */
-  --wait: color-mix(in srgb, #b8791f 70%, var(--text));
+  --wait: color-mix(in srgb, var(--hue-wait) 70%, var(--text));
   --line: color-mix(in srgb, var(--text) 12%, transparent);
-
-  /* Одна шкала на всё приложение. Пять размеров, у каждого своя работа:
-     подпись, второстепенное, основной текст и поля, заголовок, цифра
-     склада. Раньше их было восемь, и половина отличалась на пиксель. */
-  --fs-cap: 12px;
-  --fs-sec: 14px;
-  --fs-body: 16px;
-  --fs-h1: 20px;
-  --fs-hero: 26px;
-
-  /* Одна цель для пальца. Он жмёт это одной рукой, стоя у машины. */
-  --tap: 44px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -169,9 +161,9 @@ button.primary:disabled { opacity: .5; }
 
 /* ─── Сообщения ────────────────────────────────────────────────────── */
 .msg { padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; font-size: var(--fs-sec); }
-.msg.err { background: color-mix(in srgb, #d9453c 14%, transparent); color: var(--danger); }
-.msg.ok { background: color-mix(in srgb, #2e9b57 14%, transparent); color: var(--ok); }
-.msg.wait { background: color-mix(in srgb, #b8791f 14%, transparent); color: var(--wait); }
+.msg.err { background: color-mix(in srgb, var(--hue-danger) 14%, transparent); color: var(--danger); }
+.msg.ok { background: color-mix(in srgb, var(--hue-ok) 14%, transparent); color: var(--ok); }
+.msg.wait { background: color-mix(in srgb, var(--hue-wait) 14%, transparent); color: var(--wait); }
 /* Строка про снимок: данные показаны, но не свежие — кнопка обновить рядом */
 .msg.snap { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .msg.snap .link {

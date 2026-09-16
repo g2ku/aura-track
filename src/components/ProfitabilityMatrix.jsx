@@ -114,9 +114,9 @@ export default function ProfitabilityMatrix() {
 
   function getMarginColor(pct) {
     if (pct === null) return "var(--text-muted)";
-    if (pct > 60) return "#22c55e";
-    if (pct > 30) return "#f59e0b";
-    return "#ef4444";
+    if (pct > 60) return "var(--text-success)";
+    if (pct > 30) return "var(--text-warning)";
+    return "var(--text-danger)";
   }
 
   return (
@@ -153,22 +153,22 @@ export default function ProfitabilityMatrix() {
         </div>
         <div className="profit-matrix-card">
             <div className="profit-matrix-card-name">Прибыльные (&gt;60%)</div>
-          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "#22c55e" }}>{stats.profitable}</div>
+          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "var(--text-success)" }}>{stats.profitable}</div>
         </div>
         <div className="profit-matrix-card">
             <div className="profit-matrix-card-name">Убыточные (&lt;0%)</div>
-          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "#ef4444" }}>{stats.losers}</div>
+          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "var(--text-danger)" }}>{stats.losers}</div>
         </div>
         <div className="profit-matrix-card">
           <div className="profit-matrix-card-name">Скрытые gems</div>
-          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "#f59e0b" }}>{stats.lowVolumeHighMargin}</div>
+          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "var(--text-warning)" }}>{stats.lowVolumeHighMargin}</div>
         </div>
       </div>
 
       {/* Insights */}
       {stats.losersList.length > 0 && (
-        <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "#ef4444" }}>
-          <div className="status-block-head" style={{ borderLeftColor: "#ef4444", color: "#ef4444", fontWeight: 700 }}>
+        <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "var(--text-danger)" }}>
+          <div className="status-block-head" style={{ borderLeftColor: "var(--text-danger)", color: "var(--text-danger)", fontWeight: 700 }}>
             <i className="ti ti-alert-triangle" aria-hidden="true" /> Убыточные позиции
           </div>
           {stats.losersList.map((l) => (
@@ -180,8 +180,8 @@ export default function ProfitabilityMatrix() {
       )}
 
       {stats.gemsList.length > 0 && (
-        <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "#f59e0b" }}>
-          <div className="status-block-head" style={{ borderLeftColor: "#f59e0b", color: "#f59e0b", fontWeight: 700 }}>
+        <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "var(--text-warning)" }}>
+          <div className="status-block-head" style={{ borderLeftColor: "var(--text-warning)", color: "var(--text-warning)", fontWeight: 700 }}>
             <i className="ti ti-bulb" aria-hidden="true" /> Скрытые gems
           </div>
           {stats.gemsList.map((g) => (

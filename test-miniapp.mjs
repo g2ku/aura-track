@@ -509,11 +509,22 @@ section("Стили: одна шкала, одно определение, цв�
   // Размеры — только через шкалу, без россыпи пиксельных значений
   const raw = (css.match(/font-size:\s*\d+px/g) || []).filter((m) => !/--fs-/.test(m));
   eq(raw, [], "font-size только через переменные шкалы");
-  ok(/--fs-cap: 12px/.test(css) && /--fs-hero: 26px/.test(css), "шкала объявлена");
+
+  // Шкала, оттенки статусов и цель для пальца — общие с сайтом, в одном файле
+  const shared = readFileSync("src/tokens-shared.css", "utf8");
+  ok(/@import "\.\.\/tokens-shared\.css"/.test(css), "приложение подключает общие токены");
+  ok(/--fs-cap: 12px/.test(shared) && /--fs-hero: 26px/.test(shared) && /--tap: 44px/.test(shared), "шкала и цель для пальца объявлены в общем файле");
+  ok(!/--fs-cap:|--tap:/.test(css), "и не переопределены в приложении");
+  ok(readFileSync("src/main.jsx", "utf8").includes('import "./tokens-shared.css"'), "сайт подключает тот же файл");
+  const site = readFileSync("src/styles.css", "utf8");
+  ok(/\.bottom-nav-item \{[^}]*min-height: var\(--tap\)/.test(site), "нижняя навигация сайта — той же цели для пальца");
+  ok(/\.chat-input \{[^}]*min-height: var\(--tap\)/.test(site), "и поле ассистента на телефоне");
+  ok(!/\.chat-followup-btn \{ font-size: 10px/.test(site), "подсказок в 10px больше нет");
 
   // Статусные цвета смешаны с цветом текста темы: на тёмной светлеют, на светлой темнеют
-  ok(/--ok: color-mix\(in srgb, #2e9b57 \d+%, var\(--text\)\)/.test(css), "зелёный зависит от темы");
-  ok(/--danger: color-mix\(in srgb, #d9453c \d+%, var\(--text\)\)/.test(css), "красный тоже");
+  ok(/--ok: color-mix\(in srgb, var\(--hue-ok\) \d+%, var\(--text\)\)/.test(css), "зелёный — от общего оттенка и темы");
+  ok(/--danger: color-mix\(in srgb, var\(--hue-danger\) \d+%, var\(--text\)\)/.test(css), "красный тоже");
+  ok(!/#2e9b57|#d9453c|#b8791f/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")), "жёстких оттенков статусов в приложении не осталось (кроме комментариев)");
 
   // Анимации на сообщениях нет: после неё они оставались полупрозрачными
   ok(!/\.msg\s*\{[^}]*animation/.test(css) && !/@keyframes msg-in/.test(css), "сообщения без анимации");

@@ -2,14 +2,14 @@ import { useEffect, useState, lazy, Suspense } from "react";
 import { trackView, installFlushOnHide } from "./pageViews.js";
 import { syncServiceWorker } from "./serviceWorker.js";
 import { LoginGate, useAuth, useUserBranch, isAdmin, isAdminOrManager, logout } from "./auth.jsx";
-import { useHashRoute, useRememberRoute } from "./router";
+import { useHashRoute, useRememberRoute, getLastRoute } from "./router";
 import { useAppStore } from "./store/useAppStore";
 
 import { useAppData } from "./hooks/useAppData";
 import { useUpload } from "./hooks/useUpload";
 import { usePayments } from "./hooks/usePayments";
 import { useReports } from "./hooks/useReports";
-import { useRouteContent } from "./hooks/useRouteContent";
+import { useRouteContent, prefetchRoutes } from "./hooks/useRouteContent";
 import { resolveDesignV2 } from "./designV2";
 
 import Sidebar from "./components/Sidebar";
@@ -118,6 +118,9 @@ function MainApp() {
 
   useRememberRoute();
   useEffect(() => { initStore(); }, [initStore]);
+  // Чанк дашборда — сразу, пока Firebase проверяет вход; прошлый экран и
+  // ассистент — в первый простой. Один круг до сервера долой.
+  useEffect(() => { prefetchRoutes(getLastRoute()); }, []);
 
   // ─── Дизайн v2: гейт по роли + ручной override ────────────────────
   // sessionStorage "aura-design-v2": "1" — принудительно вкл, "0" — выкл.

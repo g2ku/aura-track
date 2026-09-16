@@ -161,7 +161,7 @@ export default function MorningBriefing() {
           <div className="cross-loc-summary-label">Выручка вчера</div>
           <div className="cross-loc-summary-value">{fmt(yStats.total)}</div>
           {trend !== null && (
-            <div style={{ fontSize: 13, color: trend >= 0 ? "#22c55e" : "#ef4444", marginTop: 4 }}>
+            <div style={{ fontSize: 13, color: trend >= 0 ? "var(--text-success)" : "var(--text-danger)", marginTop: 4 }}>
               {trend >= 0 ? "↑" : "↓"} {Math.abs(trend)}% от средней
             </div>
           )}

@@ -2780,6 +2780,7 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   font-size: 10px;
   cursor: pointer;
   padding: 6px 0;
+  min-height: var(--tap); /* общая цель для пальца — как в приложении */
   transition: color 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
@@ -3404,11 +3405,14 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .chat-bubble { max-width: 88%; font-size: 13px; padding: 10px 14px; line-height: 1.45; }
   .chat-suggestions { padding: 6px 4px; gap: 4px; }
   .chat-suggestion-btn { font-size: 11px; padding: 5px 10px; }
-  .chat-input { font-size: 14px; padding: 12px 14px; border-radius: 12px; }
-  .chat-send-btn { padding: 12px 14px; border-radius: 12px; }
+  /* Поле и кнопка — не ниже цели для пальца; подсказки — 12px и 32px в
+     высоту вместо 10px и 3px отступа: в них жмут на ходу, одной рукой */
+  .chat-input { font-size: var(--fs-sec); padding: 12px 14px; border-radius: 12px; min-height: var(--tap); }
+  .chat-send-btn { padding: 12px 14px; border-radius: 12px; min-height: var(--tap); min-width: var(--tap); }
   .chat-row { padding: 0 8px; }
-  .chat-followups { gap: 4px; }
-  .chat-followup-btn { font-size: 10px !important; padding: 3px 8px !important; }
+  .chat-followups { gap: 6px; }
+  .chat-followup-btn { font-size: var(--fs-cap) !important; padding: 6px 10px !important; min-height: 32px; }
+  .chat-suggestion-btn { font-size: var(--fs-cap); padding: 6px 10px; min-height: 32px; }
 }
 @media (max-width: 480px) {
   .chat-container { height: calc(100svh - 80px); }

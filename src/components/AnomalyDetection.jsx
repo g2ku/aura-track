@@ -181,14 +181,14 @@ export default function AnomalyDetection() {
         </div>
         <div className="waste-summary-card">
           <div className="waste-summary-label">Высокая важность</div>
-          <div className="waste-summary-value" style={{ color: "#ef4444" }}>{stats.high}</div>
+          <div className="waste-summary-value" style={{ color: "var(--text-danger)" }}>{stats.high}</div>
         </div>
         <div className="waste-summary-card">
           <div className="waste-summary-label">Всплески / Падения</div>
           <div className="waste-summary-value">
-            <span style={{ color: "#22c55e" }}>↑{stats.spikes}</span>
+            <span style={{ color: "var(--text-success)" }}>↑{stats.spikes}</span>
             {" / "}
-            <span style={{ color: "#ef4444" }}>↓{stats.drops}</span>
+            <span style={{ color: "var(--text-danger)" }}>↓{stats.drops}</span>
           </div>
         </div>
       </div>
@@ -200,7 +200,7 @@ export default function AnomalyDetection() {
         </div>
       ) : anomalies.length === 0 ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <i className="ti ti-check-circle" style={{ fontSize: 36, color: "#22c55e", marginBottom: 12 }} />
+          <i className="ti ti-check-circle" style={{ fontSize: 36, color: "var(--text-success)", marginBottom: 12 }} />
           <div className="empty-state-title">Аномалий не обнаружено</div>
           <div className="empty-state-sub">Все показатели в пределах нормы</div>
         </div>

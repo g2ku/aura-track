@@ -78,6 +78,42 @@ const AutoReplenishmentAlerts = lazy(() => import("../components/AutoReplenishme
 const AnomalyDetection = lazy(() => import("../components/AnomalyDetection"));
 const MorningBriefing = lazy(() => import("../components/MorningBriefing"));
 
+// ─── Предзагрузка чанков ──────────────────────────────────────────
+//
+// Экран маршрута — отдельный чанк, и раньше он запрашивался только после
+// того, как Firebase подтвердит вход: HTML → скрипт → ответ Auth → ещё
+// один круг до сервера за дашбордом → Poster. Тот круг (200–400 мс на
+// телефоне) убираем: дашборд начинает грузиться сразу, пока Auth думает,
+// а экран, на котором были в прошлый раз, — в первый же простой.
+//
+// Тот же import(), что и в lazy() выше, — Vite отдаёт тот же чанк, а
+// браузер второй раз в сеть не идёт.
+const ROUTE_LOADERS = {
+  "/": () => import("../components/Dashboard"),
+  "/chat": () => import("../components/DataChat"),
+  "/branches": () => import("../components/BranchesView"),
+  "/reports": () => import("../components/ReportsView"),
+  "/receipts": () => import("../components/ReceiptsView"),
+  "/inventory": () => import("../components/InventoryView"),
+  "/margin": () => import("../components/MarginView"),
+  "/movement": () => import("../components/IngredientMovement"),
+  "/payroll": () => import("../components/PayrollView.jsx"),
+  "/people": () => import("../components/BaristaStats"),
+};
+
+export function prefetchRoutes(lastHash = "#/") {
+  const warm = (load) => { try { load()?.catch?.(() => {}); } catch (_) { /* не критично */ } };
+  warm(ROUTE_LOADERS["/"]);
+  // «#/branches/Абая» → «/branches»: чанк общий для всех страниц раздела
+  const section = "/" + (String(lastHash || "").replace(/^#\/?/, "").split("/")[0] || "");
+  const last = ROUTE_LOADERS[section];
+  const idle = globalThis.requestIdleCallback || ((cb) => setTimeout(cb, 300));
+  idle(() => {
+    if (last && last !== ROUTE_LOADERS["/"]) warm(last);
+    warm(ROUTE_LOADERS["/chat"]);
+  });
+}
+
 function RouteFallback() {
   return <SkeletonDashboard />;
 }

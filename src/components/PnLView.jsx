@@ -186,13 +186,13 @@ export default function PnLView({ agg }) {
         </div>
         <div className="pnl-summary-card">
           <div className="pnl-summary-label">Валовая прибыль</div>
-          <div className="pnl-summary-value" style={{ color: totals.grossProfit >= 0 ? "#22c55e" : "#ef4444" }}>
+          <div className="pnl-summary-value" style={{ color: totals.grossProfit >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
             {fmt(totals.grossProfit)}
           </div>
         </div>
         <div className="pnl-summary-card">
           <div className="pnl-summary-label">Чистая прибыль</div>
-          <div className={`pnl-summary-value ${totals.netProfit < 0 ? "pnl-summary-value--negative" : ""}`} style={{ color: totals.netProfit >= 0 ? "#22c55e" : "#ef4444" }}>
+          <div className={`pnl-summary-value ${totals.netProfit < 0 ? "pnl-summary-value--negative" : ""}`} style={{ color: totals.netProfit >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
             {fmt(totals.netProfit)}
           </div>
         </div>
