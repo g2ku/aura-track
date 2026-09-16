@@ -16,25 +16,47 @@ import History from "./History.jsx";
 import { ROLE_NAME, screenFor, tabsFor } from "./roles.js";
 import { api } from "./api.js";
 import * as outbox from "./queue.js";
+import { readSnapshot, writeSnapshot, fmtSnapshotAge } from "./snapshot.js";
 
 export default function App({ tg }) {
-  const [data, setData] = useState(null);
+  const userId = tg?.initDataUnsafe?.user?.id ?? null;
+  // Сначала — последний снимок, если он наш и свежий: экран сразу, а не
+  // через секунды ожидания сервера. Свежее придёт следом.
+  const [snap] = useState(() => readSnapshot({ userId }));
+  const [data, setDataRaw] = useState(() => snap?.data || null);
+  const [fresh, setFresh] = useState(false);       // данные с сервера в этой сессии
+  const [refreshing, setRefreshing] = useState(true);
   const [error, setError] = useState("");
+  const [offline, setOffline] = useState(false);
   // null — «человек ещё не выбирал»: экран по умолчанию зависит от роли,
   // а роль приходит с сервера. Через эффект здесь мелькала бы чужая
   // вкладка один кадр.
   const [tab, setTab] = useState(null);
 
+  // Всё, что показываем, — то и запоминаем: следующий запуск начнётся с этого
+  const setData = useCallback((next) => {
+    setDataRaw((prev) => {
+      const v = typeof next === "function" ? next(prev) : next;
+      if (v?.who) writeSnapshot(v, { userId });
+      return v;
+    });
+  }, [userId]);
+
   const load = useCallback(async () => {
     try {
       setError("");
+      setRefreshing(true);
       const d = await api("/api/cups");
       if (!d?.who) throw new Error("Сервер вернул пустой ответ. Попробуйте ещё раз.");
       setData(d);
+      setFresh(true);
     } catch (e) {
       setError(e.message);
+      setOffline(!!e.offline);
+    } finally {
+      setRefreshing(false);
     }
-  }, []);
+  }, [setData]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -74,11 +96,11 @@ export default function App({ tg }) {
     setPending(r.left);
     if (r.done.length) {
       const last = await api("/api/cups").catch(() => null);
-      if (last?.who) setData(last);
+      if (last?.who) { setData(last); setFresh(true); }
       tg?.HapticFeedback?.notificationOccurred?.("success");
     }
     return r;
-  }, [post, tg]);
+  }, [post, tg, setData]);
 
   useEffect(() => {
     flush();
@@ -104,7 +126,7 @@ export default function App({ tg }) {
     const r = await api("/api/cups", { method: "POST", body: JSON.stringify({ undo: opId }) });
     setData((d) => (d ? { ...d, state: r.state, today: r.today || [] } : d));
     tg?.HapticFeedback?.notificationOccurred?.("warning");
-  }, [tg]);
+  }, [tg, setData]);
 
   if (error && !data) {
     return (
@@ -117,6 +139,16 @@ export default function App({ tg }) {
   }
 
   if (!data) return <div className="muted" style={{ padding: "48px 0", textAlign: "center" }}>Загрузка…</div>;
+
+  // Показываем снимок, пока свежее не пришло: человек должен знать, что
+  // смотрит на данные «на 12:05», а не на сейчас — и что связи нет, если её нет
+  const snapLine = !fresh && snap
+    ? (refreshing
+      ? `Данные ${fmtSnapshotAge(snap.at)} · обновляю…`
+      : offline
+        ? `Без связи — данные ${fmtSnapshotAge(snap.at)}.`
+        : `Не обновилось — данные ${fmtSnapshotAge(snap.at)}.`)
+    : "";
 
   const { who, state, skus, branches, today = [] } = data;
   const isAdmin = who.role === "admin";
@@ -135,6 +167,13 @@ export default function App({ tg }) {
       <div className="sub">
         {who.name} · {ROLE_NAME[who.role] || who.role}
       </div>
+
+      {snapLine && (
+        <div className={`msg ${refreshing ? "wait" : "err"} snap`}>
+          {snapLine}
+          {!refreshing && <button className="link" onClick={load}>Обновить</button>}
+        </div>
+      )}
 
       {pending > 0 && (
         <div className="msg wait">

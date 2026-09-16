@@ -20,7 +20,7 @@ import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildCl
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
 import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
-import { sendMessage } from "../_lib/telegram.js";
+import { sendMessage, siteUrl } from "../_lib/telegram.js";
 
 function almatyHM(now = new Date()) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -42,7 +42,7 @@ const toPoster = (ymd) => ymd.replace(/-/g, "");
 // Бот не может написать первым тому, кто его не открывал, — Telegram
 // вернёт 403. Это не ошибка настройки, а нормальное состояние до первого
 // «/start», поэтому падать из-за этого нельзя: остальные должны получить.
-async function nudgeSuppliers(config, text) {
+async function nudgeSuppliers(config, text, opts = {}) {
   if (!text) return 0;
   const ids = (config.cupSuppliers || []).map(String).filter(Boolean);
   if (!ids.length) return 0;
@@ -50,7 +50,7 @@ async function nudgeSuppliers(config, text) {
   let sent = 0;
   for (const id of ids) {
     try {
-      await sendMessage(id, text);
+      await sendMessage(id, text, opts);
       sent++;
     } catch (e) {
       console.warn(`[cups] снабженцу ${id} не ушло:`, e?.message);
@@ -186,6 +186,32 @@ export default async function handler(req, res) {
         await setConfig({ lastCupDailyDate: today }).catch(() => {});
       } catch (e) {
         console.error("[cups] ежедневное не отработало:", e?.message);
+      }
+    }
+
+    // ─── Вечером — маршрут на завтра ─────────────────────────────────
+    //
+    // Утренний зов говорит «ехать сейчас»; вечерний план говорит это
+    // накануне, пока можно доложить склад и переставить дела. Кнопка
+    // открывает приложение сразу на маршруте — ничего искать не надо.
+    if (config.cupRouteTime && config.lastCupRouteDate !== today && nowHM >= config.cupRouteTime) {
+      try {
+        const { formatRoutePlan, shiftDay } = await import("../_lib/cups.js");
+        const [cupState, journal] = await Promise.all([
+          getCupState(),
+          getCupDays(shiftDay(today, -60), today),
+        ]);
+        const text = formatRoutePlan(cupState, BRANCHES.map((b) => b.name), journal,
+          { soonDays: config.cupSoonDays, staleDays: config.cupStaleDays, now: Date.now() });
+        const base = siteUrl();
+        const opts = base
+          ? { reply_markup: { inline_keyboard: [[{ text: "Открыть маршрут", web_app: { url: `${base}/miniapp.html` } }]] } }
+          : {};
+        out.routed = await nudgeSuppliers(config, text, opts);
+        patch.lastCupRouteDate = today;
+        await setConfig({ lastCupRouteDate: today }).catch(() => {});
+      } catch (e) {
+        console.error("[cups] вечерний маршрут не отработал:", e?.message);
       }
     }
 

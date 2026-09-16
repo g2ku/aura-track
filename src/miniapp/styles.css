@@ -172,6 +172,12 @@ button.primary:disabled { opacity: .5; }
 .msg.err { background: color-mix(in srgb, #d9453c 14%, transparent); color: var(--danger); }
 .msg.ok { background: color-mix(in srgb, #2e9b57 14%, transparent); color: var(--ok); }
 .msg.wait { background: color-mix(in srgb, #b8791f 14%, transparent); color: var(--wait); }
+/* Строка про снимок: данные показаны, но не свежие — кнопка обновить рядом */
+.msg.snap { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.msg.snap .link {
+  background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 600;
+  text-decoration: underline; min-height: var(--tap); cursor: pointer;
+}
 
 /* Без анимации появления — намеренно. Проверка показала, что после
    keyframe с opacity сообщение оставалось полупрозрачным и еле читалось;

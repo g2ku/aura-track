@@ -12,7 +12,7 @@ import {
   shiftDay, monthRange, periodRange, recentMonths, summarizePeriod, retentionCutoff, KEEP_DAYS,
   consumptionByBranch, forecast, runningOut, planUndo, rebuildBranch, countedAtOf, journalFeed,
   lastTripByBranch,
-  formatSupplierNudge, formatWeeklyReconcile, weekdayOf,
+  formatSupplierNudge, formatRoutePlan, skipSignals, formatWeeklyReconcile, weekdayOf,
   formatCupReminder, skuName,
 } from "./api/_lib/cups.js";
 import { verifyInitData, roleOf, canWrite, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
@@ -790,6 +790,67 @@ section("Утро снабженца");
   const quiet = formatSupplierNudge(st, ["OBI"], journal, { now: NOW, soonDays: 1, staleDays: 7 });
   eq(quiet, "", "нечего сказать — ничего не пишем");
   eq(formatSupplierNudge(emptyState(), [], [], { now: NOW }), "", "и на пустом состоянии тоже");
+}
+
+section("Вечером — маршрут на завтра");
+
+{
+  const D = 86400000;
+  const NOW = Date.parse("2026-09-15T20:00:00+05:00");
+  const B = ["Абая", "Дубай", "Рамс", "OBI"];
+  const journal = [{ date: "x", moves: [
+    // Абая: 50/день, на точке после пересчёта 2 дня назад — 600 → к завтрашнему утру ~450
+    { kind: "out", sku: "350", qty: 500, branch: "Абая", before: 100, at: NOW - 12 * D },
+    { kind: "out", sku: "350", qty: 500, branch: "Абая", before: 100, at: NOW - 2 * D },
+    { kind: "out", sku: "350", qty: 300, branch: "Дубай", at: NOW - 20 * D },
+    { kind: "out", sku: "350", qty: 300, branch: "OBI", at: NOW - D },
+  ] }];
+  let st = emptyState();
+  st = applyMove(st, { kind: "in", sku: "350", qty: 9000, at: NOW - 30 * D });
+  for (const m of journal[0].moves) st = applyMove(st, m);
+
+  const t = formatRoutePlan(st, B, journal, { now: NOW, soonDays: 20, staleDays: 7 });
+  ok(t.startsWith("<b>Маршрут на завтра</b>"), "заголовок — про завтра");
+  ok(/1\. <b>Абая<\/b> — к утру хватит на \d+ дн/.test(t), `точки пронумерованы по срочности: ${t.split("\n")[2]}`);
+  ok(t.includes("Дубай — не возили 20 дн.") || t.includes("Дубай — не возили 21 дн."), "давно не возили — тоже в плане");
+  ok(!t.includes("OBI"), "куда возили сегодня — не зовём");
+  ok(/На складе — 350: /.test(t), "и склад");
+
+  // Прогноз на завтра строже сегодняшнего: к утру съедят ещё день
+  const todayNudge = formatSupplierNudge(st, ["Абая"], journal, { now: NOW, soonDays: 9, staleDays: 7 });
+  const plan = formatRoutePlan(st, ["Абая"], journal, { now: NOW, soonDays: 9, staleDays: 7 });
+  const daysOf = (txt) => Number((txt.match(/хватит на (\d+)/) || [])[1] || NaN);
+  ok(Number.isNaN(daysOf(todayNudge)) || Number.isNaN(daysOf(plan)) || daysOf(plan) <= daysOf(todayNudge), "на завтра дней не больше, чем на сегодня");
+
+  eq(formatRoutePlan(st, ["OBI"], journal, { now: NOW, soonDays: 1, staleDays: 7 }), "", "ехать некуда — молчим");
+}
+
+section("Пропуски — сигнал про точку");
+
+{
+  const D = 86400000;
+  const NOW = Date.parse("2026-09-15T09:00:00+05:00");
+  const days = [{ date: "x", moves: [
+    { kind: "skip", branch: "Абая", reason: "не пустили", at: NOW - 1 * D },
+    { kind: "skip", branch: "Абая", reason: "не пустили", at: NOW - 3 * D },
+    { kind: "skip", branch: "Абая", reason: "закрыто", at: NOW - 5 * D },
+    { kind: "skip", branch: "Абая", reason: "закрыто", at: NOW - 20 * D }, // за окном
+    { kind: "skip", branch: "Дубай", reason: "не успел", at: NOW - 2 * D },
+    { kind: "out", branch: "Абая", sku: "350", qty: 100, at: NOW - 2 * D },
+  ] }];
+  const sig = skipSignals(days, { now: NOW });
+  eq(sig.length, 1, "только точка с тремя пропусками за неделю");
+  eq(sig[0].branch, "Абая", "это Абая");
+  eq(sig[0].count, 3, "старый пропуск за окном не считается");
+  eq(sig[0].reasons, "не пустили ×2, закрыто", "причины — по убыванию, с повторами");
+  eq(skipSignals(days, { now: NOW, minCount: 1 }).map((s) => s.branch), ["Абая", "Дубай"], "порог — настраивается");
+  eq(skipSignals([], { now: NOW }), [], "пусто — пусто");
+
+  // И в утренней сводке владельца это видно
+  const t = formatCupReminder(emptyState(), ["Абая", "Дубай"], { now: NOW, journal: days, soonDays: 1, days: 999 });
+  ok(t.includes("Снабженец не смог заехать"), "заголовок про пропуски");
+  ok(t.includes("Абая — 3 раза за неделю: не пустили ×2, закрыто"), "и строка с причинами");
+  ok(!/заехать[\s\S]*Дубай/.test(t), "одного пропуска для тревоги мало");
 }
 
 section("День недели считается по дате, а не по часам сервера");

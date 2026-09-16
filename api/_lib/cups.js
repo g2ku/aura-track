@@ -347,7 +347,50 @@ export function formatCupReminder(state, branches, opts = {}) {
     for (const s of short) lines.push(`• ${s.name} — ${fmt(s.left)} шт`);
   }
 
+  // Пропуски снабженца — не логистика, а сигнал про точку: «не пустили»
+  // трижды за неделю — значит, там кто-то не открывает или не берёт
+  const skips = journal ? skipSignals(journal, { now, minCount: opts.skipMin ?? 3, windowDays: opts.skipWindow ?? 7 }) : [];
+  if (skips.length) {
+    if (lines.length) lines.push("");
+    lines.push("🚫 <b>Снабженец не смог заехать</b>");
+    for (const x of skips) lines.push(`• ${x.branch} — ${x.count} ${plural(x.count, "раз", "раза", "раз")} за неделю: ${x.reasons}`);
+  }
+
   return lines.join("\n");
+}
+
+function plural(n, one, few, many) {
+  const a = n % 10, b = n % 100;
+  return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
+}
+
+// Точки, куда снабженец за окно раз за разом не попал.
+//
+// Причины записываются при каждом пропуске, но по одной они ничего не
+// значат — «закрыто» бывает у всех. Три за неделю на одной точке — уже
+// закономерность, и она не про машину, а про точку.
+export function skipSignals(days, { now = Date.now(), minCount = 3, windowDays = 7 } = {}) {
+  const since = now - windowDays * 86400000;
+  const by = new Map();
+  for (const d of days || []) {
+    for (const m of d?.moves || []) {
+      if (m.kind !== "skip" || !m.branch || (m.at || 0) < since) continue;
+      const row = by.get(m.branch) || { branch: m.branch, count: 0, reasons: new Map() };
+      row.count++;
+      const r = String(m.reason || "без причины").trim().toLowerCase();
+      row.reasons.set(r, (row.reasons.get(r) || 0) + 1);
+      by.set(m.branch, row);
+    }
+  }
+  return [...by.values()]
+    .filter((r) => r.count >= minCount)
+    .sort((a, b) => b.count - a.count)
+    .map((r) => ({
+      branch: r.branch,
+      count: r.count,
+      reasons: [...r.reasons.entries()].sort((x, y) => y[1] - x[1])
+        .map(([reason, n]) => (n > 1 ? `${reason} ×${n}` : reason)).join(", "),
+    }));
 }
 
 // ─── Периоды ──────────────────────────────────────────────────────────
@@ -705,6 +748,38 @@ export function formatSupplierNudge(state, branches, journal, opts = {}) {
   const short = SKUS.map((s) => `${s.short}: ${fmt(state?.stock?.[s.id])}`).join(", ");
   lines.push("", `На складе — ${short}.`);
   lines.push("Отметить выдачу — кнопка «Стаканы» внизу слева.");
+  return lines.join("\n");
+}
+
+// Вечерний план на завтра.
+//
+// Утренний зов приходит, когда машина уже должна выезжать. План на
+// завтра приходит накануне вечером: снабженец знает маршрут, пока ещё
+// можно доложить стаканы на склад или переставить дела. Прогноз считаем
+// на завтрашнее утро — сегодняшний вечер точки ещё доедят.
+//
+// Молчим, когда ехать некуда — по той же причине, что и утром.
+export function formatRoutePlan(state, branches, journal, opts = {}) {
+  const { now = Date.now(), soonDays = 4, staleDays = 7 } = opts;
+  const morning = now + 86400000;
+
+  const fc = forecast(state, branches, journal || [], { now: morning });
+  const soon = runningOut(fc, soonDays);
+  const predicted = new Set(fc.filter((f) => f.daysLeft != null).map((f) => f.branch));
+  const stale = staleBranches(state, branches, { days: staleDays, now: morning })
+    .filter((x) => !predicted.has(x.branch) && x.days != null);
+
+  if (!soon.length && !stale.length) return "";
+
+  const lines = ["<b>Маршрут на завтра</b>", ""];
+  soon.forEach((f, i) => {
+    const left = f.daysLeft === 0 ? "к утру кончатся" : `к утру ${fmtDaysLeft(f.daysLeft)}`;
+    lines.push(`${i + 1}. <b>${f.branch}</b> — ${left}`);
+  });
+  for (const x of stale) lines.push(`• ${x.branch} — не возили ${x.days} дн.`);
+
+  const short = SKUS.map((s) => `${s.short}: ${fmt(state?.stock?.[s.id])}`).join(", ");
+  lines.push("", `На складе — ${short}.`);
   return lines.join("\n");
 }
 

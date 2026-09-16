@@ -1057,6 +1057,27 @@ section("Стаканы: склад и снабженцы");
 }
 
 {
+  // Вечерний маршрут снабженцу: во сколько слать
+  const store = makeStore({ admins: [777] });
+  store.getCupState = async () => ({ stock: {}, branches: {}, lastOut: {}, onHand: {}, countedAt: {}, skipped: {} });
+  store.getCupDays = async () => [];
+  let r = await run(store, "/стаканы маршрут", { chatType: "private", chatId: 777 });
+  ok(r.text.includes("20:00"), "по умолчанию — 20:00, и это сказано");
+  r = await run(store, "/стаканы маршрут 19:30", { chatType: "private", chatId: 777 });
+  eq(store.config.cupRouteTime, "19:30", "время поменялось");
+  ok(r.text.includes("19:30"), "и подтверждено");
+  r = await run(store, "/стаканы маршрут 25:00", { chatType: "private", chatId: 777 });
+  eq(store.config.cupRouteTime, "19:30", "кривое время не записалось");
+  r = await run(store, "/стаканы маршрут нет", { chatType: "private", chatId: 777 });
+  eq(store.config.cupRouteTime, "", "выключили");
+  ok(r.text.includes("выключен"), "и сказали об этом");
+  r = await run(store, "/стаканы маршрут", { chatType: "private", chatId: 777 });
+  ok(r.text.includes("выключен") && r.text.includes("Включить"), "статус — выключен, и как включить");
+  r = await run(store, "/стаканы маршрут 20:00", { chatType: "private", chatId: 9, userId: 9 });
+  ok(r.text.includes("Только для админа"), "чужому нельзя");
+}
+
+{
   const store = makeStore({ admins: [777] });
   const петр = { id: 333, first_name: "Пётр" };
 

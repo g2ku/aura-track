@@ -35,7 +35,7 @@ await build({
   jsx: "automatic", loader: { ".css": "empty" }, logLevel: "silent",
 });
 
-const { Give, SKIP_REASONS, Warehouse, Today, History, Feed, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu, byUrgency, outbox } =
+const { Give, SKIP_REASONS, Warehouse, Today, History, Feed, screenFor, tabsFor, ROLE_NAME, api, num, dayRu, rangeRu, monthRu, byUrgency, outbox, snapshot } =
   await import(new URL(`./${out}`, import.meta.url).href);
 rmSync(dir, { recursive: true, force: true });
 
@@ -385,6 +385,38 @@ section("Очередь: связь пропала — запись не про�
   eq(outbox.all(broken), [], "нечитаемое хранилище — пустая очередь, а не падение");
   outbox.enqueue({ opId: "x", body: {} }, broken);
   eq(outbox.size(broken), 0, "и записать в него молча не выходит");
+}
+
+section("Снимок: приложение открывается сразу, свежее — следом");
+
+{
+  const mem = () => {
+    const box = {};
+    return { getItem: (k) => box[k] ?? null, setItem: (k, v) => { box[k] = String(v); }, removeItem: (k) => { delete box[k]; } };
+  };
+  const NOW = Date.parse("2026-09-16T12:05:00+05:00");
+  const data = { who: { id: 7, name: "Кайрат", role: "supplier" }, state, skus: SKUS, branches: BRANCHES, today: [] };
+
+  const st = mem();
+  eq(snapshot.readSnapshot({ store: st, now: NOW }), null, "пусто — снимка нет");
+  ok(snapshot.writeSnapshot(data, { store: st, userId: 7, now: NOW }), "записали");
+  eq(snapshot.readSnapshot({ store: st, userId: 7, now: NOW + 60000 })?.data.who.name, "Кайрат", "прочитали свой");
+  eq(snapshot.readSnapshot({ store: st, userId: 8, now: NOW + 60000 }), null, "чужой не показываем");
+  eq(snapshot.readSnapshot({ store: st, userId: null, now: NOW + 60000 })?.data.who.name, "Кайрат", "кто открыл — неизвестно (браузер): показываем");
+  eq(snapshot.readSnapshot({ store: st, userId: 7, now: NOW + 4 * DAY }), null, "старше трёх дней — не показываем");
+  ok(!snapshot.writeSnapshot({ state }, { store: st, userId: 7 }), "ответ без who — не снимок");
+  ok(!snapshot.writeSnapshot(null, { store: st }), "и null тоже");
+
+  // Сломанное хранилище не роняет запуск
+  const broken = { getItem: () => { throw new Error("nope"); }, setItem: () => { throw new Error("nope"); } };
+  eq(snapshot.readSnapshot({ store: broken }), null, "бросающее хранилище — просто нет снимка");
+  ok(!snapshot.writeSnapshot(data, { store: broken }), "и запись честно возвращает false");
+  st.setItem("aura.cups.snapshot.v1", "{not json");
+  eq(snapshot.readSnapshot({ store: st }), null, "мусор в хранилище — нет снимка");
+
+  eq(snapshot.fmtSnapshotAge(NOW, NOW + 3600000), "на 12:05", "сегодня — только время");
+  eq(snapshot.fmtSnapshotAge(NOW, NOW + DAY), "вчера в 12:05", "вчера — так и пишем");
+  eq(snapshot.fmtSnapshotAge(NOW, NOW + 3 * DAY), "16.09 в 12:05", "раньше — дата");
 }
 
 section("Порядок точек — по срочности, а не по алфавиту");

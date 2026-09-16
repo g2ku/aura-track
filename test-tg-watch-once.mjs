@@ -85,6 +85,15 @@ section("Стаканы не зависят от того, включена ли
   // Недельная сверка — тоже своя метка и свой день
   ok(/config\.lastCupReconcileDate !== today/.test(body), "у недельной сверки своя метка");
   ok(/weekdayOf\(today\) === Number\(config\.cupReconcileDay\)/.test(body), "и свой день недели");
+
+  // Вечерний маршрут: своя метка, своё время, кнопка в приложение
+  ok(/config\.cupRouteTime && config\.lastCupRouteDate !== today && nowHM >= config\.cupRouteTime/.test(body),
+     "маршрут — раз в день, в своё время, и выключается пустым временем");
+  ok(/patch\.lastCupRouteDate = today/.test(body) && /setConfig\(\{ lastCupRouteDate: today \}\)/.test(body), "метка ставится и сохраняется сразу");
+  ok(/web_app: \{ url: `\$\{base\}\/miniapp\.html` \}/.test(body), "кнопка открывает мини-приложение");
+  const routeAt = body.indexOf("config.cupRouteTime &&");
+  const routeBtn = body.indexOf("Открыть маршрут");
+  ok(routeAt > 0 && routeBtn > routeAt, "кнопка — внутри вечернего блока");
 }
 
 section("Условие отправки осталось прежним");

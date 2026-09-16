@@ -498,6 +498,25 @@ async function handleCommand({ cmd, args }, ctx) {
       // ─── Привязка к справочнику Poster ───
       if (/^связ/.test(arg)) return cupsBind(store, config, arg);
 
+      // ─── Вечерний маршрут: во сколько слать снабженцу ───
+      if (/^маршрут/.test(arg)) {
+        const rest = arg.replace(/^маршрут\s*/, "");
+        if (!rest) {
+          return { text: config.cupRouteTime
+            ? `Маршрут на завтра уходит снабженцу в ${escapeHtml(config.cupRouteTime)}.\n\nПоменять: <code>/стаканы маршрут 19:30</code>\nВыключить: <code>/стаканы маршрут нет</code>`
+            : "Вечерний маршрут выключен.\n\nВключить: <code>/стаканы маршрут 20:00</code>" };
+        }
+        if (/^(нет|выкл|off)/.test(rest)) {
+          await store.setConfig({ cupRouteTime: "" });
+          return { text: "Вечерний маршрут выключен." };
+        }
+        const m = rest.match(/^(\d{1,2})[:.](\d{2})$/);
+        if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return { text: "Время — как <code>20:00</code>." };
+        const hm = `${m[1].padStart(2, "0")}:${m[2]}`;
+        await store.setConfig({ cupRouteTime: hm });
+        return { text: `Маршрут на завтра будет уходить снабженцу в ${hm}.` };
+      }
+
       // ─── Сводка за отрезок ───
       const period = matchPeriod(arg.replace(/^сверк\S*\s*/, ""));
       if (period || /^сверк/.test(arg)) {
@@ -574,6 +593,7 @@ async function handleCommand({ cmd, args }, ctx) {
 
       lines.push("", "<code>/стаканы месяц</code> — сколько ушло за период",
         "<code>/стаканы сверка месяц</code> — против списаний Poster",
+        "<code>/стаканы маршрут 20:00</code> — во сколько снабженцу уходит план на завтра",
         "Раздача и пополнение — в приложении: кнопка «Открыть» внизу слева.");
       return { text: lines.join("\n") };
     }
