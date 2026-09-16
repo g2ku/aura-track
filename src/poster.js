@@ -880,17 +880,16 @@ export async function getMenuCategories(opts = {}) {
     try {
       const catsRes = await call("menu.getCategories", {}, opts);
       const rawCats = (catsRes?.response) || [];
+      // parent_category — чтобы «Special menu» знал свои сезонные подкатегории.
+      // «0» у Poster значит «корень»; приводим к null, чтобы не сравнивать строки с нулём.
       categories = rawCats.map(c => ({
         id: String(c.category_id || c.id || 0),
         name: c.category_name || c.name || `Категория #${c.category_id || c.id}`,
+        parentId: (c.parent_category && String(c.parent_category) !== "0") ? String(c.parent_category) : null,
       }));
     } catch (_) {
       // menu.getCategories недоступен — извлекаем из товаров
     }
-
-    // DEBUG: показываем структуру данных
-    console.log("[getMenuCategories] categories:", categories.slice(0, 5));
-    console.log("[getMenuCategories] sample product:", products[0]);
 
     const productsByCategory = {};
     for (const p of products) {
@@ -901,9 +900,6 @@ export async function getMenuCategories(opts = {}) {
       if (!productsByCategory[catId]) productsByCategory[catId] = [];
       productsByCategory[catId].push({ id: pid, name });
     }
-
-    console.log("[getMenuCategories] productsByCategory keys:", Object.keys(productsByCategory));
-    console.log("[getMenuCategories] sample products:", Object.entries(productsByCategory).slice(0, 3).map(([k, v]) => `${k}: ${v.length} items`));
 
     // Если категории не получены — создаём из данных товаров
     if (!categories.length) {

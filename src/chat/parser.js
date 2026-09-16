@@ -4,6 +4,7 @@
 // нельзя открыть из node и приходится проверять его регулярками по
 // исходнику, что мы и делали, пока не завелись настоящие ошибки.
 import { BRANCHES } from "../branches.js";
+import { parseCategoryIntent } from "./categories.js";
 
 // ─── Словари ──────────────────────────────────────────────────────
 
@@ -133,15 +134,13 @@ function parseIPGroup(text) {
 
 // ─── Product aliases (user short names → Poster product names) ───
 
+// «Спешл» здесь больше нет: это категория меню с сезонными подкатегориями,
+// её разбирает categories.js. Как товар оно находило случайное совпадение.
 const PRODUCT_ALIASES = {
-  "o2": "спешл",
-  "о2": "спешл",
-  "о-2": "спешл",
-  "о 2": "спешл",
-  "спешл": "спешл",
-  "спеціал": "спешл",
-  "спец": "спешл",
-  "special": "спешл",
+  "o2": "o2",
+  "о2": "o2",
+  "о-2": "o2",
+  "о 2": "o2",
   "латте": "латте",
   "лте": "латте",
   "капучино": "капучино",
@@ -599,7 +598,10 @@ export async function parseQuestion(text) {
     };
   }
 
-  const product = parseProduct(text);
+  // Категория — раньше товара: «сколько спешл продали» не должно уехать
+  // в поиск товара по слову, а «летнее меню» — в товар «летнее».
+  const category = parseCategoryIntent(text);
+  const product = category ? null : parseProduct(text);
   const ipGroup = parseIPGroup(text);
 
   // Check for comparison between two periods first
@@ -613,12 +615,13 @@ export async function parseQuestion(text) {
       period: compPeriods[0],
       period2: compPeriods[1],
       product,
+      category,
       ipGroup,
       raw: text,
     };
   }
 
-  let metric = parseMetric(text, product);
+  let metric = category ? "products" : parseMetric(text, product);
 
   // «Сколько молока ушло» без слова «расход» — всё равно про склад:
   // молоко не продают стаканами, его списывают по техкартам, и в
@@ -649,11 +652,11 @@ export async function parseQuestion(text) {
   // Раньше оно перебивало всё: «Так сколько касса за вчера» отбрасывалось
   // целиком из-за слова «так» в начале, хотя вопрос совершенно понятный.
   // Признак периода сюда не берём — он ловит любые «в», «с», «по».
-  const hasRealSignal = hasMetricKeyword || hasSpot || hasProduct || hasMoney || !!ipGroup;
+  const hasRealSignal = hasMetricKeyword || hasSpot || hasProduct || hasMoney || !!ipGroup || !!category;
   const isGreeting = GREETINGS.test(lower.trim()) && !hasRealSignal;
 
   // If nothing meaningful is detected, return null
-  if (isGreeting || (!hasMetricKeyword && !hasOperationKeyword && !hasSpot && !hasProduct && !hasPeriodKeyword && !hasMoney && !ipGroup)) {
+  if (isGreeting || (!hasMetricKeyword && !hasOperationKeyword && !hasSpot && !hasProduct && !hasPeriodKeyword && !hasMoney && !ipGroup && !category)) {
     return null;
   }
 
@@ -663,6 +666,7 @@ export async function parseQuestion(text) {
     spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
     period,
     product,
+    category,
     ipGroup,
     raw: text,
   };
@@ -682,6 +686,7 @@ export function describeParsed(parsed) {
   if (!isAll) parts.push(`Филиал: ${spotText}`);
   if (parsed.ipGroup) parts.push(`ИП: ${parsed.ipGroup.name}`);
   if (parsed.product) parts.push(`Товар: ${parsed.product}`);
+  if (parsed.category) parts.push(`Категория: сезонное меню${parsed.category.season ? ` (${parsed.category.season})` : ""}`);
   parts.push(`Период: ${parsed.period.from} — ${parsed.period.to}`);
   if (parsed.period2) parts.push(`Период2: ${parsed.period2.from} — ${parsed.period2.to}`);
   return parts.join(" | ");

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { parseQuestion, describeParsed } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
+import { smartParse, looksLikeFollowUp } from "../chat/smart.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.jsx";
 
@@ -313,20 +314,38 @@ export default function DataChat() {
       }
     }
 
-    const parsed = await parseQuestion(actualQuery);
+    // Сначала правила: мгновенно и бесплатно. Продолжение диалога
+    // («а вчера?») и всё, что правила не поняли, — модели, если она
+    // подключена. Без ключа на сервере ассистент живёт как раньше.
+    let parsed = null;
+    let gloss = "";
+    let clarify = null;
+    const followUp = looksLikeFollowUp(q) && context;
+    if (!followUp) parsed = await parseQuestion(actualQuery);
+    if (!parsed) {
+      const smart = await smartParse(q, followUp ? context : null);
+      if (smart?.parsed) { parsed = smart.parsed; gloss = smart.gloss; clarify = smart.clarify; }
+      else if (smart && !smart.parsed && smart.gloss) { gloss = smart.gloss; }
+    }
+    if (!parsed && followUp) parsed = await parseQuestion(actualQuery);
     const debugInfo = parsed ? describeParsed(parsed) : null;
 
     if (!parsed) {
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         role: "assistant",
-        text: "Не распознал вопрос. Попробуйте:\n• Касса за июнь\n• Сколько чеков в Gagarina\n• Спешл за неделю\n• Сравнение июнь и июль\n• Налог ИП Смагул за июнь",
+        text: (gloss ? `${gloss}\n\n` : "") + "Не распознал вопрос. Попробуйте:\n• Касса за июнь\n• Сколько чеков в Gagarina\n• Спешл за неделю\n• Сравнение июнь и июль\n• Налог ИП Смагул за июнь",
       }]);
       setLoading(false);
       return;
     }
 
     const result = await executeQuery(parsed, userBranchObj);
+    // Модель говорит, как поняла вопрос: человек видит, что именно посчитано,
+    // и может поправить одной фразой. Уточнение — если без него нельзя.
+    if (gloss || clarify) {
+      result.text = [gloss ? `Понял так: ${gloss}.` : "", result.text, clarify ? `\n${clarify}` : ""].filter(Boolean).join("\n");
+    }
 
     // Generate follow-up suggestions
     const followUps = generateFollowUps(parsed, result);

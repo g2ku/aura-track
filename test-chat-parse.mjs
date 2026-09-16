@@ -9,6 +9,9 @@
 // Запуск: node test-chat-parse.mjs
 
 import { parseQuestion } from "./src/chat/parser.js";
+import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty } from "./src/chat/categories.js";
+import { QuerySchema, toExecutorQuery, historyLine, SYSTEM_PROMPT } from "./api/_lib/chatSchema.js";
+import { smartParse, looksLikeFollowUp } from "./src/chat/smart.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -132,6 +135,160 @@ section("Каждый пример из приложения обязан пон
   const hardcoded = ["января","февраля","марта","апреля","мая","июня","июля","августа",
                      "июнь","июль","август","сентябрь"].filter((m) => new RegExp(`["\`][^"\`]*${m}`, "i").test(block));
   eq(hardcoded, [], "названий месяцев в примерах не осталось");
+}
+
+section("«Спешл» — категория меню, а не товар");
+
+{
+  // Настоящий случай: «сколько спешл продали» искало ТОВАР со словом
+  // «спешл» в названии и находило случайное совпадение
+  const p = await ask("сколько спешл продали");
+  ok(p, "вопрос понят");
+  eq(p.metric, "products", "это про товары");
+  eq(p.category, { kind: "special", season: null }, "категория узнана, сезон — по текущему дню");
+  eq(p.product, null, "и в товар слово не уехало");
+
+  eq((await ask("продажи special за неделю")).category?.kind, "special", "латиницей тоже");
+  eq((await ask("сколько спец продали вчера")).category?.kind, "special", "и «спец»");
+  eq((await ask("сезонное меню за месяц")).category?.kind, "special", "и «сезонное меню»");
+
+  // Явно названный сезон побеждает текущий
+  eq((await ask("сколько летнего меню продали в июле")).category?.season, "summer", "«летнее меню» — лето, даже осенью");
+  eq((await ask("зимний спешл за декабрь")).category?.season, "winter", "«зимний спешл» — зима");
+  eq((await ask("сколько осеннего продали")).category?.season, "autumn", "«осеннего продали» — осень");
+
+  // «Спецзаказ» и «специальный» — не сезонное меню: граница слова вручную,
+  // потому что \b с кириллицей не работает
+  ok(!(await ask("касса за вчера специально"))?.category, "«специально» — не спешл");
+
+  // Обычные товары не задеты
+  eq((await ask("сколько латте продали"))?.product, "латте", "латте остался товаром");
+  eq((await ask("сколько o2 продали"))?.product, "o2", "O2 — теперь сам по себе, а не «спешл»");
+}
+
+section("Сезон — по Алматы, а не по серверу");
+
+{
+  const at = (iso) => new Date(iso);
+  eq(seasonFor(at("2026-09-16T12:00:00+05:00")), "autumn", "сентябрь — осень");
+  eq(seasonFor(at("2026-11-30T12:00:00+05:00")), "autumn", "ноябрь — ещё осень");
+  eq(seasonFor(at("2026-12-01T12:00:00+05:00")), "winter", "первое декабря — зима");
+  eq(seasonFor(at("2026-02-28T12:00:00+05:00")), "winter", "февраль — зима");
+  eq(seasonFor(at("2026-03-01T12:00:00+05:00")), "spring", "первое марта — весна");
+  eq(seasonFor(at("2026-06-15T12:00:00+05:00")), "summer", "июнь — лето");
+  // Сервер живёт по UTC: 31 августа 22:00 UTC — это уже 1 сентября в Алматы
+  eq(monthInAlmaty(at("2026-08-31T22:00:00Z")), 9, "по UTC ещё август, по Алматы уже сентябрь");
+  eq(seasonFor(at("2026-08-31T22:00:00Z")), "autumn", "и сезон — уже осень");
+}
+
+section("Выбор подкатегории по справочнику Poster");
+
+{
+  const cats = [
+    { id: "1", name: "Напитки", parentId: null },
+    { id: "10", name: "Special menu", parentId: null },
+    { id: "11", name: "Зимнее меню", parentId: "10" },
+    { id: "12", name: "Летнее меню", parentId: "10" },
+    { id: "13", name: "Осеннее меню", parentId: "10" },
+    { id: "14", name: "Весеннее меню", parentId: "10" },
+    { id: "20", name: "Заготовки", parentId: null },
+  ];
+  const sept = new Date("2026-09-16T12:00:00+05:00");
+
+  const r = resolveSpecialCategory(cats, { now: sept });
+  eq(r.chosen.map((c) => c.id), ["13"], "осенью — осеннее меню");
+  eq(r.title, "Осеннее меню", "и заголовок ответа про это");
+  eq(r.fallback, false, "подкатегория нашлась — не запасной вариант");
+
+  eq(resolveSpecialCategory(cats, { season: "summer", now: sept }).chosen[0].id, "12", "явный сезон побеждает текущий");
+  eq(resolveSpecialCategory(cats, { now: new Date("2026-01-10T12:00:00+05:00") }).chosen[0].id, "11", "в январе — зимнее");
+
+  // Подкатегории сезона нет — берём всё меню и честно помечаем
+  const partial = cats.filter((c) => c.id !== "13");
+  const f = resolveSpecialCategory(partial, { now: sept });
+  eq(f.fallback, true, "осеннего нет — запасной вариант");
+  eq(f.chosen.map((c) => c.id).sort(), ["10", "11", "12", "14"], "считаем корень со всеми детьми");
+
+  eq(resolveSpecialCategory(cats.filter((c) => c.id !== "10" && Number(c.id) < 15 && c.id !== "11" && c.id !== "12" && c.id !== "13" && c.id !== "14"), { now: sept }), null,
+     "нет корня — null, а не ошибка");
+  eq(resolveSpecialCategory([{ id: "5", name: "Спешл", parentId: null }], { now: sept }).chosen.map((c) => c.id), ["5"],
+     "корень без детей — считаем сам корень");
+
+  // Товары — по названию, регистр не важен: продажи ключуются названием
+  const byCat = { "13": [{ id: "a", name: "Тыквенный латте" }, { id: "b", name: "Айс ти малина" }], "12": [{ id: "c", name: "Лимонад" }] };
+  const names = productNamesIn(r.chosen, byCat);
+  ok(names.has("тыквенный латте") && names.has("айс ти малина"), "товары осеннего меню");
+  ok(!names.has("лимонад"), "летние — нет");
+}
+
+section("Модель заполняет структуру — исполнитель получает то же, что от правил");
+
+{
+  const base = { understood: true, metric: "cash", operation: "sum", branch: null, ipGroup: null,
+    period: { from: "2026-09-01", to: "2026-09-16" }, period2: null, product: null, specialMenu: null,
+    gloss: "выручка по сети за 1–16 сентября", clarify: null };
+
+  const q = toExecutorQuery(QuerySchema.parse(base), { raw: "касса за месяц", today: "2026-09-16" });
+  eq(q.spot, { branchId: "all", spotId: "all", posterName: "all" }, "без филиала — вся сеть в той же форме, что у правил");
+  eq(q.period, { from: "2026-09-01", to: "2026-09-16" }, "период как есть");
+  eq(q.source, "llm", "помечено, откуда разбор");
+
+  const ab = toExecutorQuery(QuerySchema.parse({ ...base, branch: "Абая" }), { raw: "", today: "2026-09-16" });
+  eq(ab.spot, { branchId: "Aura02_Abaya", spotId: "4", posterName: "Abaya" }, "филиал переведён в форму исполнителя");
+
+  // Даты наоборот — чиним, а не падаем
+  const sw = toExecutorQuery(QuerySchema.parse({ ...base, period: { from: "2026-09-16", to: "2026-09-01" } }), { raw: "", today: "2026-09-16" });
+  eq(sw.period, { from: "2026-09-01", to: "2026-09-16" }, "перепутанные даты переставлены");
+
+  // Сезонное меню
+  const sp = toExecutorQuery(QuerySchema.parse({ ...base, metric: "cash", specialMenu: { season: "summer" }, product: "спешл" }), { raw: "", today: "2026-09-16" });
+  eq(sp.metric, "products", "спешл — это товары, даже если модель написала cash");
+  eq(sp.category, { kind: "special", season: "summer" }, "сезон пронесён");
+  eq(sp.product, null, "и в товар не попал");
+
+  // Второй период — значит сравнение
+  const cmp = toExecutorQuery(QuerySchema.parse({ ...base, period2: { from: "2026-08-01", to: "2026-08-31" } }), { raw: "", today: "2026-09-16" });
+  eq(cmp.operation, "percentChange", "два периода — сравнение");
+
+  // ИП
+  const ip = toExecutorQuery(QuerySchema.parse({ ...base, ipGroup: "Смагул" }), { raw: "", today: "2026-09-16" });
+  eq(ip.ipGroup, { id: "ip_smagul", name: "ИП Смагул" }, "ИП в форме правил");
+
+  // Не про данные — null, а не выдуманный разбор
+  eq(toExecutorQuery(QuerySchema.parse({ ...base, understood: false, metric: null, operation: null, period: null, gloss: "это приветствие" }), { raw: "привет", today: "2026-09-16" }), null,
+     "непонятый вопрос — null");
+
+  // Схема не пропускает чужие значения: филиала «Москва» у нас нет
+  ok(!QuerySchema.safeParse({ ...base, branch: "Москва" }).success, "чужой филиал отбрасывается схемой");
+  ok(!QuerySchema.safeParse({ ...base, metric: "salary" }).success, "чужая метрика тоже");
+  ok(!QuerySchema.safeParse({ ...base, period: { from: "16.09.2026", to: "16.09.2026" } }).success, "дата не в том формате — нет");
+
+  // Подсказка модели знает все филиалы и правило про спешл
+  ok(SYSTEM_PROMPT.includes("Абая") && SYSTEM_PROMPT.includes("Дубай"), "филиалы в подсказке");
+  ok(/Special menu/.test(SYSTEM_PROMPT) && /specialMenu/.test(SYSTEM_PROMPT), "и правило про сезонное меню");
+  ok(!/Date|new Date|\d{4}-\d{2}-\d{2}/.test(SYSTEM_PROMPT), "подсказка без дат — иначе кэш не сработает");
+
+  eq(historyLine({ metric: "cash", spot: { branchId: "Aura02_Abaya", posterName: "Abaya" }, period: { from: "2026-09-15", to: "2026-09-15" } }),
+     "метрика cash, филиал Abaya, период 2026-09-15–2026-09-15", "контекст для «а вчера?» — одной строкой");
+  eq(historyLine(null), "", "без контекста — пусто");
+}
+
+section("Клиент: когда звать модель и как переживать её отсутствие");
+
+{
+  ok(looksLikeFollowUp("а вчера?"), "«а вчера?» — продолжение");
+  ok(looksLikeFollowUp("а на Абая"), "«а на Абая» — продолжение");
+  ok(looksLikeFollowUp("по филиалам"), "«по филиалам» — продолжение");
+  ok(!looksLikeFollowUp("касса за вчера"), "полный вопрос — нет");
+  ok(!looksLikeFollowUp("абая касса за неделю"), "и с филиалом в начале — нет");
+  ok(!looksLikeFollowUp(""), "пусто — нет");
+
+  // Сервер без ключа: один раз спросили, дальше не стучимся
+  let calls = 0;
+  const noKey = async () => { calls++; return new Response(JSON.stringify({ available: false }), { status: 200, headers: { "Content-Type": "application/json" } }); };
+  eq(await smartParse("что угодно", null, noKey), null, "без ключа — null");
+  eq(await smartParse("ещё раз", null, noKey), null, "и второй раз null");
+  eq(calls, 1, "но на сервер сходили один раз — дальше помним");
 }
 
 console.log("\n══════════════════════════════════════════════════");

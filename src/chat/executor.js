@@ -1,6 +1,7 @@
 // chat/executor.js — выполняет распознанный запрос к данным Poster.
 
-import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay } from "../poster.js";
+import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay, getMenuCategories } from "../poster.js";
+import { resolveSpecialCategory, productNamesIn, seasonTitle } from "./categories.js";
 import { fmt } from "../utils.js";
 import { BRANCHES } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
@@ -123,7 +124,7 @@ function changeEmoji(pct) {
 export async function executeQuery(parsed, userBranch) {
   if (!parsed) return { text: "Не могу распознать вопрос. Попробуйте перефразировать.", data: null };
 
-  const { metric, operation, spot, period, period2, product, ipGroup } = parsed;
+  const { metric, operation, spot, period, period2, product, category, ipGroup } = parsed;
 
   // Single-branch user: override spot to their branch if they didn't specify one
   let effectiveSpot = spot;
@@ -134,6 +135,23 @@ export async function executeQuery(parsed, userBranch) {
 
   try {
     if (operation === "percentChange" && period2) {
+      // Сезонное меню сравнивается своими итогами: общий обработчик
+      // сравнения про категории не знает
+      if (category) {
+        const [a, b] = await Promise.all([
+          handleCategory("sum", effectiveSpot, period, category, ipGroup),
+          handleCategory("sum", effectiveSpot, period2, category, ipGroup),
+        ]);
+        const sa = a.data?.totalSum || 0, sb = b.data?.totalSum || 0;
+        const pct = pctChange(sa, sb);
+        const title = a.data?.category?.title || "Сезонное меню";
+        return {
+          text: `${title}: ${formatPeriodLabel(period)} — ${fmt(sa)} (${a.data?.totalQty || 0} шт.), `
+            + `${formatPeriodLabel(period2)} — ${fmt(sb)} (${b.data?.totalQty || 0} шт.). `
+            + changeEmoji(pct),
+          data: { a: a.data, b: b.data, pct },
+        };
+      }
       return await handlePercentChange(metric, effectiveSpot, period, period2, product, ipGroup, parsed.raw);
     }
 
@@ -150,7 +168,9 @@ export async function executeQuery(parsed, userBranch) {
       case "cash": return await handleCash(operation, effectiveSpot, period, ipGroup);
       case "checks": return await handleChecks(operation, effectiveSpot, period, ipGroup);
       case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
-      case "products": return await handleProducts(operation, effectiveSpot, period, product, ipGroup);
+      case "products":
+        if (category) return await handleCategory(operation, effectiveSpot, period, category, ipGroup);
+        return await handleProducts(operation, effectiveSpot, period, product, ipGroup);
       case "tax": return await handleTax(operation, effectiveSpot, period, ipGroup);
       case "margin":
       case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup);
@@ -580,6 +600,70 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
   return {
     text: `Товары${ipLabel} за ${pl} (всего ${products.length} наименований):\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}`,
     data: { products: top, totalQty, totalSum },
+  };
+}
+
+// ─── Сезонное меню («спешл») ──────────────────────────────────────
+//
+// Продажи всех позиций из подкатегории Special menu, актуальной сегодня.
+// Не по слову в названии товара — по справочнику категорий Poster.
+async function handleCategory(operation, spot, period, category, ipGroup) {
+  const [menu, data] = await Promise.all([getMenuCategories(), fetchPosterSales(period.from, period.to)]);
+  const pl = formatPeriodLabel(period);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
+
+  const picked = resolveSpecialCategory(menu.categories, { season: category.season });
+  if (!picked) {
+    return {
+      text: "В меню Poster не нашёл категорию «Special menu». Проверьте название категории в справочнике.",
+      data: null,
+    };
+  }
+  const names = productNamesIn(picked.chosen, menu.productsByCategory);
+  if (!names.size) {
+    return { text: `В категории «${picked.title}» нет товаров — нечего считать.`, data: null };
+  }
+
+  const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
+  const byProduct = {};
+  const bySpot = {};
+  for (const row of data.rows) {
+    if (!names.has(String(row.productName).toLowerCase())) continue;
+    if (!matchesRowSpot(row, spot)) continue;
+    if (groupBranches && row.spotName?.startsWith("Aura02_") && !groupBranches.includes(row.spotName)) continue;
+
+    const p = (byProduct[row.productName] ||= { name: row.productName, qty: 0, sum: 0 });
+    p.qty += row.qty || 0; p.sum += row.sum || 0;
+    const sName = row.spotName || row.spotId;
+    const b = (bySpot[sName] ||= { spotName: sName, qty: 0, sum: 0 });
+    b.qty += row.qty || 0; b.sum += row.sum || 0;
+  }
+
+  const products = Object.values(byProduct).sort((a, b) => b.sum - a.sum);
+  const branches = Object.values(bySpot).sort((a, b) => b.sum - a.sum);
+  const totalQty = products.reduce((n, p) => n + p.qty, 0);
+  const totalSum = products.reduce((n, p) => n + p.sum, 0);
+
+  // Заголовок говорит, ЧТО именно посчитали: сезон выбран за человека, и
+  // он должен это видеть, а не догадываться.
+  const head = picked.fallback
+    ? `Сезонное меню за ${pl}${ipLabel} — подкатегории «${seasonTitle(picked.season)}» в Poster нет, посчитал всю категорию «${picked.root.name}»`
+    : `${picked.title} за ${pl}${ipLabel}`;
+
+  if (!products.length) {
+    return { text: `${head}: продаж нет.`, data: { category: picked, products: [], totalQty: 0, totalSum: 0 } };
+  }
+
+  const top = products.slice(0, operation === "max" ? 5 : 12);
+  const lines = top.map((p, i) => `${i + 1}. ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
+  const more = products.length > top.length ? `\n…и ещё ${products.length - top.length}` : "";
+  const branchLines = branches.length > 1
+    ? `\n\nПо филиалам:\n${branches.map((b) => `• ${b.spotName}: ${b.qty} шт. / ${fmt(b.sum)}`).join("\n")}`
+    : "";
+
+  return {
+    text: `${head}:\n${lines}${more}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}${branchLines}`,
+    data: { category: picked, products, branches, totalQty, totalSum },
   };
 }
 
