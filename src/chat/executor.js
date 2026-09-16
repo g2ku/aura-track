@@ -2,6 +2,7 @@
 
 import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay, getMenuCategories } from "../poster.js";
 import { resolveSpecialCategory, productNamesIn, seasonTitle } from "./categories.js";
+import { productMatches, closestNames } from "./normalize.js";
 import { fmt } from "../utils.js";
 import { BRANCHES } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
@@ -202,7 +203,7 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
       const map = {};
       for (const row of data.rows) {
         if (!matchesRowSpot(row, spot)) continue;
-        if (!row.productName.toLowerCase().includes(productName.toLowerCase())) continue;
+        if (!productMatches(row.productName, productName)) continue;
         const key = row.productName;
         if (!map[key]) map[key] = { name: key, qty: 0, sum: 0 };
         map[key].qty += row.qty || 0;
@@ -529,7 +530,7 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
   // Group by spot+product for per-branch view
   const spotProductMap = {};
   for (const row of data.rows) {
-    if (productName && !row.productName.toLowerCase().includes(productName.toLowerCase())) continue;
+    if (productName && !productMatches(row.productName, productName)) continue;
     const sid = row.spotId;
     const sname = row.spotName || sid;
     if (!spotProductMap[sid]) spotProductMap[sid] = { spotName: sname, products: {} };
@@ -543,35 +544,20 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
   const products = Object.values(productMap);
 
   if (productName) {
-    const searchLower = productName.toLowerCase();
-    // Fuzzy match: includes, startsWith, or normalized match
-    const matches = products.filter(p => {
-      const nameLower = p.name.toLowerCase();
-      if (nameLower.includes(searchLower)) return true;
-      // Normalize: remove spaces, dashes, special chars
-      const normalized = nameLower.replace(/[\s\-_().,!?]/g, "");
-      const searchNormalized = searchLower.replace(/[\s\-_().,!?]/g, "");
-      if (normalized.includes(searchNormalized)) return true;
-      // Check first word match (e.g., "спешл" matches "Спешл O2")
-      const firstWord = nameLower.split(/[\s\-]/)[0];
-      if (firstWord === searchLower || firstWord.includes(searchLower)) return true;
-      return false;
-    });
-    if (matches.length === 0) return { text: `Товар «${productName}» не найден за ${pl}.`, data: null };
+    // По словам, основам и с опечаткой: «капуч», «раф кокос», «круасан»
+    const matches = products.filter((p) => productMatches(p.name, productName));
+    if (matches.length === 0) {
+      // Не нашли — подсказываем ближайшие названия из настоящих продаж,
+      // чтобы человек нажал, а не гадал, как товар назван в Poster
+      const close = closestNames(productName, products.map((p) => p.name));
+      const hint = close.length ? `\n\nПохожие: ${close.map((n) => `«${n}»`).join(", ")}` : "";
+      return { text: `Товар «${productName}» не найден за ${pl}.${hint}`, data: { suggestions: close } };
+    }
 
     // Per-branch breakdown
     const bySpot = Object.values(spotProductMap)
       .map(s => {
-        const pMatches = Object.values(s.products).filter(p => {
-          const nameLower = p.name.toLowerCase();
-          if (nameLower.includes(searchLower)) return true;
-          const normalized = nameLower.replace(/[\s\-_().,!?]/g, "");
-          const searchNormalized = searchLower.replace(/[\s\-_().,!?]/g, "");
-          if (normalized.includes(searchNormalized)) return true;
-          const firstWord = nameLower.split(/[\s\-]/)[0];
-          if (firstWord === searchLower || firstWord.includes(searchLower)) return true;
-          return false;
-        });
+        const pMatches = Object.values(s.products).filter((p) => productMatches(p.name, productName));
         const total = pMatches.reduce((acc, p) => acc + p.qty, 0);
         const sum = pMatches.reduce((acc, p) => acc + p.sum, 0);
         return { spotName: s.spotName, qty: total, sum, products: pMatches };

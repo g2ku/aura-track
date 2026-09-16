@@ -5,6 +5,7 @@
 // исходнику, что мы и делали, пока не завелись настоящие ошибки.
 import { BRANCHES } from "../branches.js";
 import { parseCategoryIntent } from "./categories.js";
+import { normalize, matchPhrase, words } from "./normalize.js";
 
 // ─── Словари ──────────────────────────────────────────────────────
 
@@ -16,9 +17,12 @@ const METRICS = [
   { keys: ["что не так", "есть проблем", "какие проблем", "всё в порядке", "все в порядке", "что случилось", "тревог"], value: "alerts" },
   { keys: ["расход", "остатк", "остаток", "списан", "ингредиент", "минус по", "в минусе", "сколько ушло", "сколько потрачен"], value: "stock" },
   { keys: ["сравн", "сравнить", "разниц", "отлич", "кто лучш", "кто худш", "кто лучше", "кто хуже", "кто больше", "кто меньше", "больше всех", "меньше всех", "рейтинг", "ранжир", "принес", "принесла", "принесли", "какая точк", "какой филиал", "какие точки"], value: "compareBranches" },
-  { keys: ["касс", "выручк", "деньг", "денег", "средств", "заработ"], value: "cash" },
+  // «Что продавалось», «самый продаваемый», «хит» — про товары, хотя слово
+  // «продав» само по себе — про чеки. Поэтому стоят выше чеков.
+  { keys: ["что продав", "что продал", "что покупа", "что берут", "что брали", "что заказыва", "продаваем", "популярн", "хит продаж", "топ товар", "топ продаж", "топ позиц"], value: "products" },
+  { keys: ["касс", "каса", "выручк", "деньг", "денег", "средств", "заработ", "оборот", "доход", "бабк", "бабл", "деньж"], value: "cash" },
   { keys: ["средний чек", "средняя сумма"], value: "avgCheck" },
-  { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж"], value: "checks" },
+  { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж", "продан", "продав", "человек", "людей", "гостей", "гостя", "клиент", "посетител"], value: "checks" },
   { keys: ["товар", "товары", "товаров", "позици", "меню", "напитк", "продукт"], value: "products" },
   { keys: ["прибыл", "профит"], value: "profit" },
   { keys: ["налог", "налога", "налоги"], value: "tax" },
@@ -44,6 +48,82 @@ const OPERATIONS = [
   { keys: ["по часам", "в какое время", "пик"], value: "byHour" },
   { keys: ["аномальн", "аномали", "отклонени", "подозрительн"], value: "anomaly" },
 ];
+
+// ─── Нечёткое узнавание ───────────────────────────────────────────
+//
+// Словари выше сравниваются подстрокой: «касс» есть в «кассу» — метрика
+// найдена. Опечатка, другая форма слова или латинская буква в кириллице
+// ломали это, и вопрос уезжал в «не распознал». Здесь второй проход по
+// тем же словарям — по основам слов и с расстоянием редактирования.
+// Он запускается только когда точный проход ничего не нашёл, поэтому
+// на понятные вопросы не влияет.
+
+function exactMetric(lower) {
+  for (const m of METRICS) for (const key of m.keys) if (lower.includes(key)) return m.value;
+  return null;
+}
+
+// Лучшая метрика по нечёткому совпадению. При равной силе побеждает
+// та, что выше в словаре — там порядок и есть приоритет.
+export function fuzzyMetric(text) {
+  let best = null, bestScore = 0;
+  for (const m of METRICS) {
+    for (const key of m.keys) {
+      const s = matchPhrase(text, key);
+      if (s > bestScore) { best = m.value; bestScore = s; }
+    }
+  }
+  return best;
+}
+
+// Слово из вопроса — это опечатка ключевого слова, а не товар?
+// «Сколько выурчка за вчера» вытаскивало «выурчка» как товар и честно
+// отвечало, что такого товара нет.
+function looksLikeKeyword(word) {
+  if (!word || word.includes(" ")) return false;
+  if (fuzzyMetric(word)) return true;
+  for (const op of OPERATIONS) for (const key of op.keys) if (!key.includes(" ") && matchPhrase(word, key)) return true;
+  return /^(вчера|позавчера|сегодня|сейчас|недел|месяц|квартал|год|назад|последн|прошл|текущ|этот|эта|числ|начал|за|по|на)/.test(word);
+}
+
+// Слово — название филиала (в любой форме)? «Сколько заработали на
+// Гагарина» делало «гагарина» товаром.
+function isSpotWord(word) {
+  if (!word || word.length < 3) return false;
+  for (const alias of Object.keys(SPOT_ALIASES)) {
+    if (alias.includes(" ") || SPOT_ALIASES[alias].branchId === "all") continue;
+    if (matchPhrase(word, alias)) return true;
+  }
+  return false;
+}
+
+// Слова, которые ничем не оказались: не служебные, не ключи словарей,
+// не период, не филиал, не число. Одно-два таких — это, скорее всего,
+// товар, которого нет в списке сокращений: «круассаны», «сырники».
+function unknownWords(lower) {
+  const known = (w) => STOP_WORDS.has(w) || QUESTION_WORDS.has(w) || /^\d+$/.test(w) || !!findMonth(w)
+    || looksLikeKeyword(w) || isSpotWord(w) || Object.keys(IP_GROUP_ALIASES).includes(w);
+  return words(lower).filter((w) => !known(w));
+}
+
+// Короткая реплика после ответа — продолжение разговора, а не новый
+// вопрос? «А сегодня?» — да. «Чеки» после «касса Абая вчера» — да:
+// периода в ней нет, берём вчера. «Касса сегодня» — нет: метрика и
+// период названы, это самостоятельный вопрос.
+export function preferFollowUp(text, fresh) {
+  const t = normalize(text).replace(/\?+$/, "").trim();
+  if (!t) return false;
+  if (/^а\s/.test(t) || /^а\(/.test(t)) return true;
+  if (words(t).length > 3) return false;
+  if (!fresh) return true;
+  return !!(fresh.assumed?.metric || fresh.assumed?.period);
+}
+
+// Filter out common greetings and non-data words
+// (?![а-яё]) — граница слова вручную: \b с кириллицей не работает.
+// Без неё «незакрытые чеки» считались приветствием «не», а «дай кассу»
+// — приветствием «да», и оба вопроса просто не понимались.
+const GREETINGS = /^(?:привет|помоги|помощь|спасибо|пожалуйста|здравствуй|пока|да|нет|ок|хорошо|плохо|как дела|что нового|показать|скажи|расскажи|объясни|объяснить|понял|ясно|понятно|ага|угу|ну|так|ещё|еще|пожалуй|ладно|норм|нормально|отлично|класс|супер|круто|здорово|ага|нет|не|нету|было|будет|может|надо|нужно|хочу|давай|сделай|сделать|посчитай|посчитать|считай|считать)(?![а-яё])/;
 
 // Function words and domain terms that must never be parsed as a product
 const STOP_WORDS = new Set([
@@ -182,7 +262,28 @@ const MONTH_NAMES = {
 
 // ─── Парсинг периода ──────────────────────────────────────────────
 
+function currentMonthPeriod(now = new Date()) {
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+  return {
+    from: `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`,
+    to: `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
+// Период, если он назван; иначе текущий месяц. Отдельно — «назван ли»:
+// продолжению диалога («а вчера?») нужно знать, менять ли период
+// предыдущего вопроса, а уточнению — что именно человек уже сказал.
 function parsePeriod(text) {
+  return parsePeriodExplicit(text) || currentMonthPeriod();
+}
+
+export function hasExplicitPeriod(text) {
+  return parsePeriodExplicit(normalize(text)) !== null;
+}
+
+function parsePeriodExplicit(text) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -204,8 +305,10 @@ function parsePeriod(text) {
   const rangeMatch = text.match(/с\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?\s+по\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?/);
   if (rangeMatch) {
     const [, d1, m1, y1, d2, m2, y2] = rangeMatch;
-    const month1 = m1 ? parseInt(m1) : findMonth(text);
-    const month2 = m2 ? parseInt(m2) : findMonth(text);
+    // «С 1 по 10 число» — месяц не назван, значит текущий. Раньше без
+    // месяца диапазон отбрасывался, и пример из приложения отдавал весь месяц
+    const month1 = m1 ? parseInt(m1) : (findMonth(text) || currentMonth);
+    const month2 = m2 ? parseInt(m2) : (findMonth(text) || currentMonth);
     const year1 = y1 ? parseInt(y1) : currentYear;
     const year2 = y2 ? parseInt(y2) : year1;
     if (month1 && month2) {
@@ -266,6 +369,21 @@ function parsePeriod(text) {
     return { from: fmtDate(from), to: fmtDate(now) };
   }
 
+  // «Прошлая неделя» — календарная, понедельник–воскресенье. Раньше
+  // слово «неделя» любое значило «последние семь дней», и «за прошлую
+  // неделю» в среду отдавало пол-этой и пол-прошлой.
+  const dow = (now.getDay() + 6) % 7; // 0 — понедельник
+  if (/прошл[а-яё]+\s+недел|позапрошл[а-яё]+\s+недел/.test(text)) {
+    const back = /позапрошл/.test(text) ? 14 : 7;
+    const monday = new Date(now.getTime() - (dow + back) * 86400000);
+    const sunday = new Date(monday.getTime() + 6 * 86400000);
+    return { from: fmtDate(monday), to: fmtDate(sunday) };
+  }
+  if (/(?:эт[а-яё]+|текущ[а-яё]+|начала)\s+недел/.test(text)) {
+    const monday = new Date(now.getTime() - dow * 86400000);
+    return { from: fmtDate(monday), to: fmtDate(now) };
+  }
+
   // "за неделю" / "за последнюю неделю" — BEFORE month names
   if (text.includes("недел")) {
     const to = fmtDate(now);
@@ -286,19 +404,59 @@ function parsePeriod(text) {
     return { from: fmtDate(now), to: fmtDate(now) };
   }
 
+  // «В среду», «в прошлую пятницу» — ближайший такой день назад (сегодня
+  // тоже считается). «По понедельникам» без «в» — это разрез по дням
+  // недели, сюда не попадает.
+  const wd = text.match(/(?:^|\s)(?:в|во)\s+(?:(прошл[а-яё]+)\s+)?(понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)(?![а-яё])/);
+  if (wd) {
+    const idx = ["понедельник", "вторник", "сред", "четверг", "пятниц", "суббот", "воскресенье"].findIndex((k) => wd[2].startsWith(k));
+    const todayIdx = (now.getDay() + 6) % 7;
+    // «Прошлую пятницу» — пятница прошлой календарной недели;
+    // просто «в пятницу» — ближайшая прошедшая (или сегодня)
+    const d = wd[1]
+      ? new Date(now.getTime() - (todayIdx + 7 - idx) * 86400000)
+      : new Date(now.getTime() - ((todayIdx - idx + 7) % 7) * 86400000);
+    return { from: fmtDate(d), to: fmtDate(d) };
+  }
+
+  // «Позавчера» — раньше «вчера»: оно содержит это слово и уезжало во вчера
+  if (text.includes("позавчера")) {
+    const d = new Date(now.getTime() - 2 * 86400000);
+    return { from: fmtDate(d), to: fmtDate(d) };
+  }
+
   // "за вчера"
   if (text.includes("вчера")) {
     const yesterday = new Date(now.getTime() - 86400000);
     return { from: fmtDate(yesterday), to: fmtDate(yesterday) };
   }
 
+  // «С начала месяца» — с первого числа по сегодня, а не весь месяц
+  if (/с\s+начала\s+месяц/.test(text)) {
+    return { from: `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`, to: fmtDate(now) };
+  }
+  if (/с\s+начала\s+года/.test(text)) {
+    return { from: `${currentYear}-01-01`, to: fmtDate(now) };
+  }
+
   // "за текущий месяц"
   if (text.includes("текущий месяц") || text.includes("этот месяц") || text.includes("этого месяца")) {
-    const lastDay = new Date(currentYear, currentMonth, 0).getDate();
-    return {
-      from: `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`,
-      to: `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
-    };
+    return currentMonthPeriod(now);
+  }
+
+  // «15 числа» / «15-го» — день текущего месяца
+  const dayOfMonth = text.match(/(?<![\d.])(\d{1,2})(?:-?го|\s*числа)(?![а-яё])/);
+  if (dayOfMonth) {
+    const d = parseInt(dayOfMonth[1]);
+    if (d >= 1 && d <= 31) {
+      const ymd = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      return { from: ymd, to: ymd };
+    }
+  }
+
+  // «Прошлый год» — целиком
+  if (/прошл[а-яё]+\s+год/.test(text)) {
+    return { from: `${currentYear - 1}-01-01`, to: `${currentYear - 1}-12-31` };
   }
 
   // "за квартал"
@@ -343,12 +501,8 @@ function parsePeriod(text) {
     }
   }
 
-  // Default: текущий месяц
-  const lastDay = new Date(currentYear, currentMonth, 0).getDate();
-  return {
-    from: `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`,
-    to: `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
-  };
+  // Период не назван
+  return null;
 }
 
 function findMonth(text) {
@@ -476,7 +630,7 @@ function parseComparisonPeriods(text) {
 // ─── Парсинг филиала ──────────────────────────────────────────────
 
 function parseSpot(text) {
-  const lower = text.toLowerCase();
+  const lower = normalize(text);
   let bestMatch = null;
   let bestLen = 0;
   for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
@@ -485,13 +639,37 @@ function parseSpot(text) {
       bestLen = alias.length;
     }
   }
-  return bestMatch;
+  if (bestMatch) return bestMatch;
+
+  // «Гагарин», «на Дубае», «в Коктеме» — форма не из списка. Сравниваем
+  // основы слов; «все»/«всех» сюда не пускаем — слишком короткие, чтобы
+  // угадывать.
+  let bestScore = 0;
+  for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
+    if (alias.length < 4 || entry.branchId === "all" || alias.includes(" ")) continue;
+    const s = matchPhrase(lower, alias);
+    if (s > bestScore || (s === bestScore && s && alias.length > bestLen)) {
+      bestMatch = entry; bestScore = s; bestLen = alias.length;
+    }
+  }
+  return bestScore ? bestMatch : null;
+}
+
+// Сколько разных филиалов названо: «Абая vs Гагарина», «Коктем и Атакент»
+// — это сравнение, а не касса второго из них.
+function countSpots(lower) {
+  const ids = new Set();
+  for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
+    if (entry.branchId === "all" || alias.length < 3) continue;
+    if (lower.includes(alias)) ids.add(entry.branchId);
+  }
+  return ids.size;
 }
 
 // ─── Парсинг метрики ──────────────────────────────────────────────
 
 function parseMetric(text, product) {
-  const lower = text.toLowerCase();
+  const lower = normalize(text);
   // If product was detected, default to products (unless explicit metric keyword overrides)
   if (product) {
     // "продажи латте", "сколько O2", "латте за июнь" — all product queries
@@ -499,19 +677,19 @@ function parseMetric(text, product) {
     const explicitMetric = METRICS.some(m => m.value !== "products" && m.keys.some(k => lower.includes(k)));
     if (hasSaleWord || !explicitMetric) return "products";
   }
-  for (const m of METRICS) {
-    for (const key of m.keys) {
-      if (lower.includes(key)) return m.value;
-    }
-  }
-  if (lower.match(/\d+\s*₸|\d+\s*тенге|₽|dollars?/i)) return "cash";
+  const exact = exactMetric(lower);
+  if (exact) return exact;
+  // Точного слова нет — ищем по основам и с опечатками
+  const fuzzy = fuzzyMetric(lower);
+  if (fuzzy) return fuzzy;
   return "cash";
 }
 
 // ─── Парсинг операции ─────────────────────────────────────────────
 
 function parseOperation(text) {
-  const lower = text.toLowerCase();
+  // «С 1 по 10 число» — это дата, а не операция «число» (количество)
+  const lower = text.toLowerCase().replace(/\d+\s*числ[а-яё]*/g, " ");
   // "на сколько выросла/упала" — это сравнение процентов, а не подсчёт
   if (/(?:на\s+сколько|насколько)\s+(?:вырос|упал|измен|меньше|больше)/.test(lower)) return "percentChange";
   for (const op of OPERATIONS) {
@@ -534,10 +712,13 @@ function parseProduct(text) {
   }
 
   // "продаж O2 за неделю" / "сколько O2 за июнь"
+  // Граница после предлога обязательна — (?![а-яё]) вместо \b, который
+  // с кириллицей не работает. Без неё «круассан» обрывался на «круа»:
+  // ленивый захват останавливался на «с» внутри слова.
   const patterns = [
-    /(?:товар|напиток|продукт|позици[а-я]*|продал[а-я]*|продаж[а-я]*)\s+["«]?([^"»]+?)["»]?\s*(?:за|в|с|по|$)/,
-    /сколько\s+([а-яёa-z\s]+?)(?:\s+за|\s+в|\s+с|\s+по|$)/,
-    /(?:было|был[ао]?)\s+([а-яёa-z]+?)(?:\s+за|\s+в|\s+с|\s+по|\s+за\s)/,
+    /(?:товар|напиток|продукт|позици[а-я]*|продал[а-я]*|продаж[а-я]*)\s+["«]?([^"»]+?)["»]?(?:\s+(?:за|в|с|по)(?![а-яё])|$)/,
+    /сколько\s+([а-яёa-z\s]+?)(?:\s+(?:за|в|с|по)(?![а-яё])|$)/,
+    /(?:было|был[ао]?)\s+([а-яёa-z]+?)(?:\s+(?:за|в|с|по)(?![а-яё]))/,
   ];
 
   for (const pat of patterns) {
@@ -555,6 +736,8 @@ function parseProduct(text) {
       }
       // Skip short or generic words
       if (word.length < 2) continue;
+      // Опечатка в ключевом слове или название филиала — не товар
+      if (words.every((w) => looksLikeKeyword(w) || isSpotWord(w))) continue;
       return word;
     }
   }
@@ -563,7 +746,7 @@ function parseProduct(text) {
   const productFirst = lower.match(/^([а-яёa-z]+)\s+за\s/);
   if (productFirst) {
     const word = productFirst[1].trim();
-    if (!STOP_WORDS.has(word)) {
+    if (!STOP_WORDS.has(word) && !looksLikeKeyword(word) && !isSpotWord(word)) {
       for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
         if (word === alias) return canonical;
       }
@@ -579,7 +762,10 @@ function parseProduct(text) {
 export async function parseQuestion(text) {
   if (!text || !text.trim()) return null;
 
-  const lower = text.toLowerCase();
+  // Нормализованный текст: ё→е, латинские двойники внутри кириллицы,
+  // лишние пробелы. Все словари дальше видят только его; в raw уходит
+  // исходник — человек должен видеть свой вопрос, а не наш.
+  const lower = normalize(text);
 
   // Математика: "сколько будет 2+2*3" / "посчитай 45 / 5" / "420 + 30"
   const mathLead = lower.match(/(?:сколько\s+будет|посчита[йть]*|вычисли|счита[йть]*|реши)\s+([\d\s+\-*/x.,()]+)/);
@@ -600,16 +786,23 @@ export async function parseQuestion(text) {
 
   // Категория — раньше товара: «сколько спешл продали» не должно уехать
   // в поиск товара по слову, а «летнее меню» — в товар «летнее».
-  const category = parseCategoryIntent(text);
-  const product = category ? null : parseProduct(text);
-  const ipGroup = parseIPGroup(text);
+  const category = parseCategoryIntent(lower);
+  let product = category ? null : parseProduct(lower);
+  const ipGroup = parseIPGroup(lower);
+
+  // «Круассаны», «сырники за вчера» — ни метрики, ни известного товара,
+  // а одно-два незнакомых слова. Это товар, которого нет в сокращениях.
+  if (!product && !category && !exactMetric(lower) && !fuzzyMetric(lower) && !GREETINGS.test(lower.trim())) {
+    const rest = unknownWords(lower);
+    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) product = rest.join(" ");
+  }
 
   // Check for comparison between two periods first
   const compPeriods = parseComparisonPeriods(lower);
   if (compPeriods) {
-    const spot = parseSpot(text);
+    const spot = parseSpot(lower);
     return {
-      metric: parseMetric(text, product),
+      metric: parseMetric(lower, product),
       operation: "percentChange",
       spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
       period: compPeriods[0],
@@ -621,33 +814,41 @@ export async function parseQuestion(text) {
     };
   }
 
-  let metric = category ? "products" : parseMetric(text, product);
+  let metric = category ? "products" : parseMetric(lower, product);
 
   // «Сколько молока ушло» без слова «расход» — всё равно про склад:
   // молоко не продают стаканами, его списывают по техкартам, и в
   // продажах его нет вовсе.
   const INGREDIENTS = /молок|сливк|зерн|сироп|мука|сахар|стакан|крышк/;
-  if (INGREDIENTS.test(lower) && /(сколько|расход|ушло|потратил|потрачен|списан)/.test(lower)) {
+  const ingredient = lower.match(INGREDIENTS);
+  if (ingredient && /(сколько|расход|ушло|потратил|потрачен|списан)/.test(lower)) {
     metric = "stock";
   }
+  // По складу фильтруем по самому ингредиенту, а не по хвосту вопроса:
+  // «сколько молока ушло на Баумана» искало позицию с таким названием
+  // целиком — и, конечно, не находило
+  if (metric === "stock") product = ingredient ? ingredient[0] : null;
 
-  const operation = parseOperation(text);
-  const spot = parseSpot(text);
-  const period = parsePeriod(text);
+  const operation = parseOperation(lower);
+  let spot = parseSpot(lower);
+  const spotNamed = !!spot;
+  // Два филиала в одном вопросе — сравнение по всем, а не второй из них
+  if (countSpots(lower) >= 2 && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
+    metric = "compareBranches";
+    spot = null;
+  }
+  const explicitPeriod = parsePeriodExplicit(lower);
+  const period = explicitPeriod || currentMonthPeriod();
 
   // Check if this is a meaningful query (has metric keyword, product, spot, or period keyword)
-  const hasMetricKeyword = METRICS.some(m => m.keys.some(k => lower.includes(k)));
+  // Слово метрики — точное или узнанное по основе/с опечаткой
+  const hasMetricKeyword = !!exactMetric(lower) || !!fuzzyMetric(lower);
   const hasOperationKeyword = OPERATIONS.some(op => op.keys.some(k => lower.includes(k)));
-  const hasSpot = !!spot;
+  const hasSpot = spotNamed;
   const hasProduct = !!product;
   const hasPeriodKeyword = /(?:за|в|с|по|назад|недел|месяц|квартал|год|сегодня|вчера|текущ)/.test(lower);
   const hasMoney = /\d+\s*₸|\d+\s*тенге/.test(lower);
 
-  // Filter out common greetings and non-data words
-  // (?![а-яё]) — граница слова вручную: \b с кириллицей не работает.
-  // Без неё «незакрытые чеки» считались приветствием «не», а «дай кассу»
-  // — приветствием «да», и оба вопроса просто не понимались.
-  const GREETINGS = /^(?:привет|помоги|помощь|спасибо|пожалуйста|здравствуй|пока|да|нет|ок|хорошо|плохо|как дела|что нового|показать|скажи|расскажи|объясни|объяснить|понял|ясно|понятно|ага|угу|ну|так|ещё|еще|пожалуй|ладно|норм|нормально|отлично|класс|супер|круто|здорово|ага|нет|не|нету|было|будет|может|надо|нужно|хочу|давай|сделай|сделать|посчитай|посчитать|считай|считать)(?![а-яё])/;
   // Приветствие выигрывает, только если в сообщении больше ничего нет.
   // Раньше оно перебивало всё: «Так сколько касса за вчера» отбрасывалось
   // целиком из-за слова «так» в начале, хотя вопрос совершенно понятный.
@@ -669,8 +870,95 @@ export async function parseQuestion(text) {
     category,
     ipGroup,
     raw: text,
+    // Что мы додумали сами, а не услышали. «Абая за вчера» — это касса,
+    // но человек кассу не называл; ассистент ответит и предложит другое.
+    assumed: {
+      metric: !hasMetricKeyword && !hasProduct && !category && !hasMoney && metric === "cash",
+      period: !explicitPeriod,
+    },
   };
 }
+
+// ─── Продолжение диалога ──────────────────────────────────────────
+//
+// «Касса Абая за вчера» → «а сегодня?» → «а на Гагарина?» → «а чеки?».
+// Раньше короткую реплику склеивали с предыдущим вопросом в одну строку
+// и разбирали заново — и «касса Abaya 2026-09-15 2026-09-15 а сегодня»
+// понималось как повезёт. Здесь реплика разбирается сама по себе, и на
+// предыдущий вопрос переносятся только те поля, которые она назвала.
+
+export async function mergeFollowUp(prev, text) {
+  if (!prev || !text) return null;
+  const lower = normalize(text).replace(/^а\s+|^а(?=\()/, "").replace(/\?+$/, "").trim();
+  if (!lower) return null;
+
+  const spot = parseSpot(lower);
+  const period = parsePeriodExplicit(lower);
+  const category = parseCategoryIntent(lower);
+  let product = category ? null : parseProduct(lower);
+  const ipGroup = parseIPGroup(lower);
+
+  // «Круассаны», «сырники за вчера» — ни метрики, ни известного товара,
+  // а одно-два незнакомых слова. Это товар, которого нет в сокращениях.
+  if (!product && !category && !exactMetric(lower) && !fuzzyMetric(lower) && !GREETINGS.test(lower.trim())) {
+    const rest = unknownWords(lower);
+    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) product = rest.join(" ");
+  }
+  const metric = exactMetric(lower) || fuzzyMetric(lower);
+  const byBranch = /по\s+(?:филиал|точк)|филиалы|точки|все\s+(?:филиал|точк)/.test(lower);
+  const opWord = OPERATIONS.some((op) => op.keys.some((k) => lower.includes(k)));
+
+  const changed = [];
+  const next = { ...prev, raw: text, followUpOf: prev.raw, assumed: { metric: false, period: false } };
+  delete next.period2;
+
+  if (spot) { next.spot = spot; changed.push("spot"); }
+  if (period) { next.period = period; changed.push("period"); }
+  if (metric) { next.metric = metric; changed.push("metric"); }
+  if (category) { next.category = category; next.product = null; next.metric = "products"; changed.push("category"); }
+  else if (product) { next.product = product; next.category = null; next.metric = "products"; changed.push("product"); }
+  if (ipGroup) { next.ipGroup = ipGroup; changed.push("ipGroup"); }
+  if (byBranch) {
+    next.spot = { branchId: "all", spotId: "all", posterName: "all" };
+    if (["cash", "checks", "avgCheck", "compareBranches"].includes(next.metric)) next.metric = "compareBranches";
+    // Исполнитель товаров смотрит на это слово в period.raw
+    if (next.metric === "products") next.period = { ...next.period, raw: "по филиалам" };
+    changed.push("byBranch");
+  }
+  if (opWord) { next.operation = parseOperation(lower); changed.push("operation"); }
+
+  // Одно-два незнакомых слова — «а круассаны?», «а сырники вчера?» —
+  // это товар. Незнакомое — то, что не служебное слово, не ключ словаря,
+  // не период и не филиал.
+  if (!product && !category && !metric && !byBranch && !opWord) {
+    const rest = unknownWords(lower);
+    if (rest.length && rest.length <= 2) {
+      next.product = rest.join(" "); next.category = null; next.metric = "products";
+      changed.push("product");
+    }
+  }
+
+  // Реплика ничего не назвала — это не продолжение, а что-то другое
+  if (!changed.length) return null;
+  // Сравнение двух периодов не продолжают репликой — начинаем заново
+  if (prev.period2) {
+    if (!period) return null;
+    next.operation = "sum";
+  }
+  next.changed = changed;
+  return next;
+}
+
+// Слова-заполнители: вопросительные, просьбы, местоимения и общие
+// «данные/отчёт». Товаром им не бывать; без метрики такой вопрос — касса
+// с пометкой «додумали», а не «товар «покажи» не найден».
+const QUESTION_WORDS = new Set([
+  "что", "почему", "зачем", "как", "где", "когда", "кто", "куда", "откуда", "чего", "чем", "это", "а", "и", "ну", "же", "ли",
+  "там", "тут", "ещё", "еще", "если", "покажи", "показать", "дай", "давай", "мне", "нам", "хочу", "нужно", "надо", "можно",
+  "есть", "вообще", "просто", "выведи", "посмотреть", "посмотри", "глянь", "инфо", "инфа", "данные", "отчет", "отчёт",
+  "статистика", "статистику", "цифры", "цифра", "результат", "результаты", "итог", "итоги", "какой", "какая", "какие",
+  "vs", "или", "против", "либо",
+]);
 
 // ─── Debug describe ──────────────────────────────────────────────
 
@@ -689,6 +977,8 @@ export function describeParsed(parsed) {
   if (parsed.category) parts.push(`Категория: сезонное меню${parsed.category.season ? ` (${parsed.category.season})` : ""}`);
   parts.push(`Период: ${parsed.period.from} — ${parsed.period.to}`);
   if (parsed.period2) parts.push(`Период2: ${parsed.period2.from} — ${parsed.period2.to}`);
+  if (parsed.followUpOf) parts.push(`Продолжение: «${parsed.followUpOf}» (${(parsed.changed || []).join(", ")})`);
+  if (parsed.assumed?.metric) parts.push("Метрика додумана");
   return parts.join(" | ");
 }
 

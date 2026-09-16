@@ -11,7 +11,11 @@
 import { parseQuestion } from "./src/chat/parser.js";
 import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty } from "./src/chat/categories.js";
 import { QuerySchema, toExecutorQuery, historyLine, SYSTEM_PROMPT } from "./api/_lib/chatSchema.js";
-import { smartParse, looksLikeFollowUp } from "./src/chat/smart.js";
+import { smartParse } from "./src/chat/smart.js";
+import { mergeFollowUp, preferFollowUp, fuzzyMetric, hasExplicitPeriod } from "./src/chat/parser.js";
+import { normalize, stem, distance, matchWord, productMatches, closestNames } from "./src/chat/normalize.js";
+import { alternatives, understoodLine, periodPhrase } from "./src/chat/clarify.js";
+import { remember, recall, loadLearned, LINK_WINDOW_MS } from "./src/chat/memory.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -276,19 +280,264 @@ section("Модель заполняет структуру — исполнит
 section("Клиент: когда звать модель и как переживать её отсутствие");
 
 {
-  ok(looksLikeFollowUp("а вчера?"), "«а вчера?» — продолжение");
-  ok(looksLikeFollowUp("а на Абая"), "«а на Абая» — продолжение");
-  ok(looksLikeFollowUp("по филиалам"), "«по филиалам» — продолжение");
-  ok(!looksLikeFollowUp("касса за вчера"), "полный вопрос — нет");
-  ok(!looksLikeFollowUp("абая касса за неделю"), "и с филиалом в начале — нет");
-  ok(!looksLikeFollowUp(""), "пусто — нет");
-
   // Сервер без ключа: один раз спросили, дальше не стучимся
   let calls = 0;
   const noKey = async () => { calls++; return new Response(JSON.stringify({ available: false }), { status: 200, headers: { "Content-Type": "application/json" } }); };
   eq(await smartParse("что угодно", null, noKey), null, "без ключа — null");
   eq(await smartParse("ещё раз", null, noKey), null, "и второй раз null");
   eq(calls, 1, "но на сервер сходили один раз — дальше помним");
+}
+
+section("Без модели: нормализация, основы слов, опечатки");
+
+{
+  eq(normalize("Кассa за Вчерa"), "касса за вчера", "латинские двойники внутри кириллицы исправлены");
+  eq(normalize("o2 за неделю"), "o2 за неделю", "слово целиком латиницей не трогаем");
+  eq(normalize("ещё раз"), "еще раз", "ё → е");
+  eq(stem("продали"), stem("продажи").slice(0, 4), "«продали» и «продажи» — одна основа в начале");
+  eq(stem("кассу"), stem("касса"), "формы одного слова совпадают");
+  eq(distance("выурчка", "выручка"), 1, "перестановка соседних букв — одна правка");
+  eq(distance("чек", "чек"), 0, "равные — ноль");
+  ok(matchWord("касса за вчера", "касс") === 3, "точное совпадение — 3");
+  ok(matchWord("сколько чеков", "чеков") === 3, "полное слово — 3");
+  ok(matchWord("продано вчера", "продаж") >= 1, "другая форма — узнана");
+  ok(matchWord("выурчка вчера", "выручк") === 1, "опечатка — 1");
+  eq(matchWord("вчера", "вечер"), 0, "«вчера» — не «вечер»: короткой основе опечаток не прощаем");
+  eq(matchWord("чашка", "час"), 0, "«чашка» — не «час»: трёхбуквенному ключу — только точно");
+  eq(matchWord("абая", "каса"), 0, "четырёхбуквенным ключам опечаток нет");
+}
+
+section("Вопрос с опечаткой или в другой форме понимается");
+
+{
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  eq((await ask("кассa за вчера")).metric, "cash", "латинская «a» в «кассе»");
+  eq((await ask("выурчка вчера")).metric, "cash", "перестановка букв в «выручке»");
+  eq((await ask("чекав за неделю")).metric, "checks", "опечатка в «чеках»");
+  eq((await ask("каса сегодня")).metric, "cash", "«каса» с одной «с»");
+  eq((await ask("сколько продано вчера")).metric, "checks", "«продано» — продажи");
+  eq((await ask("оборот за месяц")).metric, "cash", "«оборот» — касса");
+  eq((await ask("сколько выручили вчера")).metric, "cash", "«выручили» — по основе");
+
+  // Опечатка в ключевом слове раньше становилась товаром
+  const t = await ask("сколько выурчка за вчера");
+  eq(t.product, null, "«выурчка» — не товар");
+  eq(t.metric, "cash", "а касса");
+
+  // Филиал в другой форме и не как товар
+  eq((await ask("сколько заработали на гагарин")).spot.posterName, "Gagarina", "«на Гагарин» — филиал");
+  eq((await ask("сколько заработали на гагарин")).product, null, "и не товар");
+  eq((await ask("касса Дубае")).spot.posterName, "Dubai", "«Дубае» — Дубай");
+  eq((await ask("Абая за вчера")).product, null, "«Абая» — филиал, а не товар");
+  eq((await ask("Абая за вчера")).metric, "cash", "и по умолчанию касса");
+  eq((await ask("Абая за вчера")).assumed.metric, true, "но метрику додумали — об этом честно сказано");
+  eq((await ask("касса за вчера")).assumed.metric, false, "названную метрику додуманной не считаем");
+  eq((await ask("касса за вчера")).assumed.period, false, "и период тоже");
+  eq((await ask("касса")).assumed.period, true, "без периода — период додуман");
+
+  // Ингредиент по складу — фильтр по нему, а не по хвосту вопроса
+  const m = await ask("Сколько молока ушло на Баумана");
+  eq(m.metric, "stock", "склад");
+  eq(m.product, "молок", "фильтр — сам ингредиент");
+  eq(m.spot.posterName, "Dubai", "и филиал узнан");
+  eq((await ask("Расход молока за неделю")).product, "молок", "«расход молока» тоже фильтрует по молоку");
+
+  // Незнакомое слово — товар, приветствие — нет
+  eq((await ask("круассаны")).product, "круассаны", "одно незнакомое слово — товар");
+  eq((await ask("сырники за вчера")).product, "сырники", "незнакомый товар с периодом");
+  eq((await ask("сырники за вчера")).period.from, ymd(y), "период при этом верный");
+  eq(await ask("ладно"), null, "«ладно» — не товар");
+  eq(await ask("как дела"), null, "«как дела» — не товар");
+  eq(await ask("хм"), null, "две буквы — ничего");
+  eq((await ask("покажи данные")).product, null, "«покажи данные» — не товар");
+
+  // Раскладка, сленг, два филиала
+  eq((await ask("kassa вчера")).metric, "cash", "«kassa» в английской раскладке — касса");
+  eq((await ask("kassa вчера")).product, null, "и не товар");
+  eq((await ask("vyruchka za vchera")).period.from, ymd(y), "«za vchera» — вчера");
+  eq((await ask("касса Gagarina")).spot.posterName, "Gagarina", "латинские названия точек не транслитерируем");
+  eq((await ask("сколько o2 продали")).product, "o2", "и «o2» тоже");
+  eq((await ask("бабки за вчера")).metric, "cash", "«бабки» — касса");
+  eq((await ask("сколько человек было вчера")).metric, "checks", "«сколько человек» — чеки");
+  eq((await ask("что продавалось лучше всего вчера")).metric, "products", "«что продавалось» — товары");
+  eq((await ask("что продавалось лучше всего вчера")).operation, "max", "и топ");
+  const two = await ask("абая vs гагарина за вчера");
+  eq(two.metric, "compareBranches", "два филиала — сравнение");
+  eq(two.spot.branchId, "all", "по всем");
+  eq((await ask("коктем и атакент за вчера")).metric, "compareBranches", "«Коктем и Атакент» — тоже");
+  eq((await ask("касса абая за вчера")).spot.posterName, "Abaya", "один филиал — как раньше");
+  const rng = await ask("Выручка с 1 по 10 число");
+  eq(rng.period.from.slice(-2), "01", "«с 1 по 10 число» — с первого");
+  eq(rng.period.to.slice(-2), "10", "по десятое");
+  eq(rng.operation, "sum", "и «число» здесь — не операция");
+  eq((await ask("покажи данные")).assumed.metric, true, "а касса с пометкой");
+
+  // Подсказка «похожие» — в кликабельной форме, и она разбирается
+  const s3 = await ask("Продажи «Круассан миндальный большой» вчера");
+  eq(s3.product, "круассан миндальный большой", "длинное название из подсказки — товар");
+  eq(s3.period.from, ymd(y), "и период на месте");
+}
+
+section("Новые периоды");
+
+{
+  const now = new Date();
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const shift = (n) => { const d = new Date(now); d.setDate(d.getDate() + n); return d; };
+  const dow = (now.getDay() + 6) % 7;
+
+  eq((await ask("касса позавчера")).period.from, ymd(shift(-2)), "«позавчера» — два дня назад, а не вчера");
+  const lw = (await ask("касса за прошлую неделю")).period;
+  eq(lw.from, ymd(shift(-(dow + 7))), "прошлая неделя — с понедельника");
+  eq(lw.to, ymd(shift(-(dow + 1))), "по воскресенье");
+  eq(days(lw), 7, "и ровно семь дней");
+  const tw = (await ask("касса за эту неделю")).period;
+  eq(tw.from, ymd(shift(-dow)), "эта неделя — с понедельника");
+  eq(tw.to, ymd(now), "по сегодня");
+  eq((await ask("касса с начала месяца")).period.to, ymd(now), "«с начала месяца» — по сегодня, а не весь месяц");
+  eq((await ask("касса с начала месяца")).period.from.slice(-2), "01", "с первого числа");
+  eq((await ask("выручка 15 числа")).period.from.slice(-2), "15", "«15 числа» — день текущего месяца");
+  eq((await ask("маржа за прошлый год")).period, { from: `${now.getFullYear() - 1}-01-01`, to: `${now.getFullYear() - 1}-12-31` }, "прошлый год целиком");
+
+  // Дни недели: ближайший прошедший, «прошлую» — из прошлой календарной недели
+  const tue = (await ask("касса во вторник")).period;
+  eq(tue.from, tue.to, "один день");
+  eq(new Date(tue.from + "T00:00:00").getDay(), 2, "и это вторник");
+  ok(Date.parse(tue.from) <= now.getTime(), "не в будущем");
+  const lastFri = (await ask("касса в прошлую пятницу")).period;
+  eq(new Date(lastFri.from + "T00:00:00").getDay(), 5, "прошлая пятница — пятница");
+  ok(Date.parse(lastFri.from) < now.getTime() - dow * 86400000, "и она раньше этого понедельника");
+  eq((await ask("касса по понедельникам")).period.from === (await ask("касса за неделю")).period.from, true, "«по понедельникам» — не дата, разрез");
+
+  ok(hasExplicitPeriod("касса за вчера"), "период назван");
+  ok(!hasExplicitPeriod("касса"), "период не назван");
+}
+
+section("Продолжение диалога — по полям, а не склейкой");
+
+{
+  const prev = await ask("касса Абая за вчера");
+  const m1 = await mergeFollowUp(prev, "а сегодня?");
+  eq(m1.metric, "cash", "метрика с прошлого вопроса");
+  eq(m1.spot.posterName, "Abaya", "филиал с прошлого");
+  eq(m1.period.from, (await ask("касса сегодня")).period.from, "период — новый");
+  eq(m1.changed, ["period"], "изменился только период");
+  eq(m1.followUpOf, "касса Абая за вчера", "помним, что продолжаем");
+
+  eq((await mergeFollowUp(prev, "а на гагарина")).spot.posterName, "Gagarina", "«а на Гагарина» — меняет филиал");
+  eq((await mergeFollowUp(prev, "а на гагарина")).period, prev.period, "период — прежний");
+  eq((await mergeFollowUp(prev, "а чеки")).metric, "checks", "«а чеки» — меняет метрику");
+  eq((await mergeFollowUp(prev, "чеки")).metric, "checks", "и без «а»");
+  eq((await mergeFollowUp(prev, "по филиалам")).metric, "compareBranches", "«по филиалам» после кассы — сравнение филиалов");
+  eq((await mergeFollowUp(prev, "по филиалам")).spot.branchId, "all", "по всем");
+  eq((await mergeFollowUp(prev, "а латте")).product, "латте", "«а латте» — товар");
+  eq((await mergeFollowUp(prev, "а латте")).metric, "products", "и метрика — товары");
+  eq((await mergeFollowUp(prev, "а круассаны?")).product, "круассаны", "незнакомый товар тоже");
+  eq((await mergeFollowUp(prev, "а по часам")).operation, "byHour", "«а по часам» — разрез");
+  eq(await mergeFollowUp(prev, "а почему"), null, "«а почему» — не продолжение");
+  eq(await mergeFollowUp(prev, ""), null, "пусто — нет");
+  eq(await mergeFollowUp(null, "а сегодня"), null, "без контекста — нет");
+
+  // Сравнение двух периодов не продолжают репликой без периода
+  const cmp = await ask("сравнение июнь и июль");
+  eq(await mergeFollowUp(cmp, "а чеки"), null, "после сравнения «а чеки» — начинаем заново");
+
+  // Когда реплика — продолжение, а когда новый вопрос
+  ok(preferFollowUp("а вчера?", await ask("а вчера?")), "«а вчера?» — продолжение");
+  ok(preferFollowUp("по филиалам", await ask("по филиалам")), "«по филиалам» — продолжение");
+  ok(preferFollowUp("чеки", await ask("чеки")), "«чеки» без периода — продолжение");
+  ok(preferFollowUp("сегодня", await ask("сегодня")), "«сегодня» без метрики — продолжение");
+  ok(!preferFollowUp("касса за вчера", await ask("касса за вчера")), "полный вопрос — нет");
+  ok(!preferFollowUp("абая касса за неделю", await ask("абая касса за неделю")), "и с филиалом — нет");
+  ok(!preferFollowUp("", null), "пусто — нет");
+}
+
+section("Уточнение вместо молчаливой кассы");
+
+{
+  const now = new Date("2026-09-16T12:00:00");
+  eq(periodPhrase({ from: "2026-09-16", to: "2026-09-16" }, now), "сегодня", "сегодня");
+  eq(periodPhrase({ from: "2026-09-15", to: "2026-09-15" }, now), "вчера", "вчера");
+  eq(periodPhrase({ from: "2026-09-03", to: "2026-09-03" }, now), "за 3 сентября", "день");
+  eq(periodPhrase({ from: "2026-08-01", to: "2026-08-31" }, now), "за август", "месяц");
+  eq(periodPhrase({ from: "2025-11-01", to: "2025-11-30" }, now), "за ноябрь 2025", "месяц другого года");
+  eq(periodPhrase({ from: "2026-09-01", to: "2026-09-10" }, now), "с 1 по 10 сентября", "диапазон в месяце");
+  eq(periodPhrase({ from: "2026-08-25", to: "2026-09-05" }, now), "с 25 августа по 5 сентября", "диапазон через месяц");
+
+  const p = await ask("Абая за вчера");
+  const alts = alternatives(p, now);
+  eq(alts.length, 4, "четыре альтернативы");
+  ok(alts.includes("Чеки Abaya вчера"), `чеки с тем же филиалом и периодом: ${alts.join(" / ")}`);
+  // И каждая альтернатива разбирается тем, что обещает
+  eq((await ask(alts[0])).metric, "checks", "«Чеки Abaya вчера» → чеки");
+  eq((await ask(alts[0])).spot.posterName, "Abaya", "с филиалом");
+  eq((await ask(alts[1])).metric, "products", "«Товары …» → товары");
+  eq((await ask(alts[2])).metric, "avgCheck", "«Средний чек …» → средний чек");
+  eq((await ask(alts[3])).metric, "stock", "«Расход …» → склад");
+  eq(alternatives(await ask("касса за вчера")), [], "названная метрика — без альтернатив");
+  ok(/кассу/.test(understoodLine(p)), "и строка честно говорит, что показали кассу");
+  eq(understoodLine(await ask("касса за вчера")), "", "на понятный вопрос строки нет");
+
+  const fu = await mergeFollowUp(await ask("касса Абая за вчера"), "а сегодня?");
+  eq(understoodLine(fu, now), "Понял так: касса, Abaya, сегодня.", "продолжение — говорим, как поняли");
+}
+
+section("Память исправлений");
+
+{
+  const mem = new Map();
+  const store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) };
+
+  eq(recall("скок бабла вчера", store), null, "пустая память — ничего");
+  ok(remember("скок бабла вчера", "касса за вчера", store), "запомнили исправление");
+  eq(recall("скок бабла вчера", store), "касса за вчера", "вспомнили точно");
+  eq(recall("Скок бабла вчера?", store), "касса за вчера", "регистр и знаки не мешают");
+  eq(recall("бабла скок вчера", store), "касса за вчера", "порядок слов не важен");
+  eq(recall("скок бабла вчра", store), "касса за вчера", "одна опечатка — тоже");
+  eq(recall("совсем другое", store), null, "чужое не подставляем");
+  ok(!remember("касса за вчера", "касса за вчера", store), "повтор — не исправление");
+  ok(!remember("", "касса", store), "пусто — нет");
+  ok(LINK_WINDOW_MS >= 60_000, "окно исправления — не меньше минуты");
+
+  // Не растёт без конца
+  for (let i = 0; i < 250; i++) remember(`фраза номер ${i} длинная`, `касса ${i}`, store);
+  ok(Object.keys(loadLearned(store)).length <= 200, "словарь ограничен");
+
+  // Без хранилища не падает
+  eq(recall("что-то", { getItem: () => { throw new Error("nope"); }, setItem: () => {} }), null, "сломанное хранилище — null, не исключение");
+}
+
+section("Товары: по словам и с подсказкой");
+
+{
+  const names = ["Латте 0,4", "Капучино L", "Раф кокосовый", "Раф классический", "Круассан миндальный", "Чай чёрный", "O2 клубника", "Флэт уайт"];
+  const find = (q) => names.filter((n) => productMatches(n, q));
+  eq(find("латте"), ["Латте 0,4"], "по вхождению");
+  eq(find("капуч"), ["Капучино L"], "по началу слова");
+  eq(find("раф кокос"), ["Раф кокосовый"], "два слова — оба должны найтись");
+  eq(find("круасан"), ["Круассан миндальный"], "опечатка");
+  eq(find("чай черный"), ["Чай чёрный"], "ё");
+  eq(find("о2"), ["O2 клубника"], "кириллическая «о» перед цифрой — латинская O2");
+  eq(find("флет"), [], "«флет» — не «флэт» (но ниже подскажем)");
+  eq(closestNames("флет", names), ["Флэт уайт"], "подсказка ближайшего");
+  eq(closestNames("лате", names)[0], "Латте 0,4", "«лате» → латте");
+  eq(closestNames("ничегоподобного", names), [], "далёкое не подсказываем");
+}
+
+section("Исполнитель и клиент собраны правильно");
+
+{
+  const ex = readFileSync("src/chat/executor.js", "utf8");
+  ok(ex.includes("productMatches(") && !ex.includes("searchLower"), "исполнитель ищет товары общей функцией, дублей нет");
+  ok(ex.includes("closestNames("), "и подсказывает похожие, когда не нашёл");
+  const dc = readFileSync("src/components/DataChat.jsx", "utf8");
+  ok(dc.includes("mergeFollowUp(") && dc.includes("preferFollowUp("), "клиент продолжает диалог по полям");
+  ok(!dc.includes("actualQuery"), "склейки строк больше нет");
+  ok(dc.includes("recall(") && dc.includes("remember("), "память исправлений подключена");
+  ok(dc.includes("alternatives("), "альтернативы показываются");
+  ok(dc.indexOf("parseQuestion(q)") < dc.indexOf("smartParse("), "правила — до модели");
 }
 
 console.log("\n══════════════════════════════════════════════════");

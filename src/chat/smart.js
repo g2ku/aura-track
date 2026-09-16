@@ -50,13 +50,3 @@ function compact(ctx) {
     product: ctx.product || null, category: ctx.category || null,
   };
 }
-
-// Вопрос-продолжение: короткий и начинается с «а …» или с местоимения
-// без существительного. Правила такое склеивают вслепую, модель — нет.
-export function looksLikeFollowUp(text) {
-  const t = String(text || "").trim().toLowerCase();
-  if (!t) return false;
-  if (/^а\s/.test(t) || /^а\(/.test(t)) return true;
-  if (t.split(/\s+/).length <= 3 && /^(вчера|сегодня|неделя|месяц|по филиалам|а если|там|тут|это|ещё|еще)/.test(t)) return true;
-  return false;
-}

@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { parseQuestion, describeParsed } from "../chat/parser.js";
+import { parseQuestion, describeParsed, mergeFollowUp, preferFollowUp } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
-import { smartParse, looksLikeFollowUp } from "../chat/smart.js";
+import { smartParse } from "../chat/smart.js";
+import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
+import { remember, recall, LINK_WINDOW_MS } from "../chat/memory.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.jsx";
 
@@ -138,6 +140,8 @@ export default function DataChat() {
   const sugRef = useRef(null);
   const recognitionRef = useRef(null);
   const baseInputRef = useRef("");
+  // Последний непонятый вопрос: если следом придёт понятный — запомним связку
+  const lastFailRef = useRef(null);
 
   // ─── Voice input ─────────────────────────────────────────────────
   const stopListening = useCallback(() => {
@@ -302,53 +306,70 @@ export default function DataChat() {
     setLoading(true);
     saveHistory(q);
 
-    // Handle context follow-ups (e.g., "а по филиалам")
-    let actualQuery = q;
-    if (context && messages.length > 0) {
-      const lower = q.toLowerCase();
-      if (lower.startsWith("а ") || lower.startsWith("а(")) {
-        // Contextual follow-up
-        const spotName = context.spot?.posterName || "";
-        const periodLabel = context.period ? `${context.period.from} ${context.period.to}` : "";
-        actualQuery = `${context.metric === "cash" ? "касса" : context.metric} ${spotName} ${periodLabel} ${q}`;
-      }
-    }
-
-    // Сначала правила: мгновенно и бесплатно. Продолжение диалога
-    // («а вчера?») и всё, что правила не поняли, — модели, если она
-    // подключена. Без ключа на сервере ассистент живёт как раньше.
+    // Порядок понимания — от дешёвого к дорогому, и всё до модели бесплатно:
+    //  1. правила разбирают вопрос как есть;
+    //  2. короткая реплика («а вчера?», «чеки», «по филиалам») дополняет
+    //     предыдущий вопрос — по полям, а не склейкой строк;
+    //  3. память исправлений: так уже спрашивали и потом переспросили иначе;
+    //  4. модель на сервере — только если подключена (без ключа её нет).
     let parsed = null;
     let gloss = "";
     let clarify = null;
-    const followUp = looksLikeFollowUp(q) && context;
-    if (!followUp) parsed = await parseQuestion(actualQuery);
+    let note = "";
+
+    const fresh = await parseQuestion(q);
+    if (context && messages.length > 0 && preferFollowUp(q, fresh)) {
+      const merged = await mergeFollowUp(context, q);
+      if (merged) parsed = merged;
+    }
+    if (!parsed) parsed = fresh;
     if (!parsed) {
-      const smart = await smartParse(q, followUp ? context : null);
+      const learned = recall(q);
+      if (learned) {
+        parsed = await parseQuestion(learned);
+        if (parsed) note = `Понял как «${learned}».`;
+      }
+    }
+    if (!parsed) {
+      const smart = await smartParse(q, context);
       if (smart?.parsed) { parsed = smart.parsed; gloss = smart.gloss; clarify = smart.clarify; }
       else if (smart && !smart.parsed && smart.gloss) { gloss = smart.gloss; }
     }
-    if (!parsed && followUp) parsed = await parseQuestion(actualQuery);
     const debugInfo = parsed ? describeParsed(parsed) : null;
 
     if (!parsed) {
+      lastFailRef.current = { q, at: Date.now() };
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         role: "assistant",
-        text: (gloss ? `${gloss}\n\n` : "") + "Не распознал вопрос. Попробуйте:\n• Касса за июнь\n• Сколько чеков в Gagarina\n• Спешл за неделю\n• Сравнение июнь и июль\n• Налог ИП Смагул за июнь",
+        text: (gloss ? `${gloss}\n\n` : "") + "Не распознал вопрос. Попробуйте:\n• Касса за июнь\n• Сколько чеков в Gagarina\n• Спешл за неделю\n• Сравнение июнь и июль\n• Налог ИП Смагул за июнь\n\nСпросите то же другими словами — я запомню, как вы это называете.",
       }]);
       setLoading(false);
       return;
     }
 
+    // Понятный вопрос сразу после непонятого — это исправление. Запомним,
+    // и в следующий раз первая формулировка поймётся сама.
+    const fail = lastFailRef.current;
+    if (fail && Date.now() - fail.at < LINK_WINDOW_MS && !parsed.followUpOf) remember(fail.q, q);
+    lastFailRef.current = null;
+
     const result = await executeQuery(parsed, userBranchObj);
-    // Модель говорит, как поняла вопрос: человек видит, что именно посчитано,
-    // и может поправить одной фразой. Уточнение — если без него нельзя.
-    if (gloss || clarify) {
-      result.text = [gloss ? `Понял так: ${gloss}.` : "", result.text, clarify ? `\n${clarify}` : ""].filter(Boolean).join("\n");
+    // Как поняли вопрос — только когда додумали или продолжили предыдущий:
+    // на понятный вопрос эта строка лишняя
+    const understood = gloss ? `Понял так: ${gloss}.` : (note || understoodLine(parsed));
+    if (understood || clarify) {
+      result.text = [understood, result.text, clarify ? `\n${clarify}` : ""].filter(Boolean).join("\n");
     }
 
-    // Generate follow-up suggestions
-    const followUps = generateFollowUps(parsed, result);
+    // Подсказки: альтернативы, если метрику выбрали за человека; похожие
+    // товары, если товар не нашёлся; иначе — обычные продолжения
+    let followUps = alternatives(parsed);
+    if (!followUps.length && result.data?.suggestions?.length) {
+      const when = periodPhrase(parsed.period);
+      followUps = result.data.suggestions.map((n) => `Продажи «${n}» ${when}`.trim());
+    }
+    if (!followUps.length) followUps = generateFollowUps(parsed, result);
     setSuggestions(followUps);
     setContext(parsed);
 
