@@ -3,21 +3,43 @@
   "outputDirectory": "dist",
   "framework": null,
   "installCommand": "npm install",
-  "regions": ["fra1"],
+  "regions": [
+    "fra1"
+  ],
   "functions": {
-    "api/tg/watch.js": { "maxDuration": 60 }
+    "api/tg/watch.js": {
+      "maxDuration": 60
+    }
   },
   "headers": [
     {
       "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     },
     {
       "source": "/fonts/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     }
   ],
   "rewrites": [
+    {
+      "source": "/api/chat-memory",
+      "destination": "/api/chat?fn=memory"
+    },
+    {
+      "source": "/api/chat-parse",
+      "destination": "/api/chat?fn=parse"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"

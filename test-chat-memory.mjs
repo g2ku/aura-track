@@ -156,7 +156,7 @@ section("Клиент: синхронизация с сервером");
 section("Ручка /api/chat-memory собрана правильно");
 
 {
-  const src = readFileSync("api/chat-memory.js", "utf8");
+  const src = readFileSync("api/_lib/chatMemoryApi.js", "utf8");
   const strip = (s) => s.replace(/\/\/.*$/gm, "");
   const code = strip(src);
   ok(code.includes("requireUser(req)"), "проверяет вход");
@@ -171,6 +171,15 @@ section("Ручка /api/chat-memory собрана правильно");
 
   const store = strip(readFileSync("api/_lib/store.js", "utf8"));
   ok(store.includes("runTransaction") && store.includes('"chat/learned"'), "запись — транзакцией в один документ");
+
+  // Одна функция на ассистента: /api/chat?fn=memory|parse, старые адреса — переписыванием
+  const chat = strip(readFileSync("api/chat.js", "utf8"));
+  ok(chat.includes('fn === "memory"') && chat.includes('fn === "parse"'), "роутер различает память и разбор");
+  const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
+  const rw = Object.fromEntries((vercel.rewrites || []).map((r) => [r.source, r.destination]));
+  eq(rw["/api/chat-memory"], "/api/chat?fn=memory", "старый адрес памяти ведёт в общую функцию");
+  eq(rw["/api/chat-parse"], "/api/chat?fn=parse", "и адрес разбора тоже");
+  ok((vercel.rewrites || []).findIndex((r) => r.source === "/api/chat-memory") < (vercel.rewrites || []).findIndex((r) => r.destination === "/index.html"), "переписывания API — раньше SPA-заглушки");
 
   const rules = readFileSync("firestore.rules", "utf8");
   ok(/chat\/learned/.test(rules), "правила говорят, что chat/learned — только сервер");

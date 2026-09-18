@@ -202,6 +202,22 @@ section("firebase-admin/auth сюда не вернулся");
   ok(/node:crypto/.test(verify), "подпись проверяется штатным crypto");
 }
 
+section("Лимит функций Vercel Hobby");
+
+{
+  // Тринадцатая функция роняет деплой целиком («No more than 12 Serverless
+  // Functions… on the Hobby plan»). Считаем так же, как Vercel: все .js в
+  // api/, кроме папок и файлов с подчёркиванием.
+  const { readdirSync, statSync } = await import("node:fs");
+  const walk = (dir) => readdirSync(dir).flatMap((f) => {
+    if (f.startsWith("_")) return [];
+    const p = `${dir}/${f}`;
+    return statSync(p).isDirectory() ? walk(p) : (/\.[cm]?js$/.test(f) ? [p] : []);
+  });
+  const fns = walk("api");
+  ok(fns.length <= 12, `функций: ${fns.length} — не больше 12 (${fns.join(", ")})`);
+}
+
 section("Телеграм-бот ходит мимо прокси и не задет");
 
 {

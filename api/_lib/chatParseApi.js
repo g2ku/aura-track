@@ -11,8 +11,8 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { requireUser, denyResponse } from "./_lib/requireUser.js";
-import { QuerySchema, SYSTEM_PROMPT, toExecutorQuery, historyLine } from "./_lib/chatSchema.js";
+import { requireUser, denyResponse } from "./requireUser.js";
+import { QuerySchema, SYSTEM_PROMPT, toExecutorQuery, historyLine } from "./chatSchema.js";
 
 // Opus 5 — по умолчанию: вопросы короткие, системная подсказка в кэше,
 // и один разбор обходится в доли тиына. Переопределить — CHAT_MODEL.

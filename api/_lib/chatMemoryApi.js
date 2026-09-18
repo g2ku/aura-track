@@ -11,9 +11,9 @@
 // ассистенту. Без кэша CDN — ответ авторизованного запроса нельзя отдавать
 // по URL всем подряд.
 
-import { requireUser, denyResponse } from "./_lib/requireUser.js";
-import { getChatLearned, updateChatLearned, getSiteRole } from "./_lib/store.js";
-import { validateLearned, applyLearned, removeLearned, listLearned, MAX_LEARNED } from "./_lib/chatMemory.js";
+import { requireUser, denyResponse } from "./requireUser.js";
+import { getChatLearned, updateChatLearned, getSiteRole } from "./store.js";
+import { validateLearned, applyLearned, removeLearned, listLearned, MAX_LEARNED } from "./chatMemory.js";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
