@@ -43,3 +43,29 @@ export async function posterSpots() {
   }
   return map;
 }
+
+// Все чеки за один день с товарами — постранично, страницы параллельно.
+// Именно этот метод отдаёт products в каждом чеке; dash.getTransactions
+// — нет.
+export async function dayTransactions(ymd, { perPage = 200, concurrency = 4 } = {}) {
+  const day = ymd.replace(/-/g, "");
+  const page = async (p) => {
+    const d = await posterCall("transactions.getTransactions", { date_from: day, date_to: day, per_page: perPage, page: p });
+    return d?.response || {};
+  };
+  const first = await page(1);
+  const total = Number(first.count || 0);
+  const all = [...(first.data || [])];
+  const pages = Math.ceil(total / perPage);
+  for (let start = 2; start <= pages; start += concurrency) {
+    const batch = [];
+    for (let p = start; p < start + concurrency && p <= pages; p++) batch.push(page(p));
+    for (const r of await Promise.all(batch)) all.push(...(r.data || []));
+  }
+  return all;
+}
+
+export async function menuProducts() {
+  const d = await posterCall("menu.getProducts", {});
+  return d?.response || [];
+}

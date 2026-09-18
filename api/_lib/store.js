@@ -183,6 +183,8 @@ export const DEFAULT_CONFIG = {
   cupStaleDays: 7,         // столько дней без завоза стаканов — уже напоминание
   cupRouteTime: "20:00",   // вечером снабженцу уходит маршрут на завтра; "" — не слать
   lastCupRouteDate: null,
+  salesRollupTime: "03:30", // ночью — суточные итоги продаж в salesDays; "" — не считать
+  lastSalesRollupDate: null,
   cupLowStock: 500,        // меньше этого на складе — пора закупать
 
   // Сверка накладных с Poster в конце вечернего отчёта. Выключена, пока
@@ -536,4 +538,28 @@ export async function updateChatLearned(fn) {
     if (next) tx.set(ref, next);
     return next || cur;
   });
+}
+
+// ─── Суточные итоги продаж ─────────────────────────────────────────
+//
+// salesDays/{YYYY-MM-DD}: итог дня в форме клиентского кэша (см.
+// salesRollup.js). Пишет ночной сторож, читают все устройства.
+
+const SALES_DAYS = "salesDays";
+
+export async function getSalesDays(from, to) {
+  const snap = await getDb().collection(SALES_DAYS)
+    .where("date", ">=", from).where("date", "<=", to).orderBy("date").get();
+  return snap.docs.map((d) => d.data());
+}
+
+// Только даты — чтобы понять, чего не хватает, не читая сами итоги
+export async function listSalesDayDates(from, to) {
+  const snap = await getDb().collection(SALES_DAYS)
+    .where("date", ">=", from).where("date", "<=", to).select("date").get();
+  return snap.docs.map((d) => d.get("date")).filter(Boolean);
+}
+
+export async function saveSalesDay(doc) {
+  await getDb().collection(SALES_DAYS).doc(doc.date).set({ ...doc, ts: Date.now() });
 }

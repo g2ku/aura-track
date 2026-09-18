@@ -336,7 +336,7 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
 
   const days = enumerateDays(fromP, toP);
   const today = todayYmd();
-  const cache = readPayDays();
+  let cache = readPayDays();
 
   // Сегодня всегда заново: день ещё дописывается. Остальное — из кэша,
   // если он там есть и не протух.
@@ -344,7 +344,15 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
     const c = cache[d];
     return !c || Date.now() - (c.ts || 0) > PAY_DAY_TTL;
   };
-  const need = days.filter((d) => d === today || opts.fresh || stale(d));
+  let need = days.filter((d) => d === today || opts.fresh || stale(d));
+  // Прошедшие дни — сначала с сервера: там ночные итоги со способами оплаты
+  const past = need.filter((d) => d !== today);
+  if (past.length) {
+    const seeded = await seedDaysFromServer(past[0], past[past.length - 1], opts);
+    cache = readPayDays();
+    // «Обновить» по-прежнему перечитывает из Poster то, чего у сервера нет
+    need = days.filter((d) => d === today || (opts.fresh && !seeded.has(d)) || stale(d));
+  }
 
   if (need.length) {
     // Один запрос на весь недостающий отрезок — так же, как грузятся продажи
@@ -567,6 +575,53 @@ function setCachedDay(yyyymmdd, payload) {
       localStorage.setItem(CACHE_KEY, JSON.stringify({ [yyyymmdd]: { ts: Date.now(), ...payload } }));
     } catch (_) {}
   }
+}
+
+// ─── Суточные итоги с сервера ─────────────────────────────────────
+//
+// Ночью сторож считает прошедшие дни один раз и кладёт в Firestore
+// (api/_lib/salesRollup.js). Перед тем как тянуть из Poster десятки
+// страниц чеков, спрашиваем у своего сервера: что у него есть за этот
+// отрезок — то и кладём в кэш по дням (и в кэш способов оплаты), а в
+// Poster идём только за остатком. Сервер не ответил (нет входа, локальная
+// разработка, сбой) — работаем как раньше, ничего не теряем.
+//
+// Один запрос на отрезок за жизнь вкладки: касса и способы оплаты
+// спрашивают одно и то же, второй раз ходить незачем.
+const seedPromises = new Map();
+
+async function seedDaysFromServer(fromYmd, toYmd, opts = {}) {
+  const dash = (d) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+  const key = `${fromYmd}-${toYmd}`;
+  if (!seedPromises.has(key)) {
+    seedPromises.set(key, (async () => {
+      try {
+        const qs = new URLSearchParams({ from: dash(fromYmd), to: dash(toYmd) });
+        const res = await fetch(`/api/sales-days?${qs}`, { headers: await apiHeaders(), signal: opts.signal });
+        if (!res.ok) return new Set();
+        const data = await res.json();
+        const days = data?.days || {};
+        let n = 0;
+        const seeded = new Set();
+        const pay = readPayDays();
+        for (const [day, e] of Object.entries(days)) {
+          if (!/^\d{8}$/.test(day) || !e) continue;
+          seeded.add(day);
+          setCachedDay(day, {
+            rowsBySpot: e.rowsBySpot || {}, transactionsCount: e.transactionsCount || 0,
+            txBySpot: e.txBySpot || {}, cashBySpot: e.cashBySpot || {}, hasProducts: e.hasProducts !== false,
+          });
+          if (e.pay) pay[day] = { ts: Date.now(), total: e.pay.total || {}, bySpot: e.pay.bySpot || {}, lastOrder: e.pay.lastOrder || {}, openRows: [] };
+          n++;
+        }
+        if (n) writePayDays(pay);
+        return seeded;
+      } catch (_) {
+        return new Set(); // локально ручки нет, ответ — HTML; на проде — сбой сети: и то и другое не наша забота здесь
+      }
+    })());
+  }
+  return seedPromises.get(key);
 }
 
 export function clearPosterCache() {
@@ -1260,7 +1315,13 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   );
 
   // Проверяем кэш: если ВСЕ дни есть в кэше — возвращаем сразу
-  const uncachedDays = days.filter(d => !getCachedDay(d, withProducts));
+  let uncachedDays = days.filter(d => !getCachedDay(d, withProducts));
+  // Чего нет — сначала спрашиваем у своего сервера (ночные итоги), и
+  // только за остатком идём в Poster
+  if (uncachedDays.length) {
+    await seedDaysFromServer(uncachedDays[0], uncachedDays[uncachedDays.length - 1], opts);
+    uncachedDays = days.filter(d => !getCachedDay(d, withProducts));
+  }
   if (uncachedDays.length === 0) {
     // Все дни в кэше — собираем из кэша
     const merged = new Map();

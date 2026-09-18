@@ -12,9 +12,9 @@
 // Раз в 10–15 минут. Всё остальное — время сводки, пороги, тихие часы —
 // настраивается командами бота и лежит в его настройках.
 
-import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, listSalesDayDates, saveSalesDay } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
-import { dashTransactions, posterCall } from "../_lib/poster.js";
+import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
@@ -229,6 +229,47 @@ export default async function handler(req, res) {
         await setConfig({ lastCupRouteDate: today }).catch(() => {});
       } catch (e) {
         console.error("[cups] вечерний маршрут не отработал:", e?.message);
+      }
+    }
+
+    // ─── Ночью — суточные итоги продаж ───────────────────────────────
+    //
+    // Прошедший день не меняется: считаем его один раз здесь и кладём в
+    // salesDays, чтобы браузеры не тянули по 75 страниц чеков каждый.
+    // За одно пробуждение — несколько дней (ограничение по времени
+    // функции); метка «сегодня сделано» ставится только когда пробелов
+    // за последние ROLLUP_BACK_DAYS не осталось — иначе следующее
+    // пробуждение продолжит. Сбой одного дня не мешает остальным.
+    if (config.salesRollupTime && config.lastSalesRollupDate !== today && nowHM >= config.salesRollupTime) {
+      try {
+        const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
+        const have = await listSalesDayDates(shiftYmd(today, -ROLLUP_BACK_DAYS), today);
+        const pending = pendingDays(have, { today });
+        const batch = pending.slice(0, ROLLUP_PER_RUN);
+        let done = 0;
+        if (batch.length) {
+          const menu = menuIndexFrom(await menuProducts());
+          for (const day of batch) {
+            try {
+              // Чеки с товарами и строки dash (способы оплаты) — за один день
+              const [txs, dash] = await Promise.all([dayTransactions(day), dashTransactions(day.replace(/-/g, ""))]);
+              await saveSalesDay({ ...rollupDay(day, txs, menu), pay: payDayFrom(dash) });
+              done++;
+            } catch (e) {
+              console.error(`[sales] итог за ${day} не собрался:`, e?.message);
+            }
+          }
+        }
+        out.rolledUp = done;
+        out.rollupLeft = pending.length - done;
+        // Всё собрано — или ничего не собралось (Poster лежит): в обоих
+        // случаях сегодня больше не пробуем, завтра ночь будет своя
+        if (pending.length - done <= 0 || (batch.length && !done)) {
+          patch.lastSalesRollupDate = today;
+          await setConfig({ lastSalesRollupDate: today }).catch(() => {});
+        }
+      } catch (e) {
+        console.error("[sales] суточные итоги не отработали:", e?.message);
       }
     }
 

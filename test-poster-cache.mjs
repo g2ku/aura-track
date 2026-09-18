@@ -218,8 +218,9 @@ section("Кэш дней не растёт вечно");
   ok(/if \(Date\.now\(\) - \(c\.ts \|\| 0\) > PAY_DAY_TTL\) delete toSave\[d\];/.test(poster),
      "просроченные дни удаляются, а не просто перестают читаться");
   ok(/delete toSave\[today\]/.test(poster), "сегодняшний день в кэш не кладётся");
-  ok(/const need = days\.filter\(\(d\) => d === today \|\| opts\.fresh \|\| stale\(d\)\)/.test(poster),
+  ok(/let need = days\.filter\(\(d\) => d === today \|\| opts\.fresh \|\| stale\(d\)\)/.test(poster),
      "качаются только недостающие дни");
+  ok(/seedDaysFromServer\(past\[0\]/.test(poster), "и сначала — с сервера, где лежат ночные итоги");
 }
 
 section("Справочник точек не должен тормозить кассу");
