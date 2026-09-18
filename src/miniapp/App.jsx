@@ -202,7 +202,7 @@ export default function App({ tg }) {
         />
       )}
       {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} forecast={data.forecast} soonDays={data.soonDays} onSend={send} onUndo={isAdmin ? undo : null} isAdmin={isAdmin} />}
-      {active === "history" && <History api={api} today={data.date} keepDays={data.keepDays} skus={skus} />}
+      {active === "history" && <History api={api} today={data.date} keepDays={data.keepDays} skus={skus} canReconcile={who.role !== "supplier"} />}
     </>
   );
 }

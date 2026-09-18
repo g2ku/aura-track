@@ -22,9 +22,12 @@ function almatyDay() {
 // «2026-09-10» и ничего кроме: дата уходит прямо в запрос к базе.
 const ymd = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null);
 
-// Историю видят все, кроме снабженца: ему она без надобности, а лишний
-// экран в приложении, которое заполняют стоя у машины, только мешает.
-const canSee = (role) => role === "admin" || role === "viewer";
+// Историю видят все три роли: снабженцу нужно видеть свои же поездки —
+// когда был на Абае, сколько отвёз, что записалось. Сверка с Poster
+// (выдано против списанного) — инструмент владельца, снабженцу её не
+// отдаём.
+const canSee = (role) => role === "admin" || role === "viewer" || role === "supplier";
+const canReconcile = (role) => role === "admin" || role === "viewer";
 
 // Сколько дней в отрезке, включая оба конца
 const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
@@ -112,7 +115,7 @@ export default async function handler(req, res) {
       // Сверка с Poster — по запросу, а не всегда: она ходит в чужой
       // сервис, и открытие вкладки не должно ждать его настроения.
       let poster = null;
-      if (String(req.query.poster || "") === "1") {
+      if (String(req.query.poster || "") === "1" && canReconcile(role)) {
         try {
           poster = await reconcileFromPoster(givenFrom(sum), a, b, config);
 

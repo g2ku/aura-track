@@ -14,7 +14,7 @@ import Feed from "./Feed.jsx";
 const monthTitle = monthRu;
 const dayTitle = dayRu;
 
-export default function History({ api, today, keepDays, skus }) {
+export default function History({ api, today, keepDays, skus, canReconcile = true }) {
   const [pick, setPick] = useState({ kind: "month" });
   // Сверка ходит в Poster и потому по кнопке: открытие вкладки не должно
   // ждать чужой сервис.
@@ -137,7 +137,8 @@ export default function History({ api, today, keepDays, skus }) {
 
           {withFeed && <Feed trips={data.feed} skus={skus} />}
 
-          {!withPoster && (
+          {/* Сверка — инструмент владельца; снабженцу сервер её и не отдаст */}
+          {canReconcile && !withPoster && (
             <button className="primary" onClick={() => setWithPoster(true)} disabled={busy}>
               Сверить с Poster
             </button>

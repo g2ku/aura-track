@@ -823,6 +823,23 @@ section("Вечером — маршрут на завтра");
   ok(Number.isNaN(daysOf(todayNudge)) || Number.isNaN(daysOf(plan)) || daysOf(plan) <= daysOf(todayNudge), "на завтра дней не больше, чем на сегодня");
 
   eq(formatRoutePlan(st, ["OBI"], journal, { now: NOW, soonDays: 1, staleDays: 7 }), "", "ехать некуда — молчим");
+
+  // Абае хватает на 9 дней — везти нечего, и подсказки «взять» нет
+  ok(!/взять/.test(t.split("\n")[2]), "точке, которой хватает, ничего не подсказываем");
+  ok(!t.includes("Взять со склада"), "и погрузки нет");
+
+  // Другая картина: на точке почти пусто — план говорит, сколько везти
+  const j2 = [{ date: "x", moves: [
+    { kind: "out", sku: "350", qty: 500, branch: "Абая", before: 100, at: NOW - 12 * D },
+    { kind: "out", sku: "350", qty: 100, branch: "Абая", before: 100, at: NOW - 2 * D },
+  ] }];
+  let st2 = emptyState();
+  st2 = applyMove(st2, { kind: "in", sku: "350", qty: 9000, at: NOW - 30 * D });
+  for (const m of j2[0].moves) st2 = applyMove(st2, m);
+  const t2 = formatRoutePlan(st2, ["Абая"], j2, { now: NOW, soonDays: 4, staleDays: 7 });
+  ok(/Абая<\/b> — к утру [^\n]* · взять 300 × 350/.test(t2), `50/день, к утру ~50 на точке: везти 300: ${t2.split("\n")[2]}`);
+  ok(t2.includes("Взять со склада: 300 × 350."), "и общая погрузка одной строкой");
+  ok(t2.indexOf("Взять со склада") < t2.indexOf("На складе —"), "погрузка — перед остатком склада");
 }
 
 section("Пропуски — сигнал про точку");

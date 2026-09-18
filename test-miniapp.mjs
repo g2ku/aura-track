@@ -11,6 +11,7 @@ import { build } from "esbuild";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement as h } from "react";
 import { mkdirSync, rmSync } from "node:fs";
+import { suggestFor, loadPlan } from "./api/_lib/cups.js";
 import { join } from "node:path";
 
 let passed = 0, failed = 0;
@@ -60,7 +61,7 @@ const noop = async () => ({});
 section("Кому какой экран");
 
 {
-  eq(screenFor("supplier"), { canGive: true, canStock: false, canHistory: false, home: "give" }, "снабженец — только развоз");
+  eq(screenFor("supplier"), { canGive: true, canStock: false, canHistory: true, home: "give" }, "снабженец — развоз и история своих поездок");
   eq(screenFor("admin"), { canGive: true, canStock: true, canHistory: true, home: "stock" }, "владелец — всё");
   eq(screenFor("viewer"), { canGive: false, canStock: true, canHistory: true, home: "stock" }, "наблюдатель — смотреть и историю");
   eq(screenFor(null), { canGive: false, canStock: false, canHistory: false, home: "stock" }, "без роли — ничего");
@@ -73,10 +74,10 @@ section("Вкладки по правам");
 {
   eq(tabsFor("admin").map((t) => t.id), ["stock", "give", "history"], "владельцу три вкладки");
   eq(tabsFor("viewer").map((t) => t.id), ["stock", "history"], "наблюдателю склад и история");
-  eq(tabsFor("supplier"), [], "снабженцу одна страница — подписывать нечего");
+  eq(tabsFor("supplier").map((t) => t.id), ["give", "history"], "снабженцу — развоз и история его поездок, склад — нет");
   eq(tabsFor(null), [], "без роли вкладок нет");
   ok(!tabsFor("viewer").some((t) => t.id === "give"), "наблюдателю развоз не предлагают");
-  ok(!tabsFor("supplier").some((t) => t.id === "history"), "снабженцу история не нужна");
+  ok(!tabsFor("supplier").some((t) => t.id === "stock"), "склад целиком снабженцу не показываем");
 }
 
 section("Наблюдатель не видит ни одной кнопки записи");
@@ -109,6 +110,43 @@ section("Экран развоза");
   ok(html.includes("Записать выдачу"), "кнопка отправки на месте");
   ok(html.includes("disabled"), "и она заблокирована, пока ничего не введено");
   ok(html.includes("на складе 1 200"), "остаток по 350 виден");
+}
+
+section("Развоз: маршрут с галочками, подсказка на неделю, погрузка");
+
+{
+  const fc = [
+    { branch: "Дубай", daysLeft: 1, perDay: { "350": 50, "450": 20 }, left: { "350": 50, "450": 0 } },
+    { branch: "Абая", daysLeft: 2, perDay: { "350": 30, "450": 10 }, left: { "350": 100, "450": 40 } },
+    { branch: "Рамс", daysLeft: 9, perDay: { "350": 10 }, left: { "350": 200 } },
+  ];
+  const base = { state, skus: SKUS, branches: BRANCHES, forecast: fc, onSend: noop };
+
+  // Утро: ничего не записано — маршрут целиком и сколько грузить
+  const morning = render(h(Give, { ...base, today: [] }));
+  ok(morning.includes("Сегодня стоит заехать: <b class=\"urgent-text\">Дубай, Абая</b>"), "маршрут — срочные по порядку");
+  ok(morning.includes("Взять со склада на маршрут: 450 × 350, 200 × 450"), `погрузка посчитана по расходу: ${(morning.match(/Взять со склада[^<]*/) || [])[0]}`);
+  ok(!morning.includes("✓"), "галочек ещё нет");
+
+  // Днём: на Дубае были — галочка, прогресс, погрузка больше не нужна
+  const noon = render(h(Give, { ...base, today: [{ kind: "out", branch: "Дубай", sku: "350", qty: 300, at: Date.now() }] }));
+  ok(noon.includes("✓ Дубай"), "где были — с галочкой");
+  ok(noon.includes('class="chip done"'), "и приглушённо");
+  ok(noon.includes("Сегодня стоит заехать: <b class=\"urgent-text\">Абая</b>"), "в маршруте остались невыезженные");
+  ok(noon.includes("1 из 2 готово"), "прогресс виден");
+  ok(!noon.includes("Взять со склада"), "погрузка показывается только до выезда");
+
+  // Пропуск тоже считается «были»
+  const skipped = render(h(Give, { ...base, today: [{ kind: "skip", branch: "Дубай", reason: "закрыто", at: Date.now() }, { kind: "out", branch: "Абая", sku: "350", qty: 100, at: Date.now() }] }));
+  ok(skipped.includes("Маршрут на сегодня закрыт: 2 из 2 ✓"), "объехали всё — так и написано");
+
+  // Выбрал точку — подсказка «на неделю» из её расхода и остатка
+  // (выбрать в статическом рендере нельзя — проверяем саму арифметику)
+  const s = suggestFor(fc[0]);
+  eq(s, { "350": 300, "450": 150 }, "Дубай: 50/день × 7 − 50 на точке = 300; 20 × 7 = 140 → 150 (упаковками по 50)");
+  eq(suggestFor(fc[2]), null, "Рамс: 10 × 7 = 70 < 200 на точке — везти нечего, подсказки нет");
+  eq(suggestFor({ daysLeft: null }), null, "без прогноза — молчим");
+  eq(loadPlan(fc, { soonDays: 4 }), { "350": 450, "450": 200 }, "погрузка — сумма по срочным: Дубай 300+150, Абая 150+50");
 }
 
 section("Что записано сегодня");
@@ -158,6 +196,16 @@ section("История");
   ok(first.includes('max="2026-09-10"'), "будущие дни выбрать нельзя");
   ok(first.includes("сентябрь 2026") && first.includes("октябрь 2025"), "в списке месяцев год назад");
   ok(!first.includes("NaN") && !first.includes("undefined"), "и до ответа сервера ничего не сломано");
+
+  // Снабженцу история открыта, но без сверки с Poster — это инструмент владельца
+  const src = (await import("node:fs")).readFileSync("src/miniapp/History.jsx", "utf8");
+  ok(/canReconcile && !withPoster/.test(src), "кнопка сверки — только когда разрешено");
+  const app = (await import("node:fs")).readFileSync("src/miniapp/App.jsx", "utf8");
+  ok(/canReconcile=\{who\.role !== "supplier"\}/.test(app), "и снабженцу она не разрешена");
+  const apiSrc = (await import("node:fs")).readFileSync("api/cups.js", "utf8");
+  ok(/const canSee = \(role\) => role === "admin" \|\| role === "viewer" \|\| role === "supplier"/.test(apiSrc), "сервер отдаёт историю снабженцу");
+  ok(/=== "1" && canReconcile\(role\)/.test(apiSrc), "а сверку с Poster — только владельцу и наблюдателю");
+  eq(tabsFor("supplier").map((t) => t.id), ["give", "history"], "у снабженца две вкладки: развоз и история");
 }
 
 section("Прогноз и отмена на экранах");

@@ -26,10 +26,11 @@ export function tabsFor(role) {
 
 export function screenFor(role) {
   switch (role) {
-    // Снабженец приходит раздавать. Склад и «куда давно не возили» ему
-    // не показываем не из секретности, а чтобы не листал лишнее.
+    // Снабженец приходит раздавать; история — его же поездки: когда был,
+    // сколько отвёз. Склад целиком ему не показываем не из секретности, а
+    // чтобы не листал лишнее.
     case "supplier":
-      return { canGive: true, canStock: false, canHistory: false, home: "give" };
+      return { canGive: true, canStock: false, canHistory: true, home: "give" };
     case "admin":
       return { canGive: true, canStock: true, canHistory: true, home: "stock" };
     // Наблюдатель видит ровно то же, что владелец, и ни одной кнопки записи

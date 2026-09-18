@@ -14,6 +14,7 @@ import Today from "./Today.jsx";
 import { num } from "./fmt.js";
 import { byUrgency } from "./route.js";
 import { useMainButton, hasMainButton } from "./mainButton.js";
+import { suggestFor, loadPlan } from "../../api/_lib/cups.js";
 
 // Метка отправки живёт, пока не изменилась сама партия. Нажал дважды
 // или связь оборвалась и он повторил — сервер узнает ту же метку и не
@@ -75,6 +76,22 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
   const repeat = branch ? lastTrip?.[branch] : null;
   const canRepeat = repeat && skus.some((s) => repeat[s.id] > 0);
 
+  // Где сегодня уже были — по сегодняшним записям (выдача или пропуск).
+  // Маршрут превращается в список с галочками: видно, сколько осталось,
+  // и не приходится вспоминать, заезжал ли уже на Рамс.
+  const visited = useMemo(() => new Set((today || []).map((m) => m.branch).filter(Boolean)), [today]);
+  const routeLeft = route.filter((b) => !visited.has(b));
+  const routeDone = route.length - routeLeft.length;
+
+  // Подсказка «на неделю» по расходу точки — вместо прикидки на глаз
+  const fcRow = branch ? (forecast || []).find((f) => f.branch === branch) : null;
+  const suggested = fcRow ? suggestFor(fcRow) : null;
+  const canSuggest = suggested && skus.some((s) => suggested[s.id] > 0);
+  const applySuggested = () => setQty(Object.fromEntries(skus.map((s) => [s.id, suggested[s.id] ? String(suggested[s.id]) : ""])));
+
+  // Утром, пока ничего не записано — сколько грузить в машину на весь маршрут
+  const load = !visited.size && route.length ? loadPlan(forecast || [], { soonDays }) : null;
+
   function reset() {
     setQty(empty(skus));
     setBefore(empty(skus));
@@ -96,9 +113,12 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
       const left = r?.state?.stock
         ? ` · на складе ${skus.map((s) => num(r.state.stock[s.id])).join(" / ")}`
         : "";
+      // И куда дальше — следующая по срочности точка, где сегодня не были
+      const next = routeLeft.find((b) => b !== branch);
+      const onward = next ? ` · дальше: ${next}` : (route.length ? " · маршрут закрыт" : "");
       setMsg(r?.duplicate
         ? { kind: "ok", text: `${branch}: уже было записано, второй раз не провёл` }
-        : { kind: "ok", text: `${branch}: записал ${what}${left}` });
+        : { kind: "ok", text: `${branch}: записал ${what}${left}${onward}` });
       reset();
     } catch (e) {
       setMsg({ kind: "err", text: e.message });
@@ -154,22 +174,37 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
             отсортированы по срочности и выделены. */}
         <div className="label">
           {route.length > 0
-            ? <>Сегодня стоит заехать: <b className="urgent-text">{route.join(", ")}</b></>
+            ? (routeLeft.length
+              ? <>Сегодня стоит заехать: <b className="urgent-text">{routeLeft.join(", ")}</b>{routeDone > 0 && <span className="muted"> · {routeDone} из {route.length} готово</span>}</>
+              : <>Маршрут на сегодня закрыт: {route.length} из {route.length} ✓</>)
             : "Куда оставили"}
         </div>
         <div className="chips">
           {order.map((b) => (
             <button
               key={b.branch}
-              className={`chip${branch === b.branch ? " on" : b.urgent ? " urgent" : ""}`}
+              className={`chip${branch === b.branch ? " on" : visited.has(b.branch) ? " done" : b.urgent ? " urgent" : ""}`}
               onClick={() => { setBranch(branch === b.branch ? "" : b.branch); setSkipping(false); }}
             >
-              {b.branch}
+              {visited.has(b.branch) ? "✓ " : ""}{b.branch}
             </button>
           ))}
         </div>
+        {load && (
+          <div className="muted cap" style={{ marginTop: 8 }}>
+            Взять со склада на маршрут: {skus.filter((s) => load[s.id] > 0).map((s) => `${num(load[s.id])} × ${s.short}`).join(", ")}
+          </div>
+        )}
       </div>
 
+      {/* Две подсказки, одно касание каждая: «как в прошлый раз» и «на
+          неделю по расходу». Вторая точнее — она знает, сколько на точке
+          лежит сейчас и сколько там уходит в день. */}
+      {canSuggest && (
+        <button className="tab repeat" onClick={applySuggested}>
+          На неделю: {skus.filter((s) => suggested[s.id] > 0).map((s) => `${num(suggested[s.id])} × ${s.short}`).join(", ")} — подставить
+        </button>
+      )}
       {canRepeat && (
         <button
           className="tab repeat"

@@ -699,6 +699,42 @@ export function forecast(state, branches, days, { now = Date.now() } = {}) {
   });
 }
 
+// Сколько привезти на точку, чтобы хватило на days дней.
+//
+// Снабженец у машины решает «сколько оставить» на глаз или «как в
+// прошлый раз». Прогноз знает расход точки и сколько там сейчас лежит —
+// значит, знает и цифру: расход × дней − остаток, вверх до круглых
+// пятидесяти (стаканы идут упаковками). Точка без прогноза — null:
+// лучше промолчать, чем подсказать наобум.
+export function suggestFor(row, { days = 7, round = 50 } = {}) {
+  if (!row?.perDay) return null;
+  const out = {};
+  let any = false;
+  for (const id of SKU_IDS) {
+    const per = row.perDay[id] || 0;
+    if (per <= 0) { out[id] = 0; continue; }
+    const left = row.left?.[id] ?? 0;
+    const need = Math.max(0, per * days - left);
+    out[id] = Math.ceil(need / round) * round;
+    if (out[id] > 0) any = true;
+  }
+  return any ? out : null;
+}
+
+// Сколько взять со склада на весь маршрут: сумма подсказок по точкам,
+// куда сегодня стоит ехать. Считается утром, до выезда — вечером в
+// плане на завтра и в приложении, пока ничего не записано.
+export function loadPlan(rows, { soonDays = 4, days = 7, round = 50 } = {}) {
+  const total = Object.fromEntries(SKU_IDS.map((id) => [id, 0]));
+  let any = false;
+  for (const r of runningOut(rows, soonDays)) {
+    const s = suggestFor(r, { days, round });
+    if (!s) continue;
+    for (const id of SKU_IDS) { total[id] += s[id] || 0; if (s[id] > 0) any = true; }
+  }
+  return any ? total : null;
+}
+
 export function fmtDaysLeft(n) {
   if (n == null) return "не знаю";
   if (n === 0) return "кончаются";
@@ -774,12 +810,18 @@ export function formatRoutePlan(state, branches, journal, opts = {}) {
   const lines = ["<b>Маршрут на завтра</b>", ""];
   soon.forEach((f, i) => {
     const left = f.daysLeft === 0 ? "к утру кончатся" : `к утру ${fmtDaysLeft(f.daysLeft)}`;
-    lines.push(`${i + 1}. <b>${f.branch}</b> — ${left}`);
+    const take = suggestFor(f);
+    const hint = take ? ` · взять ${SKUS.filter((s) => take[s.id] > 0).map((s) => `${fmt(take[s.id])} × ${s.short}`).join(", ")}` : "";
+    lines.push(`${i + 1}. <b>${f.branch}</b> — ${left}${hint}`);
   });
   for (const x of stale) lines.push(`• ${x.branch} — не возили ${x.days} дн.`);
 
+  // Сколько грузить в машину — одной строкой, чтобы не складывать в уме
+  const load = loadPlan(fc, { soonDays });
   const short = SKUS.map((s) => `${s.short}: ${fmt(state?.stock?.[s.id])}`).join(", ");
-  lines.push("", `На складе — ${short}.`);
+  lines.push("");
+  if (load) lines.push(`Взять со склада: ${SKUS.filter((s) => load[s.id] > 0).map((s) => `${fmt(load[s.id])} × ${s.short}`).join(", ")}.`);
+  lines.push(`На складе — ${short}.`);
   return lines.join("\n");
 }
 
