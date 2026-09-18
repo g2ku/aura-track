@@ -251,7 +251,7 @@ export default function PosterView() {
           </div>
         </div>
         <button className="btn btn-out" onClick={() => { window.location.hash = "#/poster/compare"; }}>
-          <i className="ti ti-compare" aria-hidden="true" /> Сравнить периоды
+          <i className="ti ti-arrows-exchange" aria-hidden="true" /> Сравнить периоды
         </button>
       </div>
 

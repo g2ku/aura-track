@@ -96,6 +96,20 @@ section("Стаканы не зависят от того, включена ли
   ok(routeAt > 0 && routeBtn > routeAt, "кнопка — внутри вечернего блока");
 }
 
+section("Прогрев соседних функций");
+
+{
+  ok(/const WARM_PATHS = \[/.test(code), "список ручек для прогрева объявлен");
+  for (const p of ["/api/cups", "/api/poster/", "/api/supply-status", "/api/chat-memory"]) ok(code.includes(`"${p}`) || code.includes(`"${p}`), `греем ${p}`);
+  ok(/AbortSignal\.timeout\(\d+\)/.test(code), "с таймаутом — сторож не ждёт ответов");
+  ok(/Promise\.allSettled/.test(code), "и одна упавшая ручка не мешает другим");
+  const handler = code.slice(code.indexOf("export default async function handler"));
+  const warmAt = handler.indexOf("warmFunctions(siteUrl())");
+  const respAt = handler.indexOf("res.status(200).json(out)");
+  ok(warmAt > 0 && respAt > warmAt, "прогрев — перед ответом, после всей работы");
+  ok(handler.lastIndexOf("setConfig(patch)", warmAt) > 0, "и после сохранения меток: прогрев не должен их потерять");
+}
+
 section("Условие отправки осталось прежним");
 
 {

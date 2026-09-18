@@ -4,8 +4,8 @@ import { getUserLogin, getCurrentUid } from "../auth.jsx";
 
 const STATUS_LABELS = {
   open: { label: "Ожидает ответа", color: "var(--text-accent)", icon: "ti-clock" },
-  approved: { label: "Одобрено", color: "var(--text-success)", icon: "ti-check-circle" },
-  rejected: { label: "Отклонено", color: "var(--text-danger)", icon: "ti-x-circle" },
+  approved: { label: "Одобрено", color: "var(--text-success)", icon: "ti-circle-check" },
+  rejected: { label: "Отклонено", color: "var(--text-danger)", icon: "ti-circle-x" },
 };
 
 export default function MyTicketsView() {
@@ -106,7 +106,7 @@ export default function MyTicketsView() {
                       fontWeight: 600, marginBottom: 4, fontSize: 13,
                       color: t.status === "approved" ? "var(--text-success)" : "var(--text-danger)",
                     }}>
-                      <i className="ti ti-admin" /> Ответ админа:
+                      <i className="ti ti-user-shield" /> Ответ админа:
                     </div>
                     {t.response}
                   </div>

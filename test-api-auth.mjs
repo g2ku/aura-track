@@ -206,7 +206,10 @@ section("Телеграм-бот ходит мимо прокси и не зад
 
 {
   const watch = readFileSync("api/tg/watch.js", "utf8");
-  ok(!/\/api\/poster/.test(watch), "бот не ходит через прокси сайта");
+  // Прогрев функций дёргает /api/poster/warm — без токена, ради холодного
+  // старта, а не ради данных. Данные бот берёт напрямую из Poster.
+  const dataPath = watch.replace(/const WARM_PATHS = \[[^\]]*\];/, "");
+  ok(!/\/api\/poster/.test(dataPath), "бот не ходит за данными через прокси сайта");
   const lib = readFileSync("api/_lib/poster.js", "utf8");
   ok(!/requireUser/.test(lib), "серверный вызов Poster проверку входа не требует");
 }

@@ -258,7 +258,7 @@ export default function RecipesSettings({ open, onClose, initialRecipes, canEdit
           {/* Модификаторы */}
           <div className="card" style={S.card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={S.section}><i className="ti ti-layers" /> Модификаторы</div>
+              <div style={S.section}><i className="ti ti-stack-2" /> Модификаторы</div>
               {canEdit && <button className="btn btn-out btn-sm" onClick={addMod}><i className="ti ti-plus" /> Создать</button>}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>
@@ -327,7 +327,7 @@ export default function RecipesSettings({ open, onClose, initialRecipes, canEdit
                   const sel = selectedProduct === name;
                   return (
                     <button key={name} onClick={() => setSelectedProduct(name)} style={S.btn(sel)}>
-                      {has ? <i className="ti ti-check-circle" style={{ color: "var(--text-success, #4caf50)", fontSize: 10 }} /> : <span style={{ width: 10 }} />}
+                      {has ? <i className="ti ti-circle-check" style={{ color: "var(--text-success, #4caf50)", fontSize: 10 }} /> : <span style={{ width: 10 }} />}
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
                     </button>
                   );
@@ -349,7 +349,7 @@ export default function RecipesSettings({ open, onClose, initialRecipes, canEdit
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       {modifiers.map(mod => (
                         <button key={mod.id} style={S.pill} onClick={() => applyMod(mod.id)} title={`Применить "${mod.name}"`}>
-                          <i className="ti ti-layers" style={{ fontSize: 10 }} /> {mod.name || "?"}
+                          <i className="ti ti-stack-2" style={{ fontSize: 10 }} /> {mod.name || "?"}
                         </button>
                       ))}
                     </div>

@@ -42,6 +42,23 @@ const toPoster = (ymd) => ymd.replace(/-/g, "");
 // Бот не может написать первым тому, кто его не открывал, — Telegram
 // вернёт 403. Это не ошибка настройки, а нормальное состояние до первого
 // «/start», поэтому падать из-за этого нельзя: остальные должны получить.
+// Прогрев соседних функций.
+//
+// Каждая ручка /api/* — своя функция, и после простоя её первый вызов
+// стоит лишнюю секунду: холодный старт 1,4–1,7 с против тёплых 0,5 с.
+// Сторож и так просыпается каждые 10–15 минут — пусть заодно дёргает
+// ручки, которые открывают сайт и приложение. Ответ будет 401 (без
+// входа), но функция уже поднята. Ждём недолго: нам важно, чтобы запрос
+// ушёл, а не чтобы он ответил.
+const WARM_PATHS = ["/api/cups", "/api/poster/warm", "/api/supply-status", "/api/chat-memory", "/api/ingredient-movement"];
+
+async function warmFunctions(base) {
+  if (!base) return 0;
+  const results = await Promise.allSettled(WARM_PATHS.map((p) =>
+    fetch(`${base}${p}`, { signal: AbortSignal.timeout(2500), headers: { "User-Agent": "AuraTrack (warm)" } })));
+  return results.filter((r) => r.status === "fulfilled").length;
+}
+
 async function nudgeSuppliers(config, text, opts = {}) {
   if (!text) return 0;
   const ids = (config.cupSuppliers || []).map(String).filter(Boolean);
@@ -366,6 +383,11 @@ export default async function handler(req, res) {
     }
 
     if (Object.keys(patch).length) await setConfig(patch);
+
+    // Прогрев — последним и с коротким таймаутом: он не должен ни
+    // задержать сторожа, ни уронить его
+    try { out.warmed = await warmFunctions(siteUrl()); } catch (_) { /* не критично */ }
+
     res.status(200).json(out);
   } catch (e) {
     console.error("[tg] сторож упал:", e?.message);

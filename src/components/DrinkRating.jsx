@@ -75,7 +75,7 @@ export default function DrinkRating({ dateFrom, dateTo }) {
   return (
     <div style={{ marginTop: 16 }}>
       <div className="section-label" style={{ marginBottom: 10 }}>
-        <i className="ti ti-ranking" /> Рейтинг напитков по филиалам
+        <i className="ti ti-trophy" /> Рейтинг напитков по филиалам
       </div>
       <div className="drink-rating-grid">
         {rating.map((branch) => {

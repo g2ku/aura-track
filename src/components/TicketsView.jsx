@@ -5,8 +5,8 @@ import { useToast } from "../ui";
 
 const STATUS_LABELS = {
   open: { label: "Открыт", color: "var(--text-accent)", icon: "ti-circle-dot" },
-  approved: { label: "Одобрено", color: "var(--text-success)", icon: "ti-check-circle" },
-  rejected: { label: "Отклонено", color: "var(--text-danger)", icon: "ti-x-circle" },
+  approved: { label: "Одобрено", color: "var(--text-success)", icon: "ti-circle-check" },
+  rejected: { label: "Отклонено", color: "var(--text-danger)", icon: "ti-circle-x" },
 };
 
 export default function TicketsView() {
@@ -170,7 +170,7 @@ export default function TicketsView() {
                     ) : (
                       <button className="btn btn-out" style={{ fontSize: 13 }}
                         onClick={() => setResponding(t.id)}>
-                        <i className="ti ti-reply" /> Ответить
+                        <i className="ti ti-message-reply" /> Ответить
                       </button>
                     )}
                   </div>

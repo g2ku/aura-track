@@ -220,7 +220,7 @@ export default function PosterCompareView() {
       <div className="view-header">
         <div>
           <h1 className="view-title">
-            <i className="ti ti-compare" aria-hidden="true" /> Сравнение периодов
+            <i className="ti ti-arrows-exchange" aria-hidden="true" /> Сравнение периодов
           </h1>
           <div className="view-sub">
             Токен: <code style={{ color: "var(--text-accent)" }}>серверный</code>
@@ -310,7 +310,7 @@ export default function PosterCompareView() {
             </button>
           ) : (
             <button type="submit" className="btn btn-pri">
-              <i className="ti ti-compare" aria-hidden="true" /> Сравнить
+              <i className="ti ti-arrows-exchange" aria-hidden="true" /> Сравнить
             </button>
           )}
         </div>
@@ -354,7 +354,7 @@ export default function PosterCompareView() {
 
       {!data && !error && !loading && (
         <div className="card empty-state" style={{ marginTop: 16 }}>
-          <i className="ti ti-compare" aria-hidden="true" />
+          <i className="ti ti-arrows-exchange" aria-hidden="true" />
           <div className="empty-state-title">Выберите периоды</div>
           <div className="empty-state-sub">Настройте 2–4 периода и нажмите «Сравнить».</div>
         </div>
