@@ -32,6 +32,7 @@ const day = (date, k = 1) => ({
   txBySpot: { "4": 40 * k, "9": 20 * k, "11": 10 * k },
   rowsBySpot: { "4": { "Латте 0,4": { qty: 10 * k, sum: 15000 * k }, "Капучино L": { qty: 5 * k, sum: 9000 * k } }, "9": { "Латте 0,3": { qty: 4 * k, sum: 5000 * k } } },
 });
+const daysOf = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
 const range = (from, to, k) => { const out = []; for (let d = from; d <= to; d = shift(d, 1)) out.push(day(d, k)); return out; };
 const deps = {
   today: TODAY, siteUrl: "https://site",
@@ -98,6 +99,25 @@ section("Ответы");
   ok(j && j.text.includes("умеет только сайт") && j.text.includes("https://site/#/chat"), "чего бот не умеет — отправляет на сайт со ссылкой");
 
   eq(await answerQuestion("привет", deps), null, "болтовня — не вопрос");
+
+  // Динамика по месяцам — из тех же дневных итогов
+  const calls = [];
+  const depsLog = { ...deps, getDays: async (from, to) => { calls.push([from, to]); return range(from, to, 1); } };
+  const t = await answerQuestion("тренд кассы", depsLog);
+  ok(t && t.text.startsWith("<b>Касса по месяцам</b>"), "тренд — по месяцам");
+  ok(calls.length && calls[0][0].endsWith("-01") && daysOf(calls[0][0], TODAY) > 90, `без срока — три полных месяца и текущий: ${calls[0]?.join("..")}`);
+  ok(t.text.includes("* месяц ещё не закончился"), "текущий месяц помечен");
+  ok(/📈|📉|➡️/.test(t.text), "и процент от первого полного к последнему полному");
+  ok(t.text.includes("▇"), "с полоской");
+  const t6 = await answerQuestion("рост кассы за полгода", deps);
+  ok(t6 && (t6.text.match(/\n/g) || []).length >= 6, "за полгода — шесть строк месяцев");
+
+  // Дни недели — среднее на день
+  const w = await answerQuestion("касса по будням за неделю", deps);
+  ok(w && w.text.startsWith("<b>Касса по будням") && w.text.includes("Пн —") && !w.text.includes("Сб —"), "по будням — без выходных");
+  ok(w.text.includes("/день"), "среднее на день");
+  const we = await answerQuestion("чеки в выходные за неделю", deps);
+  ok(we && we.text.startsWith("<b>Чеки в выходные") && !we.text.includes("Пн —"), "в выходные — без будней");
   eq(await answerQuestion("ыыы", deps), null, "незнакомое слово в боте — не товар и не вопрос");
 
   // Память исправлений — общая с сайтом

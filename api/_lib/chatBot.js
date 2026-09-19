@@ -96,6 +96,62 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
 
   if (!SUPPORTED.has(parsed.metric)) return null;
 
+  const metric = parsed.metric === "compareBranches" ? "cash" : parsed.metric;
+  const pickOf = (x) => (metric === "checks" ? x.checks : metric === "avgCheck" ? x.avg : x.total);
+  const unitOf = metric === "checks" ? int : fmt;
+
+  // Динамика по месяцам: дни уже на руках, складываем по «ГГГГ-ММ».
+  // Незавершённый месяц помечаем — сравнивать его с полными нечестно
+  if (parsed.operation === "trend" && ["cash", "checks", "avgCheck"].includes(metric)) {
+    const byMonth = {};
+    for (const d of days || []) if (d?.date) (byMonth[d.date.slice(0, 7)] ||= []).push(d);
+    const months = Object.keys(byMonth).sort();
+    if (months.length < 2) return null;
+    const M = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    const rows = months.map((ym) => {
+      const v = pickOf(sumDays(byMonth[ym], spots));
+      const partial = ym === String(today).slice(0, 7);
+      return { ym, v, partial, name: `${M[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}` };
+    });
+    const full = rows.filter((r) => !r.partial);
+    const a = full[0] || rows[0], b = full[full.length - 1] || rows[rows.length - 1];
+    const pct = a.v ? Math.round(((b.v - a.v) / Math.abs(a.v)) * 1000) / 10 : null;
+    const max = Math.max(...rows.map((r) => r.v));
+    const bar = (v) => "▇".repeat(Math.max(1, Math.round((v / (max || 1)) * 8)));
+    return [`<b>${label(metric)}${escapeHtml(where)} по месяцам</b>`,
+      ...rows.map((r) => `${r.name}${r.partial ? "*" : ""} ${bar(r.v)} ${unitOf(r.v)}`),
+      rows.some((r) => r.partial) ? "<i>* месяц ещё не закончился</i>" : "",
+      pct == null || a === b ? "" : `${pct > 0 ? "📈 +" : pct < 0 ? "📉 " : "➡️ "}${String(pct).replace(".", ",")} % (${a.name} → ${b.name})`,
+    ].filter(Boolean).join("\n");
+  }
+
+  // По дням недели — среднее на один такой день; «по будням» и «в
+  // выходные» режут список по слову из вопроса
+  if (parsed.operation === "byWeekday" && ["cash", "checks", "avgCheck"].includes(metric)) {
+    const q = String(parsed.raw || "").toLowerCase();
+    const only = /будн/.test(q) ? "weekdays" : /выходн/.test(q) ? "weekend" : null;
+    const N = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    const acc = N.map((name) => ({ name, days: [] }));
+    for (const d of days || []) {
+      if (!d?.date) continue;
+      const dow = new Date(`${d.date}T00:00:00Z`).getUTCDay();
+      const weekend = dow === 0 || dow === 6;
+      if (only === "weekdays" && weekend) continue;
+      if (only === "weekend" && !weekend) continue;
+      acc[dow].days.push(d);
+    }
+    const rows = acc.filter((r) => r.days.length).map((r) => {
+      const x = sumDays(r.days, spots);
+      const v = metric === "avgCheck" ? x.avg : pickOf(x) / r.days.length;
+      return { name: r.name, v, n: r.days.length };
+    }).sort((a, b) => b.v - a.v);
+    if (!rows.length) return `Продаж ${escapeHtml(when)} не нашёл.`;
+    const scope = only === "weekdays" ? "по будням" : only === "weekend" ? "в выходные" : "по дням недели";
+    return [`<b>${label(metric)}${escapeHtml(where)} ${scope} ${escapeHtml(when)}</b>`,
+      ...rows.map((r, i) => `${i === 0 ? "🏆" : i === rows.length - 1 && rows.length > 1 ? "📉" : "•"} ${r.name} — ${unitOf(r.v)}${metric === "avgCheck" ? "" : "/день"} · ${r.n} дн.`),
+    ].join("\n");
+  }
+
   // Сравнение двух отрезков. «Сравни август и сентябрь» разбор помечает
   // как сравнение точек — здесь это сравнение кассы двух месяцев
   if (parsed.period2 && parsed.operation === "percentChange") {
@@ -204,6 +260,13 @@ export async function answerQuestion(text, deps) {
     return { text: `Это умеет только сайт — ${deps.siteUrl ? `${deps.siteUrl}/#/chat` : "раздел «Ассистент»"}.`, parsed };
   }
   const { today } = deps;
+  // «Тренд кассы» без срока — три полных месяца и текущий: так же, как
+  // на сайте. Названный срок («за полгода») оставляем как есть
+  if (parsed.operation === "trend" && parsed.period?.from && daysBetween(parsed.period.from, parsed.period.to) < 45) {
+    const [y, m] = today.split("-").map(Number);
+    const start = new Date(Date.UTC(y, m - 1 - 3, 1));
+    parsed.period = { from: start.toISOString().slice(0, 10), to: today, label: "по месяцам" };
+  }
   let todayMissing = false;
   const load = async (period) => {
     if (!period?.from) return [];
@@ -235,6 +298,10 @@ export async function answerQuestion(text, deps) {
   lines.push(answer);
   if (todayMissing) lines.push("<i>Сегодняшний день не вошёл: Poster не ответил.</i>");
   return { text: lines.join("\n"), parsed };
+}
+
+function daysBetween(from, to) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
 }
 
 function shiftYmd(ymd, days) {

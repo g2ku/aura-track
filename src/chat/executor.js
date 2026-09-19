@@ -203,7 +203,7 @@ export async function executeQuery(parsed, userBranch) {
     // Operations that work across metrics
     if (operation === "trend") return await handleTrend(metric, effectiveSpot, period, ipGroup);
     if (operation === "forecast") return await handleForecast(metric, effectiveSpot, period, ipGroup);
-    if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup);
+    if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
     if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
     if (operation === "anomaly") return await handleAnomaly(metric, effectiveSpot, period, ipGroup);
     if (metric === "compareBranches") return await handleCompareBranches(operation, effectiveSpot, period, ipGroup);
@@ -219,7 +219,7 @@ export async function executeQuery(parsed, userBranch) {
       case "tax": return await handleTax(operation, effectiveSpot, period, ipGroup);
       case "margin":
       case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup);
-      case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup);
+      case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
       case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup);
       case "openChecks": return await handleOpenChecks(effectiveSpot);
       case "alerts": return await handleAlerts();
@@ -985,55 +985,64 @@ async function handleForecast(metric, spot, period, ipGroup) {
 
 // ─── По дням недели ─────────────────────────────────────────────
 
-async function handleByWeekday(metric, spot, period, ipGroup) {
+// Дни недели — из дневных итогов, а не из чеков: месяц чеков — это
+// мегабайты, а здесь нужны только суммы по дням. Считаем среднее на один
+// такой день, а не сумму за период: в месяце пять понедельников и четыре
+// воскресенья, и по сумме понедельник «выигрывал» ни за что.
+// «По будням» и «в выходные» — фильтр по слову из вопроса.
+const WEEKEND = new Set([0, 6]);
+async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
+  const q = String(raw).toLowerCase();
+  const only = /будн/.test(q) ? "weekdays" : /выходн/.test(q) ? "weekend" : null;
 
-  // Fetch receipts for daily breakdown
-  const receipts = await fetchReceipts(period.from, period.to);
+  let perDay = await fetchCashPerDay(period.from, period.to);
+  perDay = perDay.filter((d) => matchesSpot({ spotId: d.spotId, spotName: d.spotName }, spot));
+  perDay = await filterByIPGroup(perDay, ipGroup);
 
-  const weekdayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-  const weekdayTotals = Array(7).fill(0);
-  const weekdayCounts = Array(7).fill(0);
-
-  for (const r of receipts.receipts || []) {
-    if (r.spotId && !matchesSpot({ spotId: r.spotId, spotName: r.spotName }, spot)) continue;
-    if (ipGroup) {
-      const branchId = r.spotName?.startsWith("Aura02_") ? r.spotName : null;
-      if (branchId) {
-        const groupBranches = await resolveIPGroupBranches(ipGroup);
-        if (groupBranches && !groupBranches.includes(branchId)) continue;
-      }
-    }
-    const date = r.dateOpen ? new Date(r.dateOpen) : null;
-    if (!date || isNaN(date.getTime())) continue;
-    const day = date.getDay();
-    const sum = Number(r.sum) || 0;
-    weekdayTotals[day] += sum;
-    weekdayCounts[day]++;
+  // Один день — одна строка: точки складываем
+  const byDate = {};
+  for (const d of perDay) {
+    const k = String(d.date);
+    const b = (byDate[k] ||= { total: 0, tx: 0 });
+    b.total += d.total || 0;
+    b.tx += d.txCount || 0;
   }
 
-  // Sort by total (best day first)
-  const indexed = weekdayNames.map((name, i) => ({
-    name,
-    total: weekdayTotals[i],
-    count: weekdayCounts[i],
-    avg: weekdayCounts[i] > 0 ? Math.round(weekdayTotals[i] / weekdayCounts[i]) : 0,
-  }));
-  indexed.sort((a, b) => b.total - a.total);
+  const weekdayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+  const acc = weekdayNames.map((name) => ({ name, total: 0, tx: 0, days: 0 }));
+  for (const [k, v] of Object.entries(byDate)) {
+    const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
+    const dow = new Date(iso + "T00:00:00").getDay();
+    if (only === "weekdays" && WEEKEND.has(dow)) continue;
+    if (only === "weekend" && !WEEKEND.has(dow)) continue;
+    acc[dow].total += v.total; acc[dow].tx += v.tx; acc[dow].days++;
+  }
 
+  const indexed = acc.filter((d) => d.days > 0).map((d) => ({
+    ...d,
+    avg: Math.round(d.total / d.days),
+    avgTx: Math.round(d.tx / d.days),
+  }));
+  if (!indexed.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
+
+  const useChecks = metric === "checks";
+  indexed.sort((a, b) => (useChecks ? b.avgTx - a.avgTx : b.avg - a.avg));
   const lines = indexed.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
-    return `${emoji} ${d.name}: ${fmt(d.total)} (${d.count} чеков, ср. ${fmt(d.avg)})`;
+    return useChecks
+      ? `${emoji} ${d.name}: ${d.avgTx} чеков/день (${d.days} дн.)`
+      : `${emoji} ${d.name}: ${fmt(d.avg)}/день (${d.avgTx} чеков, ${d.days} дн.)`;
   }).join("\n");
 
-  const bestDay = indexed[0];
-  const worstDay = indexed[indexed.length - 1];
-
+  const best = indexed[0], worst = indexed[indexed.length - 1];
+  const scope = only === "weekdays" ? "по будням" : only === "weekend" ? "в выходные" : "по дням недели";
+  const tail = indexed.length > 1 ? `\n\n🏆 Лучший день: ${best.name}\n📉 Худший день: ${worst.name}` : "";
   return {
-    text: `Касса по дням недели ${sl}${ipLabel} за ${pl}:\n${lines}\n\n🏆 Лучший день: ${bestDay.name}\n📉 Худший день: ${worstDay.name}`,
-    data: { weekdayData: indexed, bestDay: bestDay.name, worstDay: worstDay.name },
+    text: `${useChecks ? "Чеки" : "Касса"} ${scope} ${sl}${ipLabel} за ${pl}:\n${lines}${tail}`,
+    data: { weekdayData: indexed, bestDay: best.name, worstDay: worst.name, only },
   };
 }
 
