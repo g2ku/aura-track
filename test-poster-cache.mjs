@@ -205,7 +205,18 @@ section("Кэш продаж вытесняет старые дни");
   const kept = store.get(KEY);
   ok(!kept || JSON.parse(kept) , "после переполнения кэш в рабочем состоянии");
   ok(!kept || Object.keys(JSON.parse(kept)).length <= 1,
-     "кэш начат заново, а не остался переполненным");
+     "запись, которая не влезает даже одна, — кэш начат заново");
+
+  // Переполнение мягкое: много дней, каждый небольшой — уходят самые
+  // старые половинами, свежие остаются. Раньше стирался весь кэш.
+  store.set(KEY, JSON.stringify(Object.fromEntries(
+    Array.from({ length: 12 }, (_, i) => [`202607${String(i + 1).padStart(2, "0")}`, { ts: hours(1), rowsBySpot: { x: "я".repeat(300) } }]),
+  )));
+  setCachedDay("20260826", { rowsBySpot: { x: "я".repeat(600) } });
+  const soft = JSON.parse(store.get(KEY));
+  ok(soft["20260826"], "новый день записан");
+  ok(!soft["20260701"] && !soft["20260702"], "самые старые выброшены");
+  ok(Object.keys(soft).length > 1, `но не всё подряд: осталось ${Object.keys(soft).length} дней`);
 
   delete globalThis.localStorage;
 }

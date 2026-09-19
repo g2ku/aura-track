@@ -568,9 +568,20 @@ function setCachedDay(yyyymmdd, payload) {
 
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
   } catch (_) {
-    // Место кончилось даже после чистки — начинаем кэш заново, иначе он
-    // так и останется забитым и бесполезным.
+    // Место кончилось даже после чистки: полгода дней с товарами — это
+    // мегабайты. Выкидываем самые старые дни половинами, пока не влезет;
+    // свежие — те, что смотрят чаще — остаются. Раньше кэш обнулялся
+    // целиком, и следующий взгляд на месяц снова шёл в Poster за всем.
     try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      const cache = raw ? (JSON.parse(raw) || {}) : {};
+      cache[yyyymmdd] = { ts: Date.now(), ...payload };
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const days = Object.keys(cache).filter((d) => d !== yyyymmdd).sort();
+        if (!days.length) break;
+        for (const d of days.slice(0, Math.max(1, Math.ceil(days.length / 2)))) delete cache[d];
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); return; } catch (_) { /* ещё половину */ }
+      }
       localStorage.removeItem(CACHE_KEY);
       localStorage.setItem(CACHE_KEY, JSON.stringify({ [yyyymmdd]: { ts: Date.now(), ...payload } }));
     } catch (_) {}
