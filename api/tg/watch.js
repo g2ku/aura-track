@@ -12,7 +12,7 @@
 // Раз в 10–15 минут. Всё остальное — время сводки, пороги, тихие часы —
 // настраивается командами бота и лежит в его настройках.
 
-import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, listSalesDayDates, saveSalesDay, getSalesDays } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, listSalesDayDates, saveSalesDay, getSalesDays, saveMenuIndex } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
@@ -285,6 +285,8 @@ export default async function handler(req, res) {
         const mismatches = [];
         if (batch.length) {
           const menu = menuIndexFrom(await menuProducts());
+          // Индекс меню — в базу: боту и сайту 15 КБ вместо 4,6 МБ из Poster
+          await saveMenuIndex(menu).catch((e) => console.warn("[menu] индекс не сохранился:", e?.message));
           for (const day of batch) {
             try {
               // Чеки с товарами и строки dash (способы оплаты) — за один день

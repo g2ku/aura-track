@@ -9,6 +9,9 @@
   "functions": {
     "api/tg/watch.js": {
       "maxDuration": 60
+    },
+    "api/tg/webhook.js": {
+      "maxDuration": 60
     }
   },
   "headers": [

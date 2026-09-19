@@ -177,6 +177,25 @@ section("Клиент: серверные дни — в кэш, в Poster тол
   eq(r2.reduce((s, d) => s + d.total, 0), 5, "сервер ответил HTML (локальная разработка) — Poster как раньше");
 }
 
+section("Индекс меню — ночью в базу, оттуда боту и сайту");
+
+{
+  const w = readFileSync("api/tg/watch.js", "utf8");
+  ok(w.includes("await saveMenuIndex(menu)"), "сторож сохраняет индекс меню при сборке итогов");
+  const api = readFileSync("api/sales-days.js", "utf8");
+  ok(api.includes('req.query?.menu || "") === "1"') && api.indexOf("requireUser(req)") < api.indexOf("getMenuIndex()"), "ручка отдаёт индекс — только вошедшим");
+  const poster = readFileSync("src/poster.js", "utf8");
+  const idx = poster.indexOf('fetch("/api/sales-days?menu=1"');
+  ok(idx > 0 && idx < poster.indexOf('call("menu.getProducts", {}, opts)', poster.indexOf("export async function getMenuIndex")), "сайт спрашивает индекс у сервера до 4,6 МБ из Poster");
+  ok(/2 \* 86400000/.test(poster.slice(idx, idx + 600)), "и не старше двух суток");
+  const cmd = readFileSync("api/_lib/commands.js", "utf8");
+  ok(cmd.includes("store.getMenuIndex") && cmd.includes("menuFromDb"), "бот — тоже из базы");
+  const store = readFileSync("api/_lib/store.js", "utf8");
+  ok(/size > 900_000/.test(store), "в документ не пишем больше 900 КБ");
+  const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
+  ok((vercel.functions?.["api/tg/webhook.js"]?.maxDuration || 0) >= 60, "вебхуку дано время на ответ ассистента с товарами за сегодня");
+}
+
 section("Ручка и сторож собраны правильно");
 
 {

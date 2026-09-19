@@ -898,6 +898,20 @@ export async function getMenuIndex(opts = {}) {
   }
   if (menuCache.promise) return menuCache.promise;
   menuCache.promise = (async () => {
+    // Сначала — индекс с нашего сервера: сторож собирает его ночью из
+    // того же меню, 15 КБ вместо 4,6 МБ. Свежее двух суток — берём;
+    // нет или старый (Poster мог пополниться) — идём в Poster как раньше.
+    if (!opts.fresh) {
+      try {
+        const res = await fetch("/api/sales-days?menu=1", { headers: await apiHeaders(), signal: opts.signal });
+        const m = res.ok ? await res.json() : null;
+        if (m?.idx && Object.keys(m.idx).length && Date.now() - (m.ts || 0) < 2 * 86400000) {
+          menuCache.data = m.idx;
+          try { localStorage.setItem(MENU_KEY, JSON.stringify({ ts: Date.now(), idx: m.idx })); } catch (_) {}
+          return m.idx;
+        }
+      } catch (_) { /* локально ручки нет — Poster */ }
+    }
     const data = await call("menu.getProducts", {}, opts);
     const idx = {};
     for (const p of (data?.response) || []) {

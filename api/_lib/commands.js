@@ -150,8 +150,14 @@ async function askBot(text, store) {
     getToday: async (needProducts) => {
       const { dayTransactions, menuProducts } = await import("./poster.js");
       const { rollupDay, menuIndexFrom } = await import("./salesRollup.js");
-      const [txs, menu] = await Promise.all([dayTransactions(today), needProducts ? menuProducts() : Promise.resolve([])]);
-      return rollupDay(today, txs, menuIndexFrom(menu));
+      // Названия товаров — из ночного индекса в базе (15 КБ); нет его —
+      // из Poster (4,6 МБ, но это редкость: индекс обновляется каждую ночь)
+      const menuFromDb = needProducts && store.getMenuIndex ? (await store.getMenuIndex())?.idx : null;
+      const [txs, menu] = await Promise.all([
+        dayTransactions(today),
+        menuFromDb ? Promise.resolve(menuFromDb) : (needProducts ? menuProducts().then(menuIndexFrom) : Promise.resolve({})),
+      ]);
+      return rollupDay(today, txs, menu);
     },
   };
   return answerQuestion(text, deps);

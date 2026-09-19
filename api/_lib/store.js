@@ -364,7 +364,7 @@ export function botStore() {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
     getCupState, applyCupMoves, undoCupMoves, getCupDays, getCupDay, purgeCupDays,
-    getSalesDays,
+    getSalesDays, getMenuIndex,
   };
 }
 
@@ -565,4 +565,32 @@ export async function listSalesDayDates(from, to) {
 
 export async function saveSalesDay(doc) {
   await getDb().collection(SALES_DAYS).doc(doc.date).set({ ...doc, ts: Date.now() });
+}
+
+// ─── Индекс меню ────────────────────────────────────────────────────
+//
+// menu.getProducts в Poster весит 4,6 МБ, а нужен из него индекс
+// «id → название» на 15 КБ. Сторож, собирая ночные итоги, всё равно
+// тянет меню — сохраняем индекс здесь, и бот с сайтом читают его, а не
+// Poster. Документ один; больше 900 КБ не пишем — предел Firestore мегабайт.
+
+const MENU_INDEX = "menu/index";
+
+export async function saveMenuIndex(idx) {
+  const count = Object.keys(idx || {}).length;
+  if (!count) return false;
+  const size = Buffer.byteLength(JSON.stringify(idx), "utf8");
+  if (size > 900_000) { console.warn(`[menu] индекс ${size} байт — не помещается в документ`); return false; }
+  await getDb().doc(MENU_INDEX).set({ idx, count, ts: Date.now() });
+  return true;
+}
+
+export async function getMenuIndex() {
+  try {
+    const snap = await getDb().doc(MENU_INDEX).get();
+    return snap.exists ? snap.data() : null;
+  } catch (e) {
+    console.error("[menu] индекс не прочитался:", e?.message);
+    return null;
+  }
 }
