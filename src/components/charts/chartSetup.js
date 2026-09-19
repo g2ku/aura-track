@@ -1,11 +1,22 @@
 // Общая инициализация Chart.js и набор тёмных дефолтов.
 // Импортируется лениво из Dashboard, чтобы не раздувать основной чанк.
 
-import { Chart, registerables } from "chart.js";
+import {
+  Chart, LineController, BarController, DoughnutController,
+  CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement,
+  Tooltip, Legend, Filler,
+} from "chart.js";
 import { fmt } from "../../utils";
 
-// Регистрируем все контроллеры/элементы/плагины один раз.
-Chart.register(...registerables);
+// Регистрируем только то, что рисуем: линии, столбцы, кольцо, две оси,
+// тултип, легенду и заливку под линией. `registerables` тянул все
+// контроллеры и шкалы (радар, время, логарифм) — сотню лишних килобайт
+// в чанк, который грузится на каждом экране с графиком.
+Chart.register(
+  LineController, BarController, DoughnutController,
+  CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement,
+  Tooltip, Legend, Filler,
+);
 
 // Тёмная палитра: цвета берём из CSS-переменных, чтобы графики
 // сливались с темой. Не падаем, если DOM ещё не готов — пустая строка
