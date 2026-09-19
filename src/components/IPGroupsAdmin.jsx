@@ -7,7 +7,7 @@
 
 import { useState, useEffect } from "react";
 import { loadIPGroups, saveIPGroups, clearIPGroupsCache } from "../ipGroups";
-import { BRANCHES, formatBranchName } from "../auth.jsx";
+import { BRANCHES } from "../auth.jsx";
 import { useToast } from "../ui";
 
 const ALL_BRANCH_IDS = Object.keys(BRANCHES);

@@ -800,12 +800,11 @@ async function handleTax(operation, spot, period, ipGroup) {
 
 async function handleMargin(operation, spot, period, ipGroup) {
   const { loadMargin, calcRecipeCost } = await import("../margin.js");
-  const { getMenuIndex } = await import("../poster.js");
 
-  const [cashData, marginData, menuIdx] = await Promise.all([
+  // Индекс меню здесь не нужен: он весит до мегабайта и тянулся зря
+  const [cashData, marginData] = await Promise.all([
     fetchCashBySpot(period.from, period.to),
     loadMargin(),
-    getMenuIndex(),
   ]);
 
   let filtered = cashData.filter(d => matchesSpot(d, spot));

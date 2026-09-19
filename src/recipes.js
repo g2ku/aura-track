@@ -55,14 +55,6 @@ export const INGREDIENTS = [
   { id: "condensed_milk", name: "Сгущённое молоко", unit: "г" },
 ];
 
-// Вспомогательные функции для рецептов
-const S350 = (id, qty) => ({ ingredientId: id, qty, cup: "350" });
-const S450 = (id, qty) => ({ ingredientId: id, qty, cup: "450" });
-const SP = (id, qty) => ({ ingredientId: id, qty, cup: "all" });
-const COFFEE_SHOT_1 = { ingredientId: "coffee_beans", qty: 8 };
-const COFFEE_SHOT_2 = { ingredientId: "coffee_beans", qty: 16 };
-const COFFEE_SHOT_3 = { ingredientId: "coffee_beans", qty: 24 };
-
 export const RECIPES = {
   // ═══════════════════════════════════════════════════════
   // КОФЕЙНЫЕ НАПИТКИ — ГОРЯЧИЕ

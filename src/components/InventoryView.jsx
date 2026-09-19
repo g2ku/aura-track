@@ -11,7 +11,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { KpiCard, EmptyState, Button, Pill, useToast } from "../ui";
-import { fmt } from "../utils";
 import { getSpots } from "../poster";
 import { subscribeRecipes, subscribeInventoryHistory, deleteInventorySession } from "../firebase";
 import RecipesSettings from "./RecipesSettings";

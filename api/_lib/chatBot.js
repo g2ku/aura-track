@@ -14,7 +14,6 @@
 // Чистая часть — answerFrom(parsed, days, ...): на вход разбор и дни,
 // на выход текст. Сеть и база — только в answerQuestion.
 
-import { parseQuestion } from "../../src/chat/parser.js";
 import { understand } from "../../src/chat/understand.js";
 import { recallEntry } from "../../src/chat/memory.js";
 import { baselinePeriods, formatContext, averageOf } from "../../src/chat/context.js";

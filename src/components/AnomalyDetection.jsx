@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
-import { fetchCashPerDay, fetchCashBySpot } from "../poster";
+import { fetchCashPerDay } from "../poster";
 import { BRANCHES } from "../auth.jsx";
 
 function todayStr() {
@@ -38,7 +38,6 @@ function stddev(arr) {
 export default function AnomalyDetection() {
   const [period, setPeriod] = useState("30d");
   const [dailyData, setDailyData] = useState([]);
-  const [cashBySpot, setCashBySpot] = useState([]);
   const [loading, setLoading] = useState(false);
   const [sensitivity, setSensitivity] = useState(2); // standard deviations
 
@@ -52,12 +51,7 @@ export default function AnomalyDetection() {
   async function loadData() {
     setLoading(true);
     try {
-      const [daily, cash] = await Promise.all([
-        fetchCashPerDay(pFrom, pTo),
-        fetchCashBySpot(pFrom, pTo),
-      ]);
-      setDailyData(daily);
-      setCashBySpot(cash);
+      setDailyData(await fetchCashPerDay(pFrom, pTo));
     } catch (e) {
       console.error("[Anomaly] load error:", e);
     }

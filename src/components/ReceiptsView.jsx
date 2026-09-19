@@ -5,10 +5,10 @@
 // Детали чека: раскрывается по клику — список товаров.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchReceipts, clearPosterCache } from "../poster";
+import { fetchReceipts } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
-import { canSeeOpenChecks, useUserBranch, getSpotNameForBranch, getUserSpotId, spotNameByPosterId, BRANCHES } from "../auth.jsx";
+import { canSeeOpenChecks, useUserBranch, getUserSpotId, spotNameByPosterId } from "../auth.jsx";
 
 function today() {
   const d = new Date();
@@ -50,19 +50,9 @@ function formatDateTime(str) {
   return String(str).slice(0, 16);
 }
 
-function formatDate(str) {
-  if (!str) return "";
-  if (typeof str === "number") {
-    return new Date(str * 1000).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-  }
-  const parts = String(str).split(" ");
-  return parts[0] || "";
-}
-
 export default function ReceiptsView() {
   const toast = useToast();
   const userBranch = useUserBranch();
-  const userSpotName = getSpotNameForBranch(userBranch);
 
   // Сегодня, а не неделя: на этот экран приходят с дашборда посмотреть,
   // что бариста готовит прямо сейчас в зависшем чеке.
@@ -183,13 +173,6 @@ export default function ReceiptsView() {
       { count: 0, totalSum: 0, totalDiscount: 0, totalProfit: 0, openCount: 0 }
     );
   }, [filtered]);
-
-  // Уникальные официанты
-  const waiters = useMemo(() => {
-    if (!data) return [];
-    const set = new Set(data.receipts.map((r) => r.waiter).filter(Boolean));
-    return Array.from(set).sort();
-  }, [data]);
 
   // Уникальные филиалы в данных
   const spots = useMemo(() => {

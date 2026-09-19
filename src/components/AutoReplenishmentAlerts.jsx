@@ -2,7 +2,6 @@
 // Расчёт скорости расхода ингредиентов и алерты при достижении порога.
 
 import { useState, useEffect, useMemo } from "react";
-import { fmt } from "../utils";
 import { fetchPosterSales } from "../poster";
 import { loadMargin } from "../margin";
 

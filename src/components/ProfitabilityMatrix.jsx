@@ -5,7 +5,6 @@ import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchPosterSales } from "../poster";
 import { loadMargin, calcRecipeCost } from "../margin";
-import { isAdmin } from "../auth.jsx";
 
 function todayStr() {
   const d = new Date();

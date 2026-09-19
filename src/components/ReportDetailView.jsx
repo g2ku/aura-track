@@ -1,6 +1,5 @@
 import { setBranchPayments, deleteBranchPayment } from "../firebase";
 import { useAppStore } from "../store/useAppStore";
-import { useAuth } from "../auth.jsx";
 import Tracking from "./Tracking";
 
 let _idCounter = 0;

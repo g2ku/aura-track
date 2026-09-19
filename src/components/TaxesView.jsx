@@ -10,7 +10,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fetchCashBySpot } from "../poster";
 import { loadIPGroups } from "../ipGroups";
-import { getSpotNameForBranch, isAdminOrManager } from "../auth.jsx";
+import { getSpotNameForBranch } from "../auth.jsx";
 import { fmt } from "../utils";
 
 function todayStr() {

@@ -19,7 +19,6 @@ export default function CommandPalette() {
   const [active, setActive] = useState(0);
   const inputRef = useRef(null);
   const docs = useAppStore((s) => s.docs);
-  const navigate = (window.location ? null : null);
   const go = (path) => {
     window.location.hash = "#" + path;
     setOpen(false);

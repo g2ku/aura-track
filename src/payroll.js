@@ -16,8 +16,6 @@ import { resolveProductName } from "../api/_lib/products.js";
 
 // ─── Разбор сообщения куратора ───────────────────────────────────────
 
-const RE_NUM = /^-?\d+(?:[.,]\d+)?$/;
-
 const SECTIONS = [
   { id: "shortage", re: /^недостач/i },
   { id: "surplus", re: /^(излишк|излишек|излишка)/i },

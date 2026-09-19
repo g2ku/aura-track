@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { getSpots, fetchPosterSales } from "../poster";
 import { subscribeRecipes, subscribeInventoryHistory, saveInventorySession } from "../firebase";
-import { fmt } from "../utils";
 import RecipesSettings from "./RecipesSettings";
 import "./InventorySession.css";
 

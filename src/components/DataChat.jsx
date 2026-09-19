@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { parseQuestion, describeParsed } from "../chat/parser.js";
+import { describeParsed } from "../chat/parser.js";
 import { understand } from "../chat/understand.js";
 import { executeQuery } from "../chat/executor.js";
 import { smartParse, shareToTelegram } from "../chat/smart.js";

@@ -107,7 +107,6 @@ function findHeaderRow(rows) {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || [];
     let runLen = 0;
-    const cols = [];
     const runCols = [];
 
     for (let j = 0; j < row.length; j++) {

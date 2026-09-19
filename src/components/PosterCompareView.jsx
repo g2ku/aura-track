@@ -42,11 +42,6 @@ const PERIOD_COLORS = [
   "#8b5cf6",
 ];
 
-function pctChange(a, b) {
-  if (!b) return a > 0 ? 100 : 0;
-  return ((a - b) / Math.abs(b)) * 100;
-}
-
 const dateLabelStyle = { fontSize: 13, color: "var(--text-secondary)" };
 
 const headBtnStyle = {

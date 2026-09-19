@@ -34,7 +34,6 @@ export {
   isOpenCheck, isEmptyCheck, collectLastOrders, groupOpenChecks,
 };
 
-const ACCOUNT_HOST = "https://aura-02-coffee.joinposter.com";
 // В dev проксирует Vite (/api/poster/* -> joinposter.com/api/*).
 // В продакшене (node server.js / Vercel) проксирует serverless proxy.
 // Токен НЕ хранится в клиентском коде — прокси подставляет его серверно.
@@ -529,12 +528,6 @@ function readCache() {
   } catch (_) {
     return {};
   }
-}
-
-function writeCache(cache) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch (_) {}
 }
 
 // needProducts — нужны ли названия товаров. День, сохранённый ради одних
@@ -1253,7 +1246,6 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
         sum: Number(it.payed_sum || it.product_sum || 0),
       };
     });
-    const totalSum = products.reduce((s, p) => s + p.sum, 0);
     const discount = Number(tx.discount || 0);
     const profit = Math.round(Number(tx.total_profit || tx.profit || 0) / 100);
     const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");

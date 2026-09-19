@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEGORIES, UNITS } from "../margin.js";
-import { fetchPosterSales, fetchCashBySpot } from "../poster.js";
+import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
 
 const TABS = [

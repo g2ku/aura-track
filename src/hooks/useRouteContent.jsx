@@ -1,6 +1,6 @@
 import { lazy, Suspense, Component } from "react";
 import { UnknownBranchFallback, UnknownRouteFallback } from "../components/Fallbacks";
-import { SkeletonDashboard, SkeletonView } from "../components/Skeleton";
+import { SkeletonDashboard } from "../components/Skeleton";
 import { isAdmin, isAdminOrManager } from "../auth.jsx";
 import { useAppStore } from "../store/useAppStore";
 
@@ -116,10 +116,6 @@ export function prefetchRoutes(lastHash = "#/") {
 
 function RouteFallback() {
   return <SkeletonDashboard />;
-}
-
-function ViewFallback() {
-  return <SkeletonView />;
 }
 
 const CURATOR_HIDDEN_ROUTES = ["/briefing", "/margin", "/taxes", "/cross-dashboard", "/profitability"];

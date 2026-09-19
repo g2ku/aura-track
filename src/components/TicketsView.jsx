@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { subscribeTickets, respondToTicket } from "../firebase";
-import { fmt } from "../utils";
 import { useToast } from "../ui";
 
 const STATUS_LABELS = {

@@ -4,7 +4,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashBySpot, fetchPosterSales } from "../poster";
-import { loadMargin } from "../margin";
 import { BRANCHES } from "../auth.jsx";
 
 function yesterdayStr() {
@@ -42,8 +41,6 @@ export default function MorningBriefing() {
   const [yesterdayCash, setYesterdayCash] = useState([]);
   const [weekCash, setWeekCash] = useState([]);
   const [salesData, setSalesData] = useState([]);
-  const [recipes, setRecipes] = useState([]);
-  const [ingredients, setIngredients] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const yesterday = yesterdayStr();
@@ -56,17 +53,16 @@ export default function MorningBriefing() {
   async function loadData() {
     setLoading(true);
     try {
-      const [yCash, wCash, sales, marginData] = await Promise.all([
+      // Техкарты сюда не грузим: сводка их не показывает, а падение
+      // того запроса роняло всю сводку
+      const [yCash, wCash, sales] = await Promise.all([
         fetchCashBySpot(yesterday, yesterday),
         fetchCashBySpot(weekAgo, yesterday),
         fetchPosterSales(yesterday, yesterday),
-        loadMargin(),
       ]);
       setYesterdayCash(yCash);
       setWeekCash(wCash);
       setSalesData(sales.rows || []);
-      setRecipes(marginData.recipes || []);
-      setIngredients(marginData.ingredients || []);
     } catch (e) {
       console.error("[Briefing] load error:", e);
     }

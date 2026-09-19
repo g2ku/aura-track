@@ -1,8 +1,7 @@
 // BranchesView — карточки филиалов с кассами (Poster API) и углублённой информацией.
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { aggregateDocs, fmt, pct } from "../utils";
-import { Button } from "../ui";
+import { aggregateDocs, fmt } from "../utils";
 import { fetchCashBySpot } from "../poster";
 import { branchScope, useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 

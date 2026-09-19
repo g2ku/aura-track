@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt, downloadCsv } from "../utils";
 import { fetchCashBySpot, fetchCashPerDay } from "../poster";
-import { isAdmin, getUserBranch, getSpotNameForBranch } from "../auth.jsx";
+import { isAdmin, getUserBranch } from "../auth.jsx";
 import { BRANCHES } from "../auth.jsx";
 
 function todayStr() {
@@ -50,14 +50,6 @@ function MiniSparkline({ data, color = "var(--text-accent)" }) {
       />
     </svg>
   );
-}
-
-function StatusDot({ value, thresholds }) {
-  // thresholds = { good: >55, warn: >40 }
-  let cls = "status-dot status-dot--danger";
-  if (value >= thresholds.good) cls = "status-dot status-dot--good";
-  else if (value >= thresholds.warn) cls = "status-dot status-dot--warn";
-  return <span className={cls} />;
 }
 
 export default function CrossLocationDashboard({ agg }) {
@@ -192,15 +184,6 @@ export default function CrossLocationDashboard({ agg }) {
 
   const avgCheckTotal = totals.txCount > 0 ? Math.round(totals.total / totals.txCount) : 0;
 
-  function handleSort(col) {
-    if (sortCol === col) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortCol(col);
-      setSortDir("desc");
-    }
-  }
-
   function exportCsv() {
     const headers = [
       { key: "spotName", label: "Точка" },
@@ -213,7 +196,6 @@ export default function CrossLocationDashboard({ agg }) {
   }
 
   const userBranch = getUserBranch();
-  const branchLabel = userBranch ? getSpotNameForBranch(userBranch) : null;
 
   if (!isAdmin() && !userBranch) {
     return (

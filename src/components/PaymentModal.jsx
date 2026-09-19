@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fmt, tagStyle } from "../utils";
+import { fmt } from "../utils";
 
 export default function PaymentModal({ branch, items, branchTotal, branchPaid, onClose, onConfirm, canEdit }) {
   const [selItems, setSelItems] = useState({});
