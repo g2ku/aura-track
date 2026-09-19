@@ -88,6 +88,9 @@ function fmtDateJS(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Короткий период уже подписан днями — «(7 дн.) (7 дн.)» не нужно
+const withDays = (pl, days) => (pl.includes(" дн.)") ? pl : `${pl} (${days} дн.)`);
+
 function formatPeriodLabel(period) {
   if (!period) return "";
   const from = new Date(period.from + "T00:00:00");
@@ -208,7 +211,7 @@ export async function executeQuery(parsed, userBranch) {
 
     switch (metric) {
       case "cash": return await handleCash(operation, effectiveSpot, period, ipGroup);
-      case "checks": return await handleChecks(operation, effectiveSpot, period, ipGroup);
+      case "checks": return await handleChecks(operation, effectiveSpot, period, ipGroup, parsed.raw);
       case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
       case "products":
         if (category) return await handleCategory(operation, effectiveSpot, period, category, ipGroup);
@@ -381,14 +384,14 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
     }
 
     return {
-      text: `Сравнение кассы филиалов${ipLabel}:\n${pl1} (${days1} дн.) vs ${pl2} (${days2} дн.)\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}\nСреднее/день: ${fmt(avgCash1)} → ${fmt(avgCash2)}  ${changeEmoji(avgPct)}`,
+      text: `Сравнение кассы филиалов${ipLabel}:\n${withDays(pl1, days1)} vs ${withDays(pl2, days2)}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}\nСреднее/день: ${fmt(avgCash1)} → ${fmt(avgCash2)}  ${changeEmoji(avgPct)}`,
       data: { period1, period2, cash1, cash2, cashPct, txPct, avgPct, days1, days2 },
     };
   }
 
   // Single spot or all combined
   return {
-    text: `Сравнение ${sl}${ipLabel}:\n${pl1} (${days1} дн.): ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${pl2} (${days2} дн.): ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} среднее/день\n${changeEmoji(avgCheckPct)} средний чек`,
+    text: `Сравнение ${sl}${ipLabel}:\n${withDays(pl1, days1)}: ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${withDays(pl2, days2)}: ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} среднее/день\n${changeEmoji(avgCheckPct)} средний чек`,
     data: { period1, period2, cash1, cash2, tx1, tx2, cashPct, txPct, avgPct, avgCheckPct, days1, days2 },
   };
 }
@@ -481,7 +484,47 @@ async function handleCash(operation, spot, period, ipGroup) {
 
 // ─── Чеки ─────────────────────────────────────────────────────────
 
-async function handleChecks(operation, spot, period, ipGroup) {
+// «Самый дорогой чек», «крупные чеки» — про отдельные чеки, а не про
+// точку с наибольшим числом чеков. Тянем сами чеки, но не дальше месяца:
+// за год их сотни тысяч, и ответ не стоит такого трафика
+async function handleBiggestReceipts(spot, period, ipGroup) {
+  const todayIso = fmtDateJS(new Date());
+  const to = period.to > todayIso ? todayIso : period.to;
+  const days = daysInPeriod(period.from, to);
+  let from = period.from;
+  let note = "";
+  if (days > 31) {
+    const d = new Date(to + "T00:00:00");
+    d.setDate(d.getDate() - 30);
+    from = fmtDateJS(d);
+    note = "\n\nСмотрел последний месяц периода — дальше чеков слишком много.";
+  }
+  const r = await fetchReceipts(from, to, { includeOpen: false });
+  let items = (r?.receipts || []).filter((x) => x.status !== "open");
+  if (!isAll(spot)) items = items.filter((x) => String(x.spotId) === String(spot.spotId));
+  if (ipGroup) {
+    const keep = await filterByIPGroup(items.map((x) => ({ spotId: x.spotId, spotName: x.spotName })), ipGroup);
+    const ids = new Set(keep.map((x) => String(x.spotId)));
+    items = items.filter((x) => ids.has(String(x.spotId)));
+  }
+  if (!items.length) return { text: `Чеков ${label(spot)} за ${formatPeriodLabel({ from, to })} нет.`, data: null };
+  const top = [...items].sort((a, b) => b.sum - a.sum).slice(0, 5);
+  const when = (x) => (x.dateClose || x.dateOpen || "").replace(/^(\d{4})-(\d{2})-(\d{2})\s*(\d{2}:\d{2}).*$/, "$3.$2 $4");
+  const lines = top.map((x, i) => {
+    const goods = x.products.slice(0, 3).map((p) => `${p.name}${p.qty > 1 ? ` ×${p.qty}` : ""}`).join(", ");
+    const more = x.products.length > 3 ? ` и ещё ${x.products.length - 3}` : "";
+    return `${i + 1}. ${fmt(x.sum)} — ${sn({ spotId: x.spotId, spotName: x.spotName })}, ${when(x)}${x.waiter ? `, ${x.waiter}` : ""}\n   ${goods}${more}`;
+  });
+  return {
+    text: `Самые крупные чеки ${label(spot)} за ${formatPeriodLabel({ from, to })}:\n${lines.join("\n")}${note}`,
+    data: { top, count: items.length },
+  };
+}
+
+async function handleChecks(operation, spot, period, ipGroup, raw = "") {
+  if (operation === "max" && /сам[а-яё]+\s+(?:дорог|больш|крупн)|крупн[а-яё]*\s+чек|дорог[а-яё]*\s+чек|максимальн[а-яё]*\s+чек/.test(String(raw).toLowerCase())) {
+    return handleBiggestReceipts(spot, period, ipGroup);
+  }
   const data = await fetchCashBySpot(period.from, period.to);
   let filtered = data.filter(d => matchesSpot(d, spot));
   filtered = await filterByIPGroup(filtered, ipGroup);
@@ -637,9 +680,9 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
   if (wantBySpot) {
     const branches = Object.entries(spotProductMap)
       .filter(([sid, s]) => matchesSpot({ spotId: sid, spotName: s.spotName }, spot))
-      .map(([, s]) => {
+      .map(([sid, s]) => {
         const list = Object.values(s.products).sort((a, b) => b.sum - a.sum);
-        return { spotName: s.spotName, qty: list.reduce((n, p) => n + p.qty, 0), sum: list.reduce((n, p) => n + p.sum, 0), top: list.slice(0, 3) };
+        return { spotId: sid, spotName: s.spotName, qty: list.reduce((n, p) => n + p.qty, 0), sum: list.reduce((n, p) => n + p.sum, 0), top: list.slice(0, 3) };
       })
       .filter((b) => b.qty > 0)
       .sort((a, b) => b.sum - a.sum);

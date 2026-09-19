@@ -36,6 +36,8 @@ writeFileSync(stub, `
   export const getAuth = fn(); export const createUserWithEmailAndPassword = fn(); export const signInWithEmailAndPassword = fn();
   export const signOut = fn(); export const onAuthStateChanged = () => noop;
   export const Chart = class { static register() {} }; export const registerables = [];
+  export const LineController = {}, BarController = {}, DoughnutController = {}, CategoryScale = {}, LinearScale = {};
+  export const PointElement = {}, LineElement = {}, BarElement = {}, ArcElement = {}, Tooltip = {}, Legend = {}, Filler = {};
   export const Line = () => null; export const Bar = () => null; export const Doughnut = () => null; export const Pie = () => null;
   export default fn();
 `);

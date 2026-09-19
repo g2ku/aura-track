@@ -490,9 +490,14 @@ function parsePeriodExplicit(text) {
     };
   }
 
-  // "за год"
+  // «За последний год», «за 12 месяцев» — скользящий год по сегодня
+  if (/последн[а-яё]+\s+год|12\s*месяц|двенадцать\s+месяц/.test(text)) {
+    const start = new Date(currentYear - 1, currentMonth - 1, now.getDate() + 1);
+    return { from: fmtDate(start), to: fmtDate(now) };
+  }
+  // «За год» — этот год по сегодня: будущих дней в кассе нет
   if (text.includes("за год") || text.includes("за весь год")) {
-    return { from: `${currentYear}-01-01`, to: `${currentYear}-12-31` };
+    return { from: `${currentYear}-01-01`, to: fmtDate(now) };
   }
 
   // "за прошлый месяц"
