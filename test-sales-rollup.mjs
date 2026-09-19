@@ -181,7 +181,9 @@ section("Ручка и сторож собраны правильно");
   const store = readFileSync("api/_lib/store.js", "utf8");
   ok(store.includes('salesRollupTime: "03:30"'), "по умолчанию — ночью");
   ok(/select\("date"\)/.test(store), "список дат читается без самих итогов");
-  ok(readFileSync("vercel.json", "utf8").includes('"maxDuration": 60'), "сторожу дано время на ночные итоги");
+  // По смыслу, а не по тексту: сборка Vercel может переформатировать vercel.json
+  const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
+  ok((vercel.functions?.["api/tg/watch.js"]?.maxDuration || 0) >= 60, `сторожу дано время на ночные итоги: ${JSON.stringify(vercel.functions)}`);
 }
 
 console.log("\n══════════════════════════════════════════════════");
