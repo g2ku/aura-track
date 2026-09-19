@@ -455,6 +455,15 @@ section("Снимок: приложение открывается сразу, �
   eq(snapshot.readSnapshot({ store: st, userId: 8, now: NOW + 60000 }), null, "чужой не показываем");
   eq(snapshot.readSnapshot({ store: st, userId: null, now: NOW + 60000 })?.data.who.name, "Кайрат", "кто открыл — неизвестно (браузер): показываем");
   eq(snapshot.readSnapshot({ store: st, userId: 7, now: NOW + 4 * DAY }), null, "старше трёх дней — не показываем");
+
+  // Снимок со вчера: склад на месте, а «записано сегодня» — пусто
+  const y = { ...data, date: "2026-09-16", today: [{ kind: "out", branch: "Дубай", sku: "350", qty: 300, at: NOW }] };
+  snapshot.writeSnapshot(y, { store: st, userId: 7, now: NOW });
+  const next = snapshot.readSnapshot({ store: st, userId: 7, now: NOW + DAY });
+  eq(next.data.today, [], "вчерашние выдачи не выдаются за сегодняшние");
+  eq(next.data.date, "2026-09-17", "и день — сегодняшний");
+  eq(next.data.state.stock["350"], 1200, "склад показан");
+  eq(snapshot.readSnapshot({ store: st, userId: 7, now: NOW + 3600000 }).data.today.length, 1, "в тот же день — записи на месте");
   ok(!snapshot.writeSnapshot({ state }, { store: st, userId: 7 }), "ответ без who — не снимок");
   ok(!snapshot.writeSnapshot(null, { store: st }), "и null тоже");
 

@@ -36,7 +36,12 @@ export function readSnapshot({ store, userId = null, now = Date.now(), maxAge = 
     if (now - snap.at > maxAge) return null;
     // Чей снимок — известно, и это не мы: не показываем
     if (snap.userId != null && userId != null && String(userId) !== snap.userId) return null;
-    return { at: snap.at, data: snap.data };
+    // Снимок со вчера: «записано сегодня» в нём — вчерашнее. Склад и
+    // прогноз показать можно, а вчерашние выдачи за сегодняшние — нет.
+    const d = new Date(now);
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const data = snap.data.date && snap.data.date !== today ? { ...snap.data, today: [], date: today } : snap.data;
+    return { at: snap.at, data };
   } catch { return null; }
 }
 
