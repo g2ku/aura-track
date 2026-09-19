@@ -538,7 +538,10 @@ function parseComparisonPeriods(text) {
   const now = new Date();
   const currentYear = now.getFullYear();
 
-  const sep = /\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против)\s+/;
+  // «с» тоже разделитель: «сравнить август с июлем» — так пишет сама
+  // подсказка после ответа. Для «с 1 по 10 июля» безопасно: две даты не
+  // соберутся, и функция вернёт null.
+  const sep = /\s+(?:и|vs|в\s+сравнени[а-я]*\s+с|к|сравнению\s+с|по\s+сравнению\s+с|против|с)\s+/;
   let parts = lower.split(sep).map(s => s.trim()).filter(Boolean);
 
   // If only 1 part, find two month names separated by space anywhere in text
@@ -830,6 +833,9 @@ export async function parseQuestion(text) {
   const operation = parseOperation(lower);
   let spot = parseSpot(lower);
   const spotNamed = !!spot;
+  // «Товары по филиалам» — разрез по точкам; исполнитель смотрит на
+  // это слово в period.raw (так же его ставит продолжение диалога)
+  const byBranchAsked = /по\s+(?:филиал|точк)/.test(lower);
   // Два филиала в одном вопросе — сравнение по всем, а не второй из них
   if (countSpots(lower) >= 2 && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
     metric = "compareBranches";
@@ -837,6 +843,7 @@ export async function parseQuestion(text) {
   }
   const explicitPeriod = parsePeriodExplicit(lower);
   const period = explicitPeriod || currentMonthPeriod();
+  if (byBranchAsked && metric === "products") period.raw = "по филиалам";
 
   // Check if this is a meaningful query (has metric keyword, product, spot, or period keyword)
   // Слово метрики — точное или узнанное по основе/с опечаткой

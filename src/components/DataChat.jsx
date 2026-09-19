@@ -22,6 +22,8 @@ const MONTHS = ["январь","февраль","март","апрель","ма�
 const MONTHS_ZA = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
 // «к августу» — дательный: разбор понимает по началу слова, а читается по-русски
 const MONTHS_DAT = ["январю","февралю","марту","апрелю","маю","июню","июлю","августу","сентябрю","октябрю","ноябрю","декабрю"];
+// «с июлем» — творительный
+const MONTHS_INS = ["январём","февралём","мартом","апрелем","маем","июнем","июлем","августом","сентябрём","октябрём","ноябрём","декабрём"];
 
 function monthAgo(n, list = MONTHS_ZA) {
   const d = new Date();
@@ -82,6 +84,15 @@ const EXAMPLES_BRANCH = [
   "В какое время пик продаж?",
   `Маржа за ${PREV_MONTH}`,
   "Средний чек за неделю",
+];
+
+// Стартовый экран: примеры группами, а не в одну прокручиваемую строку.
+// Пустой чат — самый частый экран у нового человека, и там было пусто.
+const STARTER = [
+  { title: "Сейчас", items: ["Что не так сейчас", "Открытые чеки", "Касса сегодня"] },
+  { title: "Деньги", items: ["Касса вчера", "Кто хуже всех по кассе за месяц", "Средний чек за неделю", `Сравнить ${PREV_MONTH} с ${monthAgo(2, MONTHS_INS)}`] },
+  { title: "Товары и склад", items: ["Что продавалось лучше всего вчера", "Сколько спешл продали за неделю", "Остатки в минусе", "Расход молока за неделю"] },
+  { title: "Разрезы", items: ["Какой день недели самый прибыльный?", "В какое время пик продаж?", "Товары по филиалам за неделю"] },
 ];
 
 const FOLLOW_UP = {
@@ -219,9 +230,10 @@ export default function DataChat() {
 
   useEffect(() => {
     // Прокручиваем только ленту сообщений, страницу не дёргаем.
+    // Пустой чат — стартовый экран, его читают сверху.
     const el = messagesRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    el.scrollTop = messages.length ? el.scrollHeight : 0;
   }, [messages, loading]);
 
   useEffect(() => {
@@ -308,8 +320,8 @@ export default function DataChat() {
         const curMonth = d1.toLocaleDateString("ru-RU", { month: "long" });
         // Previous month
         const prev = new Date(d1.getFullYear(), d1.getMonth() - 1, 1);
-        const prevMonth = prev.toLocaleDateString("ru-RU", { month: "long" });
-        q = `Сравнить ${curMonth} с ${prevMonth}`;
+        // Творительный падеж: «с июлем», а не «с июль»
+        q = `Сравнить ${curMonth} с ${MONTHS_INS[prev.getMonth()]}`;
       } else if (/за период/i.test(up) && periodLabel) {
         q = `${up.replace("за период", `за ${periodLabel}`)}`;
       } else if (period && period.from === period.to) {
@@ -448,8 +460,29 @@ export default function DataChat() {
         {messages.length === 0 && !loading && (
           <div className="chat-empty">
             <i className="ti ti-message-chatbot" style={{ fontSize: 36, opacity: 0.3 }} />
-            <div>Напишите вопрос о данных</div>
-            <div style={{ fontSize: 12, marginTop: 2 }}>Например: «средняя касса за июнь»</div>
+            <div>Спросите словами — или нажмите</div>
+            <div className="chat-starter">
+              {loadHistory().length > 0 && (
+                <div className="chat-starter-group">
+                  <div className="chat-starter-title">Недавно</div>
+                  <div className="chat-starter-items">
+                    {loadHistory().slice(0, 4).map((q) => (
+                      <button key={q} className="chat-suggestion-btn" onClick={() => handleSend(q)}>{q}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {STARTER.map((g) => (
+                <div key={g.title} className="chat-starter-group">
+                  <div className="chat-starter-title">{g.title}</div>
+                  <div className="chat-starter-items">
+                    {g.items.filter((q) => !branchLabel || !/филиал|точк|спешл/i.test(q)).map((q) => (
+                      <button key={q} className="chat-suggestion-btn" onClick={() => handleSend(q)}>{q}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -498,8 +531,9 @@ export default function DataChat() {
         <div ref={endRef} />
       </div>
 
-      {/* Suggestions with scroll arrows */}
-      <div className="chat-suggestions-wrap">
+      {/* Suggestions with scroll arrows — после первого ответа; на старте
+          примеры и так на экране группами */}
+      {messages.length > 0 && <div className="chat-suggestions-wrap">
         {canScrollLeft && (
           <button className="chat-sug-arrow chat-sug-arrow-left" onClick={() => scrollSuggestions(-1)}>
             <i className="ti ti-chevron-left" />
@@ -521,7 +555,7 @@ export default function DataChat() {
             <i className="ti ti-chevron-right" />
           </button>
         )}
-      </div>
+      </div>}
 
       {/* Input */}
       <div className="chat-input-wrap">
