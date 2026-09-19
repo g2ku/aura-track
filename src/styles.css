@@ -2054,8 +2054,13 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .stats-row { grid-template-columns: 1fr; }
   .stat-value { font-size: 18px; }
 
-  /* Дата-пикер: каждое поле на новой строке */
-  .dash-date-row input[type="date"] { flex: 1 1 100%; }
+  /* Дата-пикер на телефоне: два поля в одну строку, тире между ними,
+     кнопка обновления — в строке пресетов. Раньше поля шли столбиком и
+     вместе с кнопкой съедали четверть экрана до первой цифры. */
+  .dash-date-row input[type="date"] { flex: 1 1 calc(50% - 20px); min-width: 0; min-height: var(--tap); }
+  .dash-date-row > .btn { position: absolute; right: 0; top: 0; min-height: 36px; }
+  .dash-date-row { position: relative; padding-right: 0; }
+  .dash-date-presets { padding-right: 112px; }
 }
 
 /* ─── 32.5. KPI Grid (gradient cards) ────────────────────────────────────── */
