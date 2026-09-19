@@ -41,8 +41,34 @@ function delta(now, before) {
   return pct > 0 ? ` (+${pct}%)` : ` (${pct}%)`;
 }
 
-// dateLabel — «25 августа», supplies — сумма накладных за тот же день.
-export function formatBriefing({ day, prev, dateLabel, supplies = null }) {
+// Опора для кассы за день — как у ассистента на сайте: тот же день
+// недели неделю назад и среднее по четырём таким дням. «Вторник на 8 %
+// хуже понедельника» ничего не значит — вторник всегда тише; «на 8 % хуже
+// прошлого вторника» — значит. Дни берутся из суточных итогов (salesDays):
+// docs — [{ date, cashBySpot }], ymd — за какой день сводка.
+const WEEKDAY_TO = ["прошлому воскресенью", "прошлому понедельнику", "прошлому вторнику", "прошлой среде", "прошлому четвергу", "прошлой пятнице", "прошлой субботе"];
+
+export function baselineLine(ymd, total, docs) {
+  if (!total || !ymd) return "";
+  const byDate = new Map((docs || []).map((d) => [d.date, Object.values(d.cashBySpot || {}).reduce((s, v) => s + v, 0)]));
+  const back = (n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  const lastWeek = byDate.get(back(7));
+  const four = [7, 14, 21, 28].map((n) => byDate.get(back(n))).filter((v) => v > 0);
+  const pct = (b) => (b ? Math.round(((total - b) / b) * 1000) / 10 : null); // проценты с одним знаком
+  const sign = (p) => (p > 0 ? `+${String(p).replace(".", ",")} %` : p < 0 ? `−${String(Math.abs(p)).replace(".", ",")} %` : "0 %");
+  const parts = [];
+  const p1 = pct(lastWeek);
+  if (p1 != null) parts.push(`${sign(p1)} к ${WEEKDAY_TO[new Date(`${ymd}T00:00:00Z`).getUTCDay()]}`);
+  if (four.length >= 2) {
+    const p2 = pct(four.reduce((s, v) => s + v, 0) / four.length);
+    if (p2 != null) parts.push(`${sign(p2)} к среднему за ${four.length} нед.`);
+  }
+  return parts.join(" · ");
+}
+
+// dateLabel — «25 августа», supplies — сумма накладных за тот же день,
+// baseline — строка опоры от baselineLine (может быть пустой).
+export function formatBriefing({ day, prev, dateLabel, supplies = null, baseline = "" }) {
   if (!day || !day.checks) {
     return `☀️ <b>${dateLabel}</b>\n\nПродаж за день не было.`;
   }
@@ -51,6 +77,7 @@ export function formatBriefing({ day, prev, dateLabel, supplies = null }) {
     `☀️ <b>${dateLabel}</b>`,
     "",
     `Касса — <b>${fmtSum(day.total)}</b>${delta(day.total, prev?.total)}`,
+    ...(baseline ? [`<i>${baseline}</i>`] : []),
     `Чеков — ${day.checks}${delta(day.checks, prev?.checks)}`,
     `Средний чек — ${fmtSum(day.avg)}`,
   ];

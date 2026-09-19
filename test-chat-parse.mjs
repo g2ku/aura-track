@@ -9,11 +9,11 @@
 // Запуск: node test-chat-parse.mjs
 
 import { parseQuestion } from "./src/chat/parser.js";
-import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty } from "./src/chat/categories.js";
+import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty, findCategory } from "./src/chat/categories.js";
 import { QuerySchema, toExecutorQuery, historyLine, SYSTEM_PROMPT } from "./api/_lib/chatSchema.js";
 import { smartParse } from "./src/chat/smart.js";
 import { mergeFollowUp, preferFollowUp, fuzzyMetric, hasExplicitPeriod } from "./src/chat/parser.js";
-import { normalize, stem, distance, matchWord, productMatches, closestNames } from "./src/chat/normalize.js";
+import { normalize, stem, distance, matchWord, matchPhrase, productMatches, closestNames } from "./src/chat/normalize.js";
 import { alternatives, understoodLine, periodPhrase } from "./src/chat/clarify.js";
 import { remember, recall, loadLearned, LINK_WINDOW_MS } from "./src/chat/memory.js";
 import { baselinePeriods, formatContext, averageOf } from "./src/chat/context.js";
@@ -617,6 +617,30 @@ section("Вопрос → плитка на дашборде");
   ok(dc.includes("addPin(") && dc.includes("ASK_KEY"), "в чате — «Закрепить», и плитка умеет вернуть в чат");
   ok(/pinnable: !!result\.data && !parsed\.followUpOf/.test(dc), "продолжение диалога плиткой не становится");
   ok(dc.includes("chat-skeleton") && !dc.includes("Загрузка…"), "вместо спиннера — скелетон ответа");
+}
+
+section("Любая категория меню — по слову из вопроса");
+
+{
+  const cats = [
+    { id: "1", name: "Кофе", parentId: null }, { id: "2", name: "Десерты", parentId: null },
+    { id: "3", name: "Чизкейки", parentId: "2" }, { id: "4", name: "Special menu", parentId: null },
+    { id: "5", name: "Осеннее меню", parentId: "4" }, { id: "6", name: "Кофе с собой", parentId: "1" },
+  ];
+  const f = (q) => findCategory(cats, q, matchPhrase);
+  eq(f("десертов")?.title, "Десерты", "«десертов» — Десерты, по основе слова");
+  eq(f("десертов")?.chosen.map((c) => c.name), ["Десерты", "Чизкейки"], "вместе с подкатегорией — товары лежат в ней");
+  eq(f("чизкейк")?.title, "Чизкейки", "подкатегория напрямую");
+  eq(f("кофе")?.title, "Кофе", "при двух совпадениях — короткое название, сама категория");
+  eq(f("выпечка"), null, "чего нет в меню — null, а не ближайшее попало");
+  eq(f("", cats), null, "пусто — null");
+  eq(findCategory([], "кофе", matchPhrase), null, "нет справочника — null");
+
+  const ex = readFileSync("src/chat/executor.js", "utf8");
+  const notFound = ex.slice(ex.indexOf("if (matches.length === 0) {"), ex.indexOf("Товар «${productName}» не найден"));
+  ok(notFound.includes("findCategory(menu.categories, productName, matchPhrase)"), "товар не нашёлся — ассистент пробует категорию меню");
+  ok(notFound.includes("categoryReport("), "и считает её тем же хвостом, что сезонное меню");
+  ok(/catch \(_\)/.test(notFound), "меню не загрузилось — идём дальше к подсказке по товарам");
 }
 
 section("Исполнитель и клиент собраны правильно");

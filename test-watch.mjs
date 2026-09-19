@@ -7,7 +7,7 @@
 // Запуск: node test-watch.mjs
 
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours, WATCH_DEFAULTS } from "./api/_lib/watch.js";
-import { summarizeDay, formatBriefing, formatDayLabel } from "./api/_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine } from "./api/_lib/briefing.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -284,6 +284,28 @@ section("Утренняя сводка");
 {
   const t = formatBriefing({ day: summarizeDay([]), prev: null, dateLabel: "25 августа" });
   ok(t.includes("Продаж за день не было"), "пустой день не превращается в деление на ноль");
+}
+
+{
+  // Опора «к прошлому вторнику» — из суточных итогов, как на сайте
+  const docs = [["2026-09-11", 1000], ["2026-09-04", 1100], ["2026-08-28", 900], ["2026-08-21", 1000]]
+    .map(([date, v]) => ({ date, cashBySpot: { "4": v * 0.6, "9": v * 0.4 } }));
+  eq(baselineLine("2026-09-18", 920, docs), "−8 % к прошлой пятнице · −8 % к среднему за 4 нед.", "тот же день недели и среднее за четыре");
+  eq(baselineLine("2026-09-18", 1000, docs.slice(0, 1)), "0 % к прошлой пятнице", "одна неделя — без среднего, ноль без знака");
+  eq(baselineLine("2026-09-18", 1100, docs.slice(0, 1)), "+10 % к прошлой пятнице", "рост — с плюсом");
+  eq(baselineLine("2026-09-18", 920, []), "", "итогов ещё нет — строки нет");
+  eq(baselineLine("2026-09-18", 0, docs), "", "нулевая касса — без опоры");
+  eq(baselineLine("2026-09-12", 500, [{ date: "2026-09-05", cashBySpot: { "4": 400 } }]), "+25 % к прошлой субботе", "суббота — женского рода");
+
+  const day = { total: 920, checks: 10, avg: 92, spots: [] };
+  const withBase = formatBriefing({ day, prev: { total: 1000, checks: 11 }, dateLabel: "18 сентября", baseline: baselineLine("2026-09-18", 920, docs) });
+  ok(withBase.includes("<i>−8 % к прошлой пятнице · −8 % к среднему за 4 нед.</i>"), "опора — сразу под кассой, курсивом");
+  ok(withBase.indexOf("Касса —") < withBase.indexOf("<i>") && withBase.indexOf("<i>") < withBase.indexOf("Чеков —"), "между кассой и чеками");
+  ok(!formatBriefing({ day, prev: null, dateLabel: "18 сентября" }).includes("<i>"), "без опоры — как раньше");
+
+  const watch = readFileSync("api/tg/watch.js", "utf8");
+  ok(watch.includes("baselineLine(yesterday, day.total, docs)"), "сторож считает опору для сводки");
+  ok(/getSalesDays\(shiftYmd\(yesterday, -28\), shiftYmd\(yesterday, -7\)\)/.test(watch), "из итогов за четыре недели");
 }
 
 {

@@ -82,3 +82,27 @@ export function productNamesIn(chosen, productsByCategory) {
   }
   return names;
 }
+
+// Любая категория меню по слову из вопроса: «сколько десертов продали»
+// → «Десерты», «выпечка за неделю» → «Выпечка». Раньше ассистент знал
+// только «Special menu»; остальные категории Poster были ему невидимы,
+// и «десерты» искались как товар с таким словом в названии.
+//
+// Сравнение — по словам и основам, как у товаров; побеждает самое
+// точное совпадение, при равных — более короткое название (оно и есть
+// «сама категория», а не её подраздел). Вместе с категорией — её
+// подкатегории: товары лежат в них.
+export function findCategory(categories, query, matchPhrase) {
+  const q = String(query || "").trim();
+  if (!q || !categories?.length) return null;
+  let best = null, bestScore = 0;
+  for (const c of categories) {
+    const score = matchPhrase(String(c.name || ""), q);
+    if (score > bestScore || (score === bestScore && score && String(c.name).length < String(best.name).length)) {
+      best = c; bestScore = score;
+    }
+  }
+  if (!best) return null;
+  const children = categories.filter((c) => String(c.parentId) === String(best.id));
+  return { root: best, chosen: [best, ...children], title: best.name };
+}

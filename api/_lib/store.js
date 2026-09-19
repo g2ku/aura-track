@@ -362,6 +362,7 @@ export function botStore() {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
     getCupState, applyCupMoves, undoCupMoves, getCupDays, getCupDay, purgeCupDays,
+    getSalesDays,
   };
 }
 

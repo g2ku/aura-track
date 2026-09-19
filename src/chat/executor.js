@@ -1,8 +1,8 @@
 // chat/executor.js — выполняет распознанный запрос к данным Poster.
 
 import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay, getMenuCategories } from "../poster.js";
-import { resolveSpecialCategory, productNamesIn, seasonTitle } from "./categories.js";
-import { productMatches, closestNames } from "./normalize.js";
+import { resolveSpecialCategory, productNamesIn, seasonTitle, findCategory } from "./categories.js";
+import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt } from "../utils.js";
 import { BRANCHES } from "../auth.jsx";
@@ -584,6 +584,14 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
     // По словам, основам и с опечаткой: «капуч», «раф кокос», «круасан»
     const matches = products.filter((p) => productMatches(p.name, productName));
     if (matches.length === 0) {
+      // Может, это не товар, а категория меню: «десерты», «выпечка», «кофе»
+      try {
+        const menu = await getMenuCategories();
+        const cat = findCategory(menu.categories, productName, matchPhrase);
+        if (cat && productNamesIn(cat.chosen, menu.productsByCategory).size) {
+          return await categoryReport(cat, `${cat.title} за ${pl}${ipLabel}`, operation, spot, period, ipGroup);
+        }
+      } catch (_) { /* меню не загрузилось — идём к подсказке по товарам */ }
       // Не нашли — подсказываем ближайшие названия из настоящих продаж,
       // чтобы человек нажал, а не гадал, как товар назван в Poster
       const close = closestNames(productName, products.map((p) => p.name));
@@ -647,6 +655,21 @@ async function handleCategory(operation, spot, period, category, ipGroup) {
     return { text: `В категории «${picked.title}» нет товаров — нечего считать.`, data: null };
   }
 
+  // Заголовок говорит, ЧТО именно посчитали: сезон выбран за человека, и
+  // он должен это видеть, а не догадываться.
+  const head = picked.fallback
+    ? `Сезонное меню за ${pl}${ipLabel} — подкатегории «${seasonTitle(picked.season)}» в Poster нет, посчитал всю категорию «${picked.root.name}»`
+    : `${picked.title} за ${pl}${ipLabel}`;
+  return categoryReport(picked, head, operation, spot, period, ipGroup, { menu, data });
+}
+
+// Продажи всех товаров категории — общий хвост для сезонного меню и
+// любой категории по имени. picked — { chosen, title, … }.
+async function categoryReport(picked, head, operation, spot, period, ipGroup, loaded = null) {
+  const menu = loaded?.menu || await getMenuCategories();
+  const data = loaded?.data || await fetchPosterSales(period.from, period.to);
+  const names = productNamesIn(picked.chosen, menu.productsByCategory);
+
   const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
   const byProduct = {};
   const bySpot = {};
@@ -666,12 +689,6 @@ async function handleCategory(operation, spot, period, category, ipGroup) {
   const branches = Object.values(bySpot).sort((a, b) => b.sum - a.sum);
   const totalQty = products.reduce((n, p) => n + p.qty, 0);
   const totalSum = products.reduce((n, p) => n + p.sum, 0);
-
-  // Заголовок говорит, ЧТО именно посчитали: сезон выбран за человека, и
-  // он должен это видеть, а не догадываться.
-  const head = picked.fallback
-    ? `Сезонное меню за ${pl}${ipLabel} — подкатегории «${seasonTitle(picked.season)}» в Poster нет, посчитал всю категорию «${picked.root.name}»`
-    : `${picked.title} за ${pl}${ipLabel}`;
 
   if (!products.length) {
     return { text: `${head}: продаж нет.`, data: { category: picked, products: [], totalQty: 0, totalSum: 0 } };

@@ -12,13 +12,13 @@
 // Раз в 10–15 минут. Всё остальное — время сводки, пороги, тихие часы —
 // настраивается командами бота и лежит в его настройках.
 
-import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, listSalesDayDates, saveSalesDay } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, listSalesDayDates, saveSalesDay, getSalesDays } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
-import { summarizeDay, formatBriefing, formatDayLabel } from "../_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
 import { sendMessage, siteUrl } from "../_lib/telegram.js";
 
@@ -146,12 +146,24 @@ export default async function handler(req, res) {
         console.error("[cups] напоминание не собралось:", e?.message);
       }
 
+      // Опора «к прошлому вторнику» — из суточных итогов за четыре недели.
+      // Их ещё может не быть (первые дни после запуска) — тогда без опоры.
+      const day = summarizeDay(yRows);
+      let baseline = "";
+      try {
+        const docs = await getSalesDays(shiftYmd(yesterday, -28), shiftYmd(yesterday, -7));
+        baseline = baselineLine(yesterday, day.total, docs);
+      } catch (e) {
+        console.warn("[briefing] опора не собралась:", e?.message);
+      }
+
       const text = [
         formatBriefing({
-          day: summarizeDay(yRows),
+          day,
           prev: summarizeDay(bRows),
           dateLabel: formatDayLabel(yesterday),
           supplies,
+          baseline,
         }),
         cupsTail,
       ].filter(Boolean).join("\n\n");

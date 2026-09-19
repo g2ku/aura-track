@@ -40,7 +40,12 @@ export function baselinePeriods(period, { today = ymd(new Date()) } = {}) {
 }
 
 const pct = (a, b) => (b ? ((a - b) / Math.abs(b)) * 100 : null);
-const signed = (p) => (p == null ? null : `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p).toFixed(p >= 100 ? 0 : 1).replace(".", ",")} %`);
+// Знак — от округлённого значения: −0,004 % это «0,0 %», а не «−0,0 %»
+const signed = (p) => {
+  if (p == null) return null;
+  const r = Math.abs(p) >= 100 ? Math.round(p) : Math.round(p * 10) / 10;
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r).toFixed(Math.abs(p) >= 100 ? 0 : 1).replace(".", ",")} %`;
+};
 
 // value — цифра за спрошенный период; lastWeek / avg4 / prev — за опоры.
 // Нулевые опоры («в прошлый вторник точка не работала») пропускаем:

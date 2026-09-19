@@ -11,6 +11,7 @@ import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDo
 import { parseCommand, setMenuButton, siteUrl, authorName } from "./telegram.js";
 import { posterSuppliesByBranch, reconcile, formatReconcile } from "./reconcile.js";
 import { applyCatalog } from "./products.js";
+import { answerQuestion } from "./chatBot.js";
 
 const HELP = `<b>Как сдавать накладные</b>
 
@@ -59,6 +60,7 @@ const ADMIN_HELP = `
 /это абая — закрепить тему форума за филиалом
 /темы — какие темы за какими филиалами
 /анализ месяц мон — что приходило под этим названием и от кого
+/спроси касса вчера — ассистент: цифры словами (в личке можно и без команды)
 /стаканы — склад, на сколько хватит, сводка за период
 /склад — то же самое
 /снабженец — кто возит стаканы (ответом на его сообщение)
@@ -133,6 +135,26 @@ async function cupsBind(store, config, arg) {
   }
   lines.push("", "Поменять: <code>/стаканы связать 350 12345</code>");
   return { text: lines.join("\n") };
+}
+
+// Ответ ассистента: прошедшие дни — из суточных итогов в базе, сегодня —
+// из чеков Poster вживую. Меню (4,6 МБ) тянем только если спрашивают
+// про товары за сегодня.
+async function askBot(text, store) {
+  if (!store?.getSalesDays) return null;
+  const today = todayAlmaty();
+  const deps = {
+    today,
+    siteUrl: siteUrl(),
+    getDays: (from, to) => store.getSalesDays(from, to),
+    getToday: async (needProducts) => {
+      const { dayTransactions, menuProducts } = await import("./poster.js");
+      const { rollupDay, menuIndexFrom } = await import("./salesRollup.js");
+      const [txs, menu] = await Promise.all([dayTransactions(today), needProducts ? menuProducts() : Promise.resolve([])]);
+      return rollupDay(today, txs, menuIndexFrom(menu));
+    },
+  };
+  return answerQuestion(text, deps);
 }
 
 function isAdmin(config, userId) {
@@ -483,6 +505,19 @@ async function handleCommand({ cmd, args }, ctx) {
     // Цифра в отчёте есть, а кто и когда её прислал — до сих пор было не
     // восстановить. Бот хранит исходный текст каждого сообщения, так что
     // сверять можно буквально по написанному.
+    // ─── Ассистент: вопрос словами ───
+    case "спроси":
+    case "вопрос":
+    case "ask": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const q = String(args || "").trim();
+      if (!q) {
+        return { text: "Спросите словами:\n<code>/спроси касса вчера</code>\n<code>/спроси чеки Абая за неделю</code>\n<code>/спроси что продавалось лучше всего</code>\n<code>/спроси сравни август и сентябрь</code>\n\nВ личке можно и без команды — просто напишите вопрос." };
+      }
+      const a = await askBot(q, store);
+      return a || { text: "Не понял вопрос. Попробуйте: <code>касса вчера</code>, <code>чеки Абая за неделю</code>, <code>сколько латте продали</code>." };
+    }
+
     // ─── Стаканы ──────────────────────────────────────────────────
     case "склад":
     case "стаканы":
@@ -1208,6 +1243,13 @@ export async function handleMessage(msg, ctx) {
   // «филиал не распознан» — забота этой функции, а не бариста: если филиал
   // берётся из темы, показывать такое предупреждение незачем.
   const warnings = parsed.warnings.filter((w) => w !== "филиал не распознан");
+
+  // Вопрос словами в личке от админа — ассистент, а не накладная.
+  // Только когда позиций с суммами нет: «Абая пон 48 40к» — накладная.
+  if (!hasItems && msg.chat?.type === "private" && isAdmin(config, msg.from?.id)) {
+    const a = await askBot(text, ctx.store).catch(() => null);
+    if (a) return a;
+  }
 
   if (!branch) {
     // Похоже на накладную, но непонятно чью — подсказываем, как это
