@@ -18,6 +18,7 @@ import { alternatives, understoodLine, periodPhrase } from "./src/chat/clarify.j
 import { remember, recall, loadLearned, LINK_WINDOW_MS } from "./src/chat/memory.js";
 import { baselinePeriods, formatContext, averageOf } from "./src/chat/context.js";
 import { listPins, addPin, removePin, isPinned, titleOf, tileLines, MAX_PINS } from "./src/chat/pins.js";
+import { understand } from "./src/chat/understand.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -483,6 +484,7 @@ section("Уточнение вместо молчаливой кассы");
   eq(alternatives(await ask("касса за вчера")), [], "названная метрика — без альтернатив");
   ok(/кассу/.test(understoodLine(p)), "и строка честно говорит, что показали кассу");
   eq(understoodLine(await ask("касса за вчера")), "", "на понятный вопрос строки нет");
+  ok(/Понял «ыыы» как товар/.test(understoodLine(await ask("ыыы"))), "догадка про товар названа догадкой");
 
   const fu = await mergeFollowUp(await ask("касса Абая за вчера"), "а сегодня?");
   eq(understoodLine(fu, now), "Понял так: касса, Abaya, сегодня.", "продолжение — говорим, как поняли");
@@ -643,6 +645,72 @@ section("Любая категория меню — по слову из воп�
   ok(/catch \(_\)/.test(notFound), "меню не загрузилось — идём дальше к подсказке по товарам");
 }
 
+section("Порядок понимания: правила → продолжение → память → модель");
+
+{
+  const calls = [];
+  const recall = (q) => { calls.push(`recall:${q}`); return q.includes("лавэ") ? { key: "скок лавэ", q: "касса за вчера" } : null; };
+  const smart = async (q) => { calls.push(`smart:${q}`); return null; };
+
+  // 1. Понятный вопрос — правила, больше никого не зовём
+  let r = await understand("касса вчера", { recall, smart });
+  eq(r.parsed?.metric, "cash", "правила поняли");
+  eq(calls, [], "память и модель не тронуты");
+
+  // 2. Продолжение — по полям от предыдущего
+  const ctx = r.parsed;
+  r = await understand("а сегодня?", { context: ctx, hasHistory: true, recall, smart });
+  eq(r.parsed?.metric, "cash", "метрика с прошлого вопроса");
+  eq(r.parsed?.followUpOf, "касса вчера", "и помечено как продолжение");
+  ok(r.parsed?.period.from !== ctx.period.from, "период — новый");
+  eq(calls, [], "и тут без памяти и модели");
+
+  // Без истории «а сегодня?» — не продолжение: контекст мог остаться от прошлой сессии
+  r = await understand("а сегодня?", { context: ctx, hasHistory: false, recall, smart });
+  eq(r.parsed?.followUpOf, undefined, "без истории продолжения нет");
+
+  // 3. Слабый разбор («лавэ» — незнакомое слово, стало бы товаром) — память сильнее
+  const guess = await parseQuestion("скок лавэ");
+  eq(guess?.assumed?.product, true, "разбор честно помечает: товар — догадка");
+  r = await understand("скок лавэ", { recall, smart });
+  eq(r.parsed?.metric, "cash", "память подсказала «касса за вчера» — и перебила догадку");
+  eq(r.note, "Понял как «касса за вчера».", "и об этом сказано");
+  eq(r.learnedHit?.key, "скок лавэ", "известно, какая запись сработала");
+  eq(calls, ["recall:скок лавэ"], "модель не звали — память справилась");
+
+  // 4. Память молчит — модель (здесь выключена) — остаётся догадка про товар
+  calls.length = 0;
+  r = await understand("ыыы", { recall, smart });
+  eq(r.parsed?.product, "ыыы", "ничего лучше — остаётся догадка, а не пустота");
+  eq(calls, ["recall:ыыы", "smart:ыыы"], "порядок: сначала память, потом модель");
+  eq(r.note, "", "без подсказки — без «понял как»");
+
+  // Совсем ничего — приветствие — null, и модель спрашивали
+  calls.length = 0;
+  r = await understand("ладно", { recall, smart });
+  eq(r.parsed, null, "приветствие — не поняли ничем");
+  eq(calls, ["recall:ладно", "smart:ладно"], "память и модель спросили по порядку");
+
+  // Модель ответила разбором — берём его с пояснением, догадка отброшена
+  r = await understand("ыыы", { recall: () => null, smart: async () => ({ parsed: { metric: "checks", operation: "sum", spot: { branchId: "all" }, period: { from: "a", to: "a" } }, gloss: "чеки за вчера", clarify: "уточните филиал" }) });
+  eq(r.parsed?.metric, "checks", "разбор модели принят");
+  eq(r.gloss, "чеки за вчера", "с её пояснением");
+  eq(r.clarify, "уточните филиал", "и уточнением");
+
+  // Память подсказала фразу, которая сама не разбирается — считаем, что памяти нет
+  r = await understand("ладно", { recall: () => ({ key: "ладно", q: "ладно тоже" }), smart });
+  eq(r.parsed, null, "битая подсказка не даёт ложного ответа");
+  eq(r.learnedHit, null, "и не считается сработавшей");
+
+  // Уверенный разбор память не перебивает: «касса вчера» — не догадка
+  r = await understand("касса вчера", { recall: () => ({ key: "касса вчера", q: "чеки вчера" }), smart });
+  eq(r.parsed?.metric, "cash", "уверенный разбор остаётся");
+
+  const dc = readFileSync("src/components/DataChat.jsx", "utf8");
+  ok(dc.includes("await understand(q, {") && !dc.includes("mergeFollowUp("), "клиент понимает вопрос через общий модуль");
+  ok(dc.includes("setSuggestions(initialExamples.slice(0, 8))"), "не понял — примеры кнопками");
+}
+
 section("Исполнитель и клиент собраны правильно");
 
 {
@@ -650,12 +718,12 @@ section("Исполнитель и клиент собраны правильн�
   ok(ex.includes("productMatches(") && !ex.includes("searchLower"), "исполнитель ищет товары общей функцией, дублей нет");
   ok(ex.includes("closestNames("), "и подсказывает похожие, когда не нашёл");
   const dc = readFileSync("src/components/DataChat.jsx", "utf8");
-  ok(dc.includes("mergeFollowUp(") && dc.includes("preferFollowUp("), "клиент продолжает диалог по полям");
+  ok(dc.includes("understand(q, {"), "клиент продолжает диалог по полям — через understand");
   ok(!dc.includes("actualQuery"), "склейки строк больше нет");
-  ok(dc.includes("recallEntry(") && dc.includes("remember("), "память исправлений подключена");
+  ok(dc.includes("recall: recallEntry") && dc.includes("remember("), "память исправлений подключена");
   ok(dc.includes("syncShared(") && dc.includes("shareLearned("), "и она общая: синхронизация при открытии, отправка при исправлении");
   ok(dc.includes("alternatives("), "альтернативы показываются");
-  ok(dc.indexOf("parseQuestion(q)") < dc.indexOf("smartParse("), "правила — до модели");
+  ok(readFileSync("src/chat/understand.js", "utf8").indexOf("parseQuestion(q)") < readFileSync("src/chat/understand.js", "utf8").indexOf("await smart("), "правила — до модели");
 }
 
 console.log("\n══════════════════════════════════════════════════");

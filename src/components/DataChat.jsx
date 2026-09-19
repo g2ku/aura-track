@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { parseQuestion, describeParsed, mergeFollowUp, preferFollowUp } from "../chat/parser.js";
+import { parseQuestion, describeParsed } from "../chat/parser.js";
+import { understand } from "../chat/understand.js";
 import { executeQuery } from "../chat/executor.js";
 import { smartParse } from "../chat/smart.js";
 import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
@@ -345,44 +346,21 @@ export default function DataChat() {
     }
     saveHistory(q);
 
-    // Порядок понимания — от дешёвого к дорогому, и всё до модели бесплатно:
-    //  1. правила разбирают вопрос как есть;
-    //  2. короткая реплика («а вчера?», «чеки», «по филиалам») дополняет
-    //     предыдущий вопрос — по полям, а не склейкой строк;
-    //  3. память исправлений: так уже спрашивали и потом переспросили иначе;
-    //  4. модель на сервере — только если подключена (без ключа её нет).
-    let parsed = null;
-    let gloss = "";
-    let clarify = null;
-    let note = "";
-
-    const fresh = await parseQuestion(q);
-    if (context && messages.length > 0 && preferFollowUp(q, fresh)) {
-      const merged = await mergeFollowUp(context, q);
-      if (merged) parsed = merged;
-    }
-    if (!parsed) parsed = fresh;
-    let learnedHit = null;
-    if (!parsed) {
-      learnedHit = recallEntry(q);
-      if (learnedHit) {
-        parsed = await parseQuestion(learnedHit.q);
-        if (parsed) note = `Понял как «${learnedHit.q}».`;
-      }
-    }
-    if (!parsed) {
-      const smart = await smartParse(q, context);
-      if (smart?.parsed) { parsed = smart.parsed; gloss = smart.gloss; clarify = smart.clarify; }
-      else if (smart && !smart.parsed && smart.gloss) { gloss = smart.gloss; }
-    }
+    // Порядок понимания (правила → продолжение → память → модель) — в
+    // chat/understand.js, где он проверяется тестами
+    const { parsed, gloss, clarify, note, learnedHit } = await understand(q, {
+      context, hasHistory: messages.length > 0, recall: recallEntry, smart: smartParse,
+    });
     const debugInfo = parsed ? describeParsed(parsed) : null;
 
     if (!parsed) {
       lastFailRef.current = { q, at: Date.now() };
+      // Примеры — кнопками, а не списком в тексте: нажать проще, чем перепечатать
+      setSuggestions(initialExamples.slice(0, 8));
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         role: "assistant",
-        text: (gloss ? `${gloss}\n\n` : "") + "Не распознал вопрос. Попробуйте:\n• Касса за июнь\n• Сколько чеков в Gagarina\n• Спешл за неделю\n• Сравнение июнь и июль\n• Налог ИП Смагул за июнь\n\nСпросите то же другими словами — я запомню, как вы это называете.",
+        text: (gloss ? `${gloss}\n\n` : "") + "Не распознал вопрос. Попробуйте один из примеров ниже — или спросите то же другими словами: я запомню, как вы это называете.",
       }]);
       setLoading(false);
       return;
@@ -391,14 +369,20 @@ export default function DataChat() {
     // Понятный вопрос сразу после непонятого — это исправление. Запомним,
     // и в следующий раз первая формулировка поймётся сама.
     const fail = lastFailRef.current;
-    if (fail && Date.now() - fail.at < LINK_WINDOW_MS && !parsed.followUpOf && remember(fail.q, q)) {
+    // Догадка «это товар» — ещё не понимание: связку не пишем, пока
+    // товар не нашёлся (ниже), иначе запомним неудачу как ответ
+    if (fail && Date.now() - fail.at < LINK_WINDOW_MS && !parsed.followUpOf && !parsed.assumed?.product && remember(fail.q, q)) {
       // И сразу в общую память — чтобы на других устройствах и у коллег
       // ассистент тоже понял. Не дошло — досылается при следующем открытии.
       shareLearned(fail.q, q).catch(() => {});
     }
-    lastFailRef.current = null;
+    if (!parsed.assumed?.product) lastFailRef.current = null;
 
     const result = await executeQuery(parsed, userBranchObj);
+    // Незнакомое слово искали как товар и не нашли — это тоже «не понял»:
+    // следующий понятный вопрос станет исправлением и запомнится
+    if (parsed.assumed?.product && !result.data) lastFailRef.current = { q, at: Date.now() };
+    else if (parsed.assumed?.product) lastFailRef.current = null;
     // Как поняли вопрос — только когда додумали или продолжили предыдущий:
     // на понятный вопрос эта строка лишняя
     const understood = gloss ? `Понял так: ${gloss}.` : (note || understoodLine(parsed));

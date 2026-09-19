@@ -789,9 +789,10 @@ export async function parseQuestion(text) {
 
   // «Круассаны», «сырники за вчера» — ни метрики, ни известного товара,
   // а одно-два незнакомых слова. Это товар, которого нет в сокращениях.
+  let guessedProduct = false;
   if (!product && !category && !exactMetric(lower) && !fuzzyMetric(lower) && !GREETINGS.test(lower.trim())) {
     const rest = unknownWords(lower);
-    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) product = rest.join(" ");
+    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) { product = rest.join(" "); guessedProduct = true; }
   }
 
   // Check for comparison between two periods first
@@ -872,6 +873,9 @@ export async function parseQuestion(text) {
     assumed: {
       metric: !hasMetricKeyword && !hasProduct && !category && !hasMoney && metric === "cash",
       period: !explicitPeriod,
+      // Товар — догадка по незнакомому слову, а не найденное название:
+      // память исправлений и модель имеют право её перебить
+      product: guessedProduct,
     },
   };
 }
@@ -897,9 +901,10 @@ export async function mergeFollowUp(prev, text) {
 
   // «Круассаны», «сырники за вчера» — ни метрики, ни известного товара,
   // а одно-два незнакомых слова. Это товар, которого нет в сокращениях.
+  let guessedProduct = false;
   if (!product && !category && !exactMetric(lower) && !fuzzyMetric(lower) && !GREETINGS.test(lower.trim())) {
     const rest = unknownWords(lower);
-    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) product = rest.join(" ");
+    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) { product = rest.join(" "); guessedProduct = true; }
   }
   const metric = exactMetric(lower) || fuzzyMetric(lower);
   const byBranch = /по\s+(?:филиал|точк)|филиалы|точки|все\s+(?:филиал|точк)/.test(lower);

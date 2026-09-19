@@ -61,5 +61,6 @@ export function understoodLine(parsed, now = new Date()) {
     return `Понял так: ${bits.filter(Boolean).join(", ")}.`;
   }
   if (parsed.assumed?.metric) return "Показал кассу — если нужно другое, нажмите ниже.";
+  if (parsed.assumed?.product) return `Понял «${parsed.product}» как товар. Если это не он — спросите иначе, я запомню.`;
   return "";
 }
