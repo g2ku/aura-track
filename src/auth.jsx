@@ -308,8 +308,8 @@ export async function logout() {
 // ─── Экран логина ─────────────────────────────────────────────────────
 
 export function LoginGate({ children }) {
-  if (!isFirebaseConfigured()) return children;
-
+  // Хуки — до любых return: порядок хуков между рендерами меняться не должен
+  const configured = isFirebaseConfigured();
   const { auth, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -324,6 +324,9 @@ export function LoginGate({ children }) {
   }, []);
 
   const isRegisterPage = hash === "#/register";
+
+  // Firebase не настроен (локальная разработка) — пускаем без входа
+  if (!configured) return children;
 
   if (loading && !isRegisterPage) {
     return (

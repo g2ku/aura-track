@@ -154,7 +154,7 @@ export function grandTotal(doc) {
 // ─── Форматирование отчёта для Telegram ──────────────────────────────
 
 export function fmtInt(n) {
-  return Math.round(n).toLocaleString("ru-RU").replace(/ /g, " ");
+  return Math.round(n).toLocaleString("ru-RU").replace(/\u00a0/g, " ");
 }
 
 // Ячейка таблицы: точная сумма, прочерк вместо нуля.

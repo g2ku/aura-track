@@ -1,5 +1,5 @@
-/* Tabler Icons 3.11.0, подмножество: 130 иконок. Собрано scripts/icons-subset.mjs — не править руками. */
-@font-face{font-family:"tabler-icons";font-style:normal;font-weight:400;font-display:block;src:url("/fonts/tabler-icons.a276ecae.woff2") format("woff2")}
+/* Tabler Icons 3.11.0, подмножество: 131 иконок. Собрано scripts/icons-subset.mjs — не править руками. */
+@font-face{font-family:"tabler-icons";font-style:normal;font-weight:400;font-display:block;src:url("/fonts/tabler-icons.50d3f37a.woff2") format("woff2")}
 .ti{font-family:"tabler-icons" !important;speak:none;font-style:normal;font-weight:normal;font-variant:normal;text-transform:none;line-height:1;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .ti-activity:before{content:"\ed23"}
 .ti-alert-circle:before{content:"\ea05"}
@@ -99,6 +99,7 @@
 .ti-pointer:before{content:"\f265"}
 .ti-receipt:before{content:"\edfd"}
 .ti-receipt-off:before{content:"\edfb"}
+.ti-receipt-tax:before{content:"\edbd"}
 .ti-refresh:before{content:"\eb13"}
 .ti-report:before{content:"\eece"}
 .ti-report-analytics:before{content:"\eecb"}

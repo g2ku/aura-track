@@ -322,7 +322,6 @@ export function formatAlerts(alerts) {
 
   const late = alerts.filter((a) => a.kind === "late");
   const stale = alerts.filter((a) => a.kind === "shiftstale");
-  const closing = alerts.filter((a) => a.kind === "closing");
 
   // Точка, которая должна была открыться и не открылась, — первое, что
   // нужно знать утром: там либо бариста опоздал, либо что-то случилось.

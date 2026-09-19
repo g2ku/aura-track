@@ -149,6 +149,12 @@ export default function PayrollView() {
   const totals = useMemo(() => summarize(blocks), [blocks]);
   const period = entries.find((e) => e.period)?.period || null;
 
+  // Все позиции без цены по всем филиалам: их и подтягиваем из Poster
+  // одним нажатием. Раньше здесь стояло `missing` из чужой области
+  // видимости — кнопка «Подтянуть из Poster» падала с ReferenceError
+  // ровно тогда, когда была нужна.
+  const missing = useMemo(() => [...new Set(blocks.flatMap((b) => b.missing))], [blocks]);
+
   // Лист сохраняется под одним периодом. Если филиалы прислали разные —
   // это почти всегда опечатка куратора, и молчать про неё нельзя.
   const periodMismatch = useMemo(() => {
@@ -504,6 +510,10 @@ export default function PayrollView() {
           onSetExtra={setExtra}
           onSetExcluded={setExcluded}
           onRemove={removeEntry}
+          hints={hints}
+          hintsLoading={hintsLoading}
+          onPullPrices={pullPrices}
+          onSavePulled={savePulled}
         />
       ))}
     </div>
@@ -512,7 +522,10 @@ export default function PayrollView() {
 
 // ─── Один филиал ──────────────────────────────────────────────────────
 
-function BranchBlock({ block, draftPrice, setDraftPrice, onAddPrice, onSetRate, onSetExtra, onSetExcluded, onRemove }) {
+function BranchBlock({
+  block, draftPrice, setDraftPrice, onAddPrice, onSetRate, onSetExtra, onSetExcluded, onRemove,
+  hints = null, hintsLoading = false, onPullPrices, onSavePulled,
+}) {
   const { entry, name, shortage, surplus, missing, noRate, result } = block;
 
   return (
@@ -560,12 +573,12 @@ function BranchBlock({ block, draftPrice, setDraftPrice, onAddPrice, onSetRate, 
             Остальные филиалы считаются как обычно.
           </p>
           <div className="pr-pull">
-            <button className="btn btn-out btn-sm" onClick={pullPrices} disabled={hintsLoading}>
+            <button className="btn btn-out btn-sm" onClick={onPullPrices} disabled={hintsLoading}>
               <i className="ti ti-download" aria-hidden="true" />
               {hintsLoading ? " Ищу в Poster…" : " Подтянуть из Poster"}
             </button>
             {hints && Object.keys(hints).length > 0 && (
-              <button className="btn btn-pri btn-sm" onClick={savePulled}>
+              <button className="btn btn-pri btn-sm" onClick={onSavePulled}>
                 <i className="ti ti-check" aria-hidden="true" /> Сохранить заполненные
               </button>
             )}

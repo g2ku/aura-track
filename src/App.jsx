@@ -25,6 +25,55 @@ const PostUploadModal = lazy(() => import("./components/PostUploadModal"));
 const FeedbackModal = lazy(() => import("./components/FeedbackModal"));
 const ChangelogModal = lazy(() => import("./components/ChangelogModal"));
 
+
+// Куратор без филиала — экран ожидания.
+//
+// provisional значит «Firestore ещё не ответил, роль подставлена».
+// Показывать по ней экран ожидания нельзя: админ увидел бы «ждите
+// назначения роли» вместо своего дашборда.
+//
+// Отдельный компонент, а не ранний return в MainApp: тот стоял ПЕРЕД
+// двумя десятками хуков, и в момент, когда админ назначал куратору
+// филиал, компонент перерисовывался с другим числом хуков — React
+// падал с «Rendered more hooks than during the previous render».
+function WaitingForRole({ auth }) {
+  return (
+    <div className="login-wrap">
+      <div className="login-card" style={{ textAlign: "center", maxWidth: 420 }}>
+        <div className="login-logo" style={{ background: "var(--text-accent)" }}>
+          <i className="ti ti-clock" aria-hidden="true" />
+        </div>
+        <h2 style={{ fontSize: 20, marginTop: 16, color: "var(--text-primary)" }}>
+          Ожидайте назначения роли
+        </h2>
+        <p style={{ color: "var(--text-secondary)", fontSize: 14, marginTop: 8, lineHeight: 1.6 }}>
+          Администратор назначит вам филиал и роль.<br />
+          Оповестите его, пожалуйста.
+        </p>
+        <div style={{ marginTop: 20, padding: "12px 16px", borderRadius: 10, background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Ваш аккаунт</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{auth.email}</div>
+        </div>
+        <button
+          onClick={() => { logout(); window.location.hash = "#/login"; }}
+          style={{
+            marginTop: 20,
+            padding: "10px 24px",
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+            background: "var(--bg-elevated)",
+            color: "var(--text-secondary)",
+            cursor: "pointer",
+            fontSize: 14,
+          }}
+        >
+          Выйти
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <LoginGate>
@@ -56,49 +105,6 @@ function MainApp() {
   }, [role, navV2, auth]);
   const userBranch = useUserBranch();
   const canEdit = isAdminOrManager();
-
-  // Куратор без филиала — экран ожидания.
-  //
-  // provisional значит «Firestore ещё не ответил, роль подставлена».
-  // Показывать по ней экран ожидания нельзя: админ увидел бы «ждите
-  // назначения роли» вместо своего дашборда.
-  if (auth && !auth.provisional && role === "curator" && !userBranch) {
-    return (
-      <div className="login-wrap">
-        <div className="login-card" style={{ textAlign: "center", maxWidth: 420 }}>
-          <div className="login-logo" style={{ background: "var(--text-accent)" }}>
-            <i className="ti ti-clock" aria-hidden="true" />
-          </div>
-          <h2 style={{ fontSize: 20, marginTop: 16, color: "var(--text-primary)" }}>
-            Ожидайте назначения роли
-          </h2>
-          <p style={{ color: "var(--text-secondary)", fontSize: 14, marginTop: 8, lineHeight: 1.6 }}>
-            Администратор назначит вам филиал и роль.<br />
-            Оповестите его, пожалуйста.
-          </p>
-          <div style={{ marginTop: 20, padding: "12px 16px", borderRadius: 10, background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Ваш аккаунт</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{auth.email}</div>
-          </div>
-          <button
-            onClick={() => { logout(); window.location.hash = "#/login"; }}
-            style={{
-              marginTop: 20,
-              padding: "10px 24px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--bg-elevated)",
-              color: "var(--text-secondary)",
-              cursor: "pointer",
-              fontSize: 14,
-            }}
-          >
-            Выйти
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   const docs = useAppStore((s) => s.docs);
   const globalPayments = useAppStore((s) => s.globalPayments);
@@ -179,6 +185,11 @@ function MainApp() {
     route, filteredDocs, filteredAgg, agg, canEdit, userBranch, role, globalPayments,
     openModal, handleDeleteReports,
   });
+
+  // Все хуки выше уже вызваны — теперь можно и не показывать пульт
+  if (auth && !auth.provisional && role === "curator" && !userBranch) {
+    return <WaitingForRole auth={auth} />;
+  }
 
   return (
     <div className="layout-with-sidebar">

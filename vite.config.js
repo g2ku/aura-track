@@ -62,6 +62,8 @@ function posterProxyPlugin() {
 
 export default defineConfig({
   plugins: [react(), posterProxyPlugin()],
+  // Порт — из окружения, если задан: рядом может жить другой dev-сервер
+  server: { port: Number(process.env.PORT) || 5173, strictPort: !!process.env.PORT },
   build: {
     target: "es2020",
     chunkSizeWarningLimit: 2500,

@@ -272,6 +272,10 @@ export function useRouteContent({
     content = <TrafficHeatmap />;
   } else if (p === "/pnl" && isAdminOrManager()) {
     content = <PnLView agg={agg} />;
+  // Налоги 3 % по ИП за полугодие. Маршрут пропал 13 августа в чужом
+  // коммите — компонент остался, ссылка на него нет. Возвращаем.
+  } else if (p === "/taxes" && isAdminOrManager()) {
+    content = <TaxesView />;
   } else if (p === "/replenish") {
     content = <AutoReplenishmentAlerts />;
   } else if (p === "/anomalies" && isAdminOrManager()) {

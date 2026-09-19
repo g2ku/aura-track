@@ -272,13 +272,10 @@ function currentMonthPeriod(now = new Date()) {
   };
 }
 
-// Период, если он назван; иначе текущий месяц. Отдельно — «назван ли»:
-// продолжению диалога («а вчера?») нужно знать, менять ли период
-// предыдущего вопроса, а уточнению — что именно человек уже сказал.
-function parsePeriod(text) {
-  return parsePeriodExplicit(text) || currentMonthPeriod();
-}
-
+// Период — только если назван (иначе null, и вызывающий берёт текущий
+// месяц). Отдельно «назван ли»: продолжению диалога («а вчера?») нужно
+// знать, менять ли период предыдущего вопроса, а уточнению — что именно
+// человек уже сказал.
 export function hasExplicitPeriod(text) {
   return parsePeriodExplicit(normalize(text)) !== null;
 }

@@ -10,7 +10,7 @@
 
 import { posterCall, dashTransactions } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
-import { buildAlerts, buildSupplyAlerts } from "./_lib/watch.js";
+import { buildAlerts } from "./_lib/watch.js";
 import { buildLagAlerts } from "./_lib/briefing.js";
 import { usualByHour, todayByHour, buildBehindAlerts } from "./_lib/usualDay.js";
 import { spotNameByPosterId } from "./_lib/branches.js";

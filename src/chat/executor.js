@@ -544,20 +544,25 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
   const pl = formatPeriodLabel(period);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  // If asking for per-branch breakdown (or no specific product)
-  const wantBySpot = !productName || /по\s*филиалам/i.test(period?.raw || "");
+  // «Товары по филиалам» — разрез по точкам вместо общего списка. Флаг
+  // ставит продолжение диалога («а по филиалам?»); раньше он считался,
+  // но не использовался, и ответ был тем же общим списком.
+  const wantBySpot = /по\s*филиалам/i.test(period?.raw || "");
+
+  // Филиалы группы ИП — один раз, а не на каждую строку: раньше await
+  // стоял внутри цикла по тысячам строк
+  const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
+  const inGroup = (row) => {
+    if (!groupBranches) return true;
+    const branchId = row.spotName?.startsWith("Aura02_") ? row.spotName : null;
+    return !branchId || groupBranches.includes(branchId);
+  };
 
   // Group by product (filtered by spot)
   const productMap = {};
   for (const row of data.rows) {
     if (!matchesRowSpot(row, spot)) continue;
-    if (ipGroup) {
-      const branchId = row.spotName?.startsWith("Aura02_") ? row.spotName : null;
-      if (branchId) {
-        const groupBranches = await resolveIPGroupBranches(ipGroup);
-        if (groupBranches && !groupBranches.includes(branchId)) continue;
-      }
-    }
+    if (!inGroup(row)) continue;
     const name = row.productName;
     if (!productMap[name]) productMap[name] = { name, qty: 0, sum: 0 };
     productMap[name].qty += row.qty || 0;
@@ -568,6 +573,7 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
   const spotProductMap = {};
   for (const row of data.rows) {
     if (productName && !productMatches(row.productName, productName)) continue;
+    if (!inGroup(row)) continue;
     const sid = row.spotId;
     const sname = row.spotName || sid;
     if (!spotProductMap[sid]) spotProductMap[sid] = { spotName: sname, products: {} };
@@ -621,6 +627,24 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
 
     const text = `Продажи «${productName}»${ipLabel} за ${pl}:\n\nВарианты:\n${variantLines}\n\nИтого: ${allQty} шт. / ${fmt(allSum)}\n\nПо филиалам:\n${branchLines}`;
     return { text, data: { matches, bySpot } };
+  }
+
+  // Разрез по точкам: итог и три лучших товара на каждой
+  if (wantBySpot) {
+    const branches = Object.entries(spotProductMap)
+      .filter(([sid, s]) => matchesSpot({ spotId: sid, spotName: s.spotName }, spot))
+      .map(([, s]) => {
+        const list = Object.values(s.products).sort((a, b) => b.sum - a.sum);
+        return { spotName: s.spotName, qty: list.reduce((n, p) => n + p.qty, 0), sum: list.reduce((n, p) => n + p.sum, 0), top: list.slice(0, 3) };
+      })
+      .filter((b) => b.qty > 0)
+      .sort((a, b) => b.sum - a.sum);
+    if (!branches.length) return { text: `Продаж${ipLabel} за ${pl} не нашёл.`, data: null };
+    const lines = branches.map((b) => `• ${b.spotName}: ${b.qty} шт. / ${fmt(b.sum)}\n   ${b.top.map((p) => `${p.name} ${p.qty}`).join(" · ")}`);
+    return {
+      text: `Товары по филиалам${ipLabel} за ${pl}:\n${lines.join("\n")}`,
+      data: { branches },
+    };
   }
 
   products.sort((a, b) => b.sum - a.sum);
