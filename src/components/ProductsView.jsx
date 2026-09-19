@@ -126,7 +126,7 @@ export default function ProductsView({ docs, agg, userBranch }) {
   function doExport() {
     const headers = COLS.map((c) => ({ key: c.key, label: c.label }));
     const rows = items.map((x) => ({ ...x, total: fmt(x.total), avgPerOrder: fmt(x.avgPerOrder) }));
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = new Date().toLocaleDateString("sv-SE");
     downloadCsv(`supplytrack-products-${stamp}`, headers, rows);
   }
 

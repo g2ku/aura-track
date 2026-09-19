@@ -303,7 +303,7 @@ export default function Dashboard({
         reports: branchAgg.reports || 0,
       };
     });
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = new Date().toLocaleDateString("sv-SE");
     downloadCsv(`dashboard-${stamp}`, headers, rows);
   }
 

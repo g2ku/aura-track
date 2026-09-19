@@ -812,18 +812,35 @@ async function handleTrend(metric, spot, period, ipGroup) {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
-  const today = now.getDate();
-
-  // Get last 3 COMPLETE months (exclude current incomplete month)
-  const months = [];
-  for (let i = 3; i >= 1; i--) {
-    const d = new Date(currentYear, currentMonth - i, 1);
+  const todayIso = fmtDateJS(now);
+  const ym = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const monthOf = (d) => {
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    months.push({
+    return {
       label: d.toLocaleDateString("ru-RU", { month: "short", year: "numeric" }),
-      from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`,
-      to: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
-    });
+      from: `${ym(d)}-01`,
+      to: `${ym(d)}-${String(lastDay).padStart(2, "0")}`,
+    };
+  };
+
+  // Срок назван («за полгода», «за 2025 год») — идём по его месяцам,
+  // текущий незавершённый помечаем. Без срока — три полных месяца назад,
+  // как и было: текущий месяц в динамике только путает
+  const months = [];
+  const spanDays = period?.from && period?.to ? daysInPeriod(period.from, period.to) : 0;
+  if (spanDays >= 45) {
+    const start = new Date(period.from + "T00:00:00");
+    const end = new Date(period.to + "T00:00:00");
+    for (let d = new Date(start.getFullYear(), start.getMonth(), 1); d <= end && months.length < 12; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      const m = monthOf(d);
+      if (m.from > todayIso) break;
+      if (m.to > todayIso) { m.to = todayIso; m.label += ` (по ${now.getDate()}-е)`; m.partial = true; }
+      months.push(m);
+    }
+  }
+  if (months.length < 2) {
+    months.length = 0;
+    for (let i = 3; i >= 1; i--) months.push(monthOf(new Date(currentYear, currentMonth - i, 1)));
   }
 
   // Fetch month by month to avoid large-range API failures
@@ -841,19 +858,23 @@ async function handleTrend(metric, spot, period, ipGroup) {
     filtered = await filterByIPGroup(filtered, ipGroup);
     const total = filtered.reduce((s, d) => s + (d.total || 0), 0);
     const tx = filtered.reduce((s, d) => s + (d.txCount || 0), 0);
-    monthlyData.push({ month: months[i].label, total, tx, days: daysInPeriod(months[i].from, months[i].to) });
+    monthlyData.push({ month: months[i].label, total, tx, days: daysInPeriod(months[i].from, months[i].to), partial: !!months[i].partial });
   }
 
-  // Calculate trend (compare first and last complete months)
-  const values = monthlyData.map(m => m.total);
-  const trend = values[2] > values[0] ? "рост" : values[2] < values[0] ? "снижение" : "стабильно";
-  const pct = values[0] > 0 ? ((values[2] - values[0]) / values[0] * 100).toFixed(1) : 0;
+  // Динамика — первый полный месяц к последнему полному: незавершённый
+  // месяц сравнивать нечестно, он всегда «просел»
+  const full = monthlyData.filter(m => !m.partial);
+  const first = full[0] || monthlyData[0];
+  const last = full[full.length - 1] || monthlyData[monthlyData.length - 1];
+  const trend = last.total > first.total ? "рост" : last.total < first.total ? "снижение" : "стабильно";
+  const pct = first.total > 0 ? ((last.total - first.total) / first.total * 100).toFixed(1) : 0;
 
   const lines = monthlyData.map(m => `• ${m.month}: ${fmt(m.total)} (${m.tx} чеков, ${m.days} дн.)`).join("\n");
   const emoji = trend === "рост" ? "📈" : trend === "снижение" ? "📉" : "➡️";
+  const scope = spanDays >= 45 && months.length >= 2 ? `${months.length} мес.` : "3 полных месяца";
 
   return {
-    text: `Тренд кассы ${sl}${ipLabel} (3 полных месяца):\n${lines}\n\n${emoji} ${trend === "рост" ? "+" : ""}${pct}% за период`,
+    text: `Тренд кассы ${sl}${ipLabel} (${scope}):\n${lines}\n\n${emoji} ${trend === "рост" ? "+" : ""}${pct}% ${first.month} → ${last.month}`,
     data: { monthlyData, trend, pctChange: pct },
   };
 }
@@ -1140,7 +1161,8 @@ const SPOT_NAME = Object.fromEntries(Object.values(BRANCHES).map((b) => [String(
 // получал ответ про совсем другое.
 async function handleOpenChecks(spot) {
   const { fetchPaymentBreakdown } = await import("../poster.js");
-  const today = new Date().toISOString().slice(0, 10);
+  // Локальная дата, не UTC: до пяти утра по Алматы «сегодня» в UTC — ещё вчера
+  const today = fmtDateJS(new Date());
   const r = await fetchPaymentBreakdown(today, today);
   let items = r?.openChecks?.items || [];
   if (spot && spot.spotId && spot.spotId !== "all") {

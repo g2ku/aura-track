@@ -13,8 +13,8 @@ const METRICS = [
   // Порядок важен: первое совпадение выигрывает. Эти три стоят сверху,
   // потому что их слова пересекаются с более общими — «открытые чеки»
   // иначе уезжали в «чеки» и превращались в количество продаж за месяц.
-  { keys: ["открытые чек", "открыт чек", "незакрыт", "висят чек", "висящие чек", "что висит"], value: "openChecks" },
-  { keys: ["что не так", "есть проблем", "какие проблем", "всё в порядке", "все в порядке", "что случилось", "тревог"], value: "alerts" },
+  { keys: ["открытые чек", "открыт чек", "открытых чек", "незакрыт", "висят чек", "висящие чек", "что висит"], value: "openChecks" },
+  { keys: ["что не так", "есть проблем", "какие проблем", "всё в порядке", "все в порядке", "что случилось", "тревог", "не открыл", "не открыт"], value: "alerts" },
   { keys: ["расход", "остатк", "остаток", "списан", "ингредиент", "минус по", "в минусе", "сколько ушло", "сколько потрачен"], value: "stock" },
   { keys: ["сравн", "сравнить", "разниц", "отлич", "кто лучш", "кто худш", "кто лучше", "кто хуже", "кто больше", "кто меньше", "больше всех", "меньше всех", "рейтинг", "ранжир", "принес", "принесла", "принесли", "какая точк", "какой филиал", "какие точки"], value: "compareBranches" },
   // «Что продавалось», «самый продаваемый», «хит» — про товары, хотя слово
@@ -23,10 +23,11 @@ const METRICS = [
   { keys: ["касс", "каса", "выручк", "деньг", "денег", "средств", "заработ", "оборот", "доход", "бабк", "бабл", "деньж"], value: "cash" },
   { keys: ["средний чек", "средняя сумма"], value: "avgCheck" },
   { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж", "продан", "продав", "человек", "людей", "гостей", "гостя", "клиент", "посетител"], value: "checks" },
-  { keys: ["товар", "товары", "товаров", "позици", "меню", "напитк", "продукт"], value: "products" },
+  // Маржа и прибыль — выше товаров: «маржа по товарам» — про маржу
   { keys: ["прибыл", "профит"], value: "profit" },
-  { keys: ["налог", "налога", "налоги"], value: "tax" },
   { keys: ["марж", "рентабельн"], value: "margin" },
+  { keys: ["товар", "товары", "товаров", "позици", "меню", "напитк", "продукт"], value: "products" },
+  { keys: ["налог", "налога", "налоги"], value: "tax" },
   { keys: ["тренд", "динамик", "измени", "рост", "снижен"], value: "trend" },
   { keys: ["прогноз", "прогнозир", "предсказан", "ожидаем"], value: "forecast" },
   { keys: ["день недели", "день", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "будни", "выходн"], value: "weekday" },
@@ -34,19 +35,22 @@ const METRICS = [
   { keys: ["аномальн", "аномали", "отклонени", "подозрительн", "странны"], value: "anomaly" },
 ];
 
+// Первое совпадение побеждает, поэтому разрезы («по часам», «во сколько»,
+// «по месяцам») стоят выше счёта: «во сколько больше всего чеков» — это
+// час пик, а не «сколько» и не «больше всего».
 const OPERATIONS = [
+  { keys: ["по часам", "в какое время", "во сколько", "пик", "час пик"], value: "byHour" },
+  { keys: ["по дням", "по дням недели", "какой день", "в какой день", "какие дни", "по будням", "в выходные", "по выходным", "в будни"], value: "byWeekday" },
+  { keys: ["по месяцам", "по неделям", "помесячно", "понедельно", "тренд", "как менял"], value: "trend" },
+  { keys: ["прогноз", "прогнозир", "предсказан", "ожидаем"], value: "forecast" },
+  { keys: ["аномальн", "аномали", "отклонени", "подозрительн"], value: "anomaly" },
   { keys: ["средн", "средняя", "среднее", "средний"], value: "average" },
   { keys: ["сумм", "итого", "общая", "общий", "полная", "полный"], value: "sum" },
   { keys: ["сколько", "количеств", "число", "кол-во"], value: "count" },
-  { keys: ["максимум", "максимальн", "больше всего", "самый большой", "топ", "лучш"], value: "max" },
-  { keys: ["минимум", "минимальн", "меньше всего", "самый маленьк"], value: "min" },
+  { keys: ["максимум", "максимальн", "больше всего", "самый большой", "самый дорог", "топ", "лучш"], value: "max" },
+  { keys: ["минимум", "минимальн", "меньше всего", "самый маленьк", "самый дешев"], value: "min" },
   { keys: ["сравн", "сравнить", "разниц", "отлич"], value: "compare" },
   { keys: ["измени", "вырос", "упал", "изменилась", "изменился", "рост", "снижение", "динамик"], value: "percentChange" },
-  { keys: ["тренд", "динамик", "как менял"], value: "trend" },
-  { keys: ["прогноз", "прогнозир", "предсказан", "ожидаем"], value: "forecast" },
-  { keys: ["по дням", "по дням недели", "какой день", "в какой день", "какие дни"], value: "byWeekday" },
-  { keys: ["по часам", "в какое время", "пик"], value: "byHour" },
-  { keys: ["аномальн", "аномали", "отклонени", "подозрительн"], value: "anomaly" },
 ];
 
 // ─── Нечёткое узнавание ───────────────────────────────────────────
@@ -154,6 +158,9 @@ const STOP_WORDS = new Set([
   "привет", "помоги", "спасибо", "пожалуйста", "здравствуй", "пока",
   "да", "нет", "ок", "хорошо", "плохо", "как дела", "что нового",
   "показать", "скажи", "расскажи", "объясни", "объяснить",
+  "точкам", "точках", "филиалах", "филиалам", "пробили", "пробито", "пробил", "пробила",
+  "больше", "меньше", "много", "мало", "лучше", "хуже", "открытых", "открытые", "открыт", "открыто",
+  "ушло", "потратили", "принес", "принесла", "принесли", "заработали", "заработал",
 ]);
 
 // Spot aliases
@@ -455,6 +462,21 @@ function parsePeriodExplicit(text) {
   if (/прошл[а-яё]+\s+год/.test(text)) {
     return { from: `${currentYear - 1}-01-01`, to: `${currentYear - 1}-12-31` };
   }
+  // «В этом году», «с начала года» — с 1 января по сегодня
+  if (/(?:эт[а-яё]+|текущ[а-яё]+|нынешн[а-яё]+)\s+год/.test(text)) {
+    return { from: `${currentYear}-01-01`, to: fmtDate(now) };
+  }
+  // «За 2025 год», «в 2025» — конкретный год целиком (текущий — по сегодня)
+  const yearOnly = text.match(/(?:^|\s)(20\d{2})(?:\s*(?:год|г\.?|году))?(?![\d.\-\/])/);
+  if (yearOnly && !/\d{1,2}[.\-\/]\d{1,2}[.\-\/]20\d{2}/.test(text) && !findMonth(text)) {
+    const y = Number(yearOnly[1]);
+    if (y >= 2020 && y <= currentYear) return { from: `${y}-01-01`, to: y === currentYear ? fmtDate(now) : `${y}-12-31` };
+  }
+  // «За полгода» — шесть месяцев: с первого числа пять месяцев назад по сегодня
+  if (/полгода|пол\s+года|6\s*месяц|шесть\s+месяц/.test(text)) {
+    const start = new Date(currentYear, currentMonth - 6, 1);
+    return { from: fmtDate(start), to: fmtDate(now) };
+  }
 
   // "за квартал"
   if (text.includes("квартал")) {
@@ -509,6 +531,11 @@ function findMonth(text) {
   return null;
 }
 
+function daysBetween(from, to) {
+  const a = new Date(from + "T00:00:00"), b = new Date(to + "T00:00:00");
+  return Math.max(1, Math.round((b - a) / 86400000) + 1);
+}
+
 function fmtDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -537,6 +564,29 @@ function parseComparisonPeriods(text) {
   const lower = text.toLowerCase();
   const now = new Date();
   const currentYear = now.getFullYear();
+
+  // «Эту неделю с прошлой», «этот месяц с прошлым» — относительные пары.
+  // Месяц сравниваем честно: столько же дней с начала, а не целый прошлый
+  const D = 86400000;
+  if (/эт[а-яё]+\s+недел/.test(lower) && /прошл/.test(lower)) {
+    const dow = (now.getDay() + 6) % 7;
+    const mon = new Date(now.getTime() - dow * D);
+    const prevMon = new Date(mon.getTime() - 7 * D);
+    return [
+      { from: fmtDate(mon), to: fmtDate(now), label: "эта неделя" },
+      { from: fmtDate(prevMon), to: fmtDate(new Date(prevMon.getTime() + dow * D)), label: "прошлая неделя" },
+    ];
+  }
+  if (/эт[а-яё]+\s+месяц/.test(lower) && /прошл/.test(lower)) {
+    const day = now.getDate();
+    const prevFirst = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevLast = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    const prevTo = new Date(prevFirst.getFullYear(), prevFirst.getMonth(), Math.min(day, prevLast));
+    return [
+      { from: fmtDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: fmtDate(now), label: "этот месяц" },
+      { from: fmtDate(prevFirst), to: fmtDate(prevTo), label: "прошлый месяц" },
+    ];
+  }
 
   // «с» тоже разделитель: «сравнить август с июлем» — так пишет сама
   // подсказка после ответа. Для «с 1 по 10 июля» безопасно: две даты не
@@ -634,7 +684,7 @@ function parseSpot(text) {
   let bestMatch = null;
   let bestLen = 0;
   for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
-    if (lower.includes(alias) && alias.length > bestLen) {
+    if (alias.length > bestLen && includesAlias(lower, alias)) {
       bestMatch = entry;
       bestLen = alias.length;
     }
@@ -655,13 +705,21 @@ function parseSpot(text) {
   return bestScore ? bestMatch : null;
 }
 
+// Короткое имя точки ищем только целым словом: «оби» есть внутри
+// «пробили», и «сколько чеков пробили» уезжало на OBI. Длинные имена
+// («гагарин») подстрокой безопасны — у них нет случайных соседей.
+function includesAlias(lower, alias) {
+  if (alias.length > 4) return lower.includes(alias);
+  return new RegExp(`(^|[^а-яa-z0-9])${alias}(?![а-яa-z0-9])`).test(lower);
+}
+
 // Сколько разных филиалов названо: «Абая vs Гагарина», «Коктем и Атакент»
 // — это сравнение, а не касса второго из них.
 function countSpots(lower) {
   const ids = new Set();
   for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
     if (entry.branchId === "all" || alias.length < 3) continue;
-    if (lower.includes(alias)) ids.add(entry.branchId);
+    if (includesAlias(lower, alias)) ids.add(entry.branchId);
   }
   return ids.size;
 }
@@ -802,8 +860,10 @@ export async function parseQuestion(text) {
   const compPeriods = parseComparisonPeriods(lower);
   if (compPeriods) {
     const spot = parseSpot(lower);
+    // «Сравни эту неделю с прошлой» — сравнение периодов, а не филиалов
+    const m = parseMetric(lower, product);
     return {
-      metric: parseMetric(lower, product),
+      metric: m === "compareBranches" ? "cash" : m,
       operation: "percentChange",
       spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
       period: compPeriods[0],
@@ -830,7 +890,7 @@ export async function parseQuestion(text) {
   // целиком — и, конечно, не находило
   if (metric === "stock") product = ingredient ? ingredient[0] : null;
 
-  const operation = parseOperation(lower);
+  let operation = parseOperation(lower);
   let spot = parseSpot(lower);
   const spotNamed = !!spot;
   // «Товары по филиалам» — разрез по точкам; исполнитель смотрит на
@@ -844,6 +904,39 @@ export async function parseQuestion(text) {
   const explicitPeriod = parsePeriodExplicit(lower);
   const period = explicitPeriod || currentMonthPeriod();
   if (byBranchAsked && metric === "products") period.raw = "по филиалам";
+  // «Продажи по точкам», «касса по филиалам» — сравнение точек
+  if (byBranchAsked && ["cash", "checks", "avgCheck"].includes(metric)) { metric = "compareBranches"; spot = null; }
+  // «Сколько принёс Дубай» — одна точка названа, сравнивать не с кем: это её касса
+  if (metric === "compareBranches" && spotNamed && countSpots(lower) < 2 && !/по\s+(?:филиал|точк)|кто |какая|какой|какие|рейтинг|лучш|худш/.test(lower)) metric = "cash";
+  // «Рост кассы за полгода» — без второго периода сравнивать не с чем.
+  // Длинный срок показываем по месяцам, короткий — против такого же
+  // отрезка перед ним: «выросла ли касса за неделю» — эта неделя к прошлой
+  let period2;
+  if (operation === "percentChange" && ["cash", "checks", "avgCheck", "products", "compareBranches"].includes(metric)) {
+    // Текущий месяц — по сегодня, иначе «касса выросла?» сравнивала бы
+    // ещё не наступившие дни
+    const todayIso = fmtDate(new Date());
+    if (period.to > todayIso && period.from <= todayIso) period.to = todayIso;
+    const days = daysBetween(period.from, period.to);
+    if (days >= 45) operation = "trend";
+    else {
+      if (period.from.endsWith("-01") && period.to.slice(0, 7) === period.from.slice(0, 7)) {
+        // Месяц с начала — против тех же чисел прошлого месяца
+        const [y, m] = period.from.split("-").map(Number);
+        const day = Number(period.to.slice(8, 10));
+        const prevLast = new Date(y, m - 1, 0).getDate();
+        const prev = new Date(y, m - 2, 1);
+        period2 = { from: fmtDate(prev), to: fmtDate(new Date(y, m - 2, Math.min(day, prevLast))), label: "прошлый месяц" };
+      } else {
+        const to = new Date(period.from + "T00:00:00");
+        to.setDate(to.getDate() - 1);
+        const from = new Date(to);
+        from.setDate(from.getDate() - (days - 1));
+        period2 = { from: fmtDate(from), to: fmtDate(to), label: "период до этого" };
+      }
+      if (metric === "compareBranches") metric = "cash";
+    }
+  }
 
   // Check if this is a meaningful query (has metric keyword, product, spot, or period keyword)
   // Слово метрики — точное или узнанное по основе/с опечаткой
@@ -871,6 +964,7 @@ export async function parseQuestion(text) {
     operation,
     spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
     period,
+    ...(period2 ? { period2 } : {}),
     product,
     category,
     ipGroup,
