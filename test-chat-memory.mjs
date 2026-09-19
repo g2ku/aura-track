@@ -172,9 +172,18 @@ section("Ручка /api/chat-memory собрана правильно");
   const store = strip(readFileSync("api/_lib/store.js", "utf8"));
   ok(store.includes("runTransaction") && store.includes('"chat/learned"'), "запись — транзакцией в один документ");
 
-  // Одна функция на ассистента: /api/chat?fn=memory|parse, старые адреса — переписыванием
+  // Одна функция на ассистента: /api/chat?fn=memory|parse|share, старые адреса — переписыванием
   const chat = strip(readFileSync("api/chat.js", "utf8"));
-  ok(chat.includes('fn === "memory"') && chat.includes('fn === "parse"'), "роутер различает память и разбор");
+  ok(chat.includes('fn === "memory"') && chat.includes('fn === "parse"') && chat.includes('fn === "share"'), "роутер различает память, разбор и отправку в Telegram");
+  const share = strip(readFileSync("api/_lib/chatShareApi.js", "utf8"));
+  ok(share.indexOf("requireUser(req)") < share.indexOf("getSiteRole("), "отправка: вход — до роли");
+  ok(share.includes('role !== "admin" && role !== "manager"'), "делятся только админ и управляющий");
+  ok(share.includes("escapeHtml(text)"), "текст экранируется — в чат уходит то, что было на экране");
+  ok(/MAX_SHARE_LEN = \d+/.test(share) && share.includes("text.length > MAX_SHARE_LEN"), "длина ограничена");
+  ok(share.includes("config.reportChatId ?? config.watchChatId"), "уходит в чат отчётов бота");
+  ok(!share.includes("who.email}") || share.includes('who.email.split("@")[0]'), "почта целиком в чат не уходит — только имя до @");
+  const dcx = readFileSync("src/components/DataChat.jsx", "utf8");
+  ok(dcx.includes("shareToTelegram(") && dcx.includes("isAdminOrManager() &&"), "кнопка «В Telegram» — под ответом, для админа и управляющего");
   const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
   const rw = Object.fromEntries((vercel.rewrites || []).map((r) => [r.source, r.destination]));
   eq(rw["/api/chat-memory"], "/api/chat?fn=memory", "старый адрес памяти ведёт в общую функцию");

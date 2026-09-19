@@ -2,12 +2,12 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { parseQuestion, describeParsed } from "../chat/parser.js";
 import { understand } from "../chat/understand.js";
 import { executeQuery } from "../chat/executor.js";
-import { smartParse } from "../chat/smart.js";
+import { smartParse, shareToTelegram } from "../chat/smart.js";
 import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
 import { remember, recallEntry, shareLearned, syncShared, forgetShared, LINK_WINDOW_MS } from "../chat/memory.js";
 import { addPin, isPinned, ASK_KEY } from "../chat/pins.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
-import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.jsx";
+import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin, isAdminOrManager } from "../auth.jsx";
 
 // Примеры вопросов.
 //
@@ -156,6 +156,7 @@ export default function DataChat() {
   const [context, setContext] = useState(null); // last parsed query for follow-ups
   const [suggestions, setSuggestions] = useState(initialExamples);
   const [pinnedIds, setPinnedIds] = useState(() => new Set());
+  const [shared, setShared] = useState({}); // id → "sending" | "ok" | текст ошибки
   const endRef = useRef(null);
   const messagesRef = useRef(null);
   const inputRef = useRef(null);
@@ -247,6 +248,17 @@ export default function DataChat() {
       if (ask) { sessionStorage.removeItem(ASK_KEY); handleSend(ask); }
     } catch (_) { /* без sessionStorage — просто пустой чат */ }
   }, []);
+
+  // Отправить ответ в Telegram-чат сети
+  async function shareMessage(msg) {
+    setShared((s) => ({ ...s, [msg.id]: "sending" }));
+    try {
+      await shareToTelegram(msg.question || "", msg.text);
+      setShared((s) => ({ ...s, [msg.id]: "ok" }));
+    } catch (e) {
+      setShared((s) => ({ ...s, [msg.id]: e?.message || "не отправилось" }));
+    }
+  }
 
   // Закрепить ответ плиткой на дашборде
   function pinMessage(msg) {
@@ -502,6 +514,13 @@ export default function DataChat() {
                     ? <span className="chat-followup-btn chat-pin-btn on"><i className="ti ti-pin-filled" /> На дашборде</span>
                     : <button className="chat-suggestion-btn chat-followup-btn chat-pin-btn" onClick={() => pinMessage(msg)} title="Плиткой на дашборд">
                         <i className="ti ti-pin" /> Закрепить
+                      </button>
+                )}
+                {msg.pinnable && isAdminOrManager() && (
+                  shared[msg.id] === "ok"
+                    ? <span className="chat-followup-btn chat-pin-btn on"><i className="ti ti-brand-telegram" /> Отправлено</span>
+                    : <button className="chat-suggestion-btn chat-followup-btn chat-pin-btn" onClick={() => shareMessage(msg)} disabled={shared[msg.id] === "sending"} title={typeof shared[msg.id] === "string" && !["sending", "ok"].includes(shared[msg.id]) ? shared[msg.id] : "В Telegram-чат сети"}>
+                        <i className="ti ti-brand-telegram" /> {shared[msg.id] === "sending" ? "Отправляю…" : typeof shared[msg.id] === "string" && !["sending", "ok"].includes(shared[msg.id]) ? "Не отправилось" : "В Telegram"}
                       </button>
                 )}
                 {(msg.followUps || []).map((fu, i) => (

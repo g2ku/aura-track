@@ -9,11 +9,13 @@
 
 import parse from "./_lib/chatParseApi.js";
 import memory from "./_lib/chatMemoryApi.js";
+import share from "./_lib/chatShareApi.js";
 
 export default async function handler(req, res) {
   const fn = String(req.query?.fn || "");
   if (fn === "memory") return memory(req, res);
   if (fn === "parse") return parse(req, res);
+  if (fn === "share") return share(req, res);
   res.setHeader("Cache-Control", "no-store");
   res.status(404).json({ error: "Неизвестная функция ассистента" });
 }

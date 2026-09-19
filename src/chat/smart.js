@@ -42,3 +42,15 @@ function compact(ctx) {
     product: ctx.product || null, category: ctx.category || null,
   };
 }
+
+// Отправить ответ в Telegram-чат сети — туда, куда бот шлёт отчёты.
+export async function shareToTelegram(question, text, fetchImpl = globalThis.fetch) {
+  const res = await fetchImpl("/api/chat?fn=share", {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ question, text }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return true;
+}
