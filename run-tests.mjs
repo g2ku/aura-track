@@ -16,7 +16,10 @@ let total = 0;
 let failedFiles = 0;
 
 for (const file of files) {
-  const r = spawnSync("node", [file], { encoding: "utf8" });
+  // Часовой пояс — алматинский, где бы ни шёл прогон. Сборка на Vercel
+  // живёт по UTC, и тест «снимок на 12:05» там получал 07:05 — не потому,
+  // что код неправ, а потому, что у машины другие часы.
+  const r = spawnSync("node", [file], { encoding: "utf8", env: { ...process.env, TZ: "Asia/Almaty" } });
   const out = (r.stdout || "") + (r.stderr || "");
   const passed = Number(out.match(/✅ Пройдено: (\d+)/)?.[1] || 0);
   const failed = Number(out.match(/❌ Провалено: (\d+)/)?.[1] || 0);

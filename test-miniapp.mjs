@@ -7,6 +7,9 @@
 //
 // Запуск: node test-miniapp.mjs
 
+// Снимок показывает местное время устройства; в тестах устройство — в Алматы
+process.env.TZ = "Asia/Almaty";
+
 import { build } from "esbuild";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement as h } from "react";
