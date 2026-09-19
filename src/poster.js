@@ -65,6 +65,17 @@ async function apiHeaders() {
   return h;
 }
 
+// Ответ своей ручки — JSON. Не JSON (локальная разработка отдаёт исходник,
+// капчевый портал в кафе — HTML) — человеку нужна фраза, а не
+// «Unexpected token '/' … is not valid JSON».
+async function readJson(res) {
+  try {
+    return await res.json();
+  } catch (_) {
+    throw new Error("Сервер ответил не тем, что ждали. Проверьте связь и обновите страницу.");
+  }
+}
+
 function buildUrl(method, params = {}, opts = {}) {
   const qs = new URLSearchParams();
   qs.set("format", "json");
@@ -465,7 +476,7 @@ export async function fetchAlerts(opts = {}) {
     throw new Error("Сессия истекла — обновите страницу и войдите заново");
   }
   if (!res.ok) throw new Error(`Проверка не прошла (HTTP ${res.status})`);
-  return res.json();
+  return readJson(res);
 }
 
 // ─── Бариста как продавец и история проблем точек ───────────────────────
@@ -478,7 +489,7 @@ export async function fetchBaristas(from, to, opts = {}) {
     throw new Error("Сессия истекла — обновите страницу и войдите заново");
   }
   if (!res.ok) throw new Error(`Не удалось получить данные (HTTP ${res.status})`);
-  return res.json();
+  return readJson(res);
 }
 
 // ─── Движение ингредиентов (расход и остатки по складам) ────────────────

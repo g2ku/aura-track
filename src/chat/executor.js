@@ -5,7 +5,7 @@ import { resolveSpecialCategory, productNamesIn, seasonTitle, findCategory } fro
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt } from "../utils.js";
-import { BRANCHES } from "../auth.jsx";
+import { BRANCHES, spotNameByPosterId } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
 
@@ -32,6 +32,10 @@ function matchesRowSpot(row, spot) {
     (row.spotName && spot.posterName && row.spotName.toLowerCase().includes(spot.posterName.toLowerCase()))
   );
 }
+
+// Имя точки в ответе — русское: «Абая», а не «Aura02_Abaya» из Poster.
+// Данные не переименовываем (по сырому имени работают фильтры), только показ.
+const sn = (d) => spotNameByPosterId(d?.spotId, String(d?.spotName || "").replace(/^Aura02[_-]?/i, "")) || d?.spotName || "";
 
 function label(spot) {
   if (!spot || spot === "all" || (typeof spot === "object" && spot.branchId === "all")) return "все филиалы";
@@ -372,7 +376,7 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
       const c1 = a?.total || 0;
       const c2 = b?.total || 0;
       const p = pctChange(c2, c1);
-      const name = a?.spotName || b?.spotName || sid;
+      const name = sn(a || b || { spotId: sid, spotName: sid });
       lines.push(`• ${name}: ${fmt(c1)} → ${fmt(c2)}  ${changeEmoji(p)}`);
     }
 
@@ -441,13 +445,13 @@ async function handleCash(operation, spot, period, ipGroup) {
 
   if (operation === "compare") {
     const sorted = [...filtered].sort((a, b) => b.total - a.total);
-    const lines = sorted.map((d, i) => `${i + 1}. ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(d.avgCheck)})`).join("\n");
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(d.avgCheck)})`).join("\n");
     return { text: `Сравнение филиалов${ipLabel} за ${pl}:\n${lines}`, data: sorted };
   }
 
   if (operation === "max" && filtered.length > 0) {
     const sorted = [...filtered].sort((a, b) => b.total - a.total);
-    const lines = sorted.map((d, i) => `${i + 1}. ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
     return { text: `Топ филиалов по кассе${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)}`, data: { sorted, totalCash } };
   }
 
@@ -463,12 +467,12 @@ async function handleCash(operation, spot, period, ipGroup) {
   if (!isAll(spot) && filtered.length === 1) {
     const d = filtered[0];
     return withContext({
-      text: `Касса ${d.spotName}${ipLabel} за ${pl}:\n${fmt(d.total)}\nЧеков: ${d.txCount.toLocaleString("ru-RU")}\nСредний чек: ${fmt(d.avgCheck)}`,
+      text: `Касса ${sn(d)}${ipLabel} за ${pl}:\n${fmt(d.total)}\nЧеков: ${d.txCount.toLocaleString("ru-RU")}\nСредний чек: ${fmt(d.avgCheck)}`,
       data: d,
     }, d.total, period, spot, ipGroup, sumCash);
   }
 
-  const lines = filtered.map(d => `• ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
+  const lines = filtered.map(d => `• ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
   return withContext({
     text: `Касса ${sl}${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)} | Чеков: ${totalTx.toLocaleString("ru-RU")}`,
     data: { filtered, totalCash, totalTx },
@@ -488,7 +492,7 @@ async function handleChecks(operation, spot, period, ipGroup) {
 
   if (operation === "max" && filtered.length > 1) {
     const sorted = [...filtered].sort((a, b) => b.txCount - a.txCount);
-    const lines = sorted.map((d, i) => `${i + 1}. ${d.spotName}: ${d.txCount.toLocaleString("ru-RU")} чеков`).join("\n");
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${d.txCount.toLocaleString("ru-RU")} чеков`).join("\n");
     return { text: `Топ по количеству чеков${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${totalTx.toLocaleString("ru-RU")}`, data: sorted };
   }
 
@@ -496,7 +500,7 @@ async function handleChecks(operation, spot, period, ipGroup) {
     const d = filtered[0];
     const days = d.daysCount || 1;
     return withContext({
-      text: `Чеки ${d.spotName}${ipLabel} за ${pl}:\nВсего: ${d.txCount.toLocaleString("ru-RU")}\nВ среднем: ${Math.round(d.txCount / days)}/день`,
+      text: `Чеки ${sn(d)}${ipLabel} за ${pl}:\nВсего: ${d.txCount.toLocaleString("ru-RU")}\nВ среднем: ${Math.round(d.txCount / days)}/день`,
       data: d,
     }, d.txCount, period, spot, ipGroup, sumTx);
   }
@@ -523,7 +527,7 @@ async function handleAvgCheck(operation, spot, period, ipGroup) {
   if (filtered.length > 1) {
     const lines = filtered.map(d => {
       const a = d.txCount > 0 ? Math.round(d.total / d.txCount) : 0;
-      return `• ${d.spotName}: ${fmt(a)}`;
+      return `• ${sn(d)}: ${fmt(a)}`;
     }).join("\n");
     return {
       text: `Средний чек ${sl}${ipLabel} за ${pl}:\n${lines}\n\nОбщий средний: ${fmt(avg)}`,
@@ -623,7 +627,7 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
     const variantLines = matches.map(p => `  ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
 
     // Per-branch totals
-    const branchLines = bySpot.map(s => `• ${s.spotName}: ${s.qty} шт. / ${fmt(s.sum)}`).join("\n");
+    const branchLines = bySpot.map(s => `• ${sn(s)}: ${s.qty} шт. / ${fmt(s.sum)}`).join("\n");
 
     const text = `Продажи «${productName}»${ipLabel} за ${pl}:\n\nВарианты:\n${variantLines}\n\nИтого: ${allQty} шт. / ${fmt(allSum)}\n\nПо филиалам:\n${branchLines}`;
     return { text, data: { matches, bySpot } };
@@ -640,7 +644,7 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
       .filter((b) => b.qty > 0)
       .sort((a, b) => b.sum - a.sum);
     if (!branches.length) return { text: `Продаж${ipLabel} за ${pl} не нашёл.`, data: null };
-    const lines = branches.map((b) => `• ${b.spotName}: ${b.qty} шт. / ${fmt(b.sum)}\n   ${b.top.map((p) => `${p.name} ${p.qty}`).join(" · ")}`);
+    const lines = branches.map((b) => `• ${sn(b)}: ${b.qty} шт. / ${fmt(b.sum)}\n   ${b.top.map((p) => `${p.name} ${p.qty}`).join(" · ")}`);
     return {
       text: `Товары по филиалам${ipLabel} за ${pl}:\n${lines.join("\n")}`,
       data: { branches },
@@ -704,7 +708,7 @@ async function categoryReport(picked, head, operation, spot, period, ipGroup, lo
 
     const p = (byProduct[row.productName] ||= { name: row.productName, qty: 0, sum: 0 });
     p.qty += row.qty || 0; p.sum += row.sum || 0;
-    const sName = row.spotName || row.spotId;
+    const sName = sn(row);
     const b = (bySpot[sName] ||= { spotName: sName, qty: 0, sum: 0 });
     b.qty += row.qty || 0; b.sum += row.sum || 0;
   }
@@ -722,7 +726,7 @@ async function categoryReport(picked, head, operation, spot, period, ipGroup, lo
   const lines = top.map((p, i) => `${i + 1}. ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
   const more = products.length > top.length ? `\n…и ещё ${products.length - top.length}` : "";
   const branchLines = branches.length > 1
-    ? `\n\nПо филиалам:\n${branches.map((b) => `• ${b.spotName}: ${b.qty} шт. / ${fmt(b.sum)}`).join("\n")}`
+    ? `\n\nПо филиалам:\n${branches.map((b) => `• ${sn(b)}: ${b.qty} шт. / ${fmt(b.sum)}`).join("\n")}`
     : "";
 
   return {
@@ -1102,7 +1106,7 @@ async function handleCompareBranches(operation, spot, period, ipGroup) {
     const days = daysInPeriod(period.from, period.to);
     const avgPerDay = days > 0 ? Math.round(d.total / days) : d.total;
     return {
-      text: `Касса ${d.spotName}${ipLabel} за ${pl}:\n${fmt(d.total)} / ${d.txCount} чеков / ср.чек ${fmt(avgCheck)}\nСреднее/день: ${fmt(avgPerDay)} (${days} дн.)`,
+      text: `Касса ${sn(d)}${ipLabel} за ${pl}:\n${fmt(d.total)} / ${d.txCount} чеков / ср.чек ${fmt(avgCheck)}\nСреднее/день: ${fmt(avgPerDay)} (${days} дн.)`,
       data: d,
     };
   }
@@ -1112,7 +1116,7 @@ async function handleCompareBranches(operation, spot, period, ipGroup) {
   const lines = sorted.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
     const avgCheck = d.txCount > 0 ? Math.round(d.total / d.txCount) : 0;
-    return `${emoji} ${d.spotName}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(avgCheck)})`;
+    return `${emoji} ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(avgCheck)})`;
   }).join("\n");
 
   const best = sorted[0];
@@ -1120,7 +1124,7 @@ async function handleCompareBranches(operation, spot, period, ipGroup) {
   const diff = worst.total > 0 ? ((best.total - worst.total) / worst.total * 100).toFixed(0) : 0;
 
   return {
-    text: `Рейтинг филиалов${ipLabel} за ${pl}:\n${lines}\n\n🏆 Лучший: ${best.spotName} (${fmt(best.total)})\n📉 Худший: ${worst.spotName} (${fmt(worst.total)})\n📊 Разница: +${diff}%`,
+    text: `Рейтинг филиалов${ipLabel} за ${pl}:\n${lines}\n\n🏆 Лучший: ${sn(best)} (${fmt(best.total)})\n📉 Худший: ${sn(worst)} (${fmt(worst.total)})\n📊 Разница: +${diff}%`,
     data: { sorted, best: best.spotName, worst: worst.spotName, diff },
   };
 }

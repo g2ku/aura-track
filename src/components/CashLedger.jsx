@@ -5,6 +5,9 @@
 
 import { useMemo, useState, useEffect } from "react";
 import ProblemFeed from "./ProblemFeed";
+import CupsCard from "./CupsCard.jsx";
+import PinnedTiles from "./PinnedTiles.jsx";
+import { BRANCHES as BRANCH_MAP } from "../branches";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
@@ -111,6 +114,23 @@ export default function CashLedger({
   }, []);
 
   const isToday = dateFrom === todayStr() && dateTo === todayStr();
+
+  // Выручка по точкам за период — плитке стаканов, чтобы считать выручку
+  // на стакан. Ключ — русское название точки, как в приложении стаканов.
+  const cupRevenue = useMemo(() => {
+    const byId = {};
+    for (const c of cashBySpot) if (c.spotId != null) byId[String(c.spotId)] = Number(c.total) || 0;
+    const out = {};
+    for (const v of Object.values(BRANCH_MAP)) {
+      if (byId[String(v.spotId)] != null) out[v.spotName] = byId[String(v.spotId)];
+    }
+    return out;
+  }, [cashBySpot]);
+  const rangeDays = useMemo(() => {
+    const a = Date.parse(`${dateFrom}T00:00:00Z`), b = Date.parse(`${dateTo}T00:00:00Z`);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 1;
+    return Math.round((b - a) / 86400000) + 1;
+  }, [dateFrom, dateTo]);
   const role = useRole();
   const spotName = getSpotNameForBranch(userBranch);
   const isBranch = !!userBranch;
@@ -645,7 +665,8 @@ export default function CashLedger({
       )}
 
       {/* ─── Касса по дням ──────────────────────────────────────────── */}
-      {!isToday && daySeries.length > 0 && (
+      {/* Один день — не график: столбик во весь экран ничего не говорит */}
+      {!isToday && daySeries.length > 1 && (
         <div className="cl-zone">
           <div className="cl-zone-title">
             <i className="ti ti-chart-arcs" aria-hidden="true" /> Касса по дням
@@ -831,6 +852,22 @@ export default function CashLedger({
           </div>
         ))}
       </div>
+
+      {/* ─── Мои вопросы: закреплённые ответы ассистента ────────────── */}
+      {/* Жили только в старом дашборде, который с включённым v2 никто не
+          видит; теперь — здесь, на главной, которую открывают. */}
+      <PinnedTiles />
+
+      {/* ─── Стаканы: склад, куда ехать, сверка с Poster ─────────────── */}
+      {!userBranch && (
+        <div className="cl-zone">
+          <CupsCard
+            revenueByBranch={cupRevenue}
+            revenueDays={rangeDays}
+            revenueLabel={isToday ? "за сегодня" : `за ${dateFrom} — ${dateTo}`}
+          />
+        </div>
+      )}
 
       {/* ─── То-сё: мини-блоки ──────────────────────────────────────── */}
       <div className="cl-zone">

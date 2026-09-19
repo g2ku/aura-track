@@ -614,7 +614,13 @@ section("Вопрос → плитка на дашборде");
   const tiles = readFileSync("src/components/PinnedTiles.jsx", "utf8");
   ok(tiles.includes("parseQuestion(pin.question)") && tiles.includes("|| pin.parsed"), "плитка разбирает вопрос заново, запас — сохранённый разбор");
   ok(tiles.includes("executeQuery("), "и считает тем же исполнителем, что чат");
-  ok(readFileSync("src/components/Dashboard.jsx", "utf8").includes("<PinnedTiles />"), "плитки на дашборде");
+  // Главная с включённым v2 — CashLedger; Dashboard.jsx остаётся только для
+  // аварийного отката. Плитки и стаканы должны быть там, где их видят.
+  ok(readFileSync("src/components/CashLedger.jsx", "utf8").includes("<PinnedTiles />"), "плитки — на главной v2 (CashLedger)");
+  ok(readFileSync("src/components/CashLedger.jsx", "utf8").includes("<CupsCard"), "и стаканы тоже");
+  ok(readFileSync("src/components/Dashboard.jsx", "utf8").includes("<PinnedTiles />"), "и в старом дашборде для отката");
+  const exe = readFileSync("src/chat/executor.js", "utf8");
+  eq((exe.match(/\$\{\w+\.spotName\}/g) || []).length, 0, "в ответах ассистента — русские имена точек, не Aura02_*");
   const dc = readFileSync("src/components/DataChat.jsx", "utf8");
   ok(dc.includes("addPin(") && dc.includes("ASK_KEY"), "в чате — «Закрепить», и плитка умеет вернуть в чат");
   ok(/pinnable: !!result\.data && !parsed\.followUpOf/.test(dc), "продолжение диалога плиткой не становится");
