@@ -1,0 +1,32 @@
+# Прогон тестов на каждый пуш и на каждый pull request.
+#
+# Тестов в проекте больше двух с половиной тысяч, но запускались они только вручную.
+# Между «сломал» и «заметил» из-за этого могло пройти сколько угодно
+# времени — сборка на Vercel про тесты ничего не знает.
+
+name: Тесты
+
+on:
+  push:
+    branches: [main, design-v2]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Сборка тоже часть проверки: сломанный импорт тесты не всегда ловят
+      - name: Сборка
+        run: npm run build
+
+      - name: Тесты
+        run: npm test
