@@ -32,12 +32,14 @@ export default async function handler(req, res) {
     return;
   }
 
-  const range = clampRange(String(req.query?.from || ""), String(req.query?.to || ""), { today: todayAlmaty() });
+  // Без товаров день весит сотни байт — таких можно отдать и за полгода
+  // (налоги, прогноз); с товарами — не больше двух месяцев за раз
+  const products = String(req.query?.products ?? "1") !== "0";
+  const range = clampRange(String(req.query?.from || ""), String(req.query?.to || ""), { today: todayAlmaty(), maxDays: products ? 62 : 400 });
   if (!range) { res.status(200).json({ days: {}, from: null, to: null }); return; }
 
   try {
     const docs = await getSalesDays(range.from, range.to);
-    const products = String(req.query?.products ?? "1") !== "0";
     res.status(200).json({ days: toClientDays(docs, { products }), from: range.from, to: range.to });
   } catch (e) {
     console.error("[sales-days]", e?.message);

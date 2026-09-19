@@ -590,13 +590,14 @@ function setCachedDay(yyyymmdd, payload) {
 // спрашивают одно и то же, второй раз ходить незачем.
 const seedPromises = new Map();
 
-async function seedDaysFromServer(fromYmd, toYmd, opts = {}) {
+async function seedDaysFromServer(fromYmd, toYmd, opts = {}, { products = true } = {}) {
   const dash = (d) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
-  const key = `${fromYmd}-${toYmd}`;
+  const key = `${fromYmd}-${toYmd}-${products ? "p" : "c"}`;
   if (!seedPromises.has(key)) {
     seedPromises.set(key, (async () => {
       try {
-        const qs = new URLSearchParams({ from: dash(fromYmd), to: dash(toYmd) });
+        // Без товаров ответ в десятки раз легче: кассе строки по товарам не нужны
+        const qs = new URLSearchParams({ from: dash(fromYmd), to: dash(toYmd), products: products ? "1" : "0" });
         const res = await fetch(`/api/sales-days?${qs}`, { headers: await apiHeaders(), signal: opts.signal });
         if (!res.ok) return new Set();
         const data = await res.json();
@@ -1311,6 +1312,24 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   if (!fromP || !toP) {
     throw new Error("Укажите даты периода в формате YYYY-MM-DD");
   }
+
+  // Полугодие одним запросом — это сотни страниц чеков за раз, и Poster на
+  // нём висел (налоги, прогноз). Длинный отрезок режем по месяцам: каждый
+  // месяц сам берёт, что есть, из кэша и ночных итогов, а в Poster идёт
+  // только за остатком. Суммы по точкам и товарам складываются.
+  if (!opts._chunk && enumerateDays(fromP, toP).length > 62) {
+    const parts = [];
+    let cur = new Date(`${fromP.slice(0, 4)}-${fromP.slice(4, 6)}-${fromP.slice(6, 8)}T00:00:00`);
+    const end = new Date(`${toP.slice(0, 4)}-${toP.slice(4, 6)}-${toP.slice(6, 8)}T00:00:00`);
+    while (cur <= end) {
+      const monthEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+      const a = cur, b = monthEnd > end ? end : monthEnd;
+      const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      parts.push(await fetchPosterSales(iso(a), iso(b), { ...opts, _chunk: true }));
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+    return mergeSales(parts);
+  }
   if (fromP > toP) {
     throw new Error("Дата «с» должна быть не позже даты «по»");
   }
@@ -1333,7 +1352,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   // Чего нет — сначала спрашиваем у своего сервера (ночные итоги), и
   // только за остатком идём в Poster
   if (uncachedDays.length) {
-    await seedDaysFromServer(uncachedDays[0], uncachedDays[uncachedDays.length - 1], opts);
+    await seedDaysFromServer(uncachedDays[0], uncachedDays[uncachedDays.length - 1], opts, { products: withProducts });
     uncachedDays = days.filter(d => !getCachedDay(d, withProducts));
   }
   if (uncachedDays.length === 0) {
@@ -1531,6 +1550,32 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
 
   const rows = buildRows(spots, merged);
   return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
+}
+
+// Склейка помесячных кусков в один ответ той же формы
+function mergeSales(parts) {
+  const bySpotProduct = new Map();
+  const spotNames = {};
+  const txBySpot = {}, cashBySpot = {};
+  let transactionsCount = 0, cachedDays = 0, freshDays = 0, daysCount = 0;
+  for (const r of parts) {
+    Object.assign(spotNames, r.spotNames || {});
+    transactionsCount += r.transactionsCount || 0;
+    cachedDays += r.cachedDays || 0; freshDays += r.freshDays || 0; daysCount += r.daysCount || 0;
+    for (const [k, v] of Object.entries(r.txBySpot || {})) txBySpot[k] = (txBySpot[k] || 0) + v;
+    for (const [k, v] of Object.entries(r.cashBySpot || {})) cashBySpot[k] = (cashBySpot[k] || 0) + v;
+    for (const row of r.rows || []) {
+      const key = `${row.spotId}\u0000${row.productName}`;
+      const acc = bySpotProduct.get(key) || { ...row, qty: 0, sum: 0 };
+      acc.qty += row.qty || 0; acc.sum += row.sum || 0;
+      bySpotProduct.set(key, acc);
+    }
+  }
+  const rows = [...bySpotProduct.values()].sort((a, b) => {
+    if (a.spotName !== b.spotName) return a.spotName.localeCompare(b.spotName, "ru");
+    return b.sum - a.sum;
+  });
+  return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays, freshDays, daysCount };
 }
 
 function buildRows(spots, merged) {

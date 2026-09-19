@@ -96,7 +96,8 @@ section("Какие дни собирать");
   eq(p, ["2026-09-17", "2026-09-16", "2026-09-15", "2026-09-14", "2026-09-13"], "от вчера назад, свежие первыми; сегодня — нет");
   eq(pendingDays(["2026-09-17", "2026-09-15"], { today, back: 5 }), ["2026-09-16", "2026-09-14", "2026-09-13"], "что есть — пропускаем");
   eq(pendingDays(p, { today, back: 5 }), [], "всё есть — пусто");
-  ok(ROLLUP_BACK_DAYS >= 31, "окно — не меньше месяца: столько смотрит дашборд");
+  ok(ROLLUP_BACK_DAYS >= 180, "окно — не меньше полугодия: столько смотрят налоги по ИП");
+  eq(clampRange("2026-01-01", "2026-09-17", { today, maxDays: 400 }), { from: "2026-01-01", to: "2026-09-17" }, "без товаров можно и полгода");
   ok(ROLLUP_PER_RUN >= 2 && ROLLUP_PER_RUN <= 8, "за пробуждение — немного дней: функции есть предел по времени");
   eq(shiftYmd("2026-03-01", -1), "2026-02-28", "через границу месяца");
 
@@ -194,6 +195,34 @@ section("Индекс меню — ночью в базу, оттуда боту
   ok(/size > 900_000/.test(store), "в документ не пишем больше 900 КБ");
   const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
   ok((vercel.functions?.["api/tg/webhook.js"]?.maxDuration || 0) >= 60, "вебхуку дано время на ответ ассистента с товарами за сегодня");
+}
+
+section("Полугодие — по месяцам, без товаров легко");
+
+{
+  const calls = [];
+  globalThis.localStorage.removeItem("supply-track.poster.salesByDay.v14");
+  globalThis.fetch = async (url) => {
+    const u = String(url); calls.push(u);
+    if (u.startsWith("/api/sales-days")) {
+      const p = new URL(u, "http://x").searchParams;
+      const from = p.get("from").replace(/-/g, ""), to = p.get("to").replace(/-/g, "");
+      const days = {};
+      for (let d = from; d <= to; d = shiftYmd(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`, 1).replace(/-/g, "")) {
+        days[d] = { transactionsCount: 1, txBySpot: { "4": 1 }, cashBySpot: { "4": 1000 }, rowsBySpot: p.get("products") === "0" ? {} : { "4": { "Латте": { qty: 1, sum: 1000 } } }, hasProducts: p.get("products") !== "0" };
+      }
+      return new Response(JSON.stringify({ days, from, to }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("spots.getSpots")) return new Response(JSON.stringify({ response: [{ spot_id: 4, name: "Abaya" }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ response: { count: 0, data: [] } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  // 1 марта — 31 июля: 153 дня, всё в прошлом, всё есть на сервере
+  const r = await fetchCashBySpot("2026-03-01", "2026-07-31");
+  eq(r.reduce((s, d) => s + d.total, 0), 153000, "полугодие сложилось из месяцев: 153 дня по тысяче");
+  const seeds = calls.filter((u) => u.startsWith("/api/sales-days"));
+  eq(seeds.length, 5, "к серверу — по разу на месяц");
+  ok(seeds.every((u) => u.includes("products=0")), "и без товаров: кассе они не нужны");
+  eq(calls.filter((u) => u.includes("transactions.getTransactions")).length, 0, "в Poster не ходили вовсе");
 }
 
 section("Ручка и сторож собраны правильно");

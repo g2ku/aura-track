@@ -17,7 +17,9 @@
 
 import { enumerateDates } from "./dailyDoc.js";
 
-export const ROLLUP_BACK_DAYS = 35;   // сколько дней назад держим итоги
+// Полгода назад: столько смотрят налоги по ИП и прогноз. Заполняется
+// постепенно — по ROLLUP_PER_RUN дней за пробуждение сторожа, свежие первыми.
+export const ROLLUP_BACK_DAYS = 190;
 export const ROLLUP_PER_RUN = 4;      // дней за одно пробуждение сторожа
 
 // Индекс меню: «product_id:modification_id» → название, как в клиенте
