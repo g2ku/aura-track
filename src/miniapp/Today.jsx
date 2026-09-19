@@ -16,7 +16,10 @@ const time = (ms) => {
 
 export default function Today({ moves, skus, onUndo }) {
   const outs = (moves || []).filter((m) => m.kind === "out");
-  if (!outs.length) return null;
+  // Пропуски — тоже события дня: владелец должен видеть «Рамс — закрыто»,
+  // а не думать, что снабженец туда просто не поехал
+  const skips = (moves || []).filter((m) => m.kind === "skip");
+  if (!outs.length && !skips.length) return null;
 
   // Одна поездка на точку — одна строка, стаканы в ней рядом
   const byTrip = [];
@@ -46,6 +49,13 @@ export default function Today({ moves, skus, onUndo }) {
           {onUndo && t.opId && (
             <button className="undo" onClick={() => onUndo(t.opId, t.branch)} aria-label="отменить">×</button>
           )}
+        </div>
+      ))}
+      {skips.map((m, i) => (
+        <div className="branch-line" key={`skip-${m.branch}-${m.at}-${i}`}>
+          <span className="grow name muted">{m.branch}</span>
+          <span className="muted num">не заехал{m.reason ? ` — ${m.reason}` : ""}</span>
+          <span className="days muted">{time(m.at)}</span>
         </div>
       ))}
     </div>

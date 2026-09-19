@@ -176,6 +176,18 @@ section("Что записано сегодня");
      "день с одним приходом — тоже пусто на развозе");
 }
 
+{
+  // Пропуски — в списке дня: владелец видит «Рамс — не заехал — закрыто»
+  const html = render(h(Today, { moves: [
+    { kind: "out", branch: "Абая", sku: "350", qty: 200, at: Date.parse("2026-09-16T10:00:00+05:00"), opId: "o1" },
+    { kind: "skip", branch: "Рамс", reason: "закрыто", at: Date.parse("2026-09-16T11:00:00+05:00") },
+  ], skus: SKUS }));
+  ok(html.includes("Абая") && html.includes("200 × 350"), "выдача на месте");
+  ok(html.includes("Рамс") && html.includes("не заехал — закрыто"), "пропуск с причиной");
+  const onlySkip = render(h(Today, { moves: [{ kind: "skip", branch: "Рамс", reason: "не пустили", at: Date.now() }], skus: SKUS }));
+  ok(onlySkip.includes("Записано сегодня") && onlySkip.includes("не пустили"), "день из одних пропусков — тоже показывается");
+}
+
 section("История");
 
 {

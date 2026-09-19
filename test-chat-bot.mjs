@@ -151,6 +151,12 @@ section("В боте: команда и личка");
   ok(r10?.text.startsWith("<b>Касса Абая за"), "/вчера абая — по точке");
   eq(await run("/вчера", "private", 5), { text: "Только для админа." }, "чужому — нет");
 
+  // /итоги — недельный дайджест по запросу
+  const r12 = await run("/итоги");
+  ok(r12?.text.startsWith("📅 <b>Неделя"), "/итоги — неделя против прошлой");
+  ok(r12.text.includes("По точкам"), "по точкам");
+  eq(await run("/итоги", "private", 5), { text: "Только для админа." }, "чужому — нет");
+
   // Бот читает общую память, если она есть в базе
   const storeMem = { ...store, getChatLearned: async () => ({ entries: { k: { key: "скок лавэ", q: "касса за вчера", at: 1 } } }) };
   const r11 = await handleMessage(msg("скок лавэ"), { store: storeMem, config: cfg, authorName: "@r" });

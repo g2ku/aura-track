@@ -62,6 +62,7 @@ const ADMIN_HELP = `
 /анализ месяц мон — что приходило под этим названием и от кого
 /спроси касса вчера — ассистент: цифры словами (в личке можно и без команды)
 /касса, /вчера, /неделя — касса по точкам одним словом
+/итоги — неделя против прошлой, по точкам
 /стаканы — склад, на сколько хватит, сводка за период
 /склад — то же самое
 /снабженец — кто возит стаканы (ответом на его сообщение)
@@ -533,6 +534,20 @@ async function handleCommand({ cmd, args }, ctx) {
       const q = cmd === "касса" ? `касса сегодня ${args || ""}` : cmd === "вчера" ? `касса вчера ${args || ""}` : `касса за неделю ${args || ""}`;
       const a = await askBot(q.trim(), store);
       return a || { text: "Не смог посчитать." };
+    }
+
+    // ─── Итог недели по запросу ───
+    // То же, что приходит по понедельникам: последние семь дней против
+    // предыдущих семи, по точкам, кто вырос и кто просел.
+    case "итоги": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      if (!store.getSalesDays) return { text: "Итоги недоступны." };
+      const { formatWeeklyDigest } = await import("./briefing.js");
+      const { shiftDay } = await import("./cups.js");
+      const to = shiftDay(todayAlmaty(), -1), from = shiftDay(to, -6);
+      const [cur, prev] = await Promise.all([store.getSalesDays(from, to), store.getSalesDays(shiftDay(from, -7), shiftDay(to, -7))]);
+      const text = formatWeeklyDigest(cur, prev, { from, to });
+      return { text: text || "Итогов за последнюю неделю ещё нет — они собираются по ночам." };
     }
 
     // ─── Ассистент: вопрос словами ───
