@@ -16,7 +16,7 @@ globalThis.localStorage = {
 };
 Object.defineProperty(globalThis.localStorage, "keys", { value: () => [...mem.keys()] });
 
-import { rollupDay, payDayFrom, menuIndexFrom, pendingDays, toClientDays, clampRange, shiftYmd, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } from "./api/_lib/salesRollup.js";
+import { rollupDay, payDayFrom, menuIndexFrom, pendingDays, toClientDays, clampRange, shiftYmd, rollupMismatch, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } from "./api/_lib/salesRollup.js";
 import { aggregatePayDay, fetchCashBySpot, fetchPaymentBreakdown, getCachedDayTotals } from "./src/poster.js";
 import { readFileSync } from "node:fs";
 
@@ -72,6 +72,20 @@ section("Способы оплаты — та же арифметика, что 
   eq(mine.lastOrder, theirs.lastOrder, "и последний заказ на точке");
   eq(Object.keys(mine).sort(), ["bySpot", "lastOrder", "total"], "открытых чеков в итоге нет — они приходят с сегодняшним днём");
   eq(payDayFrom([]), { total: {}, bySpot: {}, lastOrder: {} }, "пусто — пусто");
+}
+
+section("Самопроверка: два метода Poster должны сойтись");
+
+{
+  const r = { date: "2026-09-17", cashBySpot: { "4": 100000, "9": 50000 } };
+  eq(rollupMismatch(r, { total: { 0: 100000, 3: 50000 } }), null, "сходится копейка в копейку — тихо");
+  eq(rollupMismatch(r, { total: { 0: 149000 } }), null, "0,7 % — в пределах порога");
+  eq(rollupMismatch(r, { total: { 0: 140000 } }), { date: "2026-09-17", byTx: 150000, byDash: 140000, pct: 6.7 }, "6,7 % — сигнал, с цифрами обоих методов");
+  eq(rollupMismatch({ date: "x", cashBySpot: {} }, { total: {} }), null, "пустой день — не расхождение");
+  eq(rollupMismatch(r, { total: {} })?.pct, 100, "dash пустой при чеках — 100 %, это надо видеть");
+  const w = readFileSync("api/tg/watch.js", "utf8");
+  ok(w.includes("rollupMismatch(doc, doc.pay)") && w.includes("await saveSalesDay(doc)"), "итог сохраняется даже при расхождении, но с пометкой");
+  ok(w.includes("Суточные итоги не сходятся"), "и владелец получает сообщение");
 }
 
 section("Какие дни собирать");

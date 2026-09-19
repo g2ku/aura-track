@@ -160,3 +160,18 @@ export function clampRange(from, to, { today, maxDays = 62 } = {}) {
   const lo = shiftYmd(hi, -(maxDays - 1)) > from ? shiftYmd(hi, -(maxDays - 1)) : from;
   return { from: lo, to: hi };
 }
+
+// Самопроверка итога: касса по чекам (transactions) против кассы по
+// строкам dash — два метода Poster, два пути; сходиться должны в пределах
+// копеек. Расхождение больше порога — сигнал, что один из них отдал не
+// всё (пагинация, чек на границе суток) и итогу верить нельзя, пока не
+// разобрались. Возвращает null, когда всё сходится.
+export function rollupMismatch(rollup, pay, { tolerancePct = 1 } = {}) {
+  const byTx = Object.values(rollup?.cashBySpot || {}).reduce((s, v) => s + v, 0);
+  const byDash = Object.values(pay?.total || {}).reduce((s, v) => s + v, 0);
+  if (!byTx && !byDash) return null;
+  const base = Math.max(byTx, byDash);
+  const pct = Math.round((Math.abs(byTx - byDash) / base) * 1000) / 10;
+  if (pct <= tolerancePct) return null;
+  return { date: rollup?.date, byTx: Math.round(byTx), byDash: Math.round(byDash), pct };
+}

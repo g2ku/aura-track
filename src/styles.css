@@ -6008,6 +6008,7 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 .pin-more { color: var(--text-muted); }
 .pin-context { font-size: var(--fs-11, 11px); color: var(--text-accent); font-weight: 600; }
 .pin-error { font-size: var(--fs-12, 12px); color: var(--text-danger); }
+.pin-at { font-size: var(--fs-11, 11px); color: var(--text-muted); margin-top: auto; }
 .chat-pin-btn.on { cursor: default; opacity: 0.8; }
 
 /* Скелетон: серые строки будущего ответа — читается быстрее спиннера */

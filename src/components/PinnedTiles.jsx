@@ -25,9 +25,14 @@ function userBranchObj() {
     : null;
 }
 
-function Tile({ pin, onRemove }) {
-  const [state, setState] = useState({ loading: true, text: "", error: "" });
+const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
+function Tile({ pin, onRemove, tick }) {
+  const [state, setState] = useState({ loading: true, text: "", error: "", at: null });
+
+  // Пересчёт — при открытии и каждый раз, когда вкладка снова на виду
+  // (tick): владелец оставляет дашборд открытым на весь день, и «касса
+  // сегодня» в девять утра к обеду — уже неправда
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -35,13 +40,13 @@ function Tile({ pin, onRemove }) {
         const parsed = (await parseQuestion(pin.question)) || pin.parsed;
         if (!parsed) throw new Error("Вопрос больше не разбирается");
         const r = await executeQuery(parsed, userBranchObj());
-        if (alive) setState({ loading: false, text: r?.text || "", error: "" });
+        if (alive) setState({ loading: false, text: r?.text || "", error: "", at: new Date() });
       } catch (e) {
-        if (alive) setState({ loading: false, text: "", error: e?.message || "Не посчиталось" });
+        if (alive) setState((s) => ({ ...s, loading: false, error: e?.message || "Не посчиталось" }));
       }
     })();
     return () => { alive = false; };
-  }, [pin.id, pin.question]);
+  }, [pin.id, pin.question, tick]);
 
   const { body, context, more } = tileLines(state.text);
 
@@ -63,6 +68,7 @@ function Tile({ pin, onRemove }) {
         <>
           <div className="pin-body">{body.map((l, i) => <div key={i}>{l}</div>)}{more > 0 && <div className="pin-more">…ещё {more}</div>}</div>
           {context && <div className="pin-context">{context}</div>}
+          {state.at && <div className="pin-at">обновлено {hhmm(state.at)}</div>}
         </>
       )}
     </div>
@@ -71,6 +77,23 @@ function Tile({ pin, onRemove }) {
 
 export default function PinnedTiles() {
   const [pins, setPins] = useState(() => listPins());
+  const [tick, setTick] = useState(0);
+
+  // Вернулись на вкладку спустя время — плитки пересчитываются сами.
+  // Не чаще раза в пять минут: переключение окон туда-сюда не должно
+  // дёргать Poster.
+  useEffect(() => {
+    let last = Date.now();
+    const onVisible = () => {
+      if (document.hidden) return;
+      if (Date.now() - last < 5 * 60 * 1000) return;
+      last = Date.now();
+      setTick((t) => t + 1);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   if (!pins.length) return null;
 
   return (
@@ -80,7 +103,7 @@ export default function PinnedTiles() {
       </div>
       <div className="pins-grid">
         {pins.map((p) => (
-          <Tile key={p.id} pin={p} onRemove={(id) => setPins(removePin(id))} />
+          <Tile key={p.id} pin={p} tick={tick} onRemove={(id) => setPins(removePin(id))} />
         ))}
       </div>
     </div>

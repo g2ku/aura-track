@@ -39,8 +39,9 @@ self.addEventListener("fetch", (e) => {
   if (url.pathname.startsWith("/api/")) return;
 
   // Собранные файлы неизменяемы: имя меняется вместе с содержимым,
-  // поэтому отдаём из кэша сразу и не ходим в сеть вовсе.
-  if (url.pathname.startsWith("/assets/")) {
+  // поэтому отдаём из кэша сразу и не ходим в сеть вовсе. Шрифт иконок
+  // теперь тоже наш и тоже с хэшем в имени — те же правила.
+  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/fonts/")) {
     e.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(req, copy)); }

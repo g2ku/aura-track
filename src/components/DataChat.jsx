@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { parseQuestion, describeParsed, mergeFollowUp, preferFollowUp } from "../chat/parser.js";
 import { executeQuery } from "../chat/executor.js";
 import { smartParse } from "../chat/smart.js";
@@ -129,7 +129,13 @@ export default function DataChat() {
   const userBranchObj = userBranch && BRANCHES[userBranch]
     ? { spotId: BRANCHES[userBranch].spotId, spotName: BRANCHES[userBranch].spotName, posterName: BRANCHES[userBranch].spotName, branchId: userBranch }
     : null;
-  const initialExamples = branchLabel ? EXAMPLES_BRANCH : EXAMPLES_ALL;
+  // Первые подсказки — то, что человек спрашивал недавно: своё
+  // вспоминается быстрее, чем наши примеры. Примеры — следом.
+  const initialExamples = useMemo(() => {
+    const base = branchLabel ? EXAMPLES_BRANCH : EXAMPLES_ALL;
+    const recent = loadHistory().slice(0, 4).filter((q) => !base.includes(q));
+    return [...recent, ...base];
+  }, [branchLabel]);
   const [showDebug, setShowDebug] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);

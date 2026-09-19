@@ -254,18 +254,27 @@ export default async function handler(req, res) {
     // пробуждение продолжит. Сбой одного дня не мешает остальным.
     if (config.salesRollupTime && config.lastSalesRollupDate !== today && nowHM >= config.salesRollupTime) {
       try {
-        const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
+        const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, rollupMismatch, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
         const have = await listSalesDayDates(shiftYmd(today, -ROLLUP_BACK_DAYS), today);
         const pending = pendingDays(have, { today });
         const batch = pending.slice(0, ROLLUP_PER_RUN);
         let done = 0;
+        const mismatches = [];
         if (batch.length) {
           const menu = menuIndexFrom(await menuProducts());
           for (const day of batch) {
             try {
               // Чеки с товарами и строки dash (способы оплаты) — за один день
               const [txs, dash] = await Promise.all([dayTransactions(day), dashTransactions(day.replace(/-/g, ""))]);
-              await saveSalesDay({ ...rollupDay(day, txs, menu), pay: payDayFrom(dash) });
+              const doc = { ...rollupDay(day, txs, menu), pay: payDayFrom(dash) };
+              // Два метода Poster должны сойтись; не сошлись — итог всё
+              // равно сохраняем, но владелец узнает, что цифре нельзя верить
+              const bad = rollupMismatch(doc, doc.pay);
+              if (bad) {
+                doc.mismatch = bad;
+                mismatches.push(bad);
+              }
+              await saveSalesDay(doc);
               done++;
             } catch (e) {
               console.error(`[sales] итог за ${day} не собрался:`, e?.message);
@@ -274,6 +283,14 @@ export default async function handler(req, res) {
         }
         out.rolledUp = done;
         out.rollupLeft = pending.length - done;
+        if (mismatches.length) {
+          out.rollupMismatch = mismatches;
+          const fmtT = (n) => new Intl.NumberFormat("ru-RU").format(n) + " ₸";
+          const text = ["⚠️ <b>Суточные итоги не сходятся</b>", "",
+            ...mismatches.map((m) => `• ${m.date}: по чекам ${fmtT(m.byTx)}, по dash ${fmtT(m.byDash)} — разница ${String(m.pct).replace(".", ",")} %`),
+            "", "Итог сохранён, но цифре за этот день лучше не верить, пока не разобрались."].join("\n");
+          await sendMessage(target, text, thread ? { message_thread_id: thread } : {}).catch((e) => console.warn("[sales] не отправил:", e?.message));
+        }
         // Всё собрано — или ничего не собралось (Poster лежит): в обоих
         // случаях сегодня больше не пробуем, завтра ночь будет своя
         if (pending.length - done <= 0 || (batch.length && !done)) {
