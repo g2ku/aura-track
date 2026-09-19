@@ -61,6 +61,7 @@ const ADMIN_HELP = `
 /темы — какие темы за какими филиалами
 /анализ месяц мон — что приходило под этим названием и от кого
 /спроси касса вчера — ассистент: цифры словами (в личке можно и без команды)
+/касса, /вчера, /неделя — касса по точкам одним словом
 /стаканы — склад, на сколько хватит, сводка за период
 /склад — то же самое
 /снабженец — кто возит стаканы (ответом на его сообщение)
@@ -143,22 +144,33 @@ async function cupsBind(store, config, arg) {
 async function askBot(text, store) {
   if (!store?.getSalesDays) return null;
   const today = todayAlmaty();
+  // Память исправлений — общая с сайтом: чему научили там, понимает и бот
+  const { recallFrom } = await import("./chatBot.js");
+  const learned = store.getChatLearned ? await store.getChatLearned().catch(() => null) : null;
   const deps = {
     today,
     siteUrl: siteUrl(),
+    recall: recallFrom(learned),
     getDays: (from, to) => store.getSalesDays(from, to),
-    getToday: async (needProducts) => {
-      const { dayTransactions, menuProducts } = await import("./poster.js");
-      const { rollupDay, menuIndexFrom } = await import("./salesRollup.js");
-      // Названия товаров — из ночного индекса в базе (15 КБ); нет его —
-      // из Poster (4,6 МБ, но это редкость: индекс обновляется каждую ночь)
-      const menuFromDb = needProducts && store.getMenuIndex ? (await store.getMenuIndex())?.idx : null;
-      const [txs, menu] = await Promise.all([
-        dayTransactions(today),
-        menuFromDb ? Promise.resolve(menuFromDb) : (needProducts ? menuProducts().then(menuIndexFrom) : Promise.resolve({})),
-      ]);
-      return rollupDay(today, txs, menu);
-    },
+    // Сегодня — из чеков вживую. Poster не ответил — отвечаем без
+    // сегодняшнего дня, а не ошибкой: прошлые дни-то на месте.
+    getToday: store.getTodaySales || (async (needProducts) => {
+      try {
+        const { dayTransactions, menuProducts } = await import("./poster.js");
+        const { rollupDay, menuIndexFrom } = await import("./salesRollup.js");
+        // Названия товаров — из ночного индекса в базе (15 КБ); нет его —
+        // из Poster (4,6 МБ, но это редкость: индекс обновляется каждую ночь)
+        const menuFromDb = needProducts && store.getMenuIndex ? (await store.getMenuIndex())?.idx : null;
+        const [txs, menu] = await Promise.all([
+          dayTransactions(today),
+          menuFromDb ? Promise.resolve(menuFromDb) : (needProducts ? menuProducts().then(menuIndexFrom) : Promise.resolve({})),
+        ]);
+        return rollupDay(today, txs, menu);
+      } catch (e) {
+        console.warn("[ask] сегодня из Poster не получилось:", e?.message);
+        return null;
+      }
+    }),
   };
   return answerQuestion(text, deps);
 }
@@ -511,6 +523,18 @@ async function handleCommand({ cmd, args }, ctx) {
     // Цифра в отчёте есть, а кто и когда её прислал — до сих пор было не
     // восстановить. Бот хранит исходный текст каждого сообщения, так что
     // сверять можно буквально по написанному.
+    // ─── Ассистент одним словом ───
+    // «/касса» — касса сегодня по точкам, «/вчера» — за вчера, «/неделя» —
+    // за неделю. Самые частые вопросы владельца — без набора текста.
+    case "касса":
+    case "вчера":
+    case "неделя": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const q = cmd === "касса" ? `касса сегодня ${args || ""}` : cmd === "вчера" ? `касса вчера ${args || ""}` : `касса за неделю ${args || ""}`;
+      const a = await askBot(q.trim(), store);
+      return a || { text: "Не смог посчитать." };
+    }
+
     // ─── Ассистент: вопрос словами ───
     case "спроси":
     case "вопрос":

@@ -6,7 +6,7 @@
 //
 // Запуск: node test-chat-bot.mjs
 
-import { answerQuestion, answerFrom, sumDays, spotsFor, periodRu, looksLikeQuestion } from "./api/_lib/chatBot.js";
+import { answerQuestion, answerFrom, sumDays, spotsFor, periodRu, looksLikeQuestion, recallFrom } from "./api/_lib/chatBot.js";
 import { handleMessage } from "./api/_lib/commands.js";
 import { DEFAULT_CONFIG } from "./api/_lib/store.js";
 import { readFileSync } from "node:fs";
@@ -98,6 +98,21 @@ section("Ответы");
   ok(j && j.text.includes("умеет только сайт") && j.text.includes("https://site/#/chat"), "чего бот не умеет — отправляет на сайт со ссылкой");
 
   eq(await answerQuestion("привет", deps), null, "болтовня — не вопрос");
+  eq(await answerQuestion("ыыы", deps), null, "незнакомое слово в боте — не товар и не вопрос");
+
+  // Память исправлений — общая с сайтом
+  const recall = recallFrom({ entries: { k1: { key: "скок лавэ", q: "касса за вчера", at: 1 } } });
+  eq(recall("лавэ скок")?.q, "касса за вчера", "поиск по основам, порядок слов не важен");
+  eq(recall("совсем другое"), null, "чужое не подставляется");
+  const m = await answerQuestion("скок лавэ", { ...deps, recall });
+  ok(m && m.text.startsWith("<i>Понял как «касса за вчера».</i>"), "бот понял через память и сказал об этом");
+  ok(m.text.includes("<b>Касса за"), "и ответил кассой за вчера");
+  eq(recallFrom(null)("что угодно"), null, "нет документа — памяти нет, не падаем");
+
+  // Poster за сегодня не ответил — ответ без сегодняшнего дня, с оговоркой
+  const noToday = await answerQuestion("касса за неделю", { ...deps, getToday: async () => null });
+  ok(noToday && noToday.text.includes("Сегодняшний день не вошёл"), "оговорка на месте");
+  ok(nb(noToday.text).includes("1 020 000 ₸"), "шесть прошлых дней посчитаны");
   eq(await answerQuestion("Абая пон 48 40к", deps), null, "накладная — не вопрос");
   eq(await answerQuestion("сколько будет 2+2", deps), null, "арифметика — не про данные");
   eq(await looksLikeQuestion("ок"), null, "«ок» — нет");
@@ -106,7 +121,7 @@ section("Ответы");
 section("В боте: команда и личка");
 
 {
-  const store = { getSalesDays: async (from, to) => range(from, to, 1) };
+  const store = { getSalesDays: async (from, to) => range(from, to, 1), getTodaySales: async () => day(TODAY, 0.5) };
   const cfg = { ...DEFAULT_CONFIG, admins: [777] };
   const msg = (text, chatType = "private", from = 777) => ({ text, chat: { id: from, type: chatType }, from: { id: from, first_name: "Р" }, message_id: 1 });
   const run = (text, chatType, from) => handleMessage(msg(text, chatType, from), { store, config: cfg, authorName: "@r" });
@@ -126,6 +141,20 @@ section("В боте: команда и личка");
   ok(r6?.text.includes("/спроси касса вчера"), "без вопроса — подсказка");
   const r7 = await run("привет");
   eq(r7, null, "«привет» в личке — молчим, как раньше");
+
+  // Одним словом
+  const r8 = await run("/вчера");
+  ok(r8?.text.startsWith("<b>Касса за"), "/вчера — касса за вчера");
+  const r9 = await run("/неделя");
+  ok(r9?.text.startsWith("<b>Касса с"), "/неделя — касса за неделю");
+  const r10 = await run("/вчера абая");
+  ok(r10?.text.startsWith("<b>Касса Абая за"), "/вчера абая — по точке");
+  eq(await run("/вчера", "private", 5), { text: "Только для админа." }, "чужому — нет");
+
+  // Бот читает общую память, если она есть в базе
+  const storeMem = { ...store, getChatLearned: async () => ({ entries: { k: { key: "скок лавэ", q: "касса за вчера", at: 1 } } }) };
+  const r11 = await handleMessage(msg("скок лавэ"), { store: storeMem, config: cfg, authorName: "@r" });
+  ok(r11?.text.includes("Понял как «касса за вчера»"), "исправление с сайта работает и в боте");
 
   const help = readFileSync("api/_lib/commands.js", "utf8");
   ok(help.includes("/спроси касса вчера — ассистент"), "команда — в справке");

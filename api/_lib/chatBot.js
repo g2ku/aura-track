@@ -15,6 +15,8 @@
 // на выход текст. Сеть и база — только в answerQuestion.
 
 import { parseQuestion } from "../../src/chat/parser.js";
+import { understand } from "../../src/chat/understand.js";
+import { recallEntry } from "../../src/chat/memory.js";
 import { baselinePeriods, formatContext, averageOf } from "../../src/chat/context.js";
 import { productMatches } from "../../src/chat/normalize.js";
 import { spotNameByPosterId, DEFAULT_IP_GROUPS, BRANCHES } from "./branches.js";
@@ -166,15 +168,29 @@ function label(metric) {
   return { cash: "Касса", checks: "Чеки", avgCheck: "Средний чек", products: "Товары", compareBranches: "Точки" }[metric] || metric;
 }
 
+// Память исправлений сайта — для бота. Документ chat/learned из базы
+// оборачивается в «хранилище» с getItem, и recallEntry ищет в нём так же,
+// как в localStorage браузера: точно, по основам слов, с опечаткой.
+export function recallFrom(learnedDoc) {
+  const map = {};
+  for (const e of Object.values(learnedDoc?.entries || {})) if (e?.key && e?.q) map[e.key] = { q: e.q, at: e.at || 0 };
+  const store = { getItem: () => JSON.stringify(map), setItem() {}, removeItem() {} };
+  return (phrase) => recallEntry(phrase, store);
+}
+
 // Похоже ли сообщение на вопрос о данных — чтобы в личке не отвечать
-// цифрами на «привет» и не путать вопрос с накладной
-export async function looksLikeQuestion(text) {
-  const p = await parseQuestion(text);
+// цифрами на «привет» и не путать вопрос с накладной. Понимание — то же,
+// что на сайте (understand): правила, потом память исправлений.
+export async function looksLikeQuestion(text, { recall = () => null } = {}) {
+  const { parsed: p, note } = await understand(text, { recall });
   if (!p) return null;
   if (p.metric === "math") return null;
   // Додуманные и метрика, и период — это не вопрос, а что-то другое
   if (p.assumed?.metric && p.assumed?.period) return null;
-  return p;
+  // Товар-догадка по незнакомому слову — в боте не отвечаем: в личке
+  // это чаще болтовня, чем вопрос про «ыыы»
+  if (p.assumed?.product) return null;
+  return note ? { ...p, note } : p;
 }
 
 // Полный путь: разбор → дни из базы (и сегодня из Poster) → текст.
@@ -183,18 +199,23 @@ export async function answerQuestion(text, deps) {
   // «Вчера» и «сегодня» разбор считает от местных часов процесса, а
   // функция живёт по UTC: в два ночи по Алматы там ещё вчера
   process.env.TZ = "Asia/Almaty";
-  const parsed = await looksLikeQuestion(text);
+  const parsed = await looksLikeQuestion(text, { recall: deps.recall });
   if (!parsed) return null;
   if (!SUPPORTED.has(parsed.metric)) {
     return { text: `Это умеет только сайт — ${deps.siteUrl ? `${deps.siteUrl}/#/chat` : "раздел «Ассистент»"}.`, parsed };
   }
   const { today } = deps;
+  let todayMissing = false;
   const load = async (period) => {
     if (!period?.from) return [];
     const to = period.to > today ? today : period.to;
     if (period.from > to) return [];
     const past = to === today ? (period.from < today ? await deps.getDays(period.from, shiftYmd(today, -1)) : []) : await deps.getDays(period.from, to);
-    const live = to === today ? [await deps.getToday(parsed.metric === "products")].filter(Boolean) : [];
+    let live = [];
+    if (to === today) {
+      const t = await deps.getToday(parsed.metric === "products");
+      if (t) live = [t]; else todayMissing = true;
+    }
     return [...past, ...live];
   };
   const days = await load(parsed.period);
@@ -208,7 +229,13 @@ export async function answerQuestion(text, deps) {
     baseDays.prev = await load(base.prev);
   }
   const answer = answerFrom(parsed, days, { today, baseDays });
-  return answer ? { text: answer, parsed } : null;
+  if (!answer) return null;
+  const lines = [];
+  // Вопрос понят через память исправлений — говорим, как поняли
+  if (parsed.note) lines.push(`<i>${escapeHtml(parsed.note)}</i>`);
+  lines.push(answer);
+  if (todayMissing) lines.push("<i>Сегодняшний день не вошёл: Poster не ответил.</i>");
+  return { text: lines.join("\n"), parsed };
 }
 
 function shiftYmd(ymd, days) {
