@@ -19,11 +19,13 @@ import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.
 // месяц, потому что \w в регулярке не ловит кириллицу.
 const MONTHS = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
 const MONTHS_ZA = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+// «к августу» — дательный: разбор понимает по началу слова, а читается по-русски
+const MONTHS_DAT = ["январю","февралю","марту","апрелю","маю","июню","июлю","августу","сентябрю","октябрю","ноябрю","декабрю"];
 
-function monthAgo(n) {
+function monthAgo(n, list = MONTHS_ZA) {
   const d = new Date();
   d.setMonth(d.getMonth() - n);
-  return MONTHS_ZA[d.getMonth()];
+  return list[d.getMonth()];
 }
 function nextMonth() {
   const d = new Date();
@@ -58,7 +60,7 @@ const EXAMPLES_ALL = [
   "Какой день недели самый прибыльный?",
   "В какое время пик продаж?",
   "Аномальные дни за месяц",
-  `Как изменилась касса Гагарина ${monthAgo(2)} к ${PREV_MONTH}`,
+  `Как изменилась касса Гагарина ${monthAgo(2)} к ${monthAgo(1, MONTHS_DAT)}`,
   "Тренд кассы за 3 месяца",
   `Прогноз на ${nextMonth()}`,
   `Маржа за ${PREV_MONTH}`,

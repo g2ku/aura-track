@@ -18,7 +18,7 @@ import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
-import { summarizeDay, formatBriefing, formatDayLabel, baselineLine } from "../_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, formatWeeklyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
 import { sendMessage, siteUrl } from "../_lib/telegram.js";
 
@@ -215,6 +215,29 @@ export default async function handler(req, res) {
         await setConfig({ lastCupDailyDate: today }).catch(() => {});
       } catch (e) {
         console.error("[cups] ежедневное не отработало:", e?.message);
+      }
+    }
+
+    // ─── По понедельникам — итог недели ──────────────────────────────
+    //
+    // После утренней сводки, из суточных итогов: неделя против прошлой,
+    // по точкам, кто вырос и кто просел. Метка своя — если понедельник
+    // пропущен (сторож не проснулся), во вторник не догоняем: неделя
+    // читается в понедельник.
+    if (config.weeklyDigest && config.lastWeeklyDigestDate !== today && nowHM >= config.briefingTime) {
+      try {
+        const { weekdayOf } = await import("../_lib/cups.js");
+        if (weekdayOf(today) === 1) {
+          const to = shiftYmd(today, -1), from = shiftYmd(today, -7);
+          const [cur, prev] = await Promise.all([getSalesDays(from, to), getSalesDays(shiftYmd(from, -7), shiftYmd(to, -7))]);
+          const text = formatWeeklyDigest(cur, prev, { from, to });
+          if (text) await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+          out.weekly = !!text;
+        }
+        patch.lastWeeklyDigestDate = today;
+        await setConfig({ lastWeeklyDigestDate: today }).catch(() => {});
+      } catch (e) {
+        console.error("[weekly] итог недели не собрался:", e?.message);
       }
     }
 

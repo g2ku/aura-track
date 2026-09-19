@@ -185,6 +185,8 @@ export const DEFAULT_CONFIG = {
   lastCupRouteDate: null,
   salesRollupTime: "03:30", // ночью — суточные итоги продаж в salesDays; "" — не считать
   lastSalesRollupDate: null,
+  weeklyDigest: true,       // по понедельникам — итог недели против прошлой
+  lastWeeklyDigestDate: null,
   cupLowStock: 500,        // меньше этого на складе — пора закупать
 
   // Сверка накладных с Poster в конце вечернего отчёта. Выключена, пока

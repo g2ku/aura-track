@@ -7,7 +7,7 @@
 // Запуск: node test-watch.mjs
 
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours, WATCH_DEFAULTS } from "./api/_lib/watch.js";
-import { summarizeDay, formatBriefing, formatDayLabel, baselineLine } from "./api/_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, formatWeeklyDigest } from "./api/_lib/briefing.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -465,6 +465,32 @@ section("Завал — это не тишина");
   ];
   const alerts = buildAlerts(rows, { now, seen: {}, openSpots: new Set(["7"]) });
   ok(alerts.some((a) => a.kind === "quiet"), "открыть пустой чек — не продать");
+}
+
+section("Итог недели по понедельникам");
+
+{
+  const day = (date, a, b) => ({ date, cashBySpot: { "4": a, "9": b }, txBySpot: { "4": Math.round(a / 2500), "9": Math.round(b / 2500) } });
+  const week = (start, k) => Array.from({ length: 7 }, (_, i) => day(`2026-09-${String(start + i).padStart(2, "0")}`, 100000 * k, 50000 * (2 - k)));
+  const cur = week(14, 1.1), prev = week(7, 1);
+  const t = formatWeeklyDigest(cur, prev, { from: "2026-09-14", to: "2026-09-20" });
+  ok(t.startsWith("📅 <b>Неделя 14 сентября — 20 сентября</b>"), "заголовок с датами недели");
+  ok(/Касса — <b>[\d\u00a0\u202f ]+ ₸<\/b> \(\+\d+ %\)/.test(t), `касса против прошлой недели: ${t.split("\n")[2]}`);
+  ok(t.includes("Чеков — ") && t.includes("средний чек — "), "чеки и средний чек");
+  ok(t.includes("• Абая — ") && t.includes("• Дубай — "), "по точкам");
+  ok(t.indexOf("• Абая") < t.indexOf("• Дубай"), "по убыванию кассы");
+  ok(t.includes("📈 Лучший рост — Абая: +10 %"), "кто вырос");
+  ok(t.includes("📉 Просела — Дубай: -10 %"), "кто просел");
+  ok(!t.includes("из 7 дней"), "семь дней собраны — без оговорки");
+  const partial = formatWeeklyDigest(cur.slice(0, 5), prev, { from: "2026-09-14", to: "2026-09-20" });
+  ok(partial.includes("Итогов за 5 из 7 дней"), "не все дни собраны — честно сказано");
+  eq(formatWeeklyDigest([], prev, { from: "2026-09-14", to: "2026-09-20" }), "", "нет данных — молчим");
+  eq(formatWeeklyDigest(cur, [], { from: "2026-09-14", to: "2026-09-20" }).includes("%"), false, "без прошлой недели — без процентов");
+
+  const w = readFileSync("api/tg/watch.js", "utf8");
+  ok(/config\.weeklyDigest && config\.lastWeeklyDigestDate !== today && nowHM >= config\.briefingTime/.test(w), "по понедельникам, раз в день, после времени сводки");
+  ok(/weekdayOf\(today\) === 1/.test(w), "именно понедельник");
+  ok(/patch\.lastWeeklyDigestDate = today/.test(w), "и метка ставится в любой день, чтобы не догонять во вторник");
 }
 
 section("Из телеграма — сразу в нужное место");

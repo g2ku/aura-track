@@ -162,3 +162,64 @@ export function buildLagAlerts(rows, opts = {}) {
 
   return alerts.sort((a, b) => a.share - b.share);
 }
+
+// ─── Недельный итог ──────────────────────────────────────────────────
+//
+// Ежедневная сводка отвечает «как вчера». Раз в неделю нужен другой
+// ответ: «как неделя» — вся сеть и каждая точка против прошлой недели,
+// кто вырос, кто просел. Считается из суточных итогов (salesDays), по
+// понедельникам, сразу после сводки за воскресенье.
+//
+// cur / prev — массивы дневных документов { date, cashBySpot, txBySpot }.
+
+function weekTotals(docs) {
+  const bySpot = {};
+  let total = 0, checks = 0, days = 0;
+  for (const d of docs || []) {
+    let dayTotal = 0;
+    for (const [spot, v] of Object.entries(d.cashBySpot || {})) {
+      (bySpot[spot] ||= { total: 0, checks: 0 }).total += v; total += v; dayTotal += v;
+    }
+    for (const [spot, v] of Object.entries(d.txBySpot || {})) {
+      (bySpot[spot] ||= { total: 0, checks: 0 }).checks += v; checks += v;
+    }
+    if (dayTotal > 0) days++;
+  }
+  return { total, checks, avg: checks ? total / checks : 0, days, bySpot };
+}
+
+const pctStr = (a, b) => {
+  if (!b) return "";
+  const p = Math.round(((a - b) / b) * 100);
+  return p > 0 ? ` (+${p} %)` : p < 0 ? ` (${p} %)` : " (как неделей раньше)";
+};
+
+export function formatWeeklyDigest(cur, prev, { from, to } = {}) {
+  const c = weekTotals(cur), p = weekTotals(prev);
+  if (!c.days) return "";
+  const lines = [`📅 <b>Неделя ${formatDayLabel(from)} — ${formatDayLabel(to)}</b>`, ""];
+  lines.push(`Касса — <b>${fmtSum(c.total)}</b>${pctStr(c.total, p.total)}`);
+  lines.push(`Чеков — ${c.checks}${pctStr(c.checks, p.checks)} · средний чек — ${fmtSum(c.avg)}`);
+  if (c.days < 7) lines.push(`<i>Итогов за ${c.days} из 7 дней — остальные ещё не собраны.</i>`);
+
+  const rows = Object.entries(c.bySpot).map(([spot, v]) => ({
+    name: spotNameByPosterId(spot), total: v.total, checks: v.checks,
+    pct: p.bySpot[spot]?.total ? Math.round(((v.total - p.bySpot[spot].total) / p.bySpot[spot].total) * 100) : null,
+  })).sort((a, b) => b.total - a.total);
+
+  if (rows.length) {
+    lines.push("", "<b>По точкам</b>");
+    for (const r of rows) {
+      const d = r.pct == null ? "" : r.pct > 0 ? ` · +${r.pct} %` : r.pct < 0 ? ` · ${r.pct} %` : " · 0 %";
+      lines.push(`• ${r.name} — ${fmtSum(r.total)}${d}`);
+    }
+    const moved = rows.filter((r) => r.pct != null);
+    if (moved.length >= 2) {
+      const up = [...moved].sort((a, b) => b.pct - a.pct)[0];
+      const down = [...moved].sort((a, b) => a.pct - b.pct)[0];
+      if (up.pct > 0) lines.push("", `📈 Лучший рост — ${up.name}: +${up.pct} %`);
+      if (down.pct < 0) lines.push(`${up.pct > 0 ? "" : "\n"}📉 Просела — ${down.name}: ${down.pct} %`);
+    }
+  }
+  return lines.join("\n");
+}
