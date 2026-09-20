@@ -177,6 +177,24 @@ section("В боте: команда и личка");
   ok(r12.text.includes("По точкам"), "по точкам");
   eq(await run("/итоги", "private", 5), { text: "Только для админа." }, "чужому — нет");
 
+  // /месяц — этот месяц по вчера против тех же чисел прошлого
+  const calls = [];
+  const storeLog = { ...store, getSalesDays: async (from, to) => { calls.push([from, to]); return range(from, to, 1); } };
+  const runM = (text) => handleMessage(msg(text), { store: storeLog, config: cfg, authorName: "@r" });
+  const r13 = await runM("/месяц");
+  ok(r13?.text.startsWith("🗓 <b>Итог месяца — "), `/месяц — итог месяца: ${r13?.text.split("\n")[0]}`);
+  const y = shift(TODAY, -1);
+  if (y.slice(0, 7) === TODAY.slice(0, 7)) {
+    eq(calls[0], [`${TODAY.slice(0, 7)}-01`, y], "этот месяц — с первого числа по вчера");
+    ok(calls[1][0].endsWith("-01") && calls[1][1].slice(8) <= y.slice(8), `прошлый — те же числа: ${calls[1].join("..")}`);
+  }
+  calls.length = 0;
+  const r14 = await runM("/месяц август");
+  ok(r14?.text.startsWith("🗓 <b>Итог месяца — август"), "/месяц август — названный месяц");
+  ok(calls[0][0].endsWith("-08-01") && calls[0][1].endsWith("-08-31"), `август целиком: ${calls[0].join("..")}`);
+  ok(calls[1][0].endsWith("-07-01") && calls[1][1].endsWith("-07-31"), `против июля целиком: ${calls[1].join("..")}`);
+  eq(await run("/месяц", "private", 5), { text: "Только для админа." }, "чужому — нет");
+
   // Бот читает общую память, если она есть в базе
   const storeMem = { ...store, getChatLearned: async () => ({ entries: { k: { key: "скок лавэ", q: "касса за вчера", at: 1 } } }) };
   const r11 = await handleMessage(msg("скок лавэ"), { store: storeMem, config: cfg, authorName: "@r" });

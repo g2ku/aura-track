@@ -63,6 +63,7 @@ const ADMIN_HELP = `
 /спроси касса вчера — ассистент: цифры словами (в личке можно и без команды)
 /касса, /вчера, /неделя — касса по точкам одним словом
 /итоги — неделя против прошлой, по точкам
+/месяц — этот месяц против тех же чисел прошлого; /месяц август — целиком
 /стаканы — склад, на сколько хватит, сводка за период
 /склад — то же самое
 /снабженец — кто возит стаканы (ответом на его сообщение)
@@ -548,6 +549,54 @@ async function handleCommand({ cmd, args }, ctx) {
       const [cur, prev] = await Promise.all([store.getSalesDays(from, to), store.getSalesDays(shiftDay(from, -7), shiftDay(to, -7))]);
       const text = formatWeeklyDigest(cur, prev, { from, to });
       return { text: text || "Итогов за последнюю неделю ещё нет — они собираются по ночам." };
+    }
+
+    // ─── Итог месяца по запросу ───
+    // «/месяц» — этот месяц по вчера против тех же чисел прошлого:
+    // сравнивать двадцать дней с тридцатью одним нечестно. «/месяц август»
+    // — прошедший месяц целиком против предыдущего, как приходит первого.
+    case "месяц": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      if (!store.getSalesDays) return { text: "Итоги недоступны." };
+      const { formatMonthlyDigest } = await import("./briefing.js");
+      const { shiftDay } = await import("./cups.js");
+      const today = todayAlmaty();
+      const MONTHS = ["январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"];
+      const want = String(args || "").trim().toLowerCase();
+      const mi = want ? MONTHS.findIndex((m) => want.startsWith(m)) : -1;
+      let from, to, pFrom, pTo;
+      if (mi >= 0) {
+        // Названный месяц — последний такой, что уже начался
+        const [y, m] = today.split("-").map(Number);
+        const year = mi + 1 > m ? y - 1 : y;
+        from = `${year}-${String(mi + 1).padStart(2, "0")}-01`;
+        const last = new Date(Date.UTC(year, mi + 1, 0)).getUTCDate();
+        to = `${year}-${String(mi + 1).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+        if (to >= today) to = shiftDay(today, -1);
+        pTo = shiftDay(from, -1); pFrom = `${pTo.slice(0, 7)}-01`;
+        // Неполный месяц — против тех же чисел прошлого
+        if (to.slice(0, 7) === today.slice(0, 7)) {
+          const day = Number(to.slice(8, 10));
+          const pl = new Date(Date.UTC(Number(pFrom.slice(0, 4)), Number(pFrom.slice(5, 7)), 0)).getUTCDate();
+          pTo = `${pFrom.slice(0, 7)}-${String(Math.min(day, pl)).padStart(2, "0")}`;
+        }
+      } else {
+        to = shiftDay(today, -1);
+        if (to.slice(0, 7) !== today.slice(0, 7)) {
+          // Первое число — вчера был прошлый месяц: он и есть «этот»
+          from = `${to.slice(0, 7)}-01`;
+          pTo = shiftDay(from, -1); pFrom = `${pTo.slice(0, 7)}-01`;
+        } else {
+          from = `${today.slice(0, 7)}-01`;
+          pTo = shiftDay(from, -1); pFrom = `${pTo.slice(0, 7)}-01`;
+          const day = Number(to.slice(8, 10));
+          const pl = Number(pTo.slice(8, 10));
+          pTo = `${pFrom.slice(0, 7)}-${String(Math.min(day, pl)).padStart(2, "0")}`;
+        }
+      }
+      const [cur, prev] = await Promise.all([store.getSalesDays(from, to), store.getSalesDays(pFrom, pTo)]);
+      const text = formatMonthlyDigest(cur, prev, { month: from.slice(0, 7), prevMonth: pFrom.slice(0, 7) });
+      return { text: text || "Итогов за этот месяц ещё нет — они собираются по ночам." };
     }
 
     // ─── Ассистент: вопрос словами ───
