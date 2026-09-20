@@ -132,10 +132,10 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
 
   const intake = isAdmin && (
     <div className="card">
-      <div className="label">Пополнить склад</div>
+      <div className="label">Пополнить склад — сколько стаканов привезли на склад</div>
       {skus.map((s) => (
         <div className="row" key={s.id}>
-          <span className="grow name">{s.short}</span>
+          <span className="grow name">{s.name.replace(/ фирменный$/, "")}</span>
           <input
             type="number" inputMode="numeric" enterKeyHint="done" placeholder="0" style={{ width: 120 }}
             aria-label={`${s.short}: приход на склад`}
