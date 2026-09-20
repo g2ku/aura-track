@@ -25,7 +25,7 @@ const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) ||
 const int = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0));
 
 // Что бот умеет сам; остальное — только сайт
-const SUPPORTED = new Set(["cash", "checks", "avgCheck", "products", "compareBranches", "payments"]);
+const SUPPORTED = new Set(["cash", "checks", "avgCheck", "products", "compareBranches", "payments", "hourly"]);
 const PAY_NAMES = { 0: "Наличные", "0-card": "Карточки", 11: "Kaspi", 12: "Halyk" };
 const PAY_WORDS = [
   { re: /наличн|налом/, id: "0" },
@@ -142,7 +142,8 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
       "", `Итого: ${fmt(all)}`, ...tail].join("\n");
   }
 
-  const metric = parsed.metric === "compareBranches" ? "cash" : parsed.metric;
+  // «Пик» без метрики — по кассе
+  const metric = parsed.metric === "compareBranches" || parsed.metric === "hourly" ? "cash" : parsed.metric;
   const pickOf = (x) => (metric === "checks" ? x.checks : metric === "avgCheck" ? x.avg : x.total);
   const unitOf = metric === "checks" ? int : fmt;
 
@@ -168,6 +169,35 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
       ...rows.map((r) => `${r.name}${r.partial ? "*" : ""} ${bar(r.v)} ${unitOf(r.v)}`),
       rows.some((r) => r.partial) ? "<i>* месяц ещё не закончился</i>" : "",
       pct == null || a === b ? "" : `${pct > 0 ? "📈 +" : pct < 0 ? "📉 " : "➡️ "}${String(pct).replace(".", ",")} % (${a.name} → ${b.name})`,
+    ].filter(Boolean).join("\n");
+  }
+
+  // По часам — из 24 чисел на точку в суточных итогах. Сегодняшний день
+  // считается вживую без часов, поэтому в ответ не входит
+  if (parsed.operation === "byHour" && ["cash", "checks", "avgCheck"].includes(metric)) {
+    const cash = Array(24).fill(0), tx = Array(24).fill(0);
+    let covered = 0, skippedToday = false;
+    for (const d of days || []) {
+      if (!d?.hours) { if (d?.date === today) skippedToday = true; continue; }
+      covered++;
+      for (const [spot, hs] of Object.entries(d.hours)) {
+        if (spots && !spots.has(String(spot))) continue;
+        for (let h = 0; h < 24; h++) { cash[h] += hs.cash?.[h] || 0; tx[h] += hs.tx?.[h] || 0; }
+      }
+    }
+    if (!covered) return `Разбивки по часам ${escapeHtml(when)} ещё нет — она собирается по ночам.`;
+    const rows = Array.from({ length: 24 }, (_, h) => ({ h, cash: cash[h], tx: tx[h] })).filter((r) => r.tx > 0);
+    const key = metric === "checks" ? "tx" : "cash";
+    rows.sort((a, b) => b[key] - a[key]);
+    const top = rows.slice(0, 3);
+    const quiet = rows.slice(3).slice(-3).reverse();
+    const hh = (h) => `${String(h).padStart(2, "0")}:00`;
+    const line = (r) => `${hh(r.h)} — ${fmt(Math.round(r.cash / covered))}/день · ${Math.round(r.tx / covered)} чек.`;
+    return [`<b>Пик${escapeHtml(where)} ${escapeHtml(when)}</b>`,
+      ...top.map((r, i) => `${i === 0 ? "🔥" : i === 1 ? "⭐" : "•"} ${line(r)}`),
+      ...(quiet.length ? ["", "💤 Тихие часы:", ...quiet.map((r) => `• ${line(r)}`)] : []),
+      covered > 1 ? `<i>Среднее за ${covered} дн.</i>` : "",
+      skippedToday ? "<i>Сегодняшний день не вошёл — по часам он появится ночью.</i>" : "",
     ].filter(Boolean).join("\n");
   }
 

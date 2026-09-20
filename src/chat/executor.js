@@ -1,6 +1,6 @@
 // chat/executor.js — выполняет распознанный запрос к данным Poster.
 
-import { fetchCashBySpot as fetchCashBySpotRaw, fetchPosterSales as fetchPosterSalesRaw, fetchReceipts, fetchCashPerDay, getMenuCategories } from "../poster.js";
+import { fetchCashBySpot as fetchCashBySpotRaw, fetchPosterSales as fetchPosterSalesRaw, fetchReceipts, fetchCashPerDay, getMenuCategories, fetchHoursByDay } from "../poster.js";
 
 // Poster не ответил за часть дней — poster.js отдаёт остальные и называет
 // недостающие. Ответ ассистента должен это сказать: «касса за неделю»
@@ -71,6 +71,16 @@ async function resolveIPGroupBranches(ipGroup) {
     const g = groups.find(gr => gr.id === ipGroup.id);
     return g ? g.branches : null;
   } catch { return null; }
+}
+
+// Синхронная версия для строк, у которых уже известны филиалы группы
+function filterByIPGroupSync(data, groupBranches) {
+  if (!groupBranches) return data;
+  const spotIdBranchMap = { "1": "Aura02_Gagarina", "2": "Aura02_Zharokova", "3": "Aura02_OBI", "4": "Aura02_Abaya", "7": "Aura02_Koktem", "9": "Aura02_Dubai", "10": "Aura02_Atakent", "11": "Aura02_Rams" };
+  return data.filter((d) => {
+    const branchId = d.branchId || (d.spotName?.startsWith("Aura02_") ? d.spotName : null) || spotIdBranchMap[String(d.spotId)];
+    return branchId ? matchesIPGroup(branchId, groupBranches) : true;
+  });
 }
 
 function matchesIPGroup(branchId, groupBranches) {
@@ -1399,27 +1409,38 @@ async function handleByHour(metric, spot, period, ipGroup) {
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  // Fetch receipts for hourly breakdown
-  const receipts = await fetchReceipts(period.from, period.to);
-
   const hourTotals = Array(24).fill(0);
   const hourCounts = Array(24).fill(0);
+  const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
+  const spotOk = (spotId) => matchesSpot({ spotId: String(spotId), spotName: "" }, spot)
+    && (!groupBranches || filterByIPGroupSync([{ spotId: String(spotId) }], groupBranches).length > 0);
 
-  for (const r of receipts.receipts || []) {
-    if (r.spotId && !matchesSpot({ spotId: r.spotId, spotName: r.spotName }, spot)) continue;
-    if (ipGroup) {
-      const branchId = r.spotName?.startsWith("Aura02_") ? r.spotName : null;
-      if (branchId) {
-        const groupBranches = await resolveIPGroupBranches(ipGroup);
-        if (groupBranches && !groupBranches.includes(branchId)) continue;
-      }
+  // Прошлые дни — из ночных итогов (24 числа на точку), и только то,
+  // чего там нет (сегодня, ещё не пересобранное), — из чеков
+  const { days: rolled, missing } = await fetchHoursByDay(period.from, period.to);
+  for (const d of rolled) {
+    for (const [spotId, hs] of Object.entries(d.hours || {})) {
+      if (!spotOk(spotId)) continue;
+      for (let h = 0; h < 24; h++) { hourTotals[h] += hs.cash?.[h] || 0; hourCounts[h] += hs.tx?.[h] || 0; }
     }
-    const date = r.dateOpen ? new Date(r.dateOpen) : null;
-    if (!date || isNaN(date.getTime())) continue;
-    const hour = date.getHours();
-    const sum = Number(r.sum) || 0;
-    hourTotals[hour] += sum;
-    hourCounts[hour]++;
+  }
+  const todayIso = fmtDateJS(new Date());
+  const missingPast = missing.filter((d) => d <= todayIso);
+  if (missingPast.length) {
+    // Дни без итогов — подряд от первого до последнего: чеков за них немного
+    const receipts = await fetchReceipts(missingPast[0], missingPast[missingPast.length - 1]);
+    const missingSet = new Set(missingPast);
+    for (const r of receipts.receipts || []) {
+      if (r.status === "open") continue;
+      const day = String(r.dateClose || r.dateOpen || "").slice(0, 10);
+      if (!missingSet.has(day)) continue;
+      if (r.spotId && !spotOk(r.spotId)) continue;
+      const m = String(r.dateClose || r.dateOpen || "").match(/\s(\d{2}):/);
+      if (!m) continue;
+      const hour = Number(m[1]);
+      hourTotals[hour] += Number(r.sum) || 0;
+      hourCounts[hour]++;
+    }
   }
 
   // Find peak hours

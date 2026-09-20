@@ -581,10 +581,11 @@ export async function getSalesDays(from, to) {
 }
 
 // Только даты — чтобы понять, чего не хватает, не читая сами итоги
+// Даты и версия итога — чтобы пересобрать дни старой версии, не читая их
 export async function listSalesDayDates(from, to) {
   const snap = await getDb().collection(SALES_DAYS)
-    .where("date", ">=", from).where("date", "<=", to).select("date").get();
-  return snap.docs.map((d) => d.get("date")).filter(Boolean);
+    .where("date", ">=", from).where("date", "<=", to).select("date", "v").get();
+  return snap.docs.map((d) => ({ date: d.get("date"), v: d.get("v") || 1 })).filter((x) => x.date);
 }
 
 export async function saveSalesDay(doc) {

@@ -45,6 +45,9 @@ export function rollupDay(ymd, transactions, menu = {}) {
   const rowsBySpot = {};
   const txBySpot = {};
   const cashBySpot = {};
+  // По часам: касса и чеки точки за каждый час закрытия чека. 24 числа
+  // на точку — «во сколько пик» отвечается из итогов, а не из чеков
+  const hours = {};
   let transactionsCount = 0;
 
   for (const tx of transactions || []) {
@@ -60,6 +63,13 @@ export function rollupDay(ymd, transactions, menu = {}) {
     cashBySpot[spot] = (cashBySpot[spot] || 0) + payed;
     transactionsCount++;
 
+    const hm = String(tx.date_close || tx.date_open || "").match(/\s(\d{2}):/);
+    if (hm) {
+      const h = Number(hm[1]);
+      const hs = (hours[spot] ||= { cash: Array(24).fill(0), tx: Array(24).fill(0) });
+      hs.cash[h] += payed; hs.tx[h] += 1;
+    }
+
     for (const it of tx.products || []) {
       const pid = String(it.product_id);
       const mid = String(it.modification_id || 0);
@@ -71,7 +81,7 @@ export function rollupDay(ymd, transactions, menu = {}) {
     }
   }
 
-  return { date: ymd, transactionsCount, txBySpot, cashBySpot, rowsBySpot, hasProducts: true };
+  return { date: ymd, transactionsCount, txBySpot, cashBySpot, rowsBySpot, hasProducts: true, hours, v: ROLLUP_VERSION };
 }
 
 // Способы оплаты за день из строк dash.getTransactions — та же арифметика,
@@ -118,8 +128,13 @@ export function payDayFrom(rows) {
 
 // Каких дней ещё нет: от вчера назад на ROLLUP_BACK_DAYS, свежие первыми.
 // Сегодня не трогаем — день не кончился.
-export function pendingDays(existing, { today, back = ROLLUP_BACK_DAYS } = {}) {
-  const have = new Set(existing || []);
+// Версия итога. Дни, собранные старой версией (без разбивки по часам),
+// пересобираются заново — по несколько за ночь, как и пропуски.
+export const ROLLUP_VERSION = 2;
+
+// existing — даты собранных дней или { date, v } с версией
+export function pendingDays(existing, { today, back = ROLLUP_BACK_DAYS, version = ROLLUP_VERSION } = {}) {
+  const have = new Set((existing || []).map((e) => (typeof e === "string" ? e : (e?.v || 1) >= version ? e?.date : null)).filter(Boolean));
   const from = shiftYmd(today, -back);
   const to = shiftYmd(today, -1);
   if (from > to) return [];
@@ -146,6 +161,7 @@ export function toClientDays(docs, { products = true } = {}) {
       rowsBySpot: products ? (d.rowsBySpot || {}) : {},
       hasProducts: products ? d.hasProducts !== false : false,
       pay: d.pay || null,
+      hours: d.hours || null,
       source: "rollup",
     };
   }

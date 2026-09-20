@@ -96,6 +96,19 @@ section("Какие дни собирать");
   eq(p, ["2026-09-17", "2026-09-16", "2026-09-15", "2026-09-14", "2026-09-13"], "от вчера назад, свежие первыми; сегодня — нет");
   eq(pendingDays(["2026-09-17", "2026-09-15"], { today, back: 5 }), ["2026-09-16", "2026-09-14", "2026-09-13"], "что есть — пропускаем");
   eq(pendingDays(p, { today, back: 5 }), [], "всё есть — пусто");
+  // Версия итога: собранное старой версией (без часов) пересобирается
+  const { ROLLUP_VERSION } = await import("./api/_lib/salesRollup.js");
+  eq(pendingDays([{ date: "2026-09-17", v: ROLLUP_VERSION }, { date: "2026-09-16", v: 1 }, { date: "2026-09-15" }], { today, back: 3 }), ["2026-09-16", "2026-09-15"], "старая версия и без версии — пересобрать");
+  ok(rollupDay("2026-09-19", []).v === ROLLUP_VERSION, "новый итог помечен версией");
+  // Часы: касса и чеки точки по часу закрытия
+  const withHours = rollupDay("2026-09-19", [
+    { spot_id: 4, payed_sum: 1000, date_close: "2026-09-19 08:15:00" },
+    { spot_id: 4, payed_sum: 2000, date_close: "2026-09-19 08:45:00" },
+    { spot_id: 9, payed_sum: 500, date_close: "2026-09-19 14:05:00" },
+  ]);
+  eq([withHours.hours["4"].cash[8], withHours.hours["4"].tx[8], withHours.hours["9"].tx[14]], [3000, 2, 1], "по часам — касса и чеки");
+  eq(withHours.hours["4"].cash.length, 24, "24 часа");
+  ok(toClientDays([withHours])["20260919"].hours?.["4"], "часы уезжают клиенту");
   ok(ROLLUP_BACK_DAYS >= 180, "окно — не меньше полугодия: столько смотрят налоги по ИП");
   eq(clampRange("2026-01-01", "2026-09-17", { today, maxDays: 400 }), { from: "2026-01-01", to: "2026-09-17" }, "без товаров можно и полгода");
   ok(ROLLUP_PER_RUN >= 2 && ROLLUP_PER_RUN <= 8, "за пробуждение — немного дней: функции есть предел по времени");
@@ -242,7 +255,7 @@ section("Ручка и сторож собраны правильно");
   ok(rollupAt > 0 && warmAt > rollupAt, "итоги — до прогрева: у сторожа на них есть время");
   const store = readFileSync("api/_lib/store.js", "utf8");
   ok(store.includes('salesRollupTime: "03:30"'), "по умолчанию — ночью");
-  ok(/select\("date"\)/.test(store), "список дат читается без самих итогов");
+  ok(/select\("date", "v"\)/.test(store), "список дат читается без самих итогов — только дата и версия");
   // По смыслу, а не по тексту: сборка Vercel может переформатировать vercel.json
   const vercel = JSON.parse(readFileSync("vercel.json", "utf8"));
   ok((vercel.functions?.["api/tg/watch.js"]?.maxDuration || 0) >= 60, `сторожу дано время на ночные итоги: ${JSON.stringify(vercel.functions)}`);

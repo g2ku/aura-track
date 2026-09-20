@@ -155,6 +155,28 @@ export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
   return out;
 }
 
+// ─── По часам из ночных итогов ─────────────────────────────────────────
+//
+// «Во сколько пик» считалось по всем чекам периода — за месяц это
+// мегабайты. Ночной итог несёт 24 числа на точку; отсюда берём дни, у
+// которых они есть, а остальные (сегодня, ещё не пересобранные) называем
+// в missing — исполнитель дочитает их из чеков.
+export async function fetchHoursByDay(dateFrom, dateTo, opts = {}) {
+  const fromP = toPosterDate(dateFrom);
+  const toP = toPosterDate(dateTo);
+  if (!fromP || !toP) return { days: [], missing: [] };
+  const all = enumerateDays(fromP, toP);
+  const need = all.filter((d) => !getCachedDay(d, false)?.hours);
+  if (need.length) await seedDaysFromServer(need[0], need[need.length - 1], opts, { products: false });
+  const days = [], missing = [];
+  for (const d of all) {
+    const c = getCachedDay(d, false);
+    if (c?.hours) days.push({ date: fromPosterDate(d), hours: c.hours });
+    else missing.push(fromPosterDate(d));
+  }
+  return { days, missing };
+}
+
 // ─── Касса по дням для конкретного филиала ─────────────────────────────
 //
 // Касса дня — это cashBySpot («Оплачено» в Poster), товары ей не нужны.
@@ -660,6 +682,7 @@ async function seedDaysFromServer(fromYmd, toYmd, opts = {}, { products = true }
           setCachedDay(day, {
             rowsBySpot: e.rowsBySpot || {}, transactionsCount: e.transactionsCount || 0,
             txBySpot: e.txBySpot || {}, cashBySpot: e.cashBySpot || {}, hasProducts: e.hasProducts !== false,
+            ...(e.hours ? { hours: e.hours } : {}),
           });
           if (e.pay) pay[day] = { ts: Date.now(), total: e.pay.total || {}, bySpot: e.pay.bySpot || {}, lastOrder: e.pay.lastOrder || {}, openRows: [] };
           n++;

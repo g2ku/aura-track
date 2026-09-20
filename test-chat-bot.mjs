@@ -26,8 +26,10 @@ const nb = (s) => String(s).replace(/[  ]/g, " ");
 const shift = (ymd, n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const TODAY = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
 const Y = shift(TODAY, -1);
+const hoursFor = (k) => { const cash = Array(24).fill(0), tx = Array(24).fill(0); cash[9] = 30000 * k; tx[9] = 12 * k; cash[14] = 50000 * k; tx[14] = 20 * k; cash[19] = 20000 * k; tx[19] = 8 * k; return { cash, tx }; };
 const day = (date, k = 1) => ({
   date,
+  hours: { "4": hoursFor(k), "9": hoursFor(k / 2) },
   pay: { total: { 0: 30000 * k, 11: 120000 * k, 12: 20000 * k }, bySpot: { "4": { 0: 20000 * k, 11: 70000 * k, 12: 10000 * k }, "9": { 0: 10000 * k, 11: 30000 * k, 12: 10000 * k }, "11": { 11: 20000 * k } } },
   cashBySpot: { "4": 100000 * k, "9": 50000 * k, "11": 20000 * k },
   txBySpot: { "4": 40 * k, "9": 20 * k, "11": 10 * k },
@@ -87,6 +89,11 @@ section("Ответы");
   ok(f && f.text.startsWith("<b>Касса</b>") && f.text.includes("за август") && f.text.includes("за сентябрь"), "сравнение месяцев — по кассе, а не «точки»");
   ok(/📈|📉|➡️/.test(f.text), "с процентом");
 
+  const hr = await answerQuestion("во сколько пик вчера", deps);
+  ok(hr && hr.text.startsWith("<b>Пик ") && hr.text.includes("🔥 14:00"), `пик по часам из итогов: ${hr?.text?.split("\n")[1]}`);
+  ok(!hr.text.includes("💤 Тихие часы:"), "три часа в данных — тихих нет, повторов тоже");
+  const hrToday = await answerQuestion("во сколько пик сегодня", { ...deps, getToday: async () => ({ ...day(TODAY, 0.5), hours: undefined }) });
+  ok(hrToday && hrToday.text.includes("ещё нет"), "сегодня без часов — честно");
   const pay = await answerQuestion("способы оплаты вчера", deps);
   ok(pay && pay.text.startsWith("<b>Способы оплаты за") && pay.text.includes("• Kaspi — "), "способы оплаты — из pay суточных итогов");
   ok(nb(pay.text).includes("120 000 ₸ (71 %)"), "с долей");

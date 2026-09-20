@@ -95,6 +95,22 @@ globalThis.__poster = {
     for (const m of Object.values(bySpot)) for (const [id, v] of Object.entries(m)) total[id] = (total[id] || 0) + v;
     return { total, bySpot, openChecks: { items: [{ spotId: "4", spotName: "Aura02_Abaya", sum: 3200, minutes: 95, waiter: "Айгерим" }] } };
   },
+  // Ночные итоги по часам: есть за все дни до вчера; сегодня — нет
+  async fetchHoursByDay(from, to) {
+    this.calls.push(["hours", from, to]);
+    const days = [], missing = [];
+    for (const d of eachDay(from, to).filter((x) => x <= TODAY)) {
+      if (d === TODAY) { missing.push(d); continue; }
+      const hours = {};
+      for (const sid of Object.keys(SPOTS)) {
+        const cash = Array(24).fill(0), tx = Array(24).fill(0);
+        for (let h = sid === "9" ? 10 : 8; h < 22; h += 2) { const sum = sid === "4" && h === 14 ? 48000 : 2500 + h * 100; cash[h] += sum; tx[h] += 1; }
+        hours[sid] = { cash, tx };
+      }
+      days.push({ date: d, hours });
+    }
+    return { days, missing };
+  },
   async fetchCups() {
     const day = 86400000;
     return {
@@ -123,6 +139,7 @@ writeFileSync(posterStub, `
   export const fetchPaymentBreakdown = (...a) => P.fetchPaymentBreakdown(...a);
   export const getPaymentMethodName = (...a) => P.getPaymentMethodName(...a);
   export const fetchCups = (...a) => P.fetchCups(...a);
+  export const fetchHoursByDay = (...a) => P.fetchHoursByDay(...a);
   export const fetchPosterSalesMultiple = async () => [];
   export const getMenuIndex = async () => ({});
   export const getSpots = async () => ({});
@@ -165,6 +182,7 @@ const { executeQuery, parseQuestion } = await import(new URL(`./${out}`, import.
 rmSync(dir, { recursive: true, force: true });
 
 const ask = async (q) => { const p = await parseQuestion(q); ok(!!p, `«${q}» разобран`); return p ? (await executeQuery(p, null)).text : ""; };
+const shiftYmdTest = (ymd, n) => { const d = new Date(ymd + "T00:00:00"); d.setDate(d.getDate() + n); return d.toLocaleDateString("sv-SE"); };
 const cashOf = (sid, from, to) => eachDay(from, to).reduce((s, d) => s + Math.round(BASE[sid][0] * dayFactor(d)), 0);
 const fmtT = (n) => n.toLocaleString("ru-RU").replace(/ /g, " ");
 
@@ -246,8 +264,14 @@ section("Динамика по месяцам идёт по названному
 
 section("Разрезы: часы, дни недели, товары");
 {
+  globalThis.__poster.calls.length = 0;
   const h = await ask("во сколько больше всего чеков");
   has(h, "14:00", "час пик виден по чекам");
+  const rc = globalThis.__poster.calls.filter((c) => c[0] === "receipts");
+  ok(rc.length === 1 && rc[0][1] === TODAY && rc[0][2] === TODAY, `чеки — только за сегодня, прошлое из итогов: ${JSON.stringify(rc)}`);
+  const hy = await ask("пик продаж вчера");
+  has(hy, "14:00", "вчера — из ночных итогов");
+  ok(!globalThis.__poster.calls.some((c) => c[0] === "receipts" && c[1] === shiftYmdTest(TODAY, -1)), "и без чеков за вчера");
   const w = await ask("касса по будням за неделю");
   has(w, "Касса по будням", "по будням — так и подписано");
   has(w, "Пн:", "понедельник есть");

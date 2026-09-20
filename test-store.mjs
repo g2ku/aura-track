@@ -191,7 +191,7 @@ section("Суточные итоги и индекс меню");
   await store.saveSalesDay({ date: "2026-09-18", cashBySpot: { 4: 1 } });
   await store.saveSalesDay({ date: "2026-09-19", cashBySpot: { 4: 2 } });
   eq((await store.getSalesDays("2026-09-18", "2026-09-19")).map((d) => d.cashBySpot[4]), [1, 2], "дни по порядку");
-  eq(await store.listSalesDayDates("2026-09-01", "2026-09-30"), ["2026-09-18", "2026-09-19"], "только даты");
+  eq(await store.listSalesDayDates("2026-09-01", "2026-09-30"), [{ date: "2026-09-18", v: 1 }, { date: "2026-09-19", v: 1 }], "только даты и версия (без версии — 1)");
   ok(await store.saveMenuIndex({ 1: "Латте" }) === true, "индекс сохранён");
   eq((await store.getMenuIndex())?.idx, { 1: "Латте" }, "и читается");
   ok(await quiet(() => store.saveMenuIndex({})) === false, "пустой не пишем");
