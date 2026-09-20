@@ -156,30 +156,58 @@ export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
 }
 
 // ─── Касса по дням для конкретного филиала ─────────────────────────────
+//
+// Касса дня — это cashBySpot («Оплачено» в Poster), товары ей не нужны.
+// Раньше каждый день без кэша шёл в Poster с меню (4,6 МБ) и считался
+// по суммам товаров — и график за 30 дней на странице филиала стоил
+// тридцати таких походов. Теперь недостающие дни сначала берутся из
+// ночных итогов, в Poster идут без меню, а день, который не дошёл,
+// пропускается и называется в failedDays — остальные на месте.
 export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
   if (!fromP || !toP) return [];
   const days = enumerateDays(fromP, toP);
-  const [spots] = await Promise.all([getSpots(opts)]);
+  const spots = await getSpots(opts);
 
+  const missing = days.filter((d) => !getCachedDay(d, false));
+  if (missing.length) {
+    await seedDaysFromServer(missing[0], missing[missing.length - 1], opts, { products: false });
+  }
+
+  const failedDays = [];
+  let error = null;
   const dayResults = await mapWithProgress(
     days,
     DAY_CONCURRENCY,
     async (yyyymmdd) => {
-      const r = await fetchOneDay(yyyymmdd, opts);
-      return { yyyymmdd, ...r };
+      try {
+        const r = await fetchOneDay(yyyymmdd, { ...opts, withProducts: false });
+        return { yyyymmdd, ...r };
+      } catch (e) {
+        if (e?.name === "AbortError") throw e;
+        failedDays.push(fromPosterDate(yyyymmdd));
+        error = error || e?.message || "Poster не ответил";
+        return null;
+      }
     },
     ({ done, total }) => opts.onProgress?.({ done, total }),
   );
+  if (failedDays.length >= days.length) throw new Error(error || "Poster не ответил");
 
   const perDay = [];
   for (const r of dayResults) {
-    for (const [spotId, productMap] of Object.entries(r.rowsBySpot || {})) {
-      let total = 0;
-      for (const v of Object.values(productMap)) {
-        total += v.sum || 0;
+    if (!r) continue;
+    const totals = {};
+    if (Object.keys(r.cashBySpot || {}).length) {
+      for (const [spotId, v] of Object.entries(r.cashBySpot)) totals[spotId] = v || 0;
+    } else {
+      // Старая запись кэша без cashBySpot — считаем по товарам, как раньше
+      for (const [spotId, productMap] of Object.entries(r.rowsBySpot || {})) {
+        totals[spotId] = Object.values(productMap).reduce((n, v) => n + (v.sum || 0), 0);
       }
+    }
+    for (const [spotId, total] of Object.entries(totals)) {
       if (total > 0) {
         perDay.push({
           date: r.yyyymmdd,
@@ -191,6 +219,7 @@ export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
       }
     }
   }
+  if (failedDays.length) Object.assign(perDay, { failedDays: failedDays.sort(), error });
   return perDay;
 }
 
@@ -639,6 +668,11 @@ async function seedDaysFromServer(fromYmd, toYmd, opts = {}, { products = true }
         return seeded;
       } catch (_) {
         return new Set(); // локально ручки нет, ответ — HTML; на проде — сбой сети: и то и другое не наша забота здесь
+      } finally {
+        // Склеиваем только одновременные запросы. Помнить ответ дольше
+        // нельзя: вкладка живёт днями, а ночью итоги за вчера появляются —
+        // и запрос с тем же ключом должен их увидеть, а не идти в Poster
+        seedPromises.delete(key);
       }
     })());
   }

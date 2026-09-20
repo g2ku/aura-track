@@ -336,3 +336,21 @@ export function dateInputToTsStart(s) {
   if (!m) return 0;
   return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
 }
+// Список дат «2026-09-20» → «22.08 — 05.09, 20.09»: подряд идущие дни
+// схлопываются в отрезок, разрывы остаются видны. Для пометок вида
+// «Poster не ответил за …» — «16 дн. (22.08 — 20.09)» врал бы, когда
+// середина отрезка на месте.
+export function describeDayList(ymds, { max = 4 } = {}) {
+  const days = [...new Set((ymds || []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d))))].sort();
+  if (!days.length) return "";
+  const short = (d) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
+  const next = (d) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+  const runs = [];
+  for (const d of days) {
+    const last = runs[runs.length - 1];
+    if (last && next(last.to) === d) last.to = d;
+    else runs.push({ from: d, to: d });
+  }
+  const parts = runs.map((r) => (r.from === r.to ? short(r.from) : `${short(r.from)} — ${short(r.to)}`));
+  return parts.length > max ? `${parts.slice(0, max).join(", ")} и ещё ${parts.length - max}` : parts.join(", ");
+}

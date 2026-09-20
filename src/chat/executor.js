@@ -10,18 +10,17 @@ let missingDays = new Set();
 const noteMissing = (r) => { for (const d of r?.failedDays || []) missingDays.add(d); return r; };
 const fetchCashBySpot = (from, to, opts) => fetchCashBySpotRaw(from, to, opts).then(noteMissing);
 const fetchPosterSales = (from, to, opts) => fetchPosterSalesRaw(from, to, opts).then(noteMissing);
-const shortDay = (ymd) => `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}`;
 function missingNote() {
   const days = [...missingDays].sort();
   if (!days.length) return "";
   return days.length === 1
-    ? `\n⚠️ Poster не ответил за ${shortDay(days[0])} — цифры без этого дня.`
-    : `\n⚠️ Poster не ответил за ${days.length} дн. (${shortDay(days[0])} — ${shortDay(days[days.length - 1])}) — цифры без них.`;
+    ? `\n⚠️ Poster не ответил за ${describeDayList(days)} — цифры без этого дня.`
+    : `\n⚠️ Poster не ответил за ${days.length} дн. (${describeDayList(days)}) — цифры без них.`;
 }
 import { resolveSpecialCategory, productNamesIn, seasonTitle, findCategory } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
-import { fmt } from "../utils.js";
+import { fmt, describeDayList } from "../utils.js";
 import { BRANCHES, spotNameByPosterId } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";

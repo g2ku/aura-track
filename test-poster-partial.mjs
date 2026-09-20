@@ -28,7 +28,7 @@ globalThis.window = globalThis.window || { location: { origin: "http://x", hash:
 globalThis.document = globalThis.document || { hidden: false, addEventListener() {}, removeEventListener() {} };
 const log = console.log; console.log = () => {}; console.warn = () => {};
 
-const { fetchPosterSales, fetchCashBySpot } = await import("./src/poster.js");
+const { fetchPosterSales, fetchCashBySpot, fetchCashPerDay } = await import("./src/poster.js");
 console.log = log;
 
 const now = new Date();
@@ -67,6 +67,34 @@ section("Часть дней из кэша, Poster упал — отдаём с�
   eq(c[0].total, 600000, "касса по точкам — те же шесть дней");
   eq(c[0].daysCount, 6, "среднее в день — на шесть дней, а не на семь");
   eq(c.failedDays, [dash(today)], "пометка едет вместе с массивом");
+}
+
+section("Касса по дням: из кэша без меню, пропавший день назван");
+
+{
+  calls.length = 0;
+  const perDay = await fetchCashPerDay(dash(back(6)), dash(today));
+  eq(perDay.length, 6, "шесть дней с кассой");
+  eq(perDay[0].total, 100000, "касса дня — из cashBySpot");
+  eq(perDay.failedDays, [dash(today)], "сегодняшний день не дошёл — назван");
+  ok(!calls.some((u) => u.includes("menu.getProducts")), "меню не запрашивалось");
+  ok(calls.some((u) => u.includes("/api/sales-days")), "недостающие дни сначала спросили у своего сервера");
+  const posterCalls = calls.filter((u) => u.includes("transactions.getTransactions"));
+  eq(posterCalls.length, 1, "в Poster — только за один день, которого нет в кэше");
+  let err = null;
+  try { await fetchCashPerDay(dash(today), dash(today)); } catch (e) { err = e; }
+  ok(err, "не дошёл единственный день — ошибка");
+}
+
+section("Список дней — отрезками");
+
+{
+  const { describeDayList } = await import("./src/utils.js");
+  eq(describeDayList(["2026-09-20"]), "20.09", "один день");
+  eq(describeDayList(["2026-08-22", "2026-08-23", "2026-08-24", "2026-09-20"]), "22.08 — 24.08, 20.09", "подряд — отрезок, разрыв виден");
+  eq(describeDayList(["2026-09-20", "2026-08-22", "2026-08-23"]), "22.08 — 23.08, 20.09", "порядок не важен");
+  eq(describeDayList(["2026-01-01", "2026-01-03", "2026-01-05", "2026-01-07", "2026-01-09"]), "01.01, 03.01, 05.01, 07.01 и ещё 1", "длинный список обрезан");
+  eq(describeDayList([]), "", "пусто");
 }
 
 section("Не собрано ничего — ошибка, как и раньше");

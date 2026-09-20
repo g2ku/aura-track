@@ -8,7 +8,7 @@ import ProblemFeed from "./ProblemFeed";
 import CupsCard from "./CupsCard.jsx";
 import PinnedTiles from "./PinnedTiles.jsx";
 import { BRANCHES as BRANCH_MAP } from "../branches";
-import { fmt } from "../utils";
+import { fmt, describeDayList } from "../utils";
 import { useToast } from "../ui";
 import { fetchCashBySpot, fetchSupplyStatus, fetchPaymentBreakdown, getPaymentMethodName, getCachedDayTotals, fetchHourlyCurve, clearPosterCache, OPEN_CHECK_STUCK_MIN, QUIET_SPOT_MIN, groupOpenChecks, isEmptyCheck } from "../poster";
 import { useHashRoute } from "../router";
@@ -82,9 +82,6 @@ const CHIPS = [
   { id: "chat", path: "/chat", icon: "ti-message-chatbot", label: "Ассистент", bank: null },
   { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L", bank: null },
 ];
-
-// «2026-09-20» → «20.09»
-const fmtDayShort = (ymd) => (/^\d{4}-\d{2}-\d{2}$/.test(String(ymd)) ? `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}` : String(ymd));
 
 export default function CashLedger({
   docs, agg, canEdit, userBranch,
@@ -451,8 +448,8 @@ export default function CashLedger({
         <div className="alert" style={{ marginTop: 14 }}>
           <i className="ti ti-alert-triangle" aria-hidden="true" />{" "}
           {partial.days.length === 1
-            ? `Poster не ответил за ${fmtDayShort(partial.days[0])} — цифры без этого дня.`
-            : `Poster не ответил за ${partial.days.length} дн. (${fmtDayShort(partial.days[0])} — ${fmtDayShort(partial.days[partial.days.length - 1])}) — цифры без них.`}
+            ? `Poster не ответил за ${describeDayList(partial.days)} — цифры без этого дня.`
+            : `Poster не ответил за ${partial.days.length} дн. (${describeDayList(partial.days)}) — цифры без них.`}
           {" "}
           <button className="btn btn-sm btn-out" onClick={refresh} style={{ marginLeft: 6 }}>Ещё раз</button>
         </div>
