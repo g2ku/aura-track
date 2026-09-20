@@ -1325,8 +1325,9 @@ export async function handleMessage(msg, ctx) {
     return handleCommand(command, { ...ctx, msg, config });
   }
 
-  // Накладные — только из подключённых чатов.
-  if (!isAllowedChat(config, msg)) return null;
+  // Накладные — только из подключённых чатов. Вопрос с кнопки — из любого:
+  // кнопку туда положил сам бот под своим ответом
+  if (!msg.fromButton && !isAllowedChat(config, msg)) return null;
 
   if (config.paused) return null;
 

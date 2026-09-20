@@ -130,6 +130,15 @@ section("Нажатие кнопки — тот же вопрос");
   T.calls.length = 0;
   await post({ callback_query: { id: "cq2", data: "q:касса вчера", from: { id: 777 }, message: { message_id: 12, chat: { id: -100, type: "supergroup" } } } });
   ok(sent()[0]?.text.startsWith("<b>Касса за"), "в группе с кнопки — отвечаем");
+  // Группа не подключена для накладных — кнопке это не помеха
+  T.config.allowedChats = ["-555"];
+  T.calls.length = 0;
+  await post({ callback_query: { id: "cq2b", data: "q:касса вчера", from: { id: 777 }, message: { message_id: 15, chat: { id: -100, type: "supergroup" } } } });
+  ok(sent()[0]?.text.startsWith("<b>Касса за"), "в неподключённой группе с кнопки — отвечаем");
+  T.calls.length = 0;
+  await post(msg("касса вчера", { id: -100, type: "supergroup" }));
+  eq(sent().length, 0, "а написанный там вопрос — по-прежнему молчим (там накладные)");
+  T.config.allowedChats = [];
   // Чужой нажал — молчим
   T.calls.length = 0;
   await post({ callback_query: { id: "cq3", data: "q:касса вчера", from: { id: 5 }, message: { message_id: 13, chat: { id: 777, type: "private" } } } });
