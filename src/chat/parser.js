@@ -1130,11 +1130,14 @@ export async function mergeFollowUp(prev, text) {
     changed.push("byBranch");
   }
   if (opWord) { next.operation = parseOperation(lower); changed.push("operation"); }
+  // «А после 18?», «а до обеда?» — новое окно по часам к тому же вопросу
+  const hours = parseHours(lower);
+  if (hours) { next.hours = hours; changed.push("hours"); }
 
   // Одно-два незнакомых слова — «а круассаны?», «а сырники вчера?» —
   // это товар. Незнакомое — то, что не служебное слово, не ключ словаря,
   // не период и не филиал.
-  if (!product && !category && !metric && !byBranch && !opWord) {
+  if (!product && !category && !metric && !byBranch && !opWord && !hours) {
     const rest = unknownWords(lower);
     if (rest.length && rest.length <= 2) {
       next.product = rest.join(" "); next.category = null; next.metric = "products";

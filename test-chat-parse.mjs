@@ -812,6 +812,12 @@ section("Ещё вопросы владельца: выходные, полов�
   eq((await ask("сколько стаканов на складе")).metric, "cups", "склад стаканов — учёт, не Poster");
   eq((await ask("сколько стаканов ушло на абая")).metric, "stock", "а расход стаканов — по Poster, как и было");
   eq((await ask("куда ехать со стаканами")).metric, "cups", "куда ехать — маршрут");
+  // Продолжение с окном по часам
+  const base = await ask("касса вчера");
+  const fu = await mergeFollowUp(base, "а после 18?");
+  eq([fu?.hours?.from, fu?.period?.from, fu?.changed], [18, "2026-09-19", ["hours"]], "«а после 18?» — то же вчера, новое окно");
+  const fu2 = await mergeFollowUp(await ask("касса до обеда"), "а вчера?");
+  eq([fu2?.hours?.to, fu2?.period?.from], [13, "2026-09-19"], "«а вчера?» — окно остаётся");
   // Бариста
   eq((await ask("кто из бариста продал больше всех за неделю")).metric, "staff", "по бариста");
   eq((await ask("кто из бариста продал больше всех за неделю")).operation, "max", "«больше всех» — максимум");
