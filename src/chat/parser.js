@@ -790,6 +790,31 @@ function parseMetric(text, product) {
   return "cash";
 }
 
+// ─── Окно по часам ────────────────────────────────────────────────
+//
+// «Касса до обеда», «чеки после 18», «выручка с 8 до 11», «утром»,
+// «вечером» — не период, а часы внутри дня. Возвращает { from, to } в
+// часах (to — не включительно) или null. Не путать с «во сколько»
+// (разрез по часам) и с датами «с 1 по 10».
+export function parseHours(text) {
+  const t = String(text).toLowerCase();
+  const h = (v) => Math.min(24, Math.max(0, Number(v)));
+  let m;
+  if ((m = t.match(/(?:^|\s)с\s+(\d{1,2})(?::\d{2})?\s+(?:до|по)\s+(\d{1,2})(?::\d{2})?(?:\s*(?:час|ч\b|:00))?(?![\d.])/)) && Number(m[1]) < 24 && Number(m[2]) <= 24 && !/числ|сентябр|августа|июл|июн|мая|апрел|март|феврал|январ|октябр|ноябр|декабр/.test(t)) {
+    return { from: h(m[1]), to: h(m[2]), label: `с ${m[1]} до ${m[2]}` };
+  }
+  if ((m = t.match(/(?:^|\s)до\s+(\d{1,2})(?::\d{2})?(?:\s*(?:час|ч\b|:00|утра|дня))?(?![\d.\-\/])/)) && Number(m[1]) <= 24 && !/(?:с|со)\s+\d{1,2}\s+(?:по|до)/.test(t) && !/числ/.test(t)) {
+    return { from: 0, to: h(m[1]), label: `до ${m[1]}:00` };
+  }
+  if ((m = t.match(/после\s+(\d{1,2})(?::\d{2})?/)) && Number(m[1]) < 24) return { from: h(m[1]), to: 24, label: `после ${m[1]}:00` };
+  if (/до\s+обеда/.test(t)) return { from: 0, to: 13, label: "до обеда" };
+  if (/после\s+обеда/.test(t)) return { from: 13, to: 24, label: "после обеда" };
+  if (/(?:^|\s)утром|с\s+утра/.test(t)) return { from: 0, to: 12, label: "утром" };
+  if (/(?:^|\s)днём|(?:^|\s)днем/.test(t)) return { from: 12, to: 18, label: "днём" };
+  if (/(?:^|\s)вечером|под\s+вечер/.test(t)) return { from: 18, to: 24, label: "вечером" };
+  return null;
+}
+
 // ─── Парсинг операции ─────────────────────────────────────────────
 
 function parseOperation(text) {
@@ -990,6 +1015,9 @@ export async function parseQuestion(text) {
     }
   }
 
+  // Окно по часам: «до обеда», «после 18:00», «с 8 до 11», «утром»
+  const hours = parseHours(lower);
+
   // Check if this is a meaningful query (has metric keyword, product, spot, or period keyword)
   // Слово метрики — точное или узнанное по основе/с опечаткой
   const hasMetricKeyword = !!exactMetric(lower) || !!fuzzyMetric(lower);
@@ -1017,6 +1045,7 @@ export async function parseQuestion(text) {
     spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
     period,
     ...(period2 ? { period2 } : {}),
+    ...(hours ? { hours } : {}),
     product,
     category,
     ipGroup,

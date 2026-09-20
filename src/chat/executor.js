@@ -234,6 +234,11 @@ async function executeInner(parsed, userBranch) {
     if (metric === "openChecks") return await handleOpenChecks(effectiveSpot);
     if (metric === "alerts") return await handleAlerts();
     if (metric === "cups") return await handleCups(effectiveSpot);
+    // Часы внутри дня: «касса до обеда», «чеки после 18» — по чекам
+    if (parsed.hours && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
+      const p = parsed.assumed?.period ? { from: fmtDateJS(new Date()), to: fmtDateJS(new Date()) } : period;
+      return await handleHours(metric, effectiveSpot, p, parsed.hours, ipGroup);
+    }
 
     // Operations that work across metrics
     if (operation === "trend") return await handleTrend(metric, effectiveSpot, period, ipGroup);
@@ -828,6 +833,57 @@ async function handleTax(operation, spot, period, ipGroup) {
     text: `Налог 3% ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\nНалог: ${fmt(tax)}`,
     data: { totalCash, tax },
   };
+}
+
+// ─── Часы внутри дня ─────────────────────────────────────────────
+//
+// «Касса до обеда», «чеки после 18:00», «выручка с 8 до 11» — сумма
+// чеков, закрытых в это окно. Не дальше месяца: чеков за год слишком
+// много, а вопрос обычно про сегодня или вчера.
+async function handleHours(metric, spot, period, hours, ipGroup) {
+  const todayIso = fmtDateJS(new Date());
+  const to = period.to > todayIso ? todayIso : period.to;
+  let from = period.from;
+  let note = "";
+  if (daysInPeriod(from, to) > 31) {
+    const d = new Date(to + "T00:00:00");
+    d.setDate(d.getDate() - 30);
+    from = fmtDateJS(d);
+    note = "\n\nСмотрел последний месяц периода — дальше чеков слишком много.";
+  }
+  const r = await fetchReceipts(from, to, { includeOpen: false });
+  let items = (r?.receipts || []).filter((x) => x.status !== "open");
+  items = items.filter((x) => matchesSpot({ spotId: x.spotId, spotName: x.spotName }, spot));
+  if (ipGroup) {
+    const keep = await filterByIPGroup(items.map((x) => ({ spotId: x.spotId, spotName: x.spotName })), ipGroup);
+    const ids = new Set(keep.map((x) => String(x.spotId)));
+    items = items.filter((x) => ids.has(String(x.spotId)));
+  }
+  const hourOf = (x) => { const m = String(x.dateClose || x.dateOpen || "").match(/\s(\d{2}):/); return m ? Number(m[1]) : null; };
+  const inWindow = items.filter((x) => { const h = hourOf(x); return h != null && h >= hours.from && h < hours.to; });
+  const sum = (arr) => arr.reduce((s, x) => s + (Number(x.sum) || 0), 0);
+  const total = sum(inWindow), all = sum(items);
+  const pl = formatPeriodLabel({ from, to });
+  const sl = label(spot);
+  if (!items.length) return { text: `Чеков ${sl} за ${pl} нет.`, data: null };
+  const share = all ? Math.round((total / all) * 100) : 0;
+  const head = metric === "checks"
+    ? `Чеки ${hours.label} ${sl} за ${pl}: ${inWindow.length.toLocaleString("ru-RU")} из ${items.length.toLocaleString("ru-RU")} (${share} % кассы)`
+    : `Касса ${hours.label} ${sl} за ${pl}: ${fmt(total)} — ${share} % от ${fmt(all)} (${inWindow.length} чеков)`;
+  const lines = [head];
+  if (isAll(spot)) {
+    const bySpot = {};
+    for (const x of items) {
+      const b = (bySpot[x.spotId] ||= { spotId: x.spotId, spotName: x.spotName, win: 0, winN: 0, all: 0 });
+      const v = Number(x.sum) || 0;
+      b.all += v;
+      const h = hourOf(x);
+      if (h != null && h >= hours.from && h < hours.to) { b.win += v; b.winN++; }
+    }
+    const rows = Object.values(bySpot).sort((a, b) => b.win - a.win);
+    if (rows.length > 1) lines.push("", ...rows.map((b) => `• ${sn(b)}: ${metric === "checks" ? `${b.winN} чеков` : fmt(b.win)} (${b.all ? Math.round((b.win / b.all) * 100) : 0} %)`));
+  }
+  return { text: lines.join("\n") + note, data: { total, all, count: inWindow.length, hours } };
 }
 
 // ─── Стаканы ─────────────────────────────────────────────────────
