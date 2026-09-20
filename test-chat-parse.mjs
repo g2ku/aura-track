@@ -897,6 +897,16 @@ section("Таблица из ответа — для CSV");
   ok(readFileSync("src/components/DataChat.jsx", "utf8").includes("tableOf(msg.data)"), "кнопка CSV показывается, когда есть таблица");
 }
 
+section("Строка «спросить» на главной");
+
+{
+  const pt = readFileSync("src/components/PinnedTiles.jsx", "utf8");
+  ok(/export function AskBox/.test(pt) && pt.includes("<AskBox />"), "поле вопроса на главной, вместе с плитками");
+  ok(/sessionStorage\.setItem\(ASK_KEY, question\)/.test(pt) && /navigate\("\/chat"\)/.test(pt), "вопрос уходит в ассистента через тот же ключ, что и плитки");
+  ok(/e\.key === "Enter"/.test(pt), "Enter отправляет");
+  ok(!/if \(!pins\.length\) return null;/.test(pt), "без закреплённых плиток строка всё равно на месте");
+}
+
 section("Исполнитель и клиент собраны правильно");
 
 {

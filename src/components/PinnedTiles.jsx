@@ -75,6 +75,32 @@ function Tile({ pin, onRemove, tick }) {
   );
 }
 
+// Строка «спросить» на главной: вопрос уходит в ассистента, где под
+// ответом — продолжения и «закрепить». Три подсказки — те, что владелец
+// задаёт чаще всего, одним касанием
+const QUICK = ["Касса вчера", "Кто просел за неделю", "Что не так сейчас"];
+export function AskBox() {
+  const [q, setQ] = useState("");
+  const go = (text) => { const t = String(text || q).trim(); if (t) askInChat(t); };
+  return (
+    <form className="ask-box" onSubmit={(e) => { e.preventDefault(); go(); }}>
+      <div className="ask-row">
+        <i className="ti ti-message-chatbot" aria-hidden="true" />
+        <input
+          type="text" value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); go(); } }}
+          placeholder="Спросить: касса вчера, кто просел, доля Kaspi…"
+          aria-label="Вопрос ассистенту"
+        />
+        <button type="submit" className="btn btn-sm" disabled={!q.trim()} aria-label="Спросить"><i className="ti ti-send" /></button>
+      </div>
+      <div className="ask-quick">
+        {QUICK.map((x) => <button type="button" key={x} className="chat-suggestion-btn" onClick={() => go(x)}>{x}</button>)}
+      </div>
+    </form>
+  );
+}
+
 export default function PinnedTiles() {
   const [pins, setPins] = useState(() => listPins());
   const [tick, setTick] = useState(0);
@@ -94,18 +120,24 @@ export default function PinnedTiles() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  if (!pins.length) return null;
-
   return (
     <div className="pins" style={{ marginTop: 16 }}>
       <div className="section-label">
-        <i className="ti ti-pin" /> Мои вопросы
+        <i className="ti ti-message-chatbot" /> Ассистент
       </div>
-      <div className="pins-grid">
-        {pins.map((p) => (
-          <Tile key={p.id} pin={p} tick={tick} onRemove={(id) => setPins(removePin(id))} />
-        ))}
-      </div>
+      <AskBox />
+      {pins.length > 0 && (
+        <>
+          <div className="section-label" style={{ marginTop: 12 }}>
+            <i className="ti ti-pin" /> Мои вопросы
+          </div>
+          <div className="pins-grid">
+            {pins.map((p) => (
+              <Tile key={p.id} pin={p} tick={tick} onRemove={(id) => setPins(removePin(id))} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

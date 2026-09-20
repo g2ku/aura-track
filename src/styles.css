@@ -6016,6 +6016,14 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
 }
+/* Строка «спросить» на главной */
+.ask-box { display: flex; flex-direction: column; gap: 8px; }
+.ask-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border: 1px dashed var(--border-strong, var(--border)); border-radius: var(--radius, 12px); background: var(--surface-1, transparent); }
+.ask-row > i { color: var(--text-accent); font-size: 18px; flex: 0 0 auto; }
+.ask-row input { flex: 1 1 auto; min-width: 0; background: transparent; border: 0; color: var(--text-primary, var(--text)); font-size: 14px; padding: 8px 0; outline: none; }
+.ask-row input::placeholder { color: var(--text-muted); }
+.ask-row .btn { flex: 0 0 auto; }
+.ask-quick { display: flex; flex-wrap: wrap; gap: 6px; }
 .pin-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
 .pin-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .pin-title {
