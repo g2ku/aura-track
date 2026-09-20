@@ -319,8 +319,9 @@ function parsePeriodExplicit(text) {
     }
   }
 
-  // "с 1 по 15 июля" / "с 1.07 по 15.07" / "с 1 по 15 июля 2026"
-  const rangeMatch = text.match(/с\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?\s+по\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?/);
+  // "с 1 по 15 июля" / "с 1.07 по 15.07" / "с 1 по 15 июля 2026"; «до» —
+  // тот же разделитель: «с 5 до 12 сентября»
+  const rangeMatch = text.match(/с\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?\s+(?:по|до)\s+(\d{1,2})\s*(?:[\.\-/](\d{1,2}))?\s*(?:[\.\-/](\d{4}))?/);
   if (rangeMatch) {
     const [, d1, m1, y1, d2, m2, y2] = rangeMatch;
     // «С 1 по 10 число» — месяц не назван, значит текущий. Раньше без
@@ -338,7 +339,7 @@ function parsePeriodExplicit(text) {
   }
 
   // "с 1 июня по 10 июня" — месяц прописан словами внутри диапазона
-  const rangeMonths = text.match(/с\s+(\d{1,2})\s*([а-яё]+)\s*по\s+(\d{1,2})\s*([а-яё]+)/);
+  const rangeMonths = text.match(/с\s+(\d{1,2})\s*([а-яё]+)\s*(?:по|до)\s+(\d{1,2})\s*([а-яё]+)/);
   if (rangeMonths) {
     const [, d1, m1w, d2, m2w] = rangeMonths;
     const month1 = findMonth(m1w) || findMonth(m2w);
@@ -360,18 +361,25 @@ function parsePeriodExplicit(text) {
     return { from: fmtDate(d), to: fmtDate(d) };
   }
 
-  // "28 июля" / "15 июня" — day + month pattern
-  const dayMonthMatch = text.match(/(\d{1,2})\s+(январ|феврал|март|апрел|ма[яйе]|июн[а-яе]*|июл[а-яе]*|август[а-яе]*|сентябр[а-яе]*|октябр[а-яе]*|ноябр[а-яе]*|декабр[а-яе]*)/);
+  // "28 июля" / "15 июня" — day + month pattern. «До 12 сентября» — с
+  // начала месяца по это число; «после 5 сентября» — с него по сегодня
+  const dayMonthMatch = text.match(/(?:(до|после|с)\s+)?(\d{1,2})\s+(январ|феврал|март|апрел|ма[яйе]|июн[а-яе]*|июл[а-яе]*|август[а-яе]*|сентябр[а-яе]*|октябр[а-яе]*|ноябр[а-яе]*|декабр[а-яе]*)/);
   if (dayMonthMatch) {
-    const day = parseInt(dayMonthMatch[1]);
-    const monthNum = findMonth(dayMonthMatch[2]);
+    const prep = dayMonthMatch[1];
+    const day = parseInt(dayMonthMatch[2]);
+    const monthNum = findMonth(dayMonthMatch[3]);
     const yearMatch = text.match(/(\d{4})/);
     const year = yearMatch ? parseInt(yearMatch[1]) : currentYear;
     if (monthNum) {
-      return {
-        from: `${year}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-        to: `${year}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-      };
+      const mm = String(monthNum).padStart(2, "0");
+      const ymd = `${year}-${mm}-${String(day).padStart(2, "0")}`;
+      if (prep === "до") return { from: `${year}-${mm}-01`, to: ymd };
+      if (prep === "после" || prep === "с") {
+        const todayIso = fmtDate(now);
+        const start = prep === "после" ? fmtDate(new Date(year, monthNum - 1, day + 1)) : ymd;
+        return { from: start, to: todayIso >= start ? todayIso : start };
+      }
+      return { from: ymd, to: ymd };
     }
   }
 
@@ -802,9 +810,14 @@ function parseMetric(text, product) {
 // «вечером» — не период, а часы внутри дня. Возвращает { from, to } в
 // часах (to — не включительно) или null. Не путать с «во сколько»
 // (разрез по часам) и с датами «с 1 по 10».
+const MONTH_AFTER = "(?:\\s+(?:январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр|числ|дн[яе]|недел|месяц))";
 export function parseHours(text) {
   const t = String(text).toLowerCase();
   const h = (v) => Math.min(24, Math.max(0, Number(v)));
+  // «До 12 сентября», «после 5 сентября», «с 1 сентября до 10 сентября» —
+  // это даты: число, за которым идёт месяц, часом не считается
+  const dateLike = new RegExp(`(?:до|после|с|по)\\s+\\d{1,2}${MONTH_AFTER}`);
+  if (dateLike.test(t)) return null;
   let m;
   if ((m = t.match(/(?:^|\s)с\s+(\d{1,2})(?::\d{2})?\s+(?:до|по)\s+(\d{1,2})(?::\d{2})?(?:\s*(?:час|ч\b|:00))?(?![\d.])/)) && Number(m[1]) < 24 && Number(m[2]) <= 24 && !/числ|сентябр|августа|июл|июн|мая|апрел|март|феврал|январ|октябр|ноябр|декабр/.test(t)) {
     return { from: h(m[1]), to: h(m[2]), label: `с ${m[1]} до ${m[2]}` };
