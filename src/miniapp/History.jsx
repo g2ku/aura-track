@@ -14,7 +14,7 @@ import Feed from "./Feed.jsx";
 const monthTitle = monthRu;
 const dayTitle = dayRu;
 
-export default function History({ api, today, keepDays, skus, canReconcile = true }) {
+export default function History({ api, today, keepDays, skus, canReconcile = true, initialCustom = false }) {
   const [pick, setPick] = useState({ kind: "month" });
   // Сверка ходит в Poster и потому по кнопке: открытие вкладки не должно
   // ждать чужой сервис.
@@ -23,6 +23,9 @@ export default function History({ api, today, keepDays, skus, canReconcile = tru
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // «Другой период» раскрывается по касанию: два поля выбора занимали
+  // пол-экрана на каждом открытии, хотя обычно смотрят готовые отрезки
+  const [custom, setCustom] = useState(initialCustom);
 
   const range = pick.kind === "day"
     ? { from: pick.day, to: pick.day }
@@ -60,9 +63,14 @@ export default function History({ api, today, keepDays, skus, canReconcile = tru
             onClick={() => setPick({ kind: p.id })}
           >{p.title}</button>
         ))}
+        <button
+          className={`chip${custom || pick.kind === "day" || pick.kind === "pickedMonth" ? " on" : ""}`}
+          onClick={() => setCustom((v) => !v)}
+          aria-expanded={custom}
+        >{pick.kind === "day" ? dayTitle(pick.day) : pick.kind === "pickedMonth" ? monthTitle(pick.month) : "Другой…"}</button>
       </div>
 
-      <div className="card">
+      {custom && <div className="card">
         <div className="row">
           <span className="grow muted">Другой месяц</span>
           <select
@@ -88,7 +96,7 @@ export default function History({ api, today, keepDays, skus, canReconcile = tru
             onChange={(e) => e.target.value && setPick({ kind: "day", day: e.target.value })}
           />
         </div>
-      </div>
+      </div>}
 
       {error && <div className="msg err">{error}</div>}
       {busy && !data && <div className="muted" style={{ textAlign: "center", padding: 20 }}>Считаю…</div>}

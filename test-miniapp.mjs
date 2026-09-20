@@ -222,9 +222,11 @@ section("История");
   const api = async () => answer;
 
   // Первый кадр — до ответа сервера
-  const first = render(h(History, { api, today: "2026-09-10", keepDays: 365, skus: SKUS }));
-  ok(first.includes("Сегодня") && first.includes("Этот месяц"), "кнопки периодов на месте");
-  ok(first.includes("Другой месяц"), "выбор месяца есть");
+  const first0 = render(h(History, { api, today: "2026-09-10", keepDays: 365, skus: SKUS }));
+  ok(first0.includes("Сегодня") && first0.includes("Этот месяц"), "кнопки периодов на месте");
+  ok(first0.includes("Другой…") && !first0.includes("Другой месяц"), "выбор месяца и дня свёрнут за кнопкой «Другой…»");
+  const first = render(h(History, { api, today: "2026-09-10", keepDays: 365, skus: SKUS, initialCustom: true }));
+  ok(first.includes("Другой месяц"), "раскрыли — выбор месяца есть");
   ok(first.includes('type="date"'), "и выбор дня — родным полем даты");
   ok(first.includes('max="2026-09-10"'), "будущие дни выбрать нельзя");
   ok(first.includes("сентябрь 2026") && first.includes("октябрь 2025"), "в списке месяцев год назад");
