@@ -2,6 +2,9 @@
 //
 // Установка вебхука (один раз, подставь свои значения):
 //   curl "https://api.telegram.org/bot<ТОКЕН>/setWebhook?url=https://<домен>/api/tg/webhook&secret_token=<СЕКРЕТ>"
+// Без allowed_updates — тогда приходят и нажатия кнопок (callback_query).
+// Если кнопки под ответами ассистента не реагируют, вебхук был поставлен
+// с allowed_updates=["message"]: переставить его той же командой.
 //
 // Переменные окружения на Vercel:
 //   TELEGRAM_BOT_TOKEN        — токен от @BotFather
