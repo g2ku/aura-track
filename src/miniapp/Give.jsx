@@ -24,13 +24,17 @@ const newOpId = () =>
 
 const empty = (skus) => Object.fromEntries(skus.map((s) => [s.id, ""]));
 
+const dayWord = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? "день" : a >= 2 && a <= 4 && (b < 12 || b > 14) ? "дня" : "дней"; };
+
 // Причины пропуска — готовые, а не текстом: три касания на весь выбор,
 // и «не успел» на одной точке из раза в раз — это уже про маршрут, а не
 // про снабженца.
 export const SKIP_REASONS = ["закрыто", "не успел", "не пустили"];
 
-export default function Give({ tg, state, skus, branches, today, forecast, lastTrip, soonDays = 4, onSend, onUndo }) {
-  const [branch, setBranch] = useState("");
+export default function Give({ tg, state, skus, branches, today, forecast, lastTrip, soonDays = 4, onSend, onUndo, initialBranch = "" }) {
+  // initialBranch — точка, с которой открыли экран (ссылка из плана
+  // маршрута или тест): шаг 1 уже сделан
+  const [branch, setBranch] = useState(() => (branches?.includes(initialBranch) ? initialBranch : ""));
   const [qty, setQty] = useState(() => empty(skus));
   // Сколько было на точке ДО завоза. Необязательно, но два таких числа
   // подряд дают точный расход — и прогноз «на сколько хватит».
@@ -170,15 +174,17 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
       )}
 
       <div className="card">
-        {/* Срочные точки не дублируем отдельной карточкой: кнопки и так
-            отсортированы по срочности и выделены. */}
-        <div className="label">
-          {route.length > 0
-            ? (routeLeft.length
+        {/* Шаг 1 — точка. Срочные не дублируем отдельной карточкой:
+            кнопки и так отсортированы по срочности и выделены. */}
+        <div className="step-title"><span className="step-n">1</span>Куда приехали</div>
+        {route.length > 0 && (
+          <div className="label">
+            {routeLeft.length
               ? <>Сегодня стоит заехать: <b className="urgent-text">{routeLeft.join(", ")}</b>{routeDone > 0 && <span className="muted"> · {routeDone} из {route.length} готово</span>}</>
-              : <>Маршрут на сегодня закрыт: {route.length} из {route.length} ✓</>)
-            : "Куда оставили"}
-        </div>
+              : <>Маршрут на сегодня закрыт: {route.length} из {route.length} ✓</>}
+          </div>
+        )}
+        {!branch && <div className="label">Нажмите точку, куда привезли стаканы</div>}
         <div className="chips">
           {order.map((b) => (
             <button
@@ -195,72 +201,86 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
             Взять со склада на маршрут: {skus.filter((s) => load[s.id] > 0).map((s) => `${num(load[s.id])} × ${s.short}`).join(", ")}
           </div>
         )}
-      </div>
-
-      {/* Две подсказки, одно касание каждая: «как в прошлый раз» и «на
-          неделю по расходу». Вторая точнее — она знает, сколько на точке
-          лежит сейчас и сколько там уходит в день. */}
-      {canSuggest && (
-        <button className="tab repeat" onClick={applySuggested}>
-          На неделю: {skus.filter((s) => suggested[s.id] > 0).map((s) => `${num(suggested[s.id])} × ${s.short}`).join(", ")} — подставить
-        </button>
-      )}
-      {canRepeat && (
-        <button
-          className="tab repeat"
-          onClick={() => setQty(Object.fromEntries(skus.map((s) => [s.id, repeat[s.id] ? String(repeat[s.id]) : ""])))}
-        >
-          В прошлый раз: {skus.filter((s) => repeat[s.id] > 0).map((s) => `${num(repeat[s.id])} × ${s.short}`).join(", ")} — повторить
-        </button>
-      )}
-
-      {/* Оба стакана в одной карточке, по две строки на каждый. Раньше
-          это были две карточки по четыре строки — экран прокрутки на
-          каждом заезде. */}
-      <div className="card">
-        <div className="row" style={{ marginBottom: 4 }}>
-          <span className="grow muted">Сколько оставили</span>
-          <span className="muted cap">
-            было на точке
-            <button className="help" onClick={() => setHelp((v) => !v)} aria-label="что это" aria-expanded={help}>?</button>
-          </span>
-        </div>
-
-        {help && (
-          <div className="muted cap" style={{ marginBottom: 8 }}>
-            «Было на точке» — сколько там оставалось до вашего приезда.
-            Необязательно, но два таких числа подряд показывают, на сколько
-            дней точке хватает завоза.
+        {/* Что известно про выбранную точку — одной строкой, чтобы не
+            листать на склад: прогноз, прошлый завоз, остаток по пересчёту */}
+        {branch && (fcRow || repeat) && (
+          <div className="muted cap branch-facts">
+            {fcRow?.daysLeft != null && <span>{fcRow.daysLeft === 0 ? "стаканы кончаются" : `хватит на ${fcRow.daysLeft} ${dayWord(fcRow.daysLeft)}`}</span>}
+            {fcRow?.left && <span>на точке ~{skus.map((s) => `${num(fcRow.left[s.id])} × ${s.short}`).join(", ")}</span>}
+            {canRepeat && <span>в прошлый раз {skus.filter((s) => repeat[s.id] > 0).map((s) => `${num(repeat[s.id])} × ${s.short}`).join(", ")}</span>}
           </div>
         )}
-
-        {skus.map((s) => (
-          <div className="sku" key={s.id}>
-            <div className="sku-head">
-              <span className="name">{s.short}</span>
-              <span className="muted"> · на складе {num(state.stock?.[s.id])}</span>
-            </div>
-            <div className="sku-row">
-              <div className="qty">
-                <button className="step" onClick={() => bump(s.id, -50)} aria-label="минус 50">−</button>
-                <input
-                  type="number" inputMode="numeric" enterKeyHint="done" placeholder="0"
-                  aria-label={`${s.short}: сколько оставили`}
-                  value={qty[s.id]} onChange={(e) => set(s.id, e.target.value)}
-                />
-                <button className="step" onClick={() => bump(s.id, 50)} aria-label="плюс 50">+</button>
-              </div>
-              <input
-                className="before"
-                type="number" inputMode="numeric" enterKeyHint="done" placeholder="не считал"
-                aria-label={`${s.short}: было на точке`}
-                value={before[s.id]}
-                onChange={(e) => setBefore((b) => ({ ...b, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
-              />
-            </div>
-          </div>
-        ))}
       </div>
+
+      {/* Шаг 2 показывается, когда точка выбрана: до этого форма на
+          экране только путала — «что заполнять первым». */}
+      {branch && !skipping && (
+        <div className="card">
+          <div className="step-title"><span className="step-n">2</span>Сколько оставили на {branch}</div>
+
+          {/* Две подсказки, одно касание каждая: «как в прошлый раз» и «на
+              неделю по расходу». Вторая точнее — она знает, сколько на точке
+              лежит сейчас и сколько там уходит в день. */}
+          {(canSuggest || canRepeat) && (
+            <div className="chips compact" style={{ marginBottom: 12 }}>
+              {canSuggest && (
+                <button className="chip" onClick={applySuggested}>
+                  Подставить на неделю: {skus.filter((s) => suggested[s.id] > 0).map((s) => `${num(suggested[s.id])} × ${s.short}`).join(", ")}
+                </button>
+              )}
+              {canRepeat && (
+                <button className="chip" onClick={() => setQty(Object.fromEntries(skus.map((s) => [s.id, repeat[s.id] ? String(repeat[s.id]) : ""])))}>
+                  Как в прошлый раз: {skus.filter((s) => repeat[s.id] > 0).map((s) => `${num(repeat[s.id])} × ${s.short}`).join(", ")}
+                </button>
+              )}
+            </div>
+          )}
+
+          {skus.map((s) => (
+            <div className="sku" key={s.id}>
+              <div className="sku-head">
+                <span className="name">{s.name}</span>
+                <span className="muted"> · на складе {num(state.stock?.[s.id])}</span>
+              </div>
+              <div className="sku-row">
+                <div className="qty-block">
+                  <div className="muted cap">Привезли</div>
+                  <div className="qty">
+                    <button className="step" onClick={() => bump(s.id, -50)} aria-label="минус 50">−</button>
+                    <input
+                      type="number" inputMode="numeric" enterKeyHint="done" placeholder="0"
+                      aria-label={`${s.short}: сколько оставили`}
+                      value={qty[s.id]} onChange={(e) => set(s.id, e.target.value)}
+                    />
+                    <button className="step" onClick={() => bump(s.id, 50)} aria-label="плюс 50">+</button>
+                  </div>
+                </div>
+                <div className="before-block">
+                  <div className="muted cap">
+                    Было до приезда
+                    <button className="help" onClick={() => setHelp((v) => !v)} aria-label="что это" aria-expanded={help}>?</button>
+                  </div>
+                  <input
+                    className="before"
+                    type="number" inputMode="numeric" enterKeyHint="done" placeholder="не считал"
+                    aria-label={`${s.short}: было на точке`}
+                    value={before[s.id]}
+                    onChange={(e) => setBefore((b) => ({ ...b, [s.id]: e.target.value.replace(/[^\d]/g, "") }))}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {help && (
+            <div className="muted cap" style={{ marginTop: 8 }}>
+              «Было до приезда» — сколько стаканов лежало на точке, когда вы
+              приехали. Необязательно, но два таких числа подряд показывают,
+              на сколько дней точке хватает завоза.
+            </div>
+          )}
+        </div>
+      )}
 
       {overdrawn && (
         <div className="msg err">
@@ -268,7 +288,7 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
         </div>
       )}
 
-      {ownButton && (
+      {ownButton && branch && !skipping && (
         <button className="primary" disabled={!canSend} onClick={submit}>
           {buttonText}
         </button>

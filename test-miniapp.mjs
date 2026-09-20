@@ -13,7 +13,7 @@ process.env.TZ = "Asia/Almaty";
 import { build } from "esbuild";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement as h } from "react";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync } from "node:fs";
 import { suggestFor, loadPlan } from "./api/_lib/cups.js";
 import { join } from "node:path";
 
@@ -105,14 +105,32 @@ section("Владелец видит приход");
   ok(html.includes("low"), "остаток 40 подсвечен как низкий");
 }
 
+section("Ссылка открывает нужный экран и точку");
+
+{
+  const app = readFileSync("src/miniapp/App.jsx", "utf8");
+  ok(/q\.get\("tab"\)/.test(app) && /q\.get\("branch"\)/.test(app), "?tab= и ?branch= читаются из адреса");
+  ok(/initialBranch=\{link\.branch\}/.test(app), "точка из ссылки уходит в развоз");
+  const w = readFileSync("api/tg/watch.js", "utf8");
+  ok(w.includes("/miniapp.html?tab=give"), "кнопка «Открыть маршрут» ведёт сразу на развоз");
+}
+
 section("Экран развоза");
 
 {
   const html = render(h(Give, { state, skus: SKUS, branches: BRANCHES, today: [], onSend: noop }));
   for (const b of BRANCHES) ok(html.includes(`>${b}</button>`), `филиал ${b} кнопкой`);
-  ok(html.includes("Записать выдачу"), "кнопка отправки на месте");
-  ok(html.includes("disabled"), "и она заблокирована, пока ничего не введено");
-  ok(html.includes("на складе 1 200"), "остаток по 350 виден");
+  // Шаги: пока точка не выбрана — только шаг 1 с подсказкой, формы нет:
+  // раньше форма стояла сразу, и было непонятно, что заполнять первым
+  ok(html.includes("Куда приехали") && html.includes("Нажмите точку"), "шаг 1 — куда приехали, с подсказкой");
+  ok(!html.includes("Записать выдачу") && !html.includes("Сколько оставили"), "без точки формы и кнопки нет");
+  const picked = render(h(Give, { state, skus: SKUS, branches: BRANCHES, today: [], onSend: noop, initialBranch: "Абая" }));
+  ok(picked.includes("Сколько оставили на Абая"), "выбрали точку — шаг 2 с её именем");
+  ok(picked.includes("Записать выдачу"), "кнопка отправки на месте");
+  ok(picked.includes("disabled"), "и она заблокирована, пока ничего не введено");
+  ok(picked.includes("на складе 1 200"), "остаток по 350 виден");
+  ok(picked.includes("Стакан 350 фирменный"), "стакан назван полностью, а не «350»");
+  ok(picked.includes("Привезли") && picked.includes("Было до приезда"), "оба поля подписаны у каждого стакана");
 }
 
 section("Развоз: маршрут с галочками, подсказка на неделю, погрузка");
@@ -240,7 +258,7 @@ section("Прогноз и отмена на экранах");
   ok(!html.includes("Абая (12"), "а та, где 12 дней, в предупреждение не попала");
   ok(html.includes("хватит на 2 дня") && html.includes("хватит на 12 дней"), "склонения на месте");
   ok(html.indexOf("Дубай") < html.indexOf("Абая"), "кто ближе к нулю — тот выше");
-  ok(html.includes("на точке ~600 / 200"), "видно, сколько сейчас на точке");
+  ok(html.includes("на точке ~600 × 350, 200 × 450"), "видно, сколько сейчас на точке — с единицами");
 
   // Без прогноза экран должен вести себя как раньше
   const plain = render(h(Warehouse, {
@@ -277,12 +295,12 @@ section("Прогноз и отмена на экранах");
 
 {
   // Поле «было на точке» на экране развоза
-  const html = render(h(Give, { state, skus: SKUS, branches: BRANCHES, today: [], onSend: noop }));
+  const html = render(h(Give, { state, skus: SKUS, branches: BRANCHES, today: [], onSend: noop, initialBranch: "Абая" }));
   // Считаем сами поля, а не упоминания: пояснение внизу тоже называет их
   eq((html.match(/placeholder="не считал"/g) || []).length, SKUS.length, "поле у каждого стакана");
-  ok(html.includes("было на точке"), "и подписано понятно");
+  ok(html.includes("Было до приезда"), "и подписано понятно");
   ok(html.includes('class="help"'), "а пояснение — по знаку вопроса, не четырьмя строками на каждом экране");
-  ok(!html.includes("сколько там оставалось до вашего приезда"), "и по умолчанию свёрнуто");
+  ok(!html.includes("сколько стаканов лежало на точке"), "и по умолчанию свёрнуто");
 }
 
 section("Ответ сервера, который не JSON, — ошибка, а не белый экран");
@@ -339,7 +357,7 @@ section("Одна строка — одна мысль");
   ok(!w.includes("Учёт ещё не начат"), "рабочее состояние — без вступления");
   ok(/Рамс[^]*?days warn[^]*?9 дней назад/.test(w), "девять дней — красным");
   ok(w.indexOf("Рамс") < w.indexOf("OBI") && w.indexOf("OBI") < w.indexOf("Гагарина"), "давнее — выше, «ни разу» — в самом низу");
-  ok(w.includes("выдано всего 300 / 0"), "под точкой с выдачей — сколько выдано");
+  ok(w.includes("выдано всего 300 × 350, 0 × 450"), "под точкой с выдачей — сколько выдано, с единицами");
 
   // Экран развоза при пустом складе объясняет, почему нечего раздавать
   const g = render(h(Give, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop }));
@@ -612,7 +630,7 @@ section("Пустое состояние не роняет экраны");
 
 {
   const empty = {};
-  ok(render(h(Give, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop })).includes("на складе 0"),
+  ok(render(h(Give, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop, initialBranch: "Абая" })).includes("на складе 0"),
      "развоз при пустом складе показывает ноль");
   const w = render(h(Warehouse, { state: empty, skus: SKUS, branches: BRANCHES, today: [], onSend: noop, isAdmin: true }));
   ok(w.includes("не возили ни разу"), "склад при пустом состоянии не падает");

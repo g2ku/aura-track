@@ -30,8 +30,15 @@ export default function App({ tg }) {
   const [offline, setOffline] = useState(false);
   // null — «человек ещё не выбирал»: экран по умолчанию зависит от роли,
   // а роль приходит с сервера. Через эффект здесь мелькала бы чужая
-  // вкладка один кадр.
-  const [tab, setTab] = useState(null);
+  // вкладка один кадр. Ссылка «?tab=give&branch=Абая» (из плана маршрута
+  // в телеграме) открывает сразу нужный экран и точку.
+  const [link] = useState(() => {
+    try {
+      const q = new URLSearchParams(globalThis.location?.search || "");
+      return { tab: q.get("tab") || null, branch: q.get("branch") || "" };
+    } catch (_) { return { tab: null, branch: "" }; }
+  });
+  const [tab, setTab] = useState(link.tab);
 
   // Всё, что показываем, — то и запоминаем: следующий запуск начнётся с этого
   const setData = useCallback((next) => {
@@ -198,7 +205,7 @@ export default function App({ tg }) {
           tg={tg}
           state={state} skus={skus} branches={branches} today={today}
           forecast={data.forecast} lastTrip={data.lastTrip} soonDays={data.soonDays}
-          onSend={send} onUndo={undo}
+          onSend={send} onUndo={undo} initialBranch={link.branch}
         />
       )}
       {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} forecast={data.forecast} soonDays={data.soonDays} onSend={send} onUndo={isAdmin ? undo : null} isAdmin={isAdmin} />}

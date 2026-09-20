@@ -80,9 +80,25 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .sku { padding: 12px 0; border-top: 1px solid var(--line); }
 .sku:first-of-type { border-top: none; padding-top: 4px; }
 .sku-head { margin-bottom: 8px; font-size: var(--fs-sec); }
-.sku-row { display: flex; align-items: center; gap: 8px; }
+.sku-row { display: flex; align-items: flex-end; gap: 8px; }
 .sku-row .qty { flex: 1 1 auto; min-width: 0; }
 .sku-row .before { flex: 0 0 112px; width: 112px; }
+.qty-block { flex: 1 1 auto; min-width: 0; }
+.before-block { flex: 0 0 112px; }
+.qty-block > .cap, .before-block > .cap { margin-bottom: 4px; white-space: nowrap; }
+.before-block .help { width: 20px; height: 20px; margin-left: 4px; }
+
+/* Шаги: «1 · Куда приехали», «2 · Сколько оставили» — порядок действий
+   виден с первого взгляда, а не угадывается по расположению полей */
+.step-title { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; }
+.step-n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--accent); color: var(--on-accent); font-size: var(--fs-cap); font-weight: 700;
+}
+.branch-facts { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.branch-facts span::before { content: "·"; margin-right: 6px; }
+.branch-facts span:first-child::before { content: none; }
 
 .qty { display: flex; align-items: center; gap: 8px; }
 .qty input { text-align: center; font-variant-numeric: tabular-nums; }

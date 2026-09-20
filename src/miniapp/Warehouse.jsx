@@ -26,13 +26,15 @@ function leftWord(n) {
   return `хватит на ${n} ${w}`;
 }
 
+// «Возили 12 дней назад» — с глаголом: голое «12 дней назад» в колонке
+// рядом с «хватит на 6 дней» читалось как ещё один прогноз
 function daysWord(n) {
   if (n == null) return "не возили ни разу";
-  if (n === 0) return "сегодня";
-  if (n === 1) return "вчера";
+  if (n === 0) return "возили сегодня";
+  if (n === 1) return "возили вчера";
   const a = n % 10, b = n % 100;
   const w = a === 1 && b !== 11 ? "день" : a >= 2 && a <= 4 && (b < 12 || b > 14) ? "дня" : "дней";
-  return `${n} ${w} назад`;
+  return `возили ${n} ${w} назад`;
 }
 
 export default function Warehouse({ state, skus, branches, today, forecast, soonDays = 4, onSend, onUndo, isAdmin }) {
@@ -91,10 +93,13 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
   // Одна строка на одну мысль. Справа — статус: прогноз, а если его нет,
   // давность завоза. Под названием — деталь: сколько на точке или сколько
   // выдано. Раньше «не возили ни разу» стояло и там, и там.
+  // С единицами: «~40 × 350, 20 × 450», а не «40 / 20» — второе читалось
+  // только с примечанием внизу
+  const withUnits = (q) => skus.map((s) => `${num(q?.[s.id])} × ${s.short}`).join(", ");
   const detailOf = (r) => {
-    if (r.f?.left) return `на точке ~${skus.map((s) => num(r.f.left[s.id])).join(" / ")}`;
+    if (r.f?.left) return `на точке ~${withUnits(r.f.left)}`;
     const total = skus.reduce((n, s) => n + (r.got[s.id] || 0), 0);
-    if (total > 0) return `выдано всего ${skus.map((s) => num(r.got[s.id])).join(" / ")}`;
+    if (total > 0) return `выдано всего ${withUnits(r.got)}`;
     return null;
   };
 
@@ -109,17 +114,20 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
   };
 
   const stockTiles = (
-    <div className="stock">
-      {skus.map((s) => {
-        const n = state.stock?.[s.id] ?? 0;
-        return (
-          <div className="stock-item" key={s.id}>
-            <div className={`stock-n${n < 500 ? " low" : ""}`}>{num(n)}</div>
-            <div className="stock-l">{s.short} · на складе</div>
-          </div>
-        );
-      })}
-    </div>
+    <>
+      <div className="label" style={{ marginTop: 4 }}>На складе</div>
+      <div className="stock">
+        {skus.map((s) => {
+          const n = state.stock?.[s.id] ?? 0;
+          return (
+            <div className="stock-item" key={s.id}>
+              <div className={`stock-n${n < 500 ? " low" : ""}`}>{num(n)}</div>
+              <div className="stock-l">{s.name.replace(/ фирменный$/, "")}{n < 500 ? " · мало" : ""}</div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 
   const intake = isAdmin && (
@@ -187,7 +195,7 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
         {!fresh && (
           <div className="note">
             «Хватит на» появляется после двух пересчётов подряд — когда
-            снабженец отмечает «было на точке». Числа — {skus.map((s) => s.short).join(" / ")}.
+            снабженец отмечает «было до приезда».
           </div>
         )}
       </div>

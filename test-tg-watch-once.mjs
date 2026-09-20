@@ -90,7 +90,7 @@ section("Стаканы не зависят от того, включена ли
   ok(/config\.cupRouteTime && config\.lastCupRouteDate !== today && nowHM >= config\.cupRouteTime/.test(body),
      "маршрут — раз в день, в своё время, и выключается пустым временем");
   ok(/patch\.lastCupRouteDate = today/.test(body) && /setConfig\(\{ lastCupRouteDate: today \}\)/.test(body), "метка ставится и сохраняется сразу");
-  ok(/web_app: \{ url: `\$\{base\}\/miniapp\.html` \}/.test(body), "кнопка открывает мини-приложение");
+  ok(/web_app: \{ url: `\$\{base\}\/miniapp\.html\?tab=give` \}/.test(body), "кнопка открывает мини-приложение сразу на развозе");
   const routeAt = body.indexOf("config.cupRouteTime &&");
   const routeBtn = body.indexOf("Открыть маршрут");
   ok(routeAt > 0 && routeBtn > routeAt, "кнопка — внутри вечернего блока");

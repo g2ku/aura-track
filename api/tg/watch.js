@@ -305,7 +305,7 @@ export default async function handler(req, res) {
           { soonDays: config.cupSoonDays, staleDays: config.cupStaleDays, now: Date.now() });
         const base = siteUrl();
         const opts = base
-          ? { reply_markup: { inline_keyboard: [[{ text: "Открыть маршрут", web_app: { url: `${base}/miniapp.html` } }]] } }
+          ? { reply_markup: { inline_keyboard: [[{ text: "Открыть маршрут", web_app: { url: `${base}/miniapp.html?tab=give` } }]] } }
           : {};
         out.routed = await nudgeSuppliers(config, text, opts);
         patch.lastCupRouteDate = today;
