@@ -257,7 +257,7 @@ async function executeInner(parsed, userBranch) {
       case "products":
         if (category) return await handleCategory(operation, effectiveSpot, period, category, ipGroup);
         if (/не\s+прода[её]|не\s+продава|не\s+продал|нет\s+продаж|без\s+продаж|мёртв|мертв/.test(String(parsed.raw || "").toLowerCase())) return await handleNotSold(effectiveSpot, period, ipGroup);
-        return await handleProducts(operation, effectiveSpot, period, product, ipGroup);
+        return await handleProducts(operation, effectiveSpot, period, product, ipGroup, parsed.limit || null);
       case "tax": return await handleTax(operation, effectiveSpot, period, ipGroup);
       case "margin":
       case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup);
@@ -666,7 +666,7 @@ async function handleNotSold(spot, period, ipGroup) {
   };
 }
 
-async function handleProducts(operation, spot, period, productName, ipGroup) {
+async function handleProducts(operation, spot, period, productName, ipGroup, limit = null) {
   const data = await fetchPosterSales(period.from, period.to);
   const pl = formatPeriodLabel(period);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
@@ -774,13 +774,17 @@ async function handleProducts(operation, spot, period, productName, ipGroup) {
     };
   }
 
-  products.sort((a, b) => b.sum - a.sum);
-  const top = operation === "max" ? products.slice(0, 10) : products.slice(0, 15);
+  // «10 худших» — с конца, «топ 5» — столько строк, сколько просили
+  const worst = operation === "min";
+  products.sort((a, b) => (worst ? a.sum - b.sum : b.sum - a.sum));
+  const n = limit || (operation === "max" ? 10 : worst ? 10 : 15);
+  const top = products.slice(0, n);
   const lines = top.map((p, i) => `${i + 1}. ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
   const totalQty = products.reduce((s, p) => s + p.qty, 0);
   const totalSum = products.reduce((s, p) => s + p.sum, 0);
+  const title = worst ? `Худшие товары${ipLabel} за ${pl} (из ${products.length} наименований с продажами)` : `Товары${ipLabel} за ${pl} (всего ${products.length} наименований)`;
   return {
-    text: `Товары${ipLabel} за ${pl} (всего ${products.length} наименований):\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}`,
+    text: `${title}:\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}`,
     data: { products: top, totalQty, totalSum },
   };
 }
