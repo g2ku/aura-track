@@ -75,6 +75,34 @@ export function setMessageReaction(chatId, messageId, emoji) {
 // Vercel сам кладёт домен в окружение, поэтому настраивать обычно нечего.
 // Не нашли — вернём пустоту, и заголовки останутся просто текстом: лучше
 // без ссылки, чем со ссылкой в никуда.
+// Какие апдейты должен присылать Telegram. Кнопки под ответами — это
+// callback_query: вебхук, поставленный с allowed_updates=["message"],
+// их не получает, и кнопка крутит часики вечно.
+export const WEBHOOK_UPDATES = ["message", "edited_message", "callback_query"];
+
+export function getWebhookInfo() {
+  return tgCall("getWebhookInfo", {});
+}
+
+// Нужна ли перестановка: url не наш, или список апдейтов задан и без
+// callback_query. Пустой allowed_updates у Telegram значит «всё, кроме
+// редких» — callback_query туда входит, трогать не надо.
+export function webhookNeedsFix(info, url) {
+  if (!info) return false;
+  if (url && info.url !== url) return true;
+  const allowed = Array.isArray(info.allowed_updates) ? info.allowed_updates : null;
+  if (allowed && allowed.length && !allowed.includes("callback_query")) return true;
+  return false;
+}
+
+export function setWebhook(url, { secret = process.env.TELEGRAM_WEBHOOK_SECRET } = {}) {
+  return tgCall("setWebhook", {
+    url,
+    allowed_updates: WEBHOOK_UPDATES,
+    ...(secret ? { secret_token: secret } : {}),
+  });
+}
+
 export function siteUrl() {
   const raw = process.env.SITE_URL
     || process.env.VERCEL_PROJECT_PRODUCTION_URL

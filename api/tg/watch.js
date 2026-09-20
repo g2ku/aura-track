@@ -20,7 +20,7 @@ import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildCl
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
 import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
-import { sendMessage, siteUrl, questionKeyboard } from "../_lib/telegram.js";
+import { sendMessage, siteUrl, questionKeyboard, getWebhookInfo, webhookNeedsFix, setWebhook } from "../_lib/telegram.js";
 
 function almatyHM(now = new Date()) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -245,6 +245,27 @@ export default async function handler(req, res) {
         await setConfig({ lastWeeklyDigestDate: today }).catch(() => {});
       } catch (e) {
         console.error("[weekly] итог недели не собрался:", e?.message);
+      }
+    }
+
+    // ─── Раз в день — вебхук на месте и получает нажатия кнопок ──────
+    //
+    // Кнопки под ответами приходят как callback_query. Вебхук,
+    // поставленный когда-то с allowed_updates=["message"], их не видит —
+    // кнопка крутит часики, бот «завис». Проверяем сами и чиним сами:
+    // ставить вебхук руками через curl владельцу незачем.
+    if (config.lastWebhookCheckDate !== today) {
+      try {
+        const url = `${siteUrl()}/api/tg/webhook`;
+        const info = await getWebhookInfo();
+        if (webhookNeedsFix(info, url)) {
+          await setWebhook(url);
+          out.webhookFixed = { was: info?.url, allowed: info?.allowed_updates || null };
+          console.warn("[tg] вебхук переставлен:", out.webhookFixed);
+        }
+        patch.lastWebhookCheckDate = today;
+      } catch (e) {
+        console.warn("[tg] вебхук не проверился:", e?.message);
       }
     }
 

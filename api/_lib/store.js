@@ -188,6 +188,7 @@ export const DEFAULT_CONFIG = {
   weeklyDigest: true,       // по понедельникам — итог недели против прошлой
   lastWeeklyDigestDate: null,
   lastMonthlyDigestDate: null, // первого числа — итог месяца (тем же ключом)
+  lastWebhookCheckDate: null,  // раз в день — вебхук получает нажатия кнопок
   cupLowStock: 500,        // меньше этого на складе — пора закупать
 
   // Сверка накладных с Poster в конце вечернего отчёта. Выключена, пока

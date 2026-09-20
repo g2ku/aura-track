@@ -64,6 +64,7 @@ const ADMIN_HELP = `
 /касса, /вчера, /неделя — касса по точкам одним словом
 /итоги — неделя против прошлой, по точкам
 /месяц — этот месяц против тех же чисел прошлого; /месяц август — целиком
+/вебхук — на месте ли вебхук и приходят ли нажатия кнопок
 /стаканы — склад, на сколько хватит, сводка за период
 /склад — то же самое
 /снабженец — кто возит стаканы (ответом на его сообщение)
@@ -539,7 +540,14 @@ async function handleCommand({ cmd, args }, ctx) {
     case "вчера":
     case "неделя": {
       if (!isAdmin(config, userId)) return { text: "Только для админа." };
-      const q = cmd === "касса" ? `касса сегодня ${args || ""}` : cmd === "вчера" ? `касса вчера ${args || ""}` : `касса за неделю ${args || ""}`;
+      // «/касса вчера» — вчера, а не «касса сегодня вчера»: период из
+      // аргумента важнее слова по умолчанию
+      const { hasExplicitPeriod } = await import("../../src/chat/parser.js");
+      const a0 = String(args || "").trim();
+      const withPeriod = a0 && hasExplicitPeriod(a0);
+      const q = cmd === "касса" ? (withPeriod ? `касса ${a0}` : `касса сегодня ${a0}`)
+        : cmd === "вчера" ? `касса вчера ${a0}`
+        : (withPeriod ? `касса ${a0}` : `касса за неделю ${a0}`);
       const a = await askBot(q.trim(), store);
       return a || { text: "Не смог посчитать." };
     }
@@ -556,6 +564,30 @@ async function handleCommand({ cmd, args }, ctx) {
       const [cur, prev] = await Promise.all([store.getSalesDays(from, to), store.getSalesDays(shiftDay(from, -7), shiftDay(to, -7))]);
       const text = formatWeeklyDigest(cur, prev, { from, to });
       return { text: text || "Итогов за последнюю неделю ещё нет — они собираются по ночам." };
+    }
+
+    // ─── Вебхук: на месте ли и получает ли кнопки ───
+    case "вебхук":
+    case "webhook": {
+      if (!isAdmin(config, userId)) return { text: "Только для админа." };
+      const { getWebhookInfo, webhookNeedsFix, setWebhook, siteUrl: site } = await import("./telegram.js");
+      const url = `${site()}/api/tg/webhook`;
+      try {
+        const info = await getWebhookInfo();
+        const bad = webhookNeedsFix(info, url);
+        if (bad || /постав|почин|заново/.test(String(args || "").toLowerCase())) {
+          await setWebhook(url);
+          return { text: `Вебхук переставлен: <code>${escapeHtml(url)}</code>\nТеперь приходят и нажатия кнопок.` };
+        }
+        const allowed = Array.isArray(info?.allowed_updates) && info.allowed_updates.length ? info.allowed_updates.join(", ") : "все";
+        return { text: [`Вебхук на месте: <code>${escapeHtml(info?.url || "")}</code>`,
+          `Апдейты: ${escapeHtml(allowed)}`,
+          info?.pending_update_count ? `В очереди: ${info.pending_update_count}` : "",
+          info?.last_error_message ? `Последняя ошибка: ${escapeHtml(info.last_error_message)}` : "",
+          "", "Переставить принудительно: <code>/вебхук поставить</code>"].filter(Boolean).join("\n") };
+      } catch (e) {
+        return { text: `Не смог проверить вебхук: ${escapeHtml(e?.message || "ошибка")}` };
+      }
     }
 
     // ─── Итог месяца по запросу ───
@@ -1303,8 +1335,18 @@ async function handleCommand({ cmd, args }, ctx) {
       return { text: `👤 Вы добавлены в администраторы (id ${userId}). Теперь настройки доступны только админам.` };
     }
 
-    default:
-      return null; // чужие команды игнорируем — в группе могут быть другие боты
+    default: {
+      // «/чеки сегодня», «/кто просел за неделю» — владелец пишет вопрос
+      // со слэшем по привычке. В личке от админа это вопрос ассистенту;
+      // в группе чужие команды по-прежнему игнорируем — там другие боты
+      if (msg?.chat?.type === "private" && isAdmin(config, userId) && store?.getSalesDays) {
+        const q = `${cmd} ${args || ""}`.trim();
+        const a = await askBot(q, store, ctx).catch(() => null);
+        if (a) return a;
+        return { text: `Не понял «/${escapeHtml(cmd)}». Команды — /помощь, вопрос можно написать словами: <code>чеки сегодня</code>.` };
+      }
+      return null;
+    }
   }
 }
 

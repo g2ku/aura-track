@@ -510,6 +510,22 @@ section("Итог недели по понедельникам");
   ok(/patch\.lastWeeklyDigestDate = today/.test(w), "и метка ставится в любой день, чтобы не догонять во вторник");
 }
 
+section("Вебхук проверяется сам");
+
+{
+  const { webhookNeedsFix, WEBHOOK_UPDATES } = await import("./api/_lib/telegram.js");
+  const u = "https://site/api/tg/webhook";
+  ok(WEBHOOK_UPDATES.includes("callback_query"), "нажатия кнопок в списке апдейтов");
+  ok(webhookNeedsFix({ url: u, allowed_updates: ["message"] }, u), "только message — чинить");
+  ok(!webhookNeedsFix({ url: u, allowed_updates: ["message", "callback_query"] }, u), "с callback_query — на месте");
+  ok(!webhookNeedsFix({ url: u }, u), "без allowed_updates — по умолчанию всё приходит, не трогаем");
+  ok(webhookNeedsFix({ url: "https://old/api/tg/webhook" }, u), "чужой url — чинить");
+  ok(!webhookNeedsFix(null, u), "нет ответа — ничего не делаем");
+  const w = readFileSync("api/tg/watch.js", "utf8");
+  ok(/config\.lastWebhookCheckDate !== today/.test(w) && /webhookNeedsFix\(info, url\)/.test(w) && /await setWebhook\(url\)/.test(w), "сторож раз в день проверяет и переставляет вебхук");
+  ok(/patch\.lastWebhookCheckDate = today/.test(w), "и ставит метку");
+}
+
 section("Итог месяца первого числа");
 
 {
