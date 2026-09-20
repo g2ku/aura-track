@@ -80,6 +80,17 @@ globalThis.__poster = {
     for (const m of Object.values(bySpot)) for (const [id, v] of Object.entries(m)) total[id] = (total[id] || 0) + v;
     return { total, bySpot, openChecks: { items: [{ spotId: "4", spotName: "Aura02_Abaya", sum: 3200, minutes: 95, waiter: "Айгерим" }] } };
   },
+  async fetchCups() {
+    const day = 86400000;
+    return {
+      skus: [{ id: "350", short: "350" }, { id: "450", short: "450" }],
+      branches: ["Абая", "Дубай", "Гагарина"],
+      state: { stock: { 350: 420, 450: 1900 }, lastOut: { "Абая": Date.now() - 2 * day, "Дубай": Date.now() - 9 * day }, branches: {} },
+      forecast: [{ branch: "Абая", daysLeft: 1 }, { branch: "Дубай", daysLeft: 6 }],
+      lastTrip: { "Абая": { 350: 200, 450: 100 } },
+      soonDays: 4,
+    };
+  },
   getPaymentMethodName(id) { return { 0: "Наличные", "0-card": "Карточки", 11: "Kaspi", 12: "Halyk" }[String(id)] || `Оплата #${id}`; },
 };
 
@@ -96,6 +107,7 @@ writeFileSync(posterStub, `
   export const getMenuCategories = (...a) => P.getMenuCategories(...a);
   export const fetchPaymentBreakdown = (...a) => P.fetchPaymentBreakdown(...a);
   export const getPaymentMethodName = (...a) => P.getPaymentMethodName(...a);
+  export const fetchCups = (...a) => P.fetchCups(...a);
   export const fetchPosterSalesMultiple = async () => [];
   export const getMenuIndex = async () => ({});
   export const getSpots = async () => ({});
@@ -269,6 +281,19 @@ section("Способы оплаты и время открытия");
   ok(late.indexOf("Дубай") < late.indexOf("Абая"), "порядок — от поздней к ранней");
   const w = await ask("во сколько открывались точки за неделю");
   has(w, "обычно 10:05, позже всего 10:05", "за несколько дней — обычное и самое позднее");
+}
+
+section("Стаканы — из учёта снабженца");
+{
+  const a = await ask("когда последний раз возили стаканы на абая");
+  has(a, "Стаканы — Абая: 2 дня назад", "последний завоз на точку");
+  has(a, "привезли 200 × 350, 100 × 450", "и сколько");
+  has(a, "хватит на 1 день", "и прогноз");
+  has(a, "На складе: 420 × 350, 1 900 × 450", "склад");
+  const all = await ask("куда ехать со стаканами");
+  has(all, "Стоит заехать: Абая", "кому срочно");
+  has(all, "• Гагарина: не возили ни разу", "точка без завоза названа");
+  ok(all.indexOf("Абая") < all.indexOf("Дубай"), "срочные выше");
 }
 
 section("Открытые чеки и незнакомые точки");

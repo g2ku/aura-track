@@ -233,6 +233,7 @@ async function executeInner(parsed, userBranch) {
     if (metric === "payments") return await handlePayments(effectiveSpot, period, ipGroup, parsed.raw);
     if (metric === "openChecks") return await handleOpenChecks(effectiveSpot);
     if (metric === "alerts") return await handleAlerts();
+    if (metric === "cups") return await handleCups(effectiveSpot);
 
     // Operations that work across metrics
     if (operation === "trend") return await handleTrend(metric, effectiveSpot, period, ipGroup);
@@ -826,6 +827,52 @@ async function handleTax(operation, spot, period, ipGroup) {
   return {
     text: `Налог 3% ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\nНалог: ${fmt(tax)}`,
     data: { totalCash, tax },
+  };
+}
+
+// ─── Стаканы ─────────────────────────────────────────────────────
+//
+// «Когда возили стаканы на Абая», «на сколько хватит» — из того же
+// /api/cups, что и плитка на главной: склад, последний завоз, прогноз.
+async function handleCups(spot) {
+  const { fetchCups } = await import("../poster.js");
+  const d = await fetchCups();
+  const skus = d?.skus || [];
+  const state = d?.state || {};
+  const fc = Object.fromEntries((d?.forecast || []).map((f) => [f.branch, f]));
+  const lastTrip = d?.lastTrip || {};
+  const dayWord = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? "день" : a >= 2 && a <= 4 && (b < 12 || b > 14) ? "дня" : "дней"; };
+  const ago = (ts) => {
+    if (!ts) return "не возили ни разу";
+    const n = Math.floor((Date.now() - ts) / 86400000);
+    return n === 0 ? "сегодня" : n === 1 ? "вчера" : `${n} ${dayWord(n)} назад`;
+  };
+  const when = (ts) => (ts ? new Date(ts).toLocaleDateString("ru-RU", { day: "numeric", month: "short" }) : "");
+  const qtyText = (q) => skus.map((s) => `${(q?.[s.id] || 0).toLocaleString("ru-RU")} × ${s.short}`).join(", ");
+  const lineFor = (branch) => {
+    const f = fc[branch];
+    const ts = state.lastOut?.[branch];
+    const parts = [`${branch}: ${ago(ts)}${ts ? ` (${when(ts)})` : ""}`];
+    if (lastTrip[branch] && ts) parts.push(`привезли ${qtyText(lastTrip[branch])}`);
+    if (f?.daysLeft != null) parts.push(f.daysLeft === 0 ? "стаканы кончаются" : `хватит на ${f.daysLeft} ${dayWord(f.daysLeft)}`);
+    return parts.join(" · ");
+  };
+  const branches = d?.branches || Object.keys(state.lastOut || {});
+  const stockLine = `На складе: ${skus.map((s) => `${(state.stock?.[s.id] || 0).toLocaleString("ru-RU")} × ${s.short}`).join(", ")}`;
+
+  if (!isAll(spot)) {
+    const name = spotNameByPosterId(spot.spotId, "") || spot.posterName;
+    const branch = branches.find((b) => b === name) || name;
+    return { text: `Стаканы — ${lineFor(branch)}\n${stockLine}`, data: { branch, forecast: fc[branch] || null, lastOut: state.lastOut?.[branch] || null } };
+  }
+  const rows = branches
+    .map((b) => ({ b, days: fc[b]?.daysLeft, ts: state.lastOut?.[b] || 0 }))
+    .sort((x, y) => (x.days ?? 999) - (y.days ?? 999) || x.ts - y.ts);
+  const soon = rows.filter((r) => r.days != null && r.days <= (d?.soonDays ?? 4)).map((r) => r.b);
+  const lines = rows.map((r) => `• ${lineFor(r.b)}`);
+  return {
+    text: `${soon.length ? `Стоит заехать: ${soon.join(", ")}\n\n` : ""}${lines.join("\n")}\n\n${stockLine}`,
+    data: { rows, soon, stock: state.stock || {} },
   };
 }
 

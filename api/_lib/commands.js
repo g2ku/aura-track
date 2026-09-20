@@ -143,8 +143,15 @@ async function cupsBind(store, config, arg) {
 // Ответ ассистента: прошедшие дни — из суточных итогов в базе, сегодня —
 // из чеков Poster вживую. Меню (4,6 МБ) тянем только если спрашивают
 // про товары за сегодня.
-async function askBot(text, store) {
+async function askBot(text, store, ctx = null) {
   if (!store?.getSalesDays) return null;
+  // «Когда возили стаканы на Абая», «куда ехать» — это учёт стаканов,
+  // у бота на него своя команда. Отвечаем ею, а не отсылаем на сайт
+  if (ctx && /стакан|развоз|маршрут|возили|куда ехать/.test(text.toLowerCase())) {
+    const { understand } = await import("../../src/chat/understand.js");
+    const { parsed } = await understand(text);
+    if (parsed?.metric === "cups") return handleCommand({ cmd: "стаканы", args: "" }, ctx);
+  }
   const today = todayAlmaty();
   // Память исправлений — общая с сайтом: чему научили там, понимает и бот
   const { recallFrom } = await import("./chatBot.js");
@@ -608,7 +615,7 @@ async function handleCommand({ cmd, args }, ctx) {
       if (!q) {
         return { text: "Спросите словами:\n<code>/спроси касса вчера</code>\n<code>/спроси чеки Абая за неделю</code>\n<code>/спроси что продавалось лучше всего</code>\n<code>/спроси сравни август и сентябрь</code>\n\nВ личке можно и без команды — просто напишите вопрос." };
       }
-      const a = await askBot(q, store);
+      const a = await askBot(q, store, ctx);
       return a || { text: "Не понял вопрос. Попробуйте: <code>касса вчера</code>, <code>чеки Абая за неделю</code>, <code>сколько латте продали</code>." };
     }
 
@@ -1341,7 +1348,7 @@ export async function handleMessage(msg, ctx) {
   // Вопрос словами в личке от админа — ассистент, а не накладная.
   // Только когда позиций с суммами нет: «Абая пон 48 40к» — накладная.
   if (!hasItems && msg.chat?.type === "private" && isAdmin(config, msg.from?.id)) {
-    const a = await askBot(text, ctx.store).catch(() => null);
+    const a = await askBot(text, ctx.store, { ...ctx, msg, config }).catch(() => null);
     if (a) return a;
   }
 

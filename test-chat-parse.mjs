@@ -806,6 +806,12 @@ section("Ещё вопросы владельца: выходные, полов�
   const op = await ask("во сколько открылась абая сегодня");
   eq([op.metric, op.spot.posterName, op.product], ["opening", "Abaya", null], "во сколько открылась — открытие");
   eq((await ask("какая точка открылась позже всех")).metric, "opening", "позже всех — открытие");
+  const c = await ask("когда последний раз возили стаканы на абая");
+  eq([c.metric, c.spot.posterName, c.product], ["cups", "Abaya", null], "когда возили стаканы — учёт снабженца");
+  eq((await ask("на сколько хватит стаканов на дубае")).metric, "cups", "на сколько хватит — тоже");
+  eq((await ask("сколько стаканов на складе")).metric, "cups", "склад стаканов — учёт, не Poster");
+  eq((await ask("сколько стаканов ушло на абая")).metric, "stock", "а расход стаканов — по Poster, как и было");
+  eq((await ask("куда ехать со стаканами")).metric, "cups", "куда ехать — маршрут");
   const g = await ask("на сколько процентов выросли продажи латте");
   eq([g.operation, g.product, !!g.period2], ["percentChange", "латте", true], "«на сколько процентов выросли» — сравнение с прошлым отрезком");
 }

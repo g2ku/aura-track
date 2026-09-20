@@ -164,6 +164,13 @@ section("В боте: команда и личка");
   const r7 = await run("привет");
   eq(r7, null, "«привет» в личке — молчим, как раньше");
 
+  // Про стаканы — ответ команды /стаканы, а не отсылка на сайт
+  const storeCups = { ...store, getCupState: async () => ({ stock: { 350: 420, 450: 1900 }, lastOut: {}, branches: {} }), getCupDays: async () => [] };
+  const rc = await handleMessage(msg("когда возили стаканы на абая"), { store: storeCups, config: cfg, authorName: "@r" });
+  ok(rc?.text.startsWith("<b>Склад стаканов</b>"), "вопрос про стаканы в личке — склад стаканов");
+  const rc2 = await handleMessage(msg("/спроси куда ехать со стаканами"), { store: storeCups, config: cfg, authorName: "@r" });
+  ok(rc2?.text.startsWith("<b>Склад стаканов</b>"), "и через /спроси");
+
   // Одним словом
   const r8 = await run("/вчера");
   ok(r8?.text.startsWith("<b>Касса за"), "/вчера — касса за вчера");
