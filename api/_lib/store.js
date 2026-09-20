@@ -424,12 +424,26 @@ export async function applyCupMoves(moves, { day, opId = null, branches = null }
   const stateRef = db.doc(CUPS_STATE);
   const dayRef = db.collection("cupDays").doc(day);
 
+  // Метку отправки ищем и во вчерашнем дне: запрос дошёл в 23:59, ответ
+  // потерялся, очередь повторила в 00:00 — и без этого стаканы легли бы
+  // на точку дважды, просто в разные дни журнала
+  const { shiftDay } = await import("./cups.js");
+  const yesterdayRef = opId ? db.collection("cupDays").doc(shiftDay(day, -1)) : null;
+
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(stateRef);
     const cur = snap.exists ? { ...emptyState(), ...snap.data() } : emptyState();
 
     const daySnap = await tx.get(dayRef);
     const prev = daySnap.exists ? (daySnap.data()?.moves || []) : [];
+
+    if (yesterdayRef) {
+      const ySnap = await tx.get(yesterdayRef);
+      const yMoves = ySnap.exists ? (ySnap.data()?.moves || []) : [];
+      if (yMoves.some((m) => m.opId === opId)) {
+        return { state: cur, day: { date: day, moves: prev }, duplicate: true };
+      }
+    }
 
     const plan = planWrite(cur, prev, moves, { opId, branches });
     if (plan.error) return { error: plan.error, move: plan.move };
