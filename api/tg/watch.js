@@ -335,6 +335,9 @@ export default async function handler(req, res) {
         const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, rollupMismatch, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
         const have = await listSalesDayDates(shiftYmd(today, -ROLLUP_BACK_DAYS), today);
         const pending = pendingDays(have, { today });
+        // Пересборка старой версией — не новость: расхождения по ней уже
+        // сообщались, когда день собирался впервые
+        const rerolled = new Set(have.map((h) => (typeof h === "string" ? h : h?.date)).filter(Boolean));
         const batch = pending.slice(0, ROLLUP_PER_RUN);
         let done = 0;
         const mismatches = [];
@@ -352,7 +355,7 @@ export default async function handler(req, res) {
               const bad = rollupMismatch(doc, doc.pay);
               if (bad) {
                 doc.mismatch = bad;
-                mismatches.push(bad);
+                if (!rerolled.has(day)) mismatches.push(bad);
               }
               await saveSalesDay(doc);
               done++;
