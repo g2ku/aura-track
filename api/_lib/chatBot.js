@@ -369,9 +369,11 @@ export function botFollowUps(parsed, { today } = {}) {
   if (!parsed) return [];
   const p = parsed.period || {};
   const single = p.from && p.from === p.to;
+  const MONTHS_ACC = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+  const fullMonth = /^\d{4}-\d{2}-01$/.test(p.from || "") && p.to && p.to.slice(0, 7) === p.from.slice(0, 7);
   const whenWord = single
     ? (p.from === today ? "сегодня" : p.from === shiftYmd(today || p.from, -1) ? "вчера" : `за ${Number(p.from.slice(8, 10))} ${MONTHS_GEN[Number(p.from.slice(5, 7)) - 1]}`)
-    : (p.label === "по месяцам" ? "" : /^\d{4}-\d{2}-01$/.test(p.from || "") && p.to && p.to.slice(0, 7) === p.from.slice(0, 7) ? "за месяц" : "за неделю");
+    : (p.label === "по месяцам" ? "" : fullMonth ? (today && p.from.slice(0, 7) === today.slice(0, 7) ? "за месяц" : `за ${MONTHS_ACC[Number(p.from.slice(5, 7)) - 1]}`) : "за неделю");
   const spot = parsed.spot?.spotId && parsed.spot.spotId !== "all" ? spotNameByPosterId(parsed.spot.spotId) : "";
   const tail = [spot, whenWord].filter(Boolean).join(" ");
   const m = parsed.metric;
