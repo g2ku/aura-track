@@ -26,6 +26,17 @@ export function sendMessage(chatId, text, opts = {}) {
   });
 }
 
+// Кнопки-вопросы под сообщением: нажатие приходит в вебхук как
+// callback_query с data «q:<вопрос>», и бот отвечает как на текст.
+// Данные — не больше 64 байт, кириллица по два: длинные отбрасываем.
+export function questionKeyboard(questions, { perRow = 2 } = {}) {
+  const list = (questions || []).filter((q) => typeof q === "string" && q.trim() && Buffer.byteLength(`q:${q}`, "utf8") <= 64);
+  if (!list.length) return {};
+  const rows = [];
+  for (let i = 0; i < list.length; i += perRow) rows.push(list.slice(i, i + perRow).map((q) => ({ text: q, callback_data: `q:${q}` })));
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
 export function replyTo(msg, text, opts = {}) {
   return sendMessage(msg.chat.id, text, {
     reply_parameters: { message_id: msg.message_id },

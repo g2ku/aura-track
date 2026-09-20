@@ -13,7 +13,7 @@
 
 import { getConfig, markUpdateSeen, botStore } from "../_lib/store.js";
 import { handleMessage } from "../_lib/commands.js";
-import { sendMessage, setMessageReaction, authorName, tgCall } from "../_lib/telegram.js";
+import { sendMessage, setMessageReaction, authorName, tgCall, questionKeyboard } from "../_lib/telegram.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -55,14 +55,8 @@ function messageFromCallback(cq) {
   };
 }
 
-// Кнопки под ответом ассистента — в разметку Telegram, по две в ряд
-function keyboardFor(result) {
-  const list = (result?.buttons || []).filter((q) => typeof q === "string" && q);
-  if (!list.length) return {};
-  const rows = [];
-  for (let i = 0; i < list.length; i += 2) rows.push(list.slice(i, i + 2).map((q) => ({ text: q, callback_data: `q:${q}` })));
-  return { reply_markup: { inline_keyboard: rows } };
-}
+// Кнопки под ответом ассистента — в разметку Telegram
+const keyboardFor = (result) => questionKeyboard(result?.buttons);
 
 async function processUpdate(update) {
   let msg = update?.message || update?.edited_message;

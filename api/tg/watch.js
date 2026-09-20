@@ -20,7 +20,7 @@ import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildCl
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
 import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
-import { sendMessage, siteUrl } from "../_lib/telegram.js";
+import { sendMessage, siteUrl, questionKeyboard } from "../_lib/telegram.js";
 
 function almatyHM(now = new Date()) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -171,7 +171,11 @@ export default async function handler(req, res) {
         cupsTail,
       ].filter(Boolean).join("\n\n");
 
-      await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+      // Под сводкой — вопросы одним касанием: что за цифрами
+      await sendMessage(target, text, {
+        ...(thread ? { message_thread_id: thread } : {}),
+        ...questionKeyboard(["чеки вчера", "товары вчера", "кто просел за неделю", "способы оплаты вчера"]),
+      });
 
       // Метку пишем СРАЗУ, а не в конце обработчика.
       //

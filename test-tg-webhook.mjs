@@ -64,6 +64,13 @@ writeFileSync(tgStub, `
   export const siteUrl = () => "https://site";
   export const setMenuButton = async () => {};
   export const replyTo = (msg, text, opts = {}) => sendMessage(msg.chat.id, text, opts);
+  export function questionKeyboard(questions, { perRow = 2 } = {}) {
+    const list = (questions || []).filter((q) => typeof q === "string" && q.trim() && Buffer.byteLength("q:" + q, "utf8") <= 64);
+    if (!list.length) return {};
+    const rows = [];
+    for (let i = 0; i < list.length; i += perRow) rows.push(list.slice(i, i + perRow).map((q) => ({ text: q, callback_data: "q:" + q })));
+    return { reply_markup: { inline_keyboard: rows } };
+  }
 `);
 const entry = join(dir, "entry.js");
 writeFileSync(entry, `export { default } from "../../../api/tg/webhook.js";`);

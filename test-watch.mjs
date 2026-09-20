@@ -528,6 +528,8 @@ section("Итог месяца первого числа");
   ok(!/\([+−]\d+ %\)|месяцем раньше/.test(formatMonthlyDigest(cur, [], { month: "2026-09" })), "без прошлого месяца — без процентов");
   ok(!t.includes("неделей"), "слово «неделей» сюда не просочилось");
 
+  const wb = readFileSync("api/tg/watch.js", "utf8");
+  ok(/questionKeyboard\(\["чеки вчера"/.test(wb) && wb.indexOf("questionKeyboard([\"чеки вчера\"") < wb.indexOf("patch.lastBriefingDate = today"), "под утренней сводкой — кнопки-вопросы");
   const w = readFileSync("api/tg/watch.js", "utf8");
   ok(/config\.weeklyDigest && config\.lastMonthlyDigestDate !== today && nowHM >= config\.briefingTime && today\.endsWith\("-01"\)/.test(w), "первого числа, тем же ключом, после времени сводки");
   ok(/formatMonthlyDigest\(cur, prev, \{ month: from\.slice\(0, 7\)/.test(w), "месяц — прошлый целиком");
