@@ -234,6 +234,7 @@ async function executeInner(parsed, userBranch) {
     if (metric === "openChecks") return await handleOpenChecks(effectiveSpot);
     if (metric === "alerts") return await handleAlerts();
     if (metric === "cups") return await handleCups(effectiveSpot);
+    if (metric === "staff") return await handleStaff(effectiveSpot, period, ipGroup, parsed);
     // Часы внутри дня: «касса до обеда», «чеки после 18» — по чекам
     if (parsed.hours && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
       const p = parsed.assumed?.period ? { from: fmtDateJS(new Date()), to: fmtDateJS(new Date()) } : period;
@@ -833,6 +834,75 @@ async function handleTax(operation, spot, period, ipGroup) {
     text: `Налог 3% ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\nНалог: ${fmt(tax)}`,
     data: { totalCash, tax },
   };
+}
+
+// ─── Бариста ─────────────────────────────────────────────────────
+//
+// «Кто из бариста продал больше», «чеки у Айгерим», «средний чек по
+// сотрудникам» — по чекам, где Poster отдал имя. Не дальше месяца.
+async function handleStaff(spot, period, ipGroup, parsed) {
+  const todayIso = fmtDateJS(new Date());
+  const to = period.to > todayIso ? todayIso : period.to;
+  let from = period.from;
+  let note = "";
+  if (daysInPeriod(from, to) > 31) {
+    const d = new Date(to + "T00:00:00");
+    d.setDate(d.getDate() - 30);
+    from = fmtDateJS(d);
+    note = "\n\nСмотрел последний месяц периода — дальше чеков слишком много.";
+  }
+  const r = await fetchReceipts(from, to, { includeOpen: false });
+  let items = (r?.receipts || []).filter((x) => x.status !== "open");
+  items = items.filter((x) => matchesSpot({ spotId: x.spotId, spotName: x.spotName }, spot));
+  if (ipGroup) {
+    const keep = await filterByIPGroup(items.map((x) => ({ spotId: x.spotId, spotName: x.spotName })), ipGroup);
+    const ids = new Set(keep.map((x) => String(x.spotId)));
+    items = items.filter((x) => ids.has(String(x.spotId)));
+  }
+  const pl = formatPeriodLabel({ from, to });
+  const sl = label(spot);
+  if (!items.length) return { text: `Чеков ${sl} за ${pl} нет.`, data: null };
+
+  const q = String(parsed.raw || "").toLowerCase();
+  const measure = /средн/.test(q) ? "avgCheck" : /чек/.test(q) ? "checks" : "cash";
+  const by = {};
+  let unnamed = 0;
+  for (const x of items) {
+    const name = String(x.waiter || "").trim();
+    if (!name) { unnamed++; continue; }
+    const b = (by[name] ||= { name, cash: 0, checks: 0, spots: new Set() });
+    b.cash += Number(x.sum) || 0; b.checks++; b.spots.add(sn(x));
+  }
+  const rows = Object.values(by).map((b) => ({ ...b, avg: b.checks ? Math.round(b.cash / b.checks) : 0, spots: [...b.spots] }));
+  if (!rows.length) return { text: `В чеках ${sl} за ${pl} нет имён бариста — Poster их не отдал.`, data: null };
+
+  // Конкретный человек: «чеки у Айгерим»
+  if (parsed.person) {
+    const hit = rows.filter((b) => productMatches(b.name, parsed.person));
+    if (!hit.length) {
+      const names = rows.map((b) => b.name);
+      const close = closestNames(parsed.person, names, 3);
+      const hint = close.length ? `Похожие: ${close.join(", ")}` : names.length <= 8 ? `Есть: ${names.join(", ")}` : "";
+      return { text: `Бариста «${parsed.person}» в чеках ${sl} за ${pl} не нашёл.${hint ? `\n${hint}` : ""}`, data: { suggestions: close } };
+    }
+    const lines = hit.map((b) => `${b.name}: ${fmt(b.cash)} · ${b.checks} чеков · средний чек ${fmt(b.avg)}${b.spots.length ? ` · ${b.spots.join(", ")}` : ""}`);
+    return { text: `${lines.join("\n")}\nЗа ${pl}${note}`, data: { rows: hit } };
+  }
+
+  const key = measure === "avgCheck" ? "avg" : measure === "checks" ? "checks" : "cash";
+  rows.sort((a, b) => b[key] - a[key]);
+  const top = rows.slice(0, 12);
+  const title = measure === "avgCheck" ? "Средний чек по бариста" : measure === "checks" ? "Чеки по бариста" : "Касса по бариста";
+  const lines = top.map((b, i) => {
+    const mark = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
+    const val = measure === "avgCheck" ? fmt(b.avg) : measure === "checks" ? `${b.checks} чеков` : fmt(b.cash);
+    const rest = measure === "avgCheck" ? ` (${b.checks} чеков)` : measure === "checks" ? ` (${fmt(b.cash)})` : ` (${b.checks} чеков, ср. ${fmt(b.avg)})`;
+    return `${mark} ${b.name}: ${val}${rest}${isAll(spot) && b.spots.length ? ` — ${b.spots.join(", ")}` : ""}`;
+  });
+  const tail = [];
+  if (rows.length > top.length) tail.push(`…и ещё ${rows.length - top.length}`);
+  if (unnamed) tail.push(`Без имени — ${unnamed} чеков.`);
+  return { text: `${title} ${sl} за ${pl}:\n${lines.join("\n")}${tail.length ? `\n\n${tail.join("\n")}` : ""}${note}`, data: { rows, measure } };
 }
 
 // ─── Часы внутри дня ─────────────────────────────────────────────

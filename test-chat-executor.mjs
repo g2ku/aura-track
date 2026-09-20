@@ -66,7 +66,7 @@ globalThis.__poster = {
     let id = 1;
     for (const d of eachDay(from, to).filter((x) => x <= TODAY)) for (const sid of Object.keys(SPOTS)) for (let h = sid === "9" ? 10 : 8; h < 22; h += 2) {
       const sum = sid === "4" && h === 14 ? 48000 : 2500 + h * 100;
-      receipts.push({ id: id++, spotId: sid, spotName: SPOTS[sid], waiter: "Айгерим", dateOpen: `${d} ${String(h).padStart(2, "0")}:05:00`, dateClose: `${d} ${String(h).padStart(2, "0")}:12:00`, sum, discount: 0, profit: 0, status: "closed", products: [{ name: "Латте 0,4", qty: 1, sum: 2500 }, { name: "Круассан", qty: 2, sum: sum - 2500 }], paymentTypes: [] });
+      receipts.push({ id: id++, spotId: sid, spotName: SPOTS[sid], waiter: h < 14 ? "Айгерим" : "Данияр", dateOpen: `${d} ${String(h).padStart(2, "0")}:05:00`, dateClose: `${d} ${String(h).padStart(2, "0")}:12:00`, sum, discount: 0, profit: 0, status: "closed", products: [{ name: "Латте 0,4", qty: 1, sum: 2500 }, { name: "Круассан", qty: 2, sum: sum - 2500 }], paymentTypes: [] });
     }
     return { receipts, transactionsCount: receipts.length, openCount: 0, daysCount: eachDay(from, to).length };
   },
@@ -281,6 +281,22 @@ section("Способы оплаты и время открытия");
   ok(late.indexOf("Дубай") < late.indexOf("Абая"), "порядок — от поздней к ранней");
   const w = await ask("во сколько открывались точки за неделю");
   has(w, "обычно 10:05, позже всего 10:05", "за несколько дней — обычное и самое позднее");
+}
+
+section("Бариста — по чекам с именем");
+{
+  const t = await ask("кто из бариста продал больше всех вчера");
+  has(t, "Касса по бариста все филиалы за 19 сентября", "заголовок");
+  has(t, "🏆 Данияр:", "лидер по кассе — Данияр (у него чек на 48 000)");
+  has(t, "🥈 Айгерим:", "второй");
+  const c = await ask("чеки у айгерим вчера");
+  has(c, "Айгерим: ", "по имени");
+  has(c, "· 8 чеков ·", "утренние чеки трёх точек (Дубай открывается позже)");
+  const a = await ask("средний чек по сотрудникам на абае вчера");
+  has(a, "Средний чек по бариста Abaya", "средний чек по людям на точке");
+  const miss = await ask("чеки у айгуль вчера");
+  has(miss, "не нашёл", "неизвестное имя");
+  has(miss, "Есть: Айгерим, Данияр", "и кто есть");
 }
 
 section("Часы внутри дня — по чекам");

@@ -16,6 +16,8 @@ const METRICS = [
   { keys: ["открытые чек", "открыт чек", "открытых чек", "незакрыт", "висят чек", "висящие чек", "что висит"], value: "openChecks" },
   // Во сколько открылись точки — по первому чеку дня
   { keys: ["во сколько открыл", "во сколько открыва", "когда открыл", "когда открыва", "время открыт", "открылась позже", "открылись позже", "открылась раньше", "опоздал", "опоздан", "позже всех", "раньше всех", "первый чек"], value: "opening" },
+  // Бариста: кто сколько продал — по чекам, где есть имя сотрудника
+  { keys: ["бариста", "сотрудник", "официант", "по людям", "кто из ребят", "кто продал больше", "кто пробил больше", "по кассирам", "кассир"], value: "staff" },
   // Способы оплаты: наличные, карта, Kaspi, Halyk
   { keys: ["наличн", "налом", "картой", "карточк", "по карте", "каспи", "kaspi", "халык", "halyk", "способ оплат", "способам оплат", "виды оплат", "по оплат", "безнал"], value: "payments" },
   { keys: ["что не так", "есть проблем", "какие проблем", "всё в порядке", "все в порядке", "что случилось", "тревог", "не открыл", "не открыт"], value: "alerts" },
@@ -55,7 +57,7 @@ const OPERATIONS = [
   { keys: ["средн", "средняя", "среднее", "средний"], value: "average" },
   { keys: ["сумм", "итого", "общая", "общий", "полная", "полный"], value: "sum" },
   { keys: ["сколько", "количеств", "число", "кол-во"], value: "count" },
-  { keys: ["максимум", "максимальн", "больше всего", "самый большой", "самый дорог", "топ", "лучш"], value: "max" },
+  { keys: ["максимум", "максимальн", "больше всего", "больше всех", "самый большой", "самый дорог", "топ", "лучш"], value: "max" },
   { keys: ["минимум", "минимальн", "меньше всего", "самый маленьк", "самый дешев"], value: "min" },
   { keys: ["сравн", "сравнить", "разниц", "отлич"], value: "compare" },
   { keys: ["измени", "вырос", "упал", "изменилась", "изменился", "рост", "снижение", "динамик", "просел", "просела", "подрос"], value: "percentChange" },
@@ -172,6 +174,7 @@ const STOP_WORDS = new Set([
   "сделали", "сделал", "сделала", "мы", "вы", "они", "просел", "просела", "просели", "заработаем",
   "доля", "доли", "долю", "открылась", "открылся", "открылись", "открыли", "открывались", "открываются", "открывается",
   "возили", "возил", "привозили", "привезли", "последний", "раз", "ехать", "везти",
+  "бариста", "сотрудник", "сотрудники", "сотрудников", "сотрудникам", "официант", "кассир", "кассиры", "ребят",
 ]);
 
 // Spot aliases
@@ -775,6 +778,9 @@ function parseMetric(text, product) {
   // вытаскивает «стаканов» как товар, а вопрос про учёт, не про продажи
   const cupsKeys = METRICS.find((m) => m.value === "cups")?.keys || [];
   if (cupsKeys.some((k) => lower.includes(k))) return "cups";
+  // Бариста — тоже: «сколько чеков у Айгерим» вытаскивает имя как товар
+  const staffKeys = METRICS.find((m) => m.value === "staff")?.keys || [];
+  if (staffKeys.some((k) => lower.includes(k))) return "staff";
   // If product was detected, default to products (unless explicit metric keyword overrides)
   if (product) {
     // "продажи латте", "сколько O2", "латте за июнь" — all product queries
@@ -966,6 +972,19 @@ export async function parseQuestion(text) {
   // целиком — и, конечно, не находило
   if (metric === "stock") product = ingredient ? ingredient[0] : null;
   if (metric === "cups") product = null;
+  // У бариста «товар» — это имя человека: «чеки у Айгерим» → person
+  let person = null;
+  if (metric === "staff") { person = product && !/^бариста|^сотрудник|^официант|^кассир/.test(product) ? product : null; product = null; }
+  // «Сколько чеков у Айгерим» без слова «бариста» — тоже про человека,
+  // если после «у» стоит незнакомое слово с большой вероятностью имени
+  const afterU = lower.match(/(?:^|\s)у\s+([а-яё]{3,})(?![а-яё])/);
+  if (metric !== "staff" && afterU && !ingredient && ["cash", "checks", "avgCheck", "products"].includes(metric)) {
+    const name = afterU[1];
+    const pronoun = /^(нас|вас|них|неё|него|меня|тебя|себя|всех|кого|того|этого|каждого)$/.test(name);
+    if (!pronoun && !STOP_WORDS.has(name) && !looksLikeKeyword(name) && !isSpotWord(name) && !findMonth(name) && (!product || product === name)) {
+      metric = "staff"; person = name; product = null;
+    }
+  }
 
   let operation = parseOperation(lower);
   let spot = parseSpot(lower);
@@ -1046,6 +1065,7 @@ export async function parseQuestion(text) {
     period,
     ...(period2 ? { period2 } : {}),
     ...(hours ? { hours } : {}),
+    ...(person ? { person } : {}),
     product,
     category,
     ipGroup,
