@@ -8,6 +8,8 @@ import { remember, recallEntry, shareLearned, syncShared, forgetShared, LINK_WIN
 import { addPin, isPinned, ASK_KEY } from "../chat/pins.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, spotNameByPosterId, BRANCHES, isAdmin, isAdminOrManager } from "../auth.jsx";
+import { downloadCsv } from "../utils";
+import { tableOf, csvName } from "../chat/table.js";
 
 // Примеры вопросов.
 //
@@ -549,6 +551,12 @@ export default function DataChat() {
                     : <button className="chat-suggestion-btn chat-followup-btn chat-pin-btn" onClick={() => pinMessage(msg)} title="Плиткой на дашборд">
                         <i className="ti ti-pin" /> Закрепить
                       </button>
+                )}
+                {/* Таблица из ответа — в Excel одним касанием */}
+                {msg.role === "assistant" && tableOf(msg.data) && (
+                  <button className="chat-suggestion-btn chat-followup-btn chat-pin-btn" title="Скачать таблицу CSV" onClick={() => { const t = tableOf(msg.data); downloadCsv(csvName(msg.question || msg.parsed?.raw), t.headers, t.rows); }}>
+                    <i className="ti ti-download" /> CSV
+                  </button>
                 )}
                 {msg.pinnable && isAdminOrManager() && (
                   shared[msg.id] === "ok"

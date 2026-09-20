@@ -853,6 +853,20 @@ section("Ещё вопросы владельца: выходные, полов�
   eq([g.operation, g.product, !!g.period2], ["percentChange", "латте", true], "«на сколько процентов выросли» — сравнение с прошлым отрезком");
 }
 
+section("Таблица из ответа — для CSV");
+
+{
+  const { tableOf, csvName } = await import("./src/chat/table.js");
+  const t = tableOf([{ spotId: "4", spotName: "Aura02_Abaya", total: 610000, txCount: 205, avgCheck: 2976, daysCount: 1 }]);
+  eq(t.headers.map((h) => h.label), ["Точка", "Касса", "Чеки", "Средний чек", "Дней"], "подписи колонок по-русски, spotId скрыт");
+  eq(t.rows[0].spotName, "Абая", "точка по-русски");
+  eq(tableOf({ rows: [{ name: "Айгерим", cash: 28200, checks: 8, avg: 3525.4, spots: ["Абая"] }], measure: "cash" }).rows[0], { name: "Айгерим", cash: 28200, checks: 8, avg: 3525.4 }, "массив внутри объекта, вложенные массивы скрыты");
+  eq(tableOf({ totalCash: 1, totalTx: 2 }), null, "без массива — таблицы нет");
+  eq(tableOf(null), null, "без данных — нет");
+  eq(csvName("Касса по точкам за вчера?"), "kassa-po-tochkam-za-vchera", "имя файла — транслит вопроса");
+  ok(readFileSync("src/components/DataChat.jsx", "utf8").includes("tableOf(msg.data)"), "кнопка CSV показывается, когда есть таблица");
+}
+
 section("Исполнитель и клиент собраны правильно");
 
 {
