@@ -28,7 +28,7 @@ globalThis.window = globalThis.window || { location: { origin: "http://x", hash:
 globalThis.document = globalThis.document || { hidden: false, addEventListener() {}, removeEventListener() {} };
 const log = console.log; console.log = () => {}; console.warn = () => {};
 
-const { fetchPosterSales, fetchCashBySpot, fetchCashPerDay } = await import("./src/poster.js");
+const { fetchPosterSales, fetchCashBySpot, fetchCashPerDay, fetchHoursByDay, fetchHourlyCurve } = await import("./src/poster.js");
 console.log = log;
 
 const now = new Date();
@@ -84,6 +84,27 @@ section("Касса по дням: из кэша без меню, пропавш
   let err = null;
   try { await fetchCashPerDay(dash(today), dash(today)); } catch (e) { err = e; }
   ok(err, "не дошёл единственный день — ошибка");
+}
+
+section("Часы — из ночных итогов, чеки только за то, чего в них нет");
+
+{
+  // Вчера — с часами в кэше (как кладут ночные итоги); позавчера — без
+  const hours = { 4: { cash: Array(24).fill(0).map((_, h) => (h === 14 ? 9000 : 0)), tx: Array(24).fill(0).map((_, h) => (h === 14 ? 3 : 0)) } };
+  const c = JSON.parse(mem.get(CACHE_KEY));
+  c[back(1)] = { ...c[back(1)], hours };
+  mem.set(CACHE_KEY, JSON.stringify(c));
+  calls.length = 0;
+  const r = await fetchHoursByDay(dash(back(2)), dash(today));
+  eq(r.days.map((d) => d.date), [dash(back(1))], "вчера — из итогов");
+  eq(r.missing, [dash(back(2)), dash(today)], "позавчера без часов и сегодня — названы недостающими");
+  ok(!calls.some((u) => u.includes("transactions.getTransactions")), "в Poster за чеками не ходили");
+
+  const curve = await fetchHourlyCurve(dash(back(1)));
+  eq([curve.buckets[14], curve.total, curve.txCount], [9000, 9000, 3], "вчерашняя кривая — из тех же 24 чисел");
+  ok(!calls.some((u) => u.includes("dash.getTransactions")), "и без dash-строк");
+  const curve4 = await fetchHourlyCurve(dash(back(1)), { spotId: "9" });
+  eq(curve4.total, 0, "фильтр по точке работает");
 }
 
 section("Список дней — отрезками");

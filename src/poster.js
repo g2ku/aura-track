@@ -761,6 +761,23 @@ export async function fetchHourlyCurve(date, opts = {}) {
       }
     } catch (_) {}
   }
+  // Прошлый день с ночным итогом — из его 24 чисел, без похода в Poster:
+  // вчерашняя кривая на главной иначе стоила 650 КБ dash-строк
+  if (ymd !== todayYmd()) {
+    const hrs = await fetchHoursByDay(fromPosterDate(ymd), fromPosterDate(ymd), opts).catch(() => null);
+    const h = hrs?.days?.[0]?.hours;
+    if (h) {
+      const buckets = new Array(24).fill(0);
+      let total = 0, txCount = 0;
+      for (const [sid, hs] of Object.entries(h)) {
+        if (spotId && String(sid) !== spotId) continue;
+        for (let i = 0; i < 24; i++) { buckets[i] += hs.cash?.[i] || 0; total += hs.cash?.[i] || 0; txCount += hs.tx?.[i] || 0; }
+      }
+      const curve = { buckets, total, txCount };
+      try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: curve })); } catch (_) {}
+      return curve;
+    }
+  }
   const data = await call("dash.getTransactions", { date_from: ymd, date_to: ymd }, opts);
   const txs = data?.response || [];
   const buckets = new Array(24).fill(0);
