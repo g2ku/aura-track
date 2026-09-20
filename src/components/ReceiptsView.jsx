@@ -363,7 +363,7 @@ export default function ReceiptsView() {
         <div className="card empty-state" style={{ marginTop: 16 }}>
           <i className="ti ti-receipt" />
           <div className="empty-state-title">Чеки ещё не загружены</div>
-          <div className="empty-state-sub">Выберите период и нажмите «Загрузить».</div>
+          <div className="empty-state-sub">Загрузка прервана — нажмите «Загрузить».</div>
         </div>
       )}
     </div>
