@@ -1103,10 +1103,9 @@ export async function mergeFollowUp(prev, text) {
 
   // «Круассаны», «сырники за вчера» — ни метрики, ни известного товара,
   // а одно-два незнакомых слова. Это товар, которого нет в сокращениях.
-  let guessedProduct = false;
   if (!product && !category && !exactMetric(lower) && !fuzzyMetric(lower) && !GREETINGS.test(lower.trim())) {
     const rest = unknownWords(lower);
-    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) { product = rest.join(" "); guessedProduct = true; }
+    if (rest.length && rest.length <= 2 && /[а-яa-z]{3,}/.test(rest.join(""))) product = rest.join(" ");
   }
   const metric = exactMetric(lower) || fuzzyMetric(lower);
   const byBranch = /по\s+(?:филиал|точк)|филиалы|точки|все\s+(?:филиал|точк)/.test(lower);

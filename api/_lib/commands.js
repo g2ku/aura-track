@@ -1347,9 +1347,10 @@ export async function handleMessage(msg, ctx) {
 
   // Вопрос словами в личке от админа — ассистент, а не накладная.
   // Только когда позиций с суммами нет: «Абая пон 48 40к» — накладная.
-  if (!hasItems && msg.chat?.type === "private" && isAdmin(config, msg.from?.id)) {
+  if (!hasItems && (msg.chat?.type === "private" || msg.fromButton) && isAdmin(config, msg.from?.id)) {
     const a = await askBot(text, ctx.store, { ...ctx, msg, config }).catch(() => null);
     if (a) return a;
+    if (msg.fromButton) return { text: "Не смог посчитать." };
   }
 
   if (!branch) {

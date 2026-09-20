@@ -108,10 +108,8 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
   if (parsed.metric === "payments") {
     const total = {};
     const bySpot = {};
-    let covered = 0;
     for (const d of days || []) {
       if (!d?.pay?.bySpot) continue;
-      covered++;
       for (const [spot, methods] of Object.entries(d.pay.bySpot)) {
         if (spots && !spots.has(String(spot))) continue;
         for (const [id, v] of Object.entries(methods || {})) {
@@ -358,7 +356,38 @@ export async function answerQuestion(text, deps) {
   if (parsed.note) lines.push(`<i>${escapeHtml(parsed.note)}</i>`);
   lines.push(answer);
   if (todayMissing) lines.push("<i>Сегодняшний день не вошёл: Poster не ответил.</i>");
-  return { text: lines.join("\n"), parsed };
+  // buttons — кнопки под ответом; не followUps: так в вебхуке зовутся
+  // догоняющие сообщения в другие чаты
+  return { text: lines.join("\n"), parsed, buttons: botFollowUps(parsed, { today }) };
+}
+
+// Кнопки под ответом: следующий вопрос одним касанием. callback_data в
+// Telegram — не больше 64 байт, кириллица по два: держим короткие
+// фразы и отбрасываем те, что не влезли.
+const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+export function botFollowUps(parsed, { today } = {}) {
+  if (!parsed) return [];
+  const p = parsed.period || {};
+  const single = p.from && p.from === p.to;
+  const whenWord = single
+    ? (p.from === today ? "сегодня" : p.from === shiftYmd(today || p.from, -1) ? "вчера" : `за ${Number(p.from.slice(8, 10))} ${MONTHS_GEN[Number(p.from.slice(5, 7)) - 1]}`)
+    : (p.label === "по месяцам" ? "" : /^\d{4}-\d{2}-01$/.test(p.from || "") && p.to && p.to.slice(0, 7) === p.from.slice(0, 7) ? "за месяц" : "за неделю");
+  const spot = parsed.spot?.spotId && parsed.spot.spotId !== "all" ? spotNameByPosterId(parsed.spot.spotId) : "";
+  const tail = [spot, whenWord].filter(Boolean).join(" ");
+  const m = parsed.metric;
+  let list;
+  if (m === "cash") list = [`чеки ${tail}`, spot ? `касса по точкам ${whenWord}` : `кто просел за неделю`, `товары ${tail}`, single ? "касса за неделю" : "тренд кассы"];
+  else if (m === "checks") list = [`касса ${tail}`, `средний чек ${tail}`, spot ? `чеки по точкам ${whenWord}` : `чеки по будням за месяц`];
+  else if (m === "avgCheck") list = [`касса ${tail}`, `чеки ${tail}`, `средний чек по точкам ${whenWord}`];
+  else if (m === "products") list = [`касса ${tail}`, `товары по точкам ${whenWord}`, "что продавалось вчера"];
+  else if (m === "compareBranches") list = [`касса ${whenWord}`, `чеки по точкам ${whenWord}`, "кто просел за неделю"];
+  else if (m === "payments") list = [`касса ${tail}`, `доля каспи ${tail}`, "способы оплаты за месяц"];
+  else list = ["касса вчера", "касса за неделю", "что продавалось вчера"];
+  const seen = new Set();
+  return list
+    .map((q) => q.replace(/\s+/g, " ").trim())
+    .filter((q) => q && !seen.has(q) && seen.add(q) && Buffer.byteLength(`q:${q}`, "utf8") <= 64)
+    .slice(0, 4);
 }
 
 function daysBetween(from, to) {

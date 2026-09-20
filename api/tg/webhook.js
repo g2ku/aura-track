@@ -10,7 +10,7 @@
 
 import { getConfig, markUpdateSeen, botStore } from "../_lib/store.js";
 import { handleMessage } from "../_lib/commands.js";
-import { sendMessage, setMessageReaction, authorName } from "../_lib/telegram.js";
+import { sendMessage, setMessageReaction, authorName, tgCall } from "../_lib/telegram.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -36,8 +36,39 @@ export default async function handler(req, res) {
   res.status(200).json({ ok: true });
 }
 
+// Кнопка под ответом ассистента: callback_data «q:чеки вчера» — тот же
+// вопрос, что человек написал бы руками. Сообщение собираем как будто
+// его написали: чат — тот, где кнопка, автор — кто нажал.
+function messageFromCallback(cq) {
+  const data = String(cq?.data || "");
+  if (!data.startsWith("q:") || !cq?.message?.chat) return null;
+  return {
+    text: data.slice(2),
+    chat: cq.message.chat,
+    from: cq.from,
+    message_id: cq.message.message_id,
+    is_topic_message: cq.message.is_topic_message,
+    message_thread_id: cq.message.message_thread_id,
+  };
+}
+
+// Кнопки под ответом ассистента — в разметку Telegram, по две в ряд
+function keyboardFor(result) {
+  const list = (result?.buttons || []).filter((q) => typeof q === "string" && q);
+  if (!list.length) return {};
+  const rows = [];
+  for (let i = 0; i < list.length; i += 2) rows.push(list.slice(i, i + 2).map((q) => ({ text: q, callback_data: `q:${q}` })));
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
 async function processUpdate(update) {
-  const msg = update?.message || update?.edited_message;
+  let msg = update?.message || update?.edited_message;
+  const cq = update?.callback_query;
+  if (cq) {
+    // Кнопка нажата — Telegram ждёт подтверждения, иначе крутит часики
+    tgCall("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => {});
+    msg = messageFromCallback(cq);
+  }
   // Накладную часто присылают фотографией с подписью — тогда текст лежит
   // в caption, а не в text, и сообщение нельзя пропускать.
   if (!msg || !(msg.text || msg.caption)) return;
@@ -51,7 +82,9 @@ async function processUpdate(update) {
   const config = await getConfig();
 
   const store = botStore();
-  const result = await handleMessage(msg, {
+  // Вопрос с кнопки в группе — тоже вопрос: кнопку показали только на
+  // ответ ассистента, значит спрашивать здесь можно
+  const result = await handleMessage(cq ? { ...msg, fromButton: true } : msg, {
     store,
     config,
     authorName: authorName(msg.from),
@@ -80,8 +113,10 @@ async function processUpdate(update) {
     // в общую тему вместо той, где написали.
     const threadId = msg.is_topic_message ? msg.message_thread_id : undefined;
     await sendMessage(msg.chat.id, result.text, {
-      reply_parameters: { message_id: msg.message_id, allow_sending_without_reply: true },
+      // На нажатие кнопки не цитируем сообщение бота — и так рядом
+      ...(cq ? {} : { reply_parameters: { message_id: msg.message_id, allow_sending_without_reply: true } }),
       ...(threadId ? { message_thread_id: threadId } : {}),
+      ...keyboardFor(result),
     });
   }
 
