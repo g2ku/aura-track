@@ -8,6 +8,9 @@
 import { spotNameByPosterId } from "./branches.js";
 
 const fmtSum = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(n)) + " ₸";
+const fmtInt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(n));
+// Проценты с настоящим минусом: «−10 %», а не дефис
+const signed = (p) => (p > 0 ? `+${p} %` : p < 0 ? `−${Math.abs(p)} %` : "0 %");
 
 // Свод дня из строк dash.getTransactions.
 export function summarizeDay(rows) {
@@ -66,9 +69,42 @@ export function baselineLine(ymd, total, docs) {
   return parts.join(" · ");
 }
 
+// Опора по точкам: касса каждой точки в тот же день недели — среднее за
+// четыре прошлые недели. Сеть в целом может стоять ровно, пока одна
+// точка просела на треть, а другая её вытянула; в сумме этого не видно.
+// Возвращает { spotId: среднее } только там, где есть хотя бы две недели.
+export function spotBaselines(ymd, docs) {
+  if (!ymd) return {};
+  const back = (n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  const wanted = new Set([7, 14, 21, 28].map(back));
+  const acc = {};
+  for (const d of docs || []) {
+    if (!wanted.has(d?.date)) continue;
+    for (const [spot, v] of Object.entries(d.cashBySpot || {})) {
+      if (!(v > 0)) continue;
+      (acc[spot] ||= []).push(v);
+    }
+  }
+  const out = {};
+  for (const [spot, vs] of Object.entries(acc)) if (vs.length >= 2) out[spot] = vs.reduce((s, v) => s + v, 0) / vs.length;
+  return out;
+}
+
+// Заметное отклонение точки от своего обычного дня. Меньше порога —
+// шум: у кофейни день ото дня гуляет на десять процентов просто так.
+export const SPOT_DEVIATION_PCT = 20;
+
+function spotDelta(total, base) {
+  if (!base || !total) return "";
+  const pct = Math.round(((total - base) / base) * 100);
+  if (Math.abs(pct) < SPOT_DEVIATION_PCT) return "";
+  return pct > 0 ? ` · ▲ +${pct} %` : ` · ▼ −${Math.abs(pct)} %`;
+}
+
 // dateLabel — «25 августа», supplies — сумма накладных за тот же день,
-// baseline — строка опоры от baselineLine (может быть пустой).
-export function formatBriefing({ day, prev, dateLabel, supplies = null, baseline = "" }) {
+// baseline — строка опоры от baselineLine (может быть пустой),
+// spotBase — опоры по точкам от spotBaselines.
+export function formatBriefing({ day, prev, dateLabel, supplies = null, baseline = "", spotBase = {} }) {
   if (!day || !day.checks) {
     return `☀️ <b>${dateLabel}</b>\n\nПродаж за день не было.`;
   }
@@ -89,8 +125,12 @@ export function formatBriefing({ day, prev, dateLabel, supplies = null, baseline
   if (day.spots.length) {
     lines.push("", "<b>По точкам</b>");
     for (const s of day.spots) {
-      lines.push(`• ${s.name} — ${fmtSum(s.total)} · ${s.checks} чек.`);
+      lines.push(`• ${s.name} — ${fmtSum(s.total)} · ${s.checks} чек.${spotDelta(s.total, spotBase?.[s.spotId])}`);
     }
+    // Точки, которых вчера не было, а обычно в этот день они торгуют:
+    // закрылись, касса не работала или чеки не закрыли
+    const silent = Object.keys(spotBase || {}).filter((id) => !day.spots.some((s) => String(s.spotId) === String(id)));
+    for (const id of silent) lines.push(`• ${spotNameByPosterId(id)} — без продаж, обычно ${fmtSum(spotBase[id])}`);
   }
 
   // Отстающая точка заметнее, когда названа отдельно
@@ -191,15 +231,57 @@ function weekTotals(docs) {
 const pctStr = (a, b) => {
   if (!b) return "";
   const p = Math.round(((a - b) / b) * 100);
-  return p > 0 ? ` (+${p} %)` : p < 0 ? ` (${p} %)` : " (как неделей раньше)";
+  return p ? ` (${signed(p)})` : " (как неделей раньше)";
 };
+
+// ─── Месячный итог ───────────────────────────────────────────────────
+//
+// Первого числа, после сводки: месяц против прошлого месяца — сеть,
+// точки, средний чек, кто вырос и кто просел. Месяцы разной длины, поэтому
+// рядом с итогом — среднее в день: сентябрь короче августа на день, и
+// «−3 %» по сумме может быть ростом по дню.
+const MONTH_NOM = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+
+export function formatMonthlyDigest(cur, prev, { month, prevMonth } = {}) {
+  const c = weekTotals(cur), p = weekTotals(prev);
+  if (!c.days) return "";
+  const name = (ym) => (ym ? `${MONTH_NOM[Number(String(ym).slice(5, 7)) - 1]} ${String(ym).slice(0, 4)}` : "");
+  const perDay = (t) => (t.days ? t.total / t.days : 0);
+  const lines = [`🗓 <b>Итог месяца — ${name(month)}</b>`, ""];
+  lines.push(`Касса — <b>${fmtSum(c.total)}</b>${pctStr(c.total, p.total).replace("неделей", "месяцем")}`);
+  lines.push(`В день — ${fmtSum(perDay(c))}${pctStr(perDay(c), perDay(p)).replace("неделей", "месяцем")} · ${c.days} дн.`);
+  lines.push(`Чеков — ${fmtInt(c.checks)}${pctStr(c.checks, p.checks).replace("неделей", "месяцем")} · средний чек — ${fmtSum(c.avg)}${pctStr(c.avg, p.avg).replace("неделей", "месяцем")}`);
+  if (prevMonth && p.days) lines.push(`<i>${name(prevMonth)}: ${fmtSum(p.total)} за ${p.days} дн.</i>`);
+
+  const rows = Object.entries(c.bySpot).map(([spot, v]) => ({
+    name: spotNameByPosterId(spot), total: v.total, checks: v.checks,
+    pct: p.bySpot[spot]?.total ? Math.round(((v.total - p.bySpot[spot].total) / p.bySpot[spot].total) * 100) : null,
+  })).sort((a, b) => b.total - a.total);
+
+  if (rows.length) {
+    lines.push("", "<b>По точкам</b>");
+    for (const r of rows) {
+      const share = c.total ? Math.round((r.total / c.total) * 100) : 0;
+      const d = r.pct == null ? "" : ` · ${signed(r.pct)}`;
+      lines.push(`• ${r.name} — ${fmtSum(r.total)} (${share} %)${d}`);
+    }
+    const moved = rows.filter((r) => r.pct != null);
+    if (moved.length >= 2) {
+      const up = [...moved].sort((a, b) => b.pct - a.pct)[0];
+      const down = [...moved].sort((a, b) => a.pct - b.pct)[0];
+      if (up.pct > 0) lines.push("", `📈 Лучший рост — ${up.name}: ${signed(up.pct)}`);
+      if (down.pct < 0) lines.push(`${up.pct > 0 ? "" : "\n"}📉 Просела — ${down.name}: ${signed(down.pct)}`);
+    }
+  }
+  return lines.join("\n");
+}
 
 export function formatWeeklyDigest(cur, prev, { from, to } = {}) {
   const c = weekTotals(cur), p = weekTotals(prev);
   if (!c.days) return "";
   const lines = [`📅 <b>Неделя ${formatDayLabel(from)} — ${formatDayLabel(to)}</b>`, ""];
   lines.push(`Касса — <b>${fmtSum(c.total)}</b>${pctStr(c.total, p.total)}`);
-  lines.push(`Чеков — ${c.checks}${pctStr(c.checks, p.checks)} · средний чек — ${fmtSum(c.avg)}`);
+  lines.push(`Чеков — ${fmtInt(c.checks)}${pctStr(c.checks, p.checks)} · средний чек — ${fmtSum(c.avg)}`);
   if (c.days < 7) lines.push(`<i>Итогов за ${c.days} из 7 дней — остальные ещё не собраны.</i>`);
 
   const rows = Object.entries(c.bySpot).map(([spot, v]) => ({
@@ -210,15 +292,15 @@ export function formatWeeklyDigest(cur, prev, { from, to } = {}) {
   if (rows.length) {
     lines.push("", "<b>По точкам</b>");
     for (const r of rows) {
-      const d = r.pct == null ? "" : r.pct > 0 ? ` · +${r.pct} %` : r.pct < 0 ? ` · ${r.pct} %` : " · 0 %";
+      const d = r.pct == null ? "" : ` · ${signed(r.pct)}`;
       lines.push(`• ${r.name} — ${fmtSum(r.total)}${d}`);
     }
     const moved = rows.filter((r) => r.pct != null);
     if (moved.length >= 2) {
       const up = [...moved].sort((a, b) => b.pct - a.pct)[0];
       const down = [...moved].sort((a, b) => a.pct - b.pct)[0];
-      if (up.pct > 0) lines.push("", `📈 Лучший рост — ${up.name}: +${up.pct} %`);
-      if (down.pct < 0) lines.push(`${up.pct > 0 ? "" : "\n"}📉 Просела — ${down.name}: ${down.pct} %`);
+      if (up.pct > 0) lines.push("", `📈 Лучший рост — ${up.name}: ${signed(up.pct)}`);
+      if (down.pct < 0) lines.push(`${up.pct > 0 ? "" : "\n"}📉 Просела — ${down.name}: ${signed(down.pct)}`);
     }
   }
   return lines.join("\n");

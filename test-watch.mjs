@@ -7,7 +7,7 @@
 // Запуск: node test-watch.mjs
 
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours, WATCH_DEFAULTS } from "./api/_lib/watch.js";
-import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, formatWeeklyDigest } from "./api/_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, formatWeeklyDigest, formatMonthlyDigest } from "./api/_lib/briefing.js";
 import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
@@ -297,6 +297,23 @@ section("Утренняя сводка");
   eq(baselineLine("2026-09-18", 0, docs), "", "нулевая касса — без опоры");
   eq(baselineLine("2026-09-12", 500, [{ date: "2026-09-05", cashBySpot: { "4": 400 } }]), "+25 % к прошлой субботе", "суббота — женского рода");
 
+  // Опора по точкам: сеть ровно, а одна точка просела на треть
+  const sb = spotBaselines("2026-09-18", docs);
+  eq(Object.keys(sb), ["4", "9"], "опора есть у обеих точек");
+  eq(Math.round(sb["4"]), 600, "среднее за четыре пятницы");
+  eq(spotBaselines("2026-09-18", docs.slice(0, 1)), {}, "одна неделя — опоры нет");
+  const d2 = { total: 920, checks: 10, avg: 92, spots: [
+    { spotId: "4", name: "Абая", total: 400, checks: 5 },
+    { spotId: "9", name: "Дубай", total: 520, checks: 5 },
+  ] };
+  const b = formatBriefing({ day: d2, prev: null, dateLabel: "18 сентября", spotBase: sb });
+  ok(b.includes("• Абая — 400 ₸ · 5 чек. · ▼ −33 %"), `просевшая точка помечена: ${b.split("\n").find((l) => l.includes("Абая"))}`);
+  ok(b.includes("• Дубай — 520 ₸ · 5 чек. · ▲ +30 %"), "выросшая — тоже");
+  const b2 = formatBriefing({ day: { ...d2, spots: [{ spotId: "4", name: "Абая", total: 610, checks: 5 }] }, prev: null, dateLabel: "x", spotBase: sb });
+  ok(b2.includes("• Абая — 610 ₸ · 5 чек.\n"), "отклонение меньше порога — без пометки");
+  ok(b2.includes("• Дубай — без продаж, обычно 400 ₸"), "точка без продаж названа, если обычно торгует");
+  ok(!formatBriefing({ day: d2, prev: null, dateLabel: "x" }).includes("▼"), "без опор — как раньше");
+
   const day = { total: 920, checks: 10, avg: 92, spots: [] };
   const withBase = formatBriefing({ day, prev: { total: 1000, checks: 11 }, dateLabel: "18 сентября", baseline: baselineLine("2026-09-18", 920, docs) });
   ok(withBase.includes("<i>−8 % к прошлой пятнице · −8 % к среднему за 4 нед.</i>"), "опора — сразу под кассой, курсивом");
@@ -480,7 +497,7 @@ section("Итог недели по понедельникам");
   ok(t.includes("• Абая — ") && t.includes("• Дубай — "), "по точкам");
   ok(t.indexOf("• Абая") < t.indexOf("• Дубай"), "по убыванию кассы");
   ok(t.includes("📈 Лучший рост — Абая: +10 %"), "кто вырос");
-  ok(t.includes("📉 Просела — Дубай: -10 %"), "кто просел");
+  ok(t.includes("📉 Просела — Дубай: −10 %"), "кто просел — с настоящим минусом");
   ok(!t.includes("из 7 дней"), "семь дней собраны — без оговорки");
   const partial = formatWeeklyDigest(cur.slice(0, 5), prev, { from: "2026-09-14", to: "2026-09-20" });
   ok(partial.includes("Итогов за 5 из 7 дней"), "не все дни собраны — честно сказано");
@@ -491,6 +508,29 @@ section("Итог недели по понедельникам");
   ok(/config\.weeklyDigest && config\.lastWeeklyDigestDate !== today && nowHM >= config\.briefingTime/.test(w), "по понедельникам, раз в день, после времени сводки");
   ok(/weekdayOf\(today\) === 1/.test(w), "именно понедельник");
   ok(/patch\.lastWeeklyDigestDate = today/.test(w), "и метка ставится в любой день, чтобы не догонять во вторник");
+}
+
+section("Итог месяца первого числа");
+
+{
+  const day = (date, a, b) => ({ date, cashBySpot: { "4": a, "9": b }, txBySpot: { "4": Math.round(a / 2500), "9": Math.round(b / 2500) } });
+  const month = (ym, n, k) => Array.from({ length: n }, (_, i) => day(`${ym}-${String(i + 1).padStart(2, "0")}`, 100000 * k, 50000 * (2 - k)));
+  const cur = month("2026-09", 30, 1.2), prev = month("2026-08", 31, 1);
+  const t = formatMonthlyDigest(cur, prev, { month: "2026-09", prevMonth: "2026-08" });
+  ok(t.startsWith("🗓 <b>Итог месяца — сентябрь 2026</b>"), "заголовок с месяцем");
+  ok(/Касса — <b>[\d\u00a0\u202f ]+ ₸<\/b> \([+−]\d+ %\)/.test(t), `касса против прошлого месяца: ${t.split("\n")[2]}`);
+  ok(/В день — [\d\u00a0\u202f ]+ ₸ \(\+\d+ %\) · 30 дн\./.test(t), `среднее в день с числом дней: ${t.split("\n")[3]}`);
+  ok(t.includes("<i>август 2026: ") && t.includes("за 31 дн.</i>"), "прошлый месяц назван с длиной");
+  ok(t.includes("• Абая — ") && t.includes("(75 %)"), "доля точки в кассе сети");
+  ok(t.includes("📈 Лучший рост — Абая: +16 %") && t.includes("📉 Просела — Дубай: −23 %"), "рост и просадка по сумме за месяц");
+  ok(/Чеков — \d{1,3}[\u00a0\u202f ]\d{3}/.test(t), "чеки с разделителем тысяч");
+  eq(formatMonthlyDigest([], prev, { month: "2026-09" }), "", "нет данных — молчим");
+  ok(!/\([+−]\d+ %\)|месяцем раньше/.test(formatMonthlyDigest(cur, [], { month: "2026-09" })), "без прошлого месяца — без процентов");
+  ok(!t.includes("неделей"), "слово «неделей» сюда не просочилось");
+
+  const w = readFileSync("api/tg/watch.js", "utf8");
+  ok(/config\.weeklyDigest && config\.lastMonthlyDigestDate !== today && nowHM >= config\.briefingTime && today\.endsWith\("-01"\)/.test(w), "первого числа, тем же ключом, после времени сводки");
+  ok(/formatMonthlyDigest\(cur, prev, \{ month: from\.slice\(0, 7\)/.test(w), "месяц — прошлый целиком");
 }
 
 section("Из телеграма — сразу в нужное место");

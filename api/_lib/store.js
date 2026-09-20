@@ -187,6 +187,7 @@ export const DEFAULT_CONFIG = {
   lastSalesRollupDate: null,
   weeklyDigest: true,       // по понедельникам — итог недели против прошлой
   lastWeeklyDigestDate: null,
+  lastMonthlyDigestDate: null, // первого числа — итог месяца (тем же ключом)
   cupLowStock: 500,        // меньше этого на складе — пора закупать
 
   // Сверка накладных с Poster в конце вечернего отчёта. Выключена, пока

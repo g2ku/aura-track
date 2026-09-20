@@ -18,7 +18,7 @@ import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
-import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, formatWeeklyDigest } from "../_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
 import { sendMessage, siteUrl } from "../_lib/telegram.js";
 
@@ -150,9 +150,11 @@ export default async function handler(req, res) {
       // Их ещё может не быть (первые дни после запуска) — тогда без опоры.
       const day = summarizeDay(yRows);
       let baseline = "";
+      let spotBase = {};
       try {
         const docs = await getSalesDays(shiftYmd(yesterday, -28), shiftYmd(yesterday, -7));
         baseline = baselineLine(yesterday, day.total, docs);
+        spotBase = spotBaselines(yesterday, docs);
       } catch (e) {
         console.warn("[briefing] опора не собралась:", e?.message);
       }
@@ -164,6 +166,7 @@ export default async function handler(req, res) {
           dateLabel: formatDayLabel(yesterday),
           supplies,
           baseline,
+          spotBase,
         }),
         cupsTail,
       ].filter(Boolean).join("\n\n");
@@ -238,6 +241,26 @@ export default async function handler(req, res) {
         await setConfig({ lastWeeklyDigestDate: today }).catch(() => {});
       } catch (e) {
         console.error("[weekly] итог недели не собрался:", e?.message);
+      }
+    }
+
+    // ─── Первого числа — итог месяца ─────────────────────────────────
+    //
+    // Тем же ключом, что недельный: выключен недельный — выключен и
+    // месячный. Пропущенное первое число не догоняем, как и понедельник.
+    if (config.weeklyDigest && config.lastMonthlyDigestDate !== today && nowHM >= config.briefingTime && today.endsWith("-01")) {
+      try {
+        const to = shiftYmd(today, -1);                 // последний день прошлого месяца
+        const from = `${to.slice(0, 7)}-01`;
+        const pTo = shiftYmd(from, -1), pFrom = `${pTo.slice(0, 7)}-01`;
+        const [cur, prev] = await Promise.all([getSalesDays(from, to), getSalesDays(pFrom, pTo)]);
+        const text = formatMonthlyDigest(cur, prev, { month: from.slice(0, 7), prevMonth: pFrom.slice(0, 7) });
+        if (text) await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+        out.monthly = !!text;
+        patch.lastMonthlyDigestDate = today;
+        await setConfig({ lastMonthlyDigestDate: today }).catch(() => {});
+      } catch (e) {
+        console.error("[monthly] итог месяца не собрался:", e?.message);
       }
     }
 
