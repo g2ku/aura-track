@@ -54,10 +54,10 @@ export function understoodLine(parsed, now = new Date()) {
       cash: "касса", checks: "чеки", avgCheck: "средний чек", products: "товары", stock: "расход",
       margin: "маржа", profit: "прибыль", tax: "налог", compareBranches: "филиалы", weekday: "по дням недели",
       hourly: "по часам", trend: "тренд", forecast: "прогноз", anomaly: "аномалии", openChecks: "открытые чеки",
-      alerts: "проблемы",
+      alerts: "проблемы", payments: "способы оплаты", opening: "открытие точек", staff: "по бариста", cups: "стаканы",
     };
-    const what = parsed.category ? "сезонное меню" : parsed.product ? `«${parsed.product}»` : (names[parsed.metric] || parsed.metric);
-    bits.push(what, spotWord(parsed.spot), periodPhrase(parsed.period, now));
+    const what = parsed.category ? "сезонное меню" : parsed.product ? `«${parsed.product}»` : parsed.person ? `бариста «${parsed.person}»` : (names[parsed.metric] || parsed.metric);
+    bits.push(what, spotWord(parsed.spot), periodPhrase(parsed.period, now), parsed.hours?.label || "");
     return `Понял так: ${bits.filter(Boolean).join(", ")}.`;
   }
   if (parsed.assumed?.metric) return "Показал кассу — если нужно другое, нажмите ниже.";

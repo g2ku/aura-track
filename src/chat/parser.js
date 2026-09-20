@@ -1220,6 +1220,8 @@ export function describeParsed(parsed) {
   if (parsed.category) parts.push(`Категория: сезонное меню${parsed.category.season ? ` (${parsed.category.season})` : ""}`);
   parts.push(`Период: ${parsed.period.from} — ${parsed.period.to}`);
   if (parsed.period2) parts.push(`Период2: ${parsed.period2.from} — ${parsed.period2.to}`);
+  if (parsed.hours) parts.push(`Часы: ${parsed.hours.from}–${parsed.hours.to}`);
+  if (parsed.person) parts.push(`Бариста: ${parsed.person}`);
   if (parsed.followUpOf) parts.push(`Продолжение: «${parsed.followUpOf}» (${(parsed.changed || []).join(", ")})`);
   if (parsed.assumed?.metric) parts.push("Метрика додумана");
   return parts.join(" | ");
