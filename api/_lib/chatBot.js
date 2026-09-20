@@ -25,7 +25,14 @@ const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) ||
 const int = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0));
 
 // Что бот умеет сам; остальное — только сайт
-const SUPPORTED = new Set(["cash", "checks", "avgCheck", "products", "compareBranches"]);
+const SUPPORTED = new Set(["cash", "checks", "avgCheck", "products", "compareBranches", "payments"]);
+const PAY_NAMES = { 0: "Наличные", "0-card": "Карточки", 11: "Kaspi", 12: "Halyk" };
+const PAY_WORDS = [
+  { re: /наличн|налом/, id: "0" },
+  { re: /карточк|картой|по карте|безнал/, id: "0-card" },
+  { re: /каспи|kaspi/, id: "11" },
+  { re: /халык|halyk/, id: "12" },
+];
 
 const dateRu = (ymd) => {
   const [y, m, d] = String(ymd).split("-").map(Number);
@@ -95,6 +102,47 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
   const s = sumDays(days, spots);
 
   if (!SUPPORTED.has(parsed.metric)) return null;
+
+  // Способы оплаты — из поля pay суточных итогов (сегодня его нет:
+  // сегодняшний день считается из чеков без разбивки, и в ответ не входит)
+  if (parsed.metric === "payments") {
+    const total = {};
+    const bySpot = {};
+    let covered = 0;
+    for (const d of days || []) {
+      if (!d?.pay?.bySpot) continue;
+      covered++;
+      for (const [spot, methods] of Object.entries(d.pay.bySpot)) {
+        if (spots && !spots.has(String(spot))) continue;
+        for (const [id, v] of Object.entries(methods || {})) {
+          total[id] = (total[id] || 0) + v;
+          ((bySpot[spot] ||= {})[id] = (bySpot[spot][id] || 0) + v);
+        }
+      }
+    }
+    const all = Object.values(total).reduce((a, b) => a + b, 0);
+    if (!all) return `Разбивки по оплатам ${escapeHtml(when)} ещё нет — она собирается по ночам.`;
+    const share = (v) => `${Math.round((v / all) * 100)} %`;
+    const q = String(parsed.raw || "").toLowerCase();
+    const want = PAY_WORDS.find((w) => w.re.test(q))?.id || null;
+    const missingToday = (days || []).some((d) => d?.date === today && !d?.pay);
+    const tail = missingToday ? ["", "<i>Сегодняшний день без разбивки — она появится ночью.</i>"] : [];
+    if (want) {
+      const v = total[want] || 0;
+      const lines = [`<b>${PAY_NAMES[want] || want}${escapeHtml(where)} ${escapeHtml(when)}</b>`, `<b>${fmt(v)}</b> · ${share(v)} от ${fmt(all)}`];
+      if (!spots) {
+        const rows = Object.entries(bySpot).map(([spot, m]) => ({ spot, v: m[want] || 0, all: Object.values(m).reduce((a, b) => a + b, 0) }))
+          .filter((r) => r.all > 0).sort((a, b) => b.v - a.v);
+        lines.push("", ...rows.map((r) => `• ${escapeHtml(spotNameByPosterId(r.spot))} — ${fmt(r.v)} (${Math.round((r.v / r.all) * 100)} %)`));
+      }
+      return [...lines, ...tail].join("\n");
+    }
+    const order = ["11", "12", "0-card", "0"];
+    const rows = Object.entries(total).sort((a, b) => (order.indexOf(a[0]) + 99) % 99 - (order.indexOf(b[0]) + 99) % 99);
+    return [`<b>Способы оплаты${escapeHtml(where)} ${escapeHtml(when)}</b>`,
+      ...rows.map(([id, v]) => `• ${PAY_NAMES[id] || `Оплата #${id}`} — ${fmt(v)} (${share(v)})`),
+      "", `Итого: ${fmt(all)}`, ...tail].join("\n");
+  }
 
   const metric = parsed.metric === "compareBranches" ? "cash" : parsed.metric;
   const pickOf = (x) => (metric === "checks" ? x.checks : metric === "avgCheck" ? x.avg : x.total);

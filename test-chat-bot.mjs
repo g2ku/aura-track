@@ -28,6 +28,7 @@ const TODAY = (() => { const d = new Date(); return `${d.getFullYear()}-${String
 const Y = shift(TODAY, -1);
 const day = (date, k = 1) => ({
   date,
+  pay: { total: { 0: 30000 * k, 11: 120000 * k, 12: 20000 * k }, bySpot: { "4": { 0: 20000 * k, 11: 70000 * k, 12: 10000 * k }, "9": { 0: 10000 * k, 11: 30000 * k, 12: 10000 * k }, "11": { 11: 20000 * k } } },
   cashBySpot: { "4": 100000 * k, "9": 50000 * k, "11": 20000 * k },
   txBySpot: { "4": 40 * k, "9": 20 * k, "11": 10 * k },
   rowsBySpot: { "4": { "Латте 0,4": { qty: 10 * k, sum: 15000 * k }, "Капучино L": { qty: 5 * k, sum: 9000 * k } }, "9": { "Латте 0,3": { qty: 4 * k, sum: 5000 * k } } },
@@ -86,6 +87,13 @@ section("Ответы");
   ok(f && f.text.startsWith("<b>Касса</b>") && f.text.includes("за август") && f.text.includes("за сентябрь"), "сравнение месяцев — по кассе, а не «точки»");
   ok(/📈|📉|➡️/.test(f.text), "с процентом");
 
+  const pay = await answerQuestion("способы оплаты вчера", deps);
+  ok(pay && pay.text.startsWith("<b>Способы оплаты за") && pay.text.includes("• Kaspi — "), "способы оплаты — из pay суточных итогов");
+  ok(nb(pay.text).includes("120 000 ₸ (71 %)"), "с долей");
+  const k = await answerQuestion("доля каспи вчера", deps);
+  ok(k && k.text.startsWith("<b>Kaspi за") && k.text.includes("• Абая — "), "названный способ — по точкам");
+  const kt = await answerQuestion("сколько каспи сегодня", { ...deps, getToday: async () => ({ ...day(TODAY, 0.5), pay: undefined }) });
+  ok(kt && kt.text.includes("ещё нет"), "сегодня без разбивки — честно");
   const who = await answerQuestion("кто просел за неделю", deps);
   ok(who && who.text.includes("• Абая — ") && who.text.includes("• Рамс — "), "«кто просел» — сравнение недель по точкам");
   const g = await answerQuestion("кто хуже всех по кассе за неделю", deps);
