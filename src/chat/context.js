@@ -50,14 +50,14 @@ const signed = (p) => {
 // value — цифра за спрошенный период; lastWeek / avg4 / prev — за опоры.
 // Нулевые опоры («в прошлый вторник точка не работала») пропускаем:
 // деление на ноль в проценты не переводится.
-export function formatContext(base, { value, lastWeek = null, avg4 = null, prev = null } = {}) {
+export function formatContext(base, { value, lastWeek = null, avg4 = null, prev = null, weeks = 4 } = {}) {
   if (!base || value == null) return "";
   const parts = [];
   if (base.kind === "weekday") {
     const p1 = signed(pct(value, lastWeek));
     if (p1) parts.push(`${p1} к ${base.weekdayTo}`);
     const p2 = signed(pct(value, avg4));
-    if (p2) parts.push(`${p2} к среднему за 4 недели`);
+    if (p2) parts.push(`${p2} к среднему за ${weeks} недел${weeks === 1 ? "ю" : weeks < 5 ? "и" : "ь"}`);
   } else if (base.kind === "span") {
     const p = signed(pct(value, prev));
     if (p) parts.push(`${p} к предыдущим ${base.days} дн.`);

@@ -142,8 +142,12 @@ async function contextLine(period, spot, ipGroup, pick) {
       return pick(rows);
     };
     if (base.kind === "weekday") {
-      const four = await Promise.all(base.lastFour.map(valueOf));
-      return { base, lastWeek: four[0], avg4: averageOf(four) };
+      // Четыре прошлые недели — четыре судьбы: не дотянулась одна, опора
+      // строится по остальным, а не пропадает целиком
+      const four = (await Promise.allSettled(base.lastFour.map(valueOf))).map((r) => (r.status === "fulfilled" ? r.value : null));
+      const known = four.filter((v) => v != null);
+      if (!known.length) return "";
+      return { base, lastWeek: four[0], avg4: known.length >= 2 ? averageOf(known) : null, weeks: known.length };
     }
     return { base, prev: await valueOf(base.prev) };
   } catch (_) {
@@ -155,7 +159,7 @@ async function contextLine(period, spot, ipGroup, pick) {
 async function withContext(result, value, period, spot, ipGroup, pick) {
   const ctx = await contextLine(period, spot, ipGroup, pick);
   if (!ctx) return result;
-  const line = formatContext(ctx.base, { value, lastWeek: ctx.lastWeek, avg4: ctx.avg4, prev: ctx.prev });
+  const line = formatContext(ctx.base, { value, lastWeek: ctx.lastWeek, avg4: ctx.avg4, prev: ctx.prev, weeks: ctx.weeks });
   if (!line) return result;
   return { ...result, text: `${result.text}\n${line}`, data: { ...(result.data || {}), context: line } };
 }

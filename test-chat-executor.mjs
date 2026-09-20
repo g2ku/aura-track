@@ -145,6 +145,23 @@ section("Касса и чеки: цифры совпадают с сетью");
   ok(!c.includes("OBI"), "«пробили» не превратилось в OBI");
 }
 
+section("Опора держится, даже если одна из недель не загрузилась");
+{
+  const orig = globalThis.__poster.fetchCashBySpot;
+  // 22 августа — четыре недели назад от 19 сентября — «Poster не ответил»
+  globalThis.__poster.fetchCashBySpot = async function (from, to) { if (from === "2026-08-22") throw new Error("Poster не ответил"); return orig.call(this, from, to); };
+  const t = await ask("касса за вчера");
+  has(t, "к прошлой субботе", "опора к прошлой неделе есть");
+  has(t, "к среднему за 3 недели", "среднее — по трём дошедшим неделям, и так и сказано");
+  globalThis.__poster.fetchCashBySpot = async function (from, to) { if (from < "2026-09-12") throw new Error("Poster не ответил"); return orig.call(this, from, to); };
+  const t2 = await ask("касса за вчера");
+  has(t2, "к прошлой субботе", "одна неделя — только к ней");
+  ok(!t2.includes("к среднему"), "среднего по одной неделе нет");
+  globalThis.__poster.fetchCashBySpot = orig;
+  const t3 = await ask("касса за вчера");
+  has(t3, "к среднему за 4 недели", "все четыре — как обычно");
+}
+
 section("Сравнения: точки и периоды");
 {
   const t = await ask("покажи продажи по точкам за вчера");

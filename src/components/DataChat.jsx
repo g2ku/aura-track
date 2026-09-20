@@ -7,7 +7,7 @@ import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
 import { remember, recallEntry, shareLearned, syncShared, forgetShared, LINK_WINDOW_MS } from "../chat/memory.js";
 import { addPin, isPinned, ASK_KEY } from "../chat/pins.js";
 import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
-import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin, isAdminOrManager } from "../auth.jsx";
+import { getUserBranch, getSpotNameForBranch, spotNameByPosterId, BRANCHES, isAdmin, isAdminOrManager } from "../auth.jsx";
 
 // Примеры вопросов.
 //
@@ -319,24 +319,26 @@ export default function DataChat() {
     }
 
     const followUps = [];
+    // По-русски, как на всём сайте: «Тренд за 3 месяца Абая», не «Abaya»
+    const spotName = spot && spot.branchId !== "all"
+      ? (spotNameByPosterId(spot.spotId, "") || spot.posterName || spot.branchId.replace("Aura02_", ""))
+      : "";
     for (const up of ups) {
-      let q = up;
-      // Add spot context if specific branch was queried
-      if (spot && spot.branchId !== "all") {
-        const spotName = spot.posterName || spot.branchId.replace("Aura02_", "");
-        q = `${q} ${spotName}`;
-      }
+      let q = spotName ? `${up} ${spotName}` : up;
       // "Сравнить с прошлым месяцем" → "Сравнить июнь с май" when period is June
       if (/сравн/i.test(up) && period && period.from) {
         const d1 = new Date(period.from + "T00:00:00");
         const curMonth = d1.toLocaleDateString("ru-RU", { month: "long" });
         // Previous month
         const prev = new Date(d1.getFullYear(), d1.getMonth() - 1, 1);
-        // Творительный падеж: «с июлем», а не «с июль»
-        q = `Сравнить ${curMonth} с ${MONTHS_INS[prev.getMonth()]}`;
+        // Творительный падеж: «с июлем», а не «с июль»; точка остаётся —
+        // спросили про Дубай, сравниваем Дубай
+        q = `Сравнить ${curMonth} с ${MONTHS_INS[prev.getMonth()]}${spotName ? ` ${spotName}` : ""}`;
       } else if (/за период/i.test(up) && periodLabel) {
         q = `${up.replace("за период", `за ${periodLabel}`)}`;
-      } else if (period && period.from === period.to) {
+      } else if (period && period.from === period.to && !/тренд|прогноз|по дням|по часам|филиал/i.test(up)) {
+        // «Касса за 19 сентября» → «… за сентябрь»; к тренду и прогнозу
+        // месяц не приписываем — «Тренд за 3 месяца за сентябрь» не читается
         const d = new Date(period.from);
         const month = d.toLocaleDateString("ru-RU", { month: "long" });
         q = `${q} за ${month}`;
@@ -550,9 +552,9 @@ export default function DataChat() {
         <div ref={endRef} />
       </div>
 
-      {/* Suggestions with scroll arrows — после первого ответа; на старте
-          примеры и так на экране группами */}
-      {messages.length > 0 && <div className="chat-suggestions-wrap">
+      {/* Подсказки над полем ввода — когда под последним ответом их нет:
+          иначе те же три кнопки стояли дважды, под ответом и здесь */}
+      {messages.length > 0 && !(messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.followUps?.length) && <div className="chat-suggestions-wrap">
         {canScrollLeft && (
           <button className="chat-sug-arrow chat-sug-arrow-left" onClick={() => scrollSuggestions(-1)}>
             <i className="ti ti-chevron-left" />
