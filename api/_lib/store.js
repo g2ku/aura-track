@@ -382,6 +382,13 @@ export function botStore() {
 // любого, кто вошёл. Для стаканов это важно: у куратора дашборд сужен до
 // его точки, и было бы странно, если бы та же ручка отдавала ему сеть
 // целиком в обход интерфейса.
+// Весь документ users/{uid}: роль и точка куратора — для серверных прав
+export async function getSiteMeta(uid) {
+  if (!uid) return null;
+  const snap = await getDb().collection("users").doc(String(uid)).get();
+  return snap.exists ? (snap.data() || null) : null;
+}
+
 export async function getSiteRole(uid) {
   if (!uid) return "";
   try {

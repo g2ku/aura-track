@@ -12,6 +12,8 @@ import { requireUser, denyResponse } from "./_lib/requireUser.js";
 import { getSalesDays, getMenuIndex } from "./_lib/store.js";
 import { toClientDays, clampRange } from "./_lib/salesRollup.js";
 import { todayAlmaty } from "./_lib/dailyDoc.js";
+import { scopeFor, filterSalesDay } from "./_lib/scope.js";
+import { getSiteMeta } from "./_lib/store.js";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
@@ -19,6 +21,10 @@ export default async function handler(req, res) {
 
   const who = await requireUser(req);
   if (!who.ok) { denyResponse(res, who); return; }
+
+  // Куратор — только своя точка; без роли — ничего
+  const scope = await scopeFor(who.uid, { readMeta: getSiteMeta });
+  if (scope.limited && !scope.spotId) { res.status(403).json({ error: "Доступ не выдан" }); return; }
 
   // ?menu=1 — индекс меню «id → название», собранный ночью: сайту 15 КБ
   // вместо 4,6 МБ из Poster на каждом новом устройстве
@@ -40,7 +46,8 @@ export default async function handler(req, res) {
 
   try {
     const docs = await getSalesDays(range.from, range.to);
-    res.status(200).json({ days: toClientDays(docs, { products }), from: range.from, to: range.to });
+    const scoped = scope.spotId ? docs.map((d) => filterSalesDay(d, scope.spotId)) : docs;
+    res.status(200).json({ days: toClientDays(scoped, { products }), from: range.from, to: range.to });
   } catch (e) {
     console.error("[sales-days]", e?.message);
     res.status(500).json({ error: "Итоги недоступны" });

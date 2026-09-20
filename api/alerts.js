@@ -60,6 +60,11 @@ export default async function handler(req, res) {
 
   const who = await requireUser(req);
   if (!who.ok) { denyResponse(res, who); return; }
+  // Куратор видит тревоги только своей точки
+  const { scopeFor } = await import("./_lib/scope.js");
+  const { getSiteMeta } = await import("./_lib/store.js");
+  const scope = await scopeFor(who.uid, { readMeta: getSiteMeta });
+  if (scope.limited && !scope.spotId) { res.status(403).json({ error: "Доступ не выдан" }); return; }
 
   const url0 = new URL(req.url, `https://${req.headers.host}`);
   res.setHeader("Cache-Control", url0.searchParams.get("_fresh") ? "no-store" : CACHE);
@@ -167,5 +172,6 @@ export default async function handler(req, res) {
     }
   }
 
-  res.status(200).json({ at: now, alerts, failed, full });
+  const visible = scope.spotId ? alerts.filter((a) => !a.spotId || String(a.spotId) === String(scope.spotId)) : alerts;
+  res.status(200).json({ at: now, alerts: visible, failed, full });
 }

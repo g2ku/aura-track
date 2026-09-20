@@ -1,4 +1,5 @@
 import { requireUser, denyResponse } from "../_lib/requireUser.js";
+import { scopeFor, filterPoster } from "../_lib/scope.js";
 
 const POSTER_HOST = "aura-02-coffee.joinposter.com";
 const POSTER_TOKEN = process.env.VITE_POSTER_TOKEN || process.env.POSTER_TOKEN || "";
@@ -79,6 +80,16 @@ export default async function handler(req, res) {
   const who = await requireUser(req);
   if (!who.ok) { denyResponse(res, who); return; }
 
+  // Куратор — только своя точка; без роли в базе — ничего. Роль читается
+  // из того же users/{uid}, что и в админке.
+  const { getSiteMeta } = await import("../_lib/store.js");
+  const scope = await scopeFor(who.uid, { readMeta: getSiteMeta });
+  if (scope.limited && !scope.spotId) {
+    res.setHeader("Cache-Control", "no-store");
+    res.status(403).json({ error: { message: "Доступ к данным Poster не выдан — обратитесь к владельцу" } });
+    return;
+  }
+
   if (!POSTER_TOKEN) {
     res.status(500).json({ error: { message: "POSTER_TOKEN not configured on server" } });
     return;
@@ -104,7 +115,11 @@ export default async function handler(req, res) {
       },
     });
 
-    const body = await proxyRes.text();
+    const raw = await proxyRes.text();
+    // Ответ куратору режется до его точки; кэш и так private (браузерный),
+    // общий CDN этот ответ не увидит
+    const method = fullPath.replace(/^\/api\//, "");
+    const body = scope.spotId ? filterPoster(method, raw, scope.spotId) : raw;
     res.status(proxyRes.status);
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Cache-Control", cacheHeader);
