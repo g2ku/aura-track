@@ -1,0 +1,87 @@
+// test-poster-partial.mjs — Poster не ответил за часть дней: отдаём остальные.
+//
+// Неделя из шести собранных дней и сегодняшнего, который не дошёл, — это
+// неделя с пометкой, а не ноль на всём экране. Здесь fetchPosterSales
+// запускается по-настоящему: localStorage в памяти, fetch — заглушка,
+// которая роняет запрос к Poster.
+//
+// Запуск: node test-poster-partial.mjs
+
+process.env.TZ = "Asia/Almaty";
+
+let passed = 0, failed = 0;
+const failures = [];
+function ok(c, l) { c ? passed++ : (failed++, failures.push(`  ❌ ${l}`)); }
+function eq(a, e, l) {
+  const A = JSON.stringify(a) ?? "undefined", E = JSON.stringify(e) ?? "undefined";
+  A === E ? passed++ : (failed++, failures.push(`  ❌ ${l}\n      получили: ${A}\n      ждали:    ${E}`));
+}
+function section(t) { console.log(`\n📋 ${t}`); }
+
+// Браузерные глобалы
+const mem = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)),
+  removeItem: (k) => mem.delete(k), key: (i) => [...mem.keys()][i] ?? null, get length() { return mem.size; },
+};
+globalThis.window = globalThis.window || { location: { origin: "http://x", hash: "" }, addEventListener() {}, removeEventListener() {} };
+globalThis.document = globalThis.document || { hidden: false, addEventListener() {}, removeEventListener() {} };
+const log = console.log; console.log = () => {}; console.warn = () => {};
+
+const { fetchPosterSales, fetchCashBySpot } = await import("./src/poster.js");
+console.log = log;
+
+const now = new Date();
+const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+const dash = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+const today = ymd(now);
+const back = (n) => { const d = new Date(now); d.setDate(d.getDate() - n); return ymd(d); };
+
+// Шесть прошлых дней — в кэше (так их кладут ночные итоги), сегодня — нет
+const CACHE_KEY = "supply-track.poster.salesByDay.v14";
+const cache = {};
+for (let i = 1; i <= 6; i++) cache[back(i)] = { ts: Date.now(), transactionsCount: 10, txBySpot: { 4: 10 }, cashBySpot: { 4: 100000 }, rowsBySpot: { 4: { "Латте": { qty: 10, sum: 100000 } } }, hasProducts: true };
+mem.set(CACHE_KEY, JSON.stringify(cache));
+mem.set("supply-track.poster.spots.v1", JSON.stringify({ ts: Date.now(), data: { 4: { name: "Aura02_Abaya" } } }));
+
+// Сеть: итоги с сервера пусты, Poster падает
+const calls = [];
+globalThis.fetch = async (url) => {
+  calls.push(String(url));
+  if (String(url).includes("/api/sales-days")) return new Response(JSON.stringify({ days: {} }), { status: 200, headers: { "Content-Type": "application/json" } });
+  throw new Error("сеть");
+};
+
+section("Часть дней из кэша, Poster упал — отдаём собранное и называем пропуск");
+
+{
+  const r = await fetchPosterSales(dash(back(6)), dash(today));
+  eq(r.cashBySpot, { 4: 600000 }, "касса за шесть собранных дней");
+  eq(r.failedDays, [dash(today)], "недостающий день назван в формате сайта");
+  ok(/сеть|Poster/.test(r.error), `и ошибка сохранена: ${r.error}`);
+  eq([r.cachedDays, r.freshDays, r.daysCount], [6, 0, 7], "свежих дней ноль — Poster не ответил");
+  const after = JSON.parse(mem.get(CACHE_KEY));
+  ok(!after[today], "пустой сегодняшний день в кэш не лёг");
+
+  const c = await fetchCashBySpot(dash(back(6)), dash(today));
+  eq(c[0].total, 600000, "касса по точкам — те же шесть дней");
+  eq(c[0].daysCount, 6, "среднее в день — на шесть дней, а не на семь");
+  eq(c.failedDays, [dash(today)], "пометка едет вместе с массивом");
+}
+
+section("Не собрано ничего — ошибка, как и раньше");
+
+{
+  let err = null;
+  try { await fetchPosterSales(dash(today), dash(today)); } catch (e) { err = e; }
+  ok(err && /Poster|сеть/.test(err.message), `один день и тот не дошёл — исключение: ${err?.message}`);
+  const r = await fetchPosterSales(dash(back(3)), dash(back(1)));
+  eq(r.failedDays, undefined, "всё из кэша — пометки нет");
+  eq(r.cashBySpot, { 4: 300000 }, "и цифры на месте");
+}
+
+console.log("\n══════════════════════════════════════════════════");
+if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
+console.log(`✅ Пройдено: ${passed}`);
+console.log(`❌ Провалено: ${failed}`);
+process.exit(failed > 0 ? 1 : 0);

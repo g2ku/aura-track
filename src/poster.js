@@ -141,13 +141,18 @@ export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
     }
   }
 
-  const daysCount = result.daysCount || 1;
+  // Дни, за которые Poster не ответил, не считаем: среднее «в день»
+  // делится на собранные дни, а не на весь отрезок
+  const daysCount = Math.max(1, (result.daysCount || 1) - (result.failedDays?.length || 0));
   for (const v of Object.values(bySpot)) {
     v.daysCount = daysCount;
     v.avgPerDay = daysCount > 0 ? Math.round(v.total / daysCount) : 0;
     v.avgCheck = v.txCount > 0 ? Math.round(v.total / v.txCount) : 0;
   }
-  return Object.values(bySpot).sort((a, b) => b.total - a.total);
+  const out = Object.values(bySpot).sort((a, b) => b.total - a.total);
+  // Массив остаётся массивом; пометка о недостающих днях едет с ним
+  if (result.failedDays?.length) Object.assign(out, { failedDays: result.failedDays, error: result.error });
+  return out;
 }
 
 // ─── Касса по дням для конкретного филиала ─────────────────────────────
@@ -1350,10 +1355,12 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
 
   const days = enumerateDays(fromP, toP);
   const withProducts = opts.withProducts !== false;
-  const [spots, menu] = await Promise.all([
-    getSpots(opts),
-    withProducts ? getMenuIndex(opts) : Promise.resolve(null),
-  ]);
+  // Меню (4,6 МБ из Poster, если ночного индекса нет) нужно только чтобы
+  // назвать товары в днях, которых нет в кэше. Раньше оно ждалось до
+  // проверки кэша — и полностью собранная неделя всё равно тянула меню,
+  // а его сбой ронял ответ, за которым в сеть идти было незачем.
+  const spots = await getSpots(opts);
+  let menu = null;
 
   // Имена точек берём из справочника филиалов, а не из товарных строк:
   // без меню строк нет вовсе, и касса осталась бы с «Филиал #4».
@@ -1406,31 +1413,43 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
 
   opts.onProgress?.({ done: 0, total: 1, phase: "fetch" });
 
-  const first = await call(
-    "transactions.getTransactions",
-    { date_from: uncachedFrom, date_to: uncachedTo, per_page: PER_PAGE, page: 1 },
-    opts,
-  );
-  const r1 = first?.response || {};
-  const total = Number(r1.count || 0);
-  const allData = [...(r1.data || [])];
+  // Poster не ответил за недостающие дни — отдаём те, что уже есть, и
+  // называем, каких не хватает. Неделя из шести собранных дней и
+  // сегодняшнего, который не дошёл, — это неделя с пометкой, а не ноль
+  // на всём экране. Если не собрано ничего — ошибка, как и раньше.
+  const allData = [];
+  let fetchError = null;
+  try {
+    if (withProducts) menu = await getMenuIndex(opts);
+    const first = await call(
+      "transactions.getTransactions",
+      { date_from: uncachedFrom, date_to: uncachedTo, per_page: PER_PAGE, page: 1 },
+      opts,
+    );
+    const r1 = first?.response || {};
+    const total = Number(r1.count || 0);
+    allData.push(...(r1.data || []));
 
-  opts.onProgress?.({ done: 1, total: Math.ceil(total / PER_PAGE) + 1, phase: "fetch" });
+    opts.onProgress?.({ done: 1, total: Math.ceil(total / PER_PAGE) + 1, phase: "fetch" });
 
-  // Пагинация: загружаем остальные страницы параллельно
-  if (total > PER_PAGE) {
-    const totalPages = Math.ceil(total / PER_PAGE);
-    const otherPages = [];
-    for (let p = 2; p <= totalPages; p++) otherPages.push(p);
-    const results = await mapWithLimit(otherPages, 6, async (p) => {
-      const data = await call(
-        "transactions.getTransactions",
-        { date_from: uncachedFrom, date_to: uncachedTo, per_page: PER_PAGE, page: p },
-        opts,
-      );
-      return data?.response?.data || [];
-    });
-    for (const arr of results) allData.push(...arr);
+    // Пагинация: загружаем остальные страницы параллельно
+    if (total > PER_PAGE) {
+      const totalPages = Math.ceil(total / PER_PAGE);
+      const otherPages = [];
+      for (let p = 2; p <= totalPages; p++) otherPages.push(p);
+      const results = await mapWithLimit(otherPages, 6, async (p) => {
+        const data = await call(
+          "transactions.getTransactions",
+          { date_from: uncachedFrom, date_to: uncachedTo, per_page: PER_PAGE, page: p },
+          opts,
+        );
+        return data?.response?.data || [];
+      });
+      for (const arr of results) allData.push(...arr);
+    }
+  } catch (e) {
+    if (uncachedDays.length >= days.length) throw e;
+    fetchError = e;
   }
 
   // Разбиваем по дням и кэшируем каждый день отдельно
@@ -1489,6 +1508,10 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
         continue;
       }
     }
+
+    // День не в кэше, а Poster не ответил — пропускаем и не кэшируем
+    // пустоту: иначе следующий запрос взял бы «ноль» за правду
+    if (fetchError) continue;
 
     // День не в кэше — обрабатываем из allData
     const dayTxs = byDay[yyyymmdd] || [];
@@ -1563,7 +1586,12 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
   }
 
   const rows = buildRows(spots, merged);
-  return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length - uncachedDays.length, freshDays: uncachedDays.length, daysCount: days.length };
+  const failedDays = fetchError ? uncachedDays.map(fromPosterDate) : [];
+  return {
+    rows, spotNames, transactionsCount, txBySpot, cashBySpot,
+    cachedDays: days.length - uncachedDays.length, freshDays: fetchError ? 0 : uncachedDays.length, daysCount: days.length,
+    ...(fetchError ? { failedDays, error: fetchError.message || "Poster не ответил" } : {}),
+  };
 }
 
 // Склейка помесячных кусков в один ответ той же формы
@@ -1572,8 +1600,11 @@ function mergeSales(parts) {
   const spotNames = {};
   const txBySpot = {}, cashBySpot = {};
   let transactionsCount = 0, cachedDays = 0, freshDays = 0, daysCount = 0;
+  const failedDays = [];
+  let error = null;
   for (const r of parts) {
     Object.assign(spotNames, r.spotNames || {});
+    if (r.failedDays?.length) { failedDays.push(...r.failedDays); error = error || r.error; }
     transactionsCount += r.transactionsCount || 0;
     cachedDays += r.cachedDays || 0; freshDays += r.freshDays || 0; daysCount += r.daysCount || 0;
     for (const [k, v] of Object.entries(r.txBySpot || {})) txBySpot[k] = (txBySpot[k] || 0) + v;
@@ -1589,7 +1620,7 @@ function mergeSales(parts) {
     if (a.spotName !== b.spotName) return a.spotName.localeCompare(b.spotName, "ru");
     return b.sum - a.sum;
   });
-  return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays, freshDays, daysCount };
+  return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays, freshDays, daysCount, ...(failedDays.length ? { failedDays, error } : {}) };
 }
 
 function buildRows(spots, merged) {
@@ -1662,6 +1693,12 @@ export async function fetchPosterSalesMultiple(periods, opts = {}) {
 }
 
 // ─── Утилиты ──────────────────────────────────────────────────────────
+
+// «20260920» → «2026-09-20»: наружу даты уходят в формате сайта
+function fromPosterDate(yyyymmdd) {
+  const s = String(yyyymmdd);
+  return /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s;
+}
 
 function enumerateDays(fromYMD, toYMD) {
   const out = [];

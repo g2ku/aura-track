@@ -83,6 +83,9 @@ const CHIPS = [
   { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L", bank: null },
 ];
 
+// «2026-09-20» → «20.09»
+const fmtDayShort = (ymd) => (/^\d{4}-\d{2}-\d{2}$/.test(String(ymd)) ? `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}` : String(ymd));
+
 export default function CashLedger({
   docs, agg, canEdit, userBranch,
   onAddReport, onSelectBranch,
@@ -97,6 +100,7 @@ export default function CashLedger({
   const [payBreakdown, setPayBreakdown] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [partial, setPartial] = useState(null);
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
   const [checkedAt, setCheckedAt] = useState(Date.now());
@@ -155,7 +159,11 @@ export default function CashLedger({
       // Теперь она уходит одна и первой, а всё остальное — только когда
       // она села.
       const cashDone = fetchCashBySpot(dateFrom, dateTo).then(
-        done((v) => { setCashBySpot(v); setCheckedAt(Date.now()); setLoading(false); }),
+        done((v) => {
+          setCashBySpot(v); setCheckedAt(Date.now()); setLoading(false);
+          // Часть дней не дошла — цифры на экране за остальные, и это сказано
+          setPartial(v?.failedDays?.length ? { days: v.failedDays, error: v.error } : null);
+        }),
         done((e) => { setError(e?.message || "Ошибка касс"); setLoading(false); }),
       );
 
@@ -186,7 +194,10 @@ export default function CashLedger({
       fetchPaymentBreakdown(dateFrom, dateTo),
       fetchHourlyCurve(dateFrom, { spotId: mySpotId }),
     ]);
-    if (cash.status === "fulfilled") setCashBySpot(cash.value);
+    if (cash.status === "fulfilled") {
+      setCashBySpot(cash.value);
+      setPartial(cash.value?.failedDays?.length ? { days: cash.value.failedDays, error: cash.value.error } : null);
+    }
     if (pay.status === "fulfilled") setPayBreakdown(pay.value);
     if (hourly.status === "fulfilled" && hourly.value) setHourlyCurve(hourly.value);
     setCheckedAt(Date.now());
@@ -434,6 +445,16 @@ export default function CashLedger({
       {error && (
         <div className="alert" style={{ marginTop: 14 }}>
           <i className="ti ti-alert-circle" aria-hidden="true" /> Poster: {error}
+        </div>
+      )}
+      {!error && partial && (
+        <div className="alert" style={{ marginTop: 14 }}>
+          <i className="ti ti-alert-triangle" aria-hidden="true" />{" "}
+          {partial.days.length === 1
+            ? `Poster не ответил за ${fmtDayShort(partial.days[0])} — цифры без этого дня.`
+            : `Poster не ответил за ${partial.days.length} дн. (${fmtDayShort(partial.days[0])} — ${fmtDayShort(partial.days[partial.days.length - 1])}) — цифры без них.`}
+          {" "}
+          <button className="btn btn-sm btn-out" onClick={refresh} style={{ marginLeft: 6 }}>Ещё раз</button>
         </div>
       )}
 

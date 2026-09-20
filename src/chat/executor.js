@@ -1,6 +1,23 @@
 // chat/executor.js — выполняет распознанный запрос к данным Poster.
 
-import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay, getMenuCategories } from "../poster.js";
+import { fetchCashBySpot as fetchCashBySpotRaw, fetchPosterSales as fetchPosterSalesRaw, fetchReceipts, fetchCashPerDay, getMenuCategories } from "../poster.js";
+
+// Poster не ответил за часть дней — poster.js отдаёт остальные и называет
+// недостающие. Ответ ассистента должен это сказать: «касса за неделю»
+// без сегодняшнего дня — это другая цифра. Вопросы идут по одному, поэтому
+// одного поля на модуль хватает: executeQuery его обнуляет и дочитывает.
+let missingDays = new Set();
+const noteMissing = (r) => { for (const d of r?.failedDays || []) missingDays.add(d); return r; };
+const fetchCashBySpot = (from, to, opts) => fetchCashBySpotRaw(from, to, opts).then(noteMissing);
+const fetchPosterSales = (from, to, opts) => fetchPosterSalesRaw(from, to, opts).then(noteMissing);
+const shortDay = (ymd) => `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}`;
+function missingNote() {
+  const days = [...missingDays].sort();
+  if (!days.length) return "";
+  return days.length === 1
+    ? `\n⚠️ Poster не ответил за ${shortDay(days[0])} — цифры без этого дня.`
+    : `\n⚠️ Poster не ответил за ${days.length} дн. (${shortDay(days[0])} — ${shortDay(days[days.length - 1])}) — цифры без них.`;
+}
 import { resolveSpecialCategory, productNamesIn, seasonTitle, findCategory } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
@@ -172,6 +189,13 @@ const avgCheckOf = (rows) => { const t = sumTx(rows); return t ? sumCash(rows) /
 
 export async function executeQuery(parsed, userBranch) {
   if (!parsed) return { text: "Не могу распознать вопрос. Попробуйте перефразировать.", data: null };
+  missingDays = new Set();
+  const r = await executeInner(parsed, userBranch);
+  const note = missingNote();
+  return note && r?.text ? { ...r, text: r.text + note, data: r.data ? { ...r.data, missingDays: [...missingDays] } : r.data } : r;
+}
+
+async function executeInner(parsed, userBranch) {
 
   const { metric, operation, spot, period, period2, product, category, ipGroup } = parsed;
 

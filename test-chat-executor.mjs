@@ -162,6 +162,21 @@ section("Опора держится, даже если одна из недел
   has(t3, "к среднему за 4 недели", "все четыре — как обычно");
 }
 
+section("Poster ответил не за все дни — ответ так и говорит");
+{
+  const orig = globalThis.__poster.fetchCashBySpot;
+  globalThis.__poster.fetchCashBySpot = async function (from, to) {
+    const r = await orig.call(this, from, to);
+    if (to === TODAY && from < TODAY) Object.assign(r, { failedDays: [TODAY], error: "Poster не ответил" });
+    return r;
+  };
+  const t = await ask("касса за неделю");
+  has(t, "⚠️ Poster не ответил за 20.09 — цифры без этого дня.", "недостающий день назван");
+  const y = await ask("касса за вчера");
+  ok(!y.includes("⚠️"), "за вчера всё дошло — без пометки");
+  globalThis.__poster.fetchCashBySpot = orig;
+}
+
 section("Сравнения: точки и периоды");
 {
   const t = await ask("покажи продажи по точкам за вчера");
