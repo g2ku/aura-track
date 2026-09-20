@@ -115,7 +115,7 @@ export default function Give({ tg, state, skus, branches, today, forecast, lastT
       // строкой наверху, где счётчик. А «на складе осталось» — та цифра,
       // которую он иначе пошёл бы смотреть на другую вкладку.
       const left = r?.state?.stock
-        ? ` · на складе ${skus.map((s) => num(r.state.stock[s.id])).join(" / ")}`
+        ? ` · на складе ${skus.map((s) => `${num(r.state.stock[s.id])} × ${s.short}`).join(", ")}`
         : "";
       // И куда дальше — следующая по срочности точка, где сегодня не были
       const next = routeLeft.find((b) => b !== branch);
