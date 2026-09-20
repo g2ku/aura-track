@@ -80,7 +80,12 @@ globalThis.__poster = {
     }
     return { receipts, transactionsCount: receipts.length, openCount: 0, daysCount: eachDay(from, to).length };
   },
-  async getMenuCategories() { return { categories: [{ id: "1", name: "Кофе", products: ["Латте 0,4"] }, { id: "2", name: "Выпечка", products: ["Круассан"] }] }; },
+  async getMenuCategories() {
+    return {
+      categories: [{ id: "1", name: "Кофе", parentId: null }, { id: "2", name: "Выпечка", parentId: null }],
+      productsByCategory: { "1": [{ id: "10", name: "Латте 0,4" }, { id: "11", name: "Раф" }], "2": [{ id: "20", name: "Круассан" }, { id: "21", name: "Синнабон" }, { id: "22", name: "Эклер" }] },
+    };
+  },
   async fetchPaymentBreakdown(from, to) {
     this.calls.push(["pay", from, to]);
     const days = eachDay(from, to).filter((d) => d <= TODAY).length || 1;
@@ -322,6 +327,15 @@ section("Часы внутри дня — по чекам");
   ok(e.includes("• Абая:") && e.includes("• Дубай:"), "по точкам, когда спросили всю сеть");
   const w = await ask("выручка с 8 до 11 вчера");
   has(w, "Касса с 8 до 11", "окно из вопроса");
+}
+
+section("Какие товары не продавались");
+{
+  const t = await ask("какие товары не продавались за неделю");
+  has(t, "Не продавались все филиалы за", "заголовок");
+  has(t, "— 3 из 5 позиций", "счёт: продавались латте и круассан, остальные три нет");
+  has(t, "• Выпечка (2 из 3): Синнабон, Эклер", "по категориям");
+  has(t, "• Кофе (1 из 2): Раф", "с названиями");
 }
 
 section("Стаканы — из учёта снабженца");

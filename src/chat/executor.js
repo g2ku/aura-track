@@ -256,6 +256,7 @@ async function executeInner(parsed, userBranch) {
       case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
       case "products":
         if (category) return await handleCategory(operation, effectiveSpot, period, category, ipGroup);
+        if (/не\s+прода[её]|не\s+продава|не\s+продал|нет\s+продаж|без\s+продаж|мёртв|мертв/.test(String(parsed.raw || "").toLowerCase())) return await handleNotSold(effectiveSpot, period, ipGroup);
         return await handleProducts(operation, effectiveSpot, period, product, ipGroup);
       case "tax": return await handleTax(operation, effectiveSpot, period, ipGroup);
       case "margin":
@@ -625,6 +626,45 @@ async function handleAvgCheck(operation, spot, period, ipGroup) {
 }
 
 // ─── Товары ───────────────────────────────────────────────────────
+
+// «Какие товары не продавались за неделю» — меню против продаж:
+// позиции, у которых за период ни одной продажи. По категориям, чтобы
+// список из сорока названий читался, и с общим счётом.
+async function handleNotSold(spot, period, ipGroup) {
+  const [menu, data] = await Promise.all([getMenuCategories(), fetchPosterSales(period.from, period.to)]);
+  const pl = formatPeriodLabel(period);
+  const sl = label(spot);
+  const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
+  const sold = new Set();
+  for (const row of data.rows || []) {
+    if (!matchesRowSpot(row, spot)) continue;
+    if (groupBranches && !matchesIPGroup(row.spotName, groupBranches)) continue;
+    if ((row.qty || 0) > 0) sold.add(String(row.productName).toLowerCase());
+  }
+  const cats = (menu?.categories || []);
+  const byCat = menu?.productsByCategory || {};
+  const groups = [];
+  let total = 0, dead = 0;
+  for (const c of cats) {
+    const items = byCat[c.id] || [];
+    if (!items.length) continue;
+    const missing = items.map((p) => p.name).filter((n) => !sold.has(String(n).toLowerCase()));
+    total += items.length; dead += missing.length;
+    if (missing.length) groups.push({ name: c.name, missing, all: items.length });
+  }
+  if (!total) return { text: "Меню не загрузилось — не с чем сравнивать.", data: null };
+  if (!dead) return { text: `Все ${total} позиций меню продавались ${sl} за ${pl}.`, data: { total, dead: 0 } };
+  groups.sort((a, b) => b.missing.length - a.missing.length);
+  const lines = groups.slice(0, 12).map((g) => {
+    const shown = g.missing.slice(0, 6).join(", ");
+    const more = g.missing.length > 6 ? ` и ещё ${g.missing.length - 6}` : "";
+    return `• ${g.name} (${g.missing.length} из ${g.all}): ${shown}${more}`;
+  });
+  return {
+    text: `Не продавались ${sl} за ${pl} — ${dead} из ${total} позиций:\n${lines.join("\n")}${groups.length > 12 ? `\n…и ещё ${groups.length - 12} категорий` : ""}`,
+    data: { total, dead, rows: groups.map((g) => ({ name: g.name, count: g.missing.length, all: g.all, items: g.missing.join(", ") })) },
+  };
+}
 
 async function handleProducts(operation, spot, period, productName, ipGroup) {
   const data = await fetchPosterSales(period.from, period.to);
