@@ -108,6 +108,9 @@ section("Прогрев соседних функций");
   const respAt = handler.indexOf("res.status(200).json(out)");
   ok(warmAt > 0 && respAt > warmAt, "прогрев — перед ответом, после всей работы");
   ok(handler.lastIndexOf("setConfig(patch)", warmAt) > 0, "и после сохранения меток: прогрев не должен их потерять");
+  // Ручка отвечает 5xx — владелец узнаёт от сторожа, раз в день
+  ok(/r\.value\.status >= 500\) broken\.push/.test(code), "5xx собираются в broken");
+  ok(/config\.lastFnAlertDate !== today/.test(handler) && /Сайт: ручки отвечают ошибкой/.test(handler), "и уходят владельцу раз в день");
 }
 
 section("Условие отправки осталось прежним");

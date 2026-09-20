@@ -52,11 +52,17 @@ const toPoster = (ymd) => ymd.replace(/-/g, "");
 // ушёл, а не чтобы он ответил.
 const WARM_PATHS = ["/api/cups", "/api/poster/warm", "/api/supply-status", "/api/chat-memory", "/api/ingredient-movement"];
 
+// Возвращает { warmed, broken }: broken — ручки, ответившие 5xx. Без
+// входа они отвечают 401 — это «жива»; 500 значит, что функция не
+// поднялась (сломанный импорт, упавший деплой), и владелец узнаёт об
+// этом от сторожа, а не от пустого экрана.
 async function warmFunctions(base) {
-  if (!base) return 0;
+  if (!base) return { warmed: 0, broken: [] };
   const results = await Promise.allSettled(WARM_PATHS.map((p) =>
     fetch(`${base}${p}`, { signal: AbortSignal.timeout(2500), headers: { "User-Agent": "AuraTrack (warm)" } })));
-  return results.filter((r) => r.status === "fulfilled").length;
+  const broken = [];
+  results.forEach((r, i) => { if (r.status === "fulfilled" && r.value.status >= 500) broken.push(`${WARM_PATHS[i]} → ${r.value.status}`); });
+  return { warmed: results.filter((r) => r.status === "fulfilled").length, broken };
 }
 
 async function nudgeSuppliers(config, text, opts = {}) {
@@ -530,7 +536,17 @@ export default async function handler(req, res) {
 
     // Прогрев — последним и с коротким таймаутом: он не должен ни
     // задержать сторожа, ни уронить его
-    try { out.warmed = await warmFunctions(siteUrl()); } catch (_) { /* не критично */ }
+    try {
+      const warm = await warmFunctions(siteUrl());
+      out.warmed = warm.warmed;
+      // Сломанная ручка — сообщение владельцу, раз в день, а не каждые
+      // пять минут
+      if (warm.broken.length && config.lastFnAlertDate !== today && target) {
+        out.broken = warm.broken;
+        await sendMessage(target, ["⚠️ <b>Сайт: ручки отвечают ошибкой</b>", "", ...warm.broken.map((b) => `• <code>${b}</code>`), "", "Обычно это упавший деплой — проверьте Vercel."].join("\n"), thread ? { message_thread_id: thread } : {}).catch(() => {});
+        await setConfig({ lastFnAlertDate: today }).catch(() => {});
+      }
+    } catch (_) { /* не критично */ }
 
     res.status(200).json(out);
   } catch (e) {

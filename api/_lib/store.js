@@ -189,6 +189,7 @@ export const DEFAULT_CONFIG = {
   lastWeeklyDigestDate: null,
   lastMonthlyDigestDate: null, // первого числа — итог месяца (тем же ключом)
   lastWebhookCheckDate: null,  // раз в день — вебхук получает нажатия кнопок
+  lastFnAlertDate: null,       // раз в день — «ручки сайта отвечают 500»
   cupLowStock: 500,        // меньше этого на складе — пора закупать
 
   // Сверка накладных с Poster в конце вечернего отчёта. Выключена, пока
