@@ -110,6 +110,35 @@ const FOLLOW_UP = {
   default: ["Сравнить с прошлым месяцем", "Рейтинг филиалов", "Аномалии за период"],
 };
 
+// Ответ — текст со строками «• Абая: 610 000 ₸ (205 чеков)». Рисуем его
+// строками: подпись слева, число справа, заголовок жирным. Текст тот же
+// самый — в Telegram и в закреплённой плитке уходит как есть.
+const ROW_RE = /^(🏆|🥈|🥉|•|📈|📉|➡️|⚠️|🐢|\d{1,2}\.)\s+(.+?):\s+(.+)$/;
+function AnswerText({ text }) {
+  const lines = String(text || "").split("\n");
+  return (
+    <div className="chat-answer">
+      {lines.map((line, i) => {
+        if (!line.trim()) return <div key={i} className="chat-answer-gap" />;
+        const m = line.match(ROW_RE);
+        if (m) {
+          return (
+            <div key={i} className="chat-answer-row">
+              <span className="chat-answer-mark">{m[1]}</span>
+              <span className="chat-answer-label">{m[2]}</span>
+              <span className="chat-answer-value">{m[3]}</span>
+            </div>
+          );
+        }
+        // Первая строка с двоеточием на конце — заголовок ответа
+        if (i === 0 && /:$/.test(line.trim()) && lines.length > 1) return <div key={i} className="chat-answer-title">{line.replace(/:$/, "")}</div>;
+        if (/^(Итого|Всего|Среднее|Средний)/.test(line)) return <div key={i} className="chat-answer-total">{line}</div>;
+        return <div key={i}>{line}</div>;
+      })}
+    </div>
+  );
+}
+
 const HISTORY_KEY = "aura-chat-history";
 const MAX_HISTORY = 20;
 
@@ -506,7 +535,7 @@ export default function DataChat() {
         {messages.map(msg => (
           <div key={msg.id} className={"chat-row " + (msg.role === "user" ? "chat-row-user" : "chat-row-bot")}>
             <div className={"chat-bubble " + (msg.role === "user" ? "chat-bubble-user" : "chat-bubble-bot")}>
-              {msg.text}
+              {msg.role === "assistant" ? <AnswerText text={msg.text} /> : msg.text}
               {showDebug && msg.debug && (
                 <div className="chat-debug">{msg.debug}</div>
               )}
