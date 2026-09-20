@@ -184,7 +184,7 @@ button.primary:disabled { opacity: .5; }
 .msg.wait { background: color-mix(in srgb, var(--hue-wait) 14%, transparent); color: var(--wait); }
 /* Строка про снимок: данные показаны, но не свежие — кнопка обновить рядом */
 .msg.snap { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.msg.snap .link {
+.msg .link {
   background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 600;
   text-decoration: underline; min-height: var(--tap); cursor: pointer;
 }

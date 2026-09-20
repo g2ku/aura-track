@@ -97,10 +97,16 @@ export default function App({ tg }) {
 
   // Досылка: при открытии, при возвращении сети и когда телеграм снова
   // показывает окно — связь обычно возвращается именно в этот момент.
+  // Что сервер отверг при досылке — по существу, не из-за связи. Раньше
+  // такая запись молча исчезала из очереди: счётчик уменьшался, а
+  // снабженец считал, что всё дошло
+  const [dropped, setDropped] = useState([]);
   const flush = useCallback(async () => {
     if (!outbox.size()) return;
     const r = await outbox.flush((item) => post(item.body));
     setPending(r.left);
+    const bad = r.failed.filter((f) => f.error);
+    if (bad.length) setDropped((d) => [...d, ...bad]);
     if (r.done.length) {
       const last = await api("/api/cups").catch(() => null);
       if (last?.who) { setData(last); setFresh(true); }
@@ -185,6 +191,18 @@ export default function App({ tg }) {
       {pending > 0 && (
         <div className="msg wait">
           {pending === 1 ? "Одна запись ждёт связи" : `${pending} записи ждут связи`} — отправлю сам, как появится.
+        </div>
+      )}
+
+      {dropped.length > 0 && (
+        <div className="msg err">
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Не записалось — сервер отказал, введите заново:</div>
+          {dropped.map((d, i) => {
+            const moves = d.body?.moves || [];
+            const what = moves.map((m) => (m.kind === "skip" ? `${m.branch}: пропуск` : `${m.branch || "склад"}: ${m.qty} × ${m.sku}`)).join(", ");
+            return <div key={`${d.opId || i}`}>{what || "запись"} — {d.error}</div>;
+          })}
+          <button className="link" style={{ marginTop: 6 }} onClick={() => setDropped([])}>Понятно</button>
         </div>
       )}
 
