@@ -21,6 +21,16 @@ import { listPins, addPin, removePin, isPinned, titleOf, tileLines, MAX_PINS } f
 import { understand } from "./src/chat/understand.js";
 import { readFileSync } from "node:fs";
 
+// Часы заморожены: в ожиданиях ниже даты написаны буквально (сегодня —
+// воскресенье 20.09.2026). Без этого набор падал после полуночи: в ночь
+// на 21-е деплой на Vercel уронил именно эти проверки.
+const FROZEN_NOW = new Date("2026-09-20T12:00:00+05:00").getTime();
+const RealDate = Date;
+globalThis.Date = class extends RealDate {
+  constructor(...a) { if (a.length === 0) super(FROZEN_NOW); else super(...a); }
+  static now() { return FROZEN_NOW; }
+};
+
 let passed = 0, failed = 0;
 const failures = [];
 function ok(c, l) { c ? passed++ : (failed++, failures.push(`  ❌ ${l}`)); }
