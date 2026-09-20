@@ -42,6 +42,7 @@ export default function MorningBriefing() {
   const [weekCash, setWeekCash] = useState([]);
   const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const yesterday = yesterdayStr();
   const weekAgo = daysAgoStr(6);
@@ -52,19 +53,24 @@ export default function MorningBriefing() {
 
   async function loadData() {
     setLoading(true);
-    try {
-      // Техкарты сюда не грузим: сводка их не показывает, а падение
-      // того запроса роняло всю сводку
-      const [yCash, wCash, sales] = await Promise.all([
-        fetchCashBySpot(yesterday, yesterday),
-        fetchCashBySpot(weekAgo, yesterday),
-        fetchPosterSales(yesterday, yesterday),
-      ]);
-      setYesterdayCash(yCash);
-      setWeekCash(wCash);
-      setSalesData(sales.rows || []);
-    } catch (e) {
-      console.error("[Briefing] load error:", e);
+    setError("");
+    // Три запроса — три судьбы. Касса за вчера и неделя — это сама
+    // сводка; топ-5 позиций тянет ещё и меню (4,6 МБ из Poster, если
+    // ночного индекса нет). Раньше любой из них ронял все четыре плитки:
+    // Promise.all отдавал одну ошибку, и сводка показывала нули.
+    const [yCash, wCash, sales] = await Promise.allSettled([
+      fetchCashBySpot(yesterday, yesterday),
+      fetchCashBySpot(weekAgo, yesterday),
+      fetchPosterSales(yesterday, yesterday),
+    ]);
+    if (yCash.status === "fulfilled") setYesterdayCash(yCash.value);
+    if (wCash.status === "fulfilled") setWeekCash(wCash.value);
+    if (sales.status === "fulfilled") setSalesData(sales.value?.rows || []);
+    const failed = [yCash, wCash, sales].find((r) => r.status === "rejected");
+    if (failed) {
+      console.error("[Briefing] load error:", failed.reason);
+      const what = yCash.status === "rejected" ? "касса за вчера" : wCash.status === "rejected" ? "неделя" : "топ позиций";
+      setError(`Не загрузилось: ${what} — ${failed.reason?.message || "Poster не ответил"}`);
     }
     setLoading(false);
   }
@@ -150,6 +156,12 @@ export default function MorningBriefing() {
           <i className="ti ti-refresh" /> Обновить
         </button>
       </div>
+
+      {error && (
+        <div className="card" style={{ marginBottom: 16, padding: "10px 14px", color: "var(--text-danger)", display: "flex", gap: 8, alignItems: "center" }}>
+          <i className="ti ti-alert-triangle" aria-hidden="true" /> <span>{error}</span>
+        </div>
+      )}
 
       {/* Key metrics */}
       <div className="cross-loc-summary" style={{ marginBottom: 16 }}>
