@@ -238,7 +238,7 @@ export default async function handler(req, res) {
           const to = shiftYmd(today, -1), from = shiftYmd(today, -7);
           const [cur, prev] = await Promise.all([getSalesDays(from, to), getSalesDays(shiftYmd(from, -7), shiftYmd(to, -7))]);
           const text = formatWeeklyDigest(cur, prev, { from, to });
-          if (text) await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+          if (text) await sendMessage(target, text, { ...(thread ? { message_thread_id: thread } : {}), ...questionKeyboard(["кто просел за неделю", "товары за неделю", "способы оплаты за неделю", "касса по будням за неделю"]) });
           out.weekly = !!text;
         }
         patch.lastWeeklyDigestDate = today;
@@ -269,6 +269,7 @@ export default async function handler(req, res) {
       }
     }
 
+    const MONTH_ACC = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
     // ─── Первого числа — итог месяца ─────────────────────────────────
     //
     // Тем же ключом, что недельный: выключен недельный — выключен и
@@ -280,7 +281,7 @@ export default async function handler(req, res) {
         const pTo = shiftYmd(from, -1), pFrom = `${pTo.slice(0, 7)}-01`;
         const [cur, prev] = await Promise.all([getSalesDays(from, to), getSalesDays(pFrom, pTo)]);
         const text = formatMonthlyDigest(cur, prev, { month: from.slice(0, 7), prevMonth: pFrom.slice(0, 7) });
-        if (text) await sendMessage(target, text, thread ? { message_thread_id: thread } : {});
+        if (text) await sendMessage(target, text, { ...(thread ? { message_thread_id: thread } : {}), ...questionKeyboard([`товары за ${MONTH_ACC[Number(from.slice(5, 7)) - 1]}`, `способы оплаты за ${MONTH_ACC[Number(from.slice(5, 7)) - 1]}`, "тренд кассы"]) });
         out.monthly = !!text;
         patch.lastMonthlyDigestDate = today;
         await setConfig({ lastMonthlyDigestDate: today }).catch(() => {});

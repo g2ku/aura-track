@@ -563,7 +563,9 @@ async function handleCommand({ cmd, args }, ctx) {
       const to = shiftDay(todayAlmaty(), -1), from = shiftDay(to, -6);
       const [cur, prev] = await Promise.all([store.getSalesDays(from, to), store.getSalesDays(shiftDay(from, -7), shiftDay(to, -7))]);
       const text = formatWeeklyDigest(cur, prev, { from, to });
-      return { text: text || "Итогов за последнюю неделю ещё нет — они собираются по ночам." };
+      return text
+        ? { text, buttons: ["кто просел за неделю", "товары за неделю", "способы оплаты за неделю", "касса по будням за неделю"] }
+        : { text: "Итогов за последнюю неделю ещё нет — они собираются по ночам." };
     }
 
     // ─── Вебхук: на месте ли и получает ли кнопки ───
@@ -635,7 +637,9 @@ async function handleCommand({ cmd, args }, ctx) {
       }
       const [cur, prev] = await Promise.all([store.getSalesDays(from, to), store.getSalesDays(pFrom, pTo)]);
       const text = formatMonthlyDigest(cur, prev, { month: from.slice(0, 7), prevMonth: pFrom.slice(0, 7) });
-      return { text: text || "Итогов за этот месяц ещё нет — они собираются по ночам." };
+      return text
+        ? { text, buttons: ["товары за месяц", "способы оплаты за месяц", "тренд кассы", "касса по будням за месяц"] }
+        : { text: "Итогов за этот месяц ещё нет — они собираются по ночам." };
     }
 
     // ─── Ассистент: вопрос словами ───
