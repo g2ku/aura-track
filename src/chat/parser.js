@@ -34,7 +34,7 @@ const METRICS = [
   { keys: ["средний чек", "средняя сумма"], value: "avgCheck" },
   { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж", "продан", "продав", "человек", "людей", "гостей", "гостя", "клиент", "посетител"], value: "checks" },
   // Маржа и прибыль — выше товаров: «маржа по товарам» — про маржу
-  { keys: ["прибыл", "профит"], value: "profit" },
+  { keys: ["прибыл", "профит"], value: "profit", unless: /прибыльн[а-яё]*\s+(?:день|дни|час|точк|филиал)/ },
   { keys: ["марж", "рентабельн"], value: "margin" },
   { keys: ["товар", "товары", "товаров", "позици", "меню", "напитк", "продукт"], value: "products" },
   { keys: ["налог", "налога", "налоги"], value: "tax" },
@@ -50,7 +50,7 @@ const METRICS = [
 // час пик, а не «сколько» и не «больше всего».
 const OPERATIONS = [
   { keys: ["по часам", "в какое время", "во сколько", "пик", "час пик"], value: "byHour" },
-  { keys: ["по дням", "по дням недели", "какой день", "в какой день", "какие дни", "по будням", "в выходные", "по выходным", "в будни"], value: "byWeekday" },
+  { keys: ["по дням", "по дням недели", "какой день", "в какой день", "какие дни", "по будням", "в выходные", "по выходным", "в будни", "прибыльный день", "лучший день", "худший день", "сильный день", "слабый день", "самый день"], value: "byWeekday" },
   { keys: ["по месяцам", "по неделям", "помесячно", "понедельно", "тренд", "как менял"], value: "trend" },
   { keys: ["прогноз", "прогнозир", "предсказан", "ожидаем"], value: "forecast" },
   { keys: ["аномальн", "аномали", "отклонени", "подозрительн"], value: "anomaly" },
@@ -73,7 +73,11 @@ const OPERATIONS = [
 // на понятные вопросы не влияет.
 
 function exactMetric(lower) {
-  for (const m of METRICS) for (const key of m.keys) if (lower.includes(key)) return m.value;
+  // unless — исключение: «прибыльный день» — это касса по дням, не прибыль
+  for (const m of METRICS) {
+    if (m.unless && m.unless.test(lower)) continue;
+    for (const key of m.keys) if (lower.includes(key)) return m.value;
+  }
   return null;
 }
 
@@ -82,6 +86,7 @@ function exactMetric(lower) {
 export function fuzzyMetric(text) {
   let best = null, bestScore = 0;
   for (const m of METRICS) {
+    if (m.unless && m.unless.test(text)) continue;
     for (const key of m.keys) {
       const s = matchPhrase(text, key);
       if (s > bestScore) { best = m.value; bestScore = s; }
@@ -97,7 +102,9 @@ function looksLikeKeyword(word) {
   if (!word || word.includes(" ")) return false;
   if (fuzzyMetric(word)) return true;
   for (const op of OPERATIONS) for (const key of op.keys) if (!key.includes(" ") && matchPhrase(word, key)) return true;
-  return /^(вчера|позавчера|сегодня|сейчас|недел|месяц|квартал|год|назад|последн|прошл|текущ|этот|эта|числ|начал|за|по|на)/.test(word);
+  // Предлоги — только целым словом: «пончики» начинаются с «по», но это
+  // товар, а не служебное слово
+  return /^(вчера|позавчера|сегодня|сейчас|недел|месяц|квартал|год|назад|последн|прошл|текущ|этот|эта|числ|начал)/.test(word) || /^(за|по|на|в|с|у|к|и|а)$/.test(word);
 }
 
 // Слово — название филиала (в любой форме)? «Сколько заработали на
@@ -175,6 +182,11 @@ const STOP_WORDS = new Set([
   "доля", "доли", "долю", "открылась", "открылся", "открылись", "открыли", "открывались", "открываются", "открывается",
   "возили", "возил", "привозили", "привезли", "последний", "раз", "ехать", "везти",
   "бариста", "сотрудник", "сотрудники", "сотрудников", "сотрудникам", "официант", "кассир", "кассиры", "ребят",
+  // Предлоги и наречия времени — раньше ловились как «начинается с по/на/за»
+  "после", "перед", "около", "между", "через", "без", "под", "над", "при", "про", "об", "обо",
+  "обед", "обеда", "утро", "утра", "утром", "вечер", "вечера", "вечером", "день", "днем", "днём", "ночь", "ночью",
+  "нас", "вас", "них", "нам", "вам", "им", "нами", "вами", "сети", "сеть", "сетью", "компании", "компания",
+  "всем", "всём", "всеми", "того", "этого", "эти", "эта", "этот", "тот", "та",
 ]);
 
 // Spot aliases
@@ -520,6 +532,18 @@ function parsePeriodExplicit(text) {
   if (yearOnly && !/\d{1,2}[.\-\/]\d{1,2}[.\-\/]20\d{2}/.test(text) && !findMonth(text)) {
     const y = Number(yearOnly[1]);
     if (y >= 2020 && y <= currentYear) return { from: `${y}-01-01`, to: y === currentYear ? fmtDate(now) : `${y}-12-31` };
+  }
+  // «За полугодие» — календарное: январь–июнь или июль–декабрь, текущее по
+  // сегодня; «прошлое полугодие» — предыдущее целиком. Так считаются налоги
+  if (/полугоди/.test(text)) {
+    const firstHalf = currentMonth <= 6;
+    const prev = /прошл|предыдущ/.test(text);
+    let y = currentYear, h = firstHalf ? 1 : 2;
+    if (prev) { if (h === 1) { y -= 1; h = 2; } else h = 1; }
+    const from = `${y}-${h === 1 ? "01" : "07"}-01`;
+    const end = `${y}-${h === 1 ? "06-30" : "12-31"}`;
+    const todayIso = fmtDate(now);
+    return { from, to: end > todayIso ? todayIso : end };
   }
   // «За полгода» — шесть месяцев: с первого числа пять месяцев назад по сегодня
   if (/полгода|пол\s+года|6\s*месяц|шесть\s+месяц/.test(text)) {
@@ -993,7 +1017,7 @@ export async function parseQuestion(text) {
   const afterU = lower.match(/(?:^|\s)у\s+([а-яё]{3,})(?![а-яё])/);
   if (metric !== "staff" && afterU && !ingredient && ["cash", "checks", "avgCheck", "products"].includes(metric)) {
     const name = afterU[1];
-    const pronoun = /^(нас|вас|них|неё|него|меня|тебя|себя|всех|кого|того|этого|каждого)$/.test(name);
+    const pronoun = /^(нас|вас|них|неё|него|меня|тебя|себя|всех|кого|того|этого|каждого|сети|сеть|компании|бизнеса|точек|точки|ребят)$/.test(name);
     if (!pronoun && !STOP_WORDS.has(name) && !looksLikeKeyword(name) && !isSpotWord(name) && !findMonth(name) && (!product || product === name)) {
       metric = "staff"; person = name; product = null;
     }
