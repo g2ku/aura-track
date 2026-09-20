@@ -43,6 +43,9 @@ export default function MorningBriefing() {
   const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Опора по точкам: тот же день недели в четыре прошлые недели.
+  // { spotId: среднее } — только где набралось хотя бы две недели
+  const [spotBase, setSpotBase] = useState({});
 
   const yesterday = yesterdayStr();
   const weekAgo = daysAgoStr(6);
@@ -66,6 +69,18 @@ export default function MorningBriefing() {
     if (yCash.status === "fulfilled") setYesterdayCash(yCash.value);
     if (wCash.status === "fulfilled") setWeekCash(wCash.value);
     if (sales.status === "fulfilled") setSalesData(sales.value?.rows || []);
+    // Опора грузится следом и молча: четыре дня по одному, из ночных
+    // итогов — это байты, а сводку задерживать незачем
+    Promise.allSettled([7, 14, 21, 28].map((n) => fetchCashBySpot(daysAgoStr(1 + n), daysAgoStr(1 + n)))).then((rs) => {
+      const acc = {};
+      for (const r of rs) {
+        if (r.status !== "fulfilled") continue;
+        for (const row of r.value || []) if (row.total > 0) (acc[row.spotId] ||= []).push(row.total);
+      }
+      const base = {};
+      for (const [id, vs] of Object.entries(acc)) if (vs.length >= 2) base[id] = vs.reduce((a, b) => a + b, 0) / vs.length;
+      setSpotBase(base);
+    });
     const failed = [yCash, wCash, sales].find((r) => r.status === "rejected");
     if (failed) {
       console.error("[Briefing] load error:", failed.reason);
@@ -121,14 +136,20 @@ export default function MorningBriefing() {
   // Per-spot breakdown
   const spotBreakdown = useMemo(() => {
     return yesterdayCash
-      .map((spot) => ({
-        name: SPOTS.find((s) => String(s.id) === String(spot.spotId))?.name || spot.spotName,
-        total: spot.total || 0,
-        txCount: spot.txCount || 0,
-        avgCheck: spot.avgCheck || 0,
-      }))
+      .map((spot) => {
+        const base = spotBase[spot.spotId];
+        // Отклонение от своего обычного дня; меньше 20 % — шум, не показываем
+        const pct = base && spot.total ? Math.round(((spot.total - base) / base) * 100) : null;
+        return {
+          name: SPOTS.find((s) => String(s.id) === String(spot.spotId))?.name || spot.spotName,
+          total: spot.total || 0,
+          txCount: spot.txCount || 0,
+          avgCheck: spot.avgCheck || 0,
+          pct: pct != null && Math.abs(pct) >= 20 ? pct : null,
+        };
+      })
       .sort((a, b) => b.total - a.total);
-  }, [yesterdayCash]);
+  }, [yesterdayCash, spotBase]);
 
   // Week trend (compare yesterday vs week avg)
   const trend = useMemo(() => {
@@ -197,9 +218,16 @@ export default function MorningBriefing() {
             <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Нет данных за вчера</div>
           ) : (
             spotBreakdown.map((spot) => (
-              <div key={spot.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+              <div key={spot.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
                 <span style={{ fontWeight: 500 }}>{spot.name}</span>
-                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(spot.total)}</span>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {spot.pct != null && (
+                    <span title="К среднему за тот же день недели за 4 недели" style={{ fontSize: 12, fontWeight: 600, marginRight: 8, color: spot.pct < 0 ? "var(--text-danger)" : "var(--text-success)" }}>
+                      {spot.pct < 0 ? "▼" : "▲"} {spot.pct > 0 ? "+" : "−"}{Math.abs(spot.pct)} %
+                    </span>
+                  )}
+                  {fmt(spot.total)}
+                </span>
               </div>
             ))
           )}
