@@ -227,6 +227,13 @@ async function executeInner(parsed, userBranch) {
       return await handlePercentChange(metric, effectiveSpot, period, period2, product, ipGroup, parsed.raw);
     }
 
+    // Метрики «про сейчас» — раньше разрезов: «во сколько открылась»
+    // несёт слово «во сколько», но это не пик по часам
+    if (metric === "opening") return await handleOpening(effectiveSpot, parsed.assumed?.period ? { from: fmtDateJS(new Date()), to: fmtDateJS(new Date()) } : period, parsed.raw);
+    if (metric === "payments") return await handlePayments(effectiveSpot, period, ipGroup, parsed.raw);
+    if (metric === "openChecks") return await handleOpenChecks(effectiveSpot);
+    if (metric === "alerts") return await handleAlerts();
+
     // Operations that work across metrics
     if (operation === "trend") return await handleTrend(metric, effectiveSpot, period, ipGroup);
     if (operation === "forecast") return await handleForecast(metric, effectiveSpot, period, ipGroup);
@@ -248,8 +255,7 @@ async function executeInner(parsed, userBranch) {
       case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup);
       case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
       case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup);
-      case "openChecks": return await handleOpenChecks(effectiveSpot);
-      case "alerts": return await handleAlerts();
+
       case "stock": return await handleStock(effectiveSpot, period, product);
       default: return await handleCash(operation, effectiveSpot, period, ipGroup);
     }
@@ -821,6 +827,102 @@ async function handleTax(operation, spot, period, ipGroup) {
     text: `Налог 3% ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\nНалог: ${fmt(tax)}`,
     data: { totalCash, tax },
   };
+}
+
+// ─── Способы оплаты ──────────────────────────────────────────────
+//
+// «Сколько наличных», «доля Kaspi», «способы оплаты за неделю» — из той
+// же разбивки, что и плитка оплат на главной. Названный способ — одной
+// строкой с долей и по точкам; без него — все способы с долями.
+const PAY_WORDS = [
+  { re: /наличн|налом/, id: "0" },
+  { re: /карточк|картой|по карте|безнал/, id: "0-card" },
+  { re: /каспи|kaspi/, id: "11" },
+  { re: /халык|halyk/, id: "12" },
+];
+async function handlePayments(spot, period, ipGroup, raw = "") {
+  const { fetchPaymentBreakdown, getPaymentMethodName } = await import("../poster.js");
+  const r = await fetchPaymentBreakdown(period.from, period.to);
+  const pl = formatPeriodLabel(period);
+  const sl = label(spot);
+  const q = String(raw).toLowerCase();
+  const want = PAY_WORDS.find((w) => w.re.test(q))?.id || null;
+
+  // Точки — с учётом группы ИП и названной точки
+  let spotRows = Object.entries(r.bySpot || {}).map(([spotId, methods]) => ({ spotId, spotName: spotNameByPosterId(spotId, ""), methods }));
+  spotRows = spotRows.filter((d) => matchesSpot({ spotId: d.spotId, spotName: d.spotName }, spot));
+  spotRows = await filterByIPGroup(spotRows, ipGroup);
+  const total = {};
+  for (const d of spotRows) for (const [id, v] of Object.entries(d.methods)) total[id] = (total[id] || 0) + v;
+  const all = Object.values(total).reduce((s, v) => s + v, 0);
+  if (!all) return { text: `Оплат ${sl} за ${pl} не нашёл.`, data: null };
+  const share = (v) => `${Math.round((v / all) * 100)} %`;
+
+  if (want) {
+    const v = total[want] || 0;
+    const name = getPaymentMethodName(want);
+    const lines = [`${name} ${sl} за ${pl}: ${fmt(v)} (${share(v)} от ${fmt(all)})`];
+    if (isAll(spot) && spotRows.length > 1) {
+      const rows = spotRows.map((d) => ({ name: sn(d), v: d.methods[want] || 0, all: Object.values(d.methods).reduce((s, x) => s + x, 0) }))
+        .filter((d) => d.all > 0).sort((a, b) => b.v - a.v);
+      lines.push("", ...rows.map((d) => `• ${d.name}: ${fmt(d.v)} (${Math.round((d.v / d.all) * 100)} %)`));
+    }
+    return { text: lines.join("\n"), data: { method: want, value: v, total: all, share: v / all } };
+  }
+
+  const order = ["11", "12", "0-card", "0"];
+  const rows = Object.entries(total).sort((a, b) => (order.indexOf(a[0]) === -1 ? 99 : order.indexOf(a[0])) - (order.indexOf(b[0]) === -1 ? 99 : order.indexOf(b[0])));
+  const lines = rows.map(([id, v]) => `• ${getPaymentMethodName(id)}: ${fmt(v)} (${share(v)})`);
+  return { text: `Способы оплаты ${sl} за ${pl}:\n${lines.join("\n")}\n\nИтого: ${fmt(all)}`, data: { total, all } };
+}
+
+// ─── Во сколько открылись ────────────────────────────────────────
+//
+// Открытие точки — её первый чек. Один день — список точек по времени
+// первого чека; несколько дней — обычное время и самый поздний день.
+function hhmm(str) {
+  const m = String(str || "").match(/(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : "";
+}
+async function handleOpening(spot, period, raw = "") {
+  const pl = formatPeriodLabel(period);
+  const r = await fetchReceipts(period.from, period.to, { includeOpen: false });
+  const items = (r?.receipts || []).filter((x) => x.status !== "open" && x.dateOpen);
+  const q = String(raw).toLowerCase();
+  const latestFirst = /позж|опозд|поздн/.test(q);
+
+  // Первый чек каждой точки в каждый день
+  const first = {}; // spotId → { day → "HH:MM" }
+  for (const x of items) {
+    if (!matchesSpot({ spotId: x.spotId, spotName: x.spotName }, spot)) continue;
+    const day = String(x.dateOpen).slice(0, 10);
+    const t = hhmm(x.dateOpen);
+    if (!t) continue;
+    const bySpot = (first[x.spotId] ||= { name: sn(x), days: {} });
+    if (!bySpot.days[day] || t < bySpot.days[day]) bySpot.days[day] = t;
+  }
+  const spots = Object.values(first);
+  if (!spots.length) return { text: `Чеков ${label(spot)} за ${pl} нет — открытие не по чему определить.`, data: null };
+
+  const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const fromMin = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  const rows = spots.map((s) => {
+    const entries = Object.entries(s.days).sort();
+    const mins = entries.map(([, t]) => toMin(t));
+    const avg = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
+    const worst = entries.reduce((w, e) => (toMin(e[1]) > toMin(w[1]) ? e : w), entries[0]);
+    return { name: s.name, avg, avgText: fromMin(avg), worstDay: worst[0], worstTime: worst[1], days: entries.length };
+  }).sort((a, b) => (latestFirst ? b.avg - a.avg : a.avg - b.avg));
+
+  const single = period.from === period.to;
+  const lines = rows.map((d, i) => {
+    const mark = latestFirst && i === 0 && rows.length > 1 ? "🐢 " : "• ";
+    return single
+      ? `${mark}${d.name}: ${d.avgText}`
+      : `${mark}${d.name}: обычно ${d.avgText}, позже всего ${d.worstTime} (${d.worstDay.slice(8, 10)}.${d.worstDay.slice(5, 7)})`;
+  });
+  const title = single ? `Первый чек ${label(spot)} за ${pl}` : `Открытие ${label(spot)} за ${pl} — по первому чеку`;
+  return { text: `${title}:\n${lines.join("\n")}`, data: { rows } };
 }
 
 // ─── Маржа ───────────────────────────────────────────────────────

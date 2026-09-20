@@ -64,14 +64,23 @@ globalThis.__poster = {
     this.calls.push(["receipts", from, to]);
     const receipts = [];
     let id = 1;
-    for (const d of eachDay(from, to).filter((x) => x <= TODAY)) for (const sid of Object.keys(SPOTS)) for (let h = 8; h < 22; h += 2) {
+    for (const d of eachDay(from, to).filter((x) => x <= TODAY)) for (const sid of Object.keys(SPOTS)) for (let h = sid === "9" ? 10 : 8; h < 22; h += 2) {
       const sum = sid === "4" && h === 14 ? 48000 : 2500 + h * 100;
       receipts.push({ id: id++, spotId: sid, spotName: SPOTS[sid], waiter: "Айгерим", dateOpen: `${d} ${String(h).padStart(2, "0")}:05:00`, dateClose: `${d} ${String(h).padStart(2, "0")}:12:00`, sum, discount: 0, profit: 0, status: "closed", products: [{ name: "Латте 0,4", qty: 1, sum: 2500 }, { name: "Круассан", qty: 2, sum: sum - 2500 }], paymentTypes: [] });
     }
     return { receipts, transactionsCount: receipts.length, openCount: 0, daysCount: eachDay(from, to).length };
   },
   async getMenuCategories() { return { categories: [{ id: "1", name: "Кофе", products: ["Латте 0,4"] }, { id: "2", name: "Выпечка", products: ["Круассан"] }] }; },
-  async fetchPaymentBreakdown() { return { openChecks: { items: [{ spotId: "4", spotName: "Aura02_Abaya", sum: 3200, minutes: 95, waiter: "Айгерим" }] } }; },
+  async fetchPaymentBreakdown(from, to) {
+    this.calls.push(["pay", from, to]);
+    const days = eachDay(from, to).filter((d) => d <= TODAY).length || 1;
+    const bySpot = {};
+    for (const sid of Object.keys(SPOTS)) bySpot[sid] = { 0: 100000 * days, "0-card": 50000 * days, 11: 300000 * days, 12: 50000 * days };
+    const total = {};
+    for (const m of Object.values(bySpot)) for (const [id, v] of Object.entries(m)) total[id] = (total[id] || 0) + v;
+    return { total, bySpot, openChecks: { items: [{ spotId: "4", spotName: "Aura02_Abaya", sum: 3200, minutes: 95, waiter: "Айгерим" }] } };
+  },
+  getPaymentMethodName(id) { return { 0: "Наличные", "0-card": "Карточки", 11: "Kaspi", 12: "Halyk" }[String(id)] || `Оплата #${id}`; },
 };
 
 // ─── Сборка исполнителя с заглушками ──────────────────────────────
@@ -86,6 +95,7 @@ writeFileSync(posterStub, `
   export const fetchReceipts = (...a) => P.fetchReceipts(...a);
   export const getMenuCategories = (...a) => P.getMenuCategories(...a);
   export const fetchPaymentBreakdown = (...a) => P.fetchPaymentBreakdown(...a);
+  export const getPaymentMethodName = (...a) => P.getPaymentMethodName(...a);
   export const fetchPosterSalesMultiple = async () => [];
   export const getMenuIndex = async () => ({});
   export const getSpots = async () => ({});
@@ -237,6 +247,28 @@ section("Крупные чеки — отдельные чеки, а не точ
   has(y, "21 авг. — 20 сент.", "и это месяц по сегодня, а не декабрь");
   const tp = await ask("топ точек по чекам за неделю");
   has(tp, "Топ по количеству чеков", "а «топ по чекам» — по-прежнему рейтинг точек");
+}
+
+section("Способы оплаты и время открытия");
+{
+  const p = await ask("способы оплаты за неделю");
+  has(p, "Способы оплаты все филиалы", "заголовок");
+  has(p, "• Kaspi: 6 300 000 ₸ (60 %)", "Kaspi первым, с долей");
+  has(p, "• Наличные: 2 100 000 ₸ (20 %)", "наличные с долей");
+  const k = await ask("сколько каспи за неделю на абая");
+  has(k, "Kaspi Abaya за", "названный способ — одной строкой");
+  has(k, "2 100 000 ₸ (60 % от 3 500 000 ₸)", "сумма и доля по точке");
+  const n = await ask("доля наличных за неделю");
+  has(n, "Наличные все филиалы", "наличные по сети");
+  has(n, "• Абая: 700 000 ₸ (20 %)", "и по точкам");
+  const o = await ask("во сколько открылась абая сегодня");
+  has(o, "Первый чек Abaya", "открытие — по первому чеку");
+  has(o, "• Абая: 08:05", "время первого чека");
+  const late = await ask("какая точка открылась позже всех");
+  has(late, "🐢 Дубай: 10:05", "самая поздняя помечена и первая в списке");
+  ok(late.indexOf("Дубай") < late.indexOf("Абая"), "порядок — от поздней к ранней");
+  const w = await ask("во сколько открывались точки за неделю");
+  has(w, "обычно 10:05, позже всего 10:05", "за несколько дней — обычное и самое позднее");
 }
 
 section("Открытые чеки и незнакомые точки");

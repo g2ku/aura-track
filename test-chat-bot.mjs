@@ -86,6 +86,8 @@ section("Ответы");
   ok(f && f.text.startsWith("<b>Касса</b>") && f.text.includes("за август") && f.text.includes("за сентябрь"), "сравнение месяцев — по кассе, а не «точки»");
   ok(/📈|📉|➡️/.test(f.text), "с процентом");
 
+  const who = await answerQuestion("кто просел за неделю", deps);
+  ok(who && who.text.includes("• Абая — ") && who.text.includes("• Рамс — "), "«кто просел» — сравнение недель по точкам");
   const g = await answerQuestion("кто хуже всех по кассе за неделю", deps);
   ok(g && g.text.startsWith("<b>Точки по кассе") && g.text.includes("1. Абая") && g.text.includes("3. Рамс"), "рейтинг точек");
 

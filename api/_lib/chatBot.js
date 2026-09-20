@@ -161,11 +161,24 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
     const a = pick(s), b = pick(s2);
     const pct = b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : null;
     const unit = metric === "checks" ? int : fmt;
-    return [`<b>${label(metric)}${escapeHtml(where)}</b>`,
+    const lines = [`<b>${label(metric)}${escapeHtml(where)}</b>`,
       `${periodRu(parsed.period, today)}: <b>${unit(a)}</b>`,
       `${periodRu(parsed.period2, today)}: ${unit(b)}`,
       pct == null ? "" : `${pct > 0 ? "📈 +" : pct < 0 ? "📉 " : "➡️ "}${String(pct).replace(".", ",")} %`,
-    ].filter(Boolean).join("\n");
+    ];
+    // Вся сеть — ещё и по точкам: «кто просел» без этого не ответить
+    if (!spots && metric === "cash") {
+      const ids = new Set([...Object.keys(s.cash), ...Object.keys(s2.cash)]);
+      const rows = [...ids].map((id) => {
+        const x = s.cash[id] || 0, y = s2.cash[id] || 0;
+        const p = y ? Math.round(((x - y) / Math.abs(y)) * 100) : null;
+        return { id, x, y, p };
+      }).sort((r1, r2) => (r1.p ?? 999) - (r2.p ?? 999));
+      if (rows.length > 1) {
+        lines.push("", ...rows.map((r) => `• ${escapeHtml(spotNameByPosterId(r.id))} — ${fmt(r.x)}${r.p == null ? "" : ` (${r.p > 0 ? "+" : r.p < 0 ? "−" : ""}${Math.abs(r.p)} %)`}`));
+      }
+    }
+    return lines.filter(Boolean).join("\n");
   }
 
   if (parsed.metric === "compareBranches" || (parsed.operation === "compare" && !spots)) {
