@@ -96,6 +96,16 @@ for (const s of screens) {
   }
 }
 
+section("Лента проблем перепроверяется");
+
+{
+  const pf = (await import("node:fs")).readFileSync("src/components/ProblemFeed.jsx", "utf8");
+  ok(/}, \[tick\]\);/.test(pf), "пересбор по tick");
+  ok(/Date\.now\(\) - last < 5 \* 60 \* 1000/.test(pf), "возврат на вкладку — не чаще раза в пять минут");
+  ok((pf.match(/feed-refresh/g) || []).length >= 2, "кнопка «проверить заново» есть и в ошибке, и в ленте");
+  ok(/проверено \{hhmm\(state\.at\)\}/.test(pf), "«всё в порядке» подписано временем проверки");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

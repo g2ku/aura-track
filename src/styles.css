@@ -6016,6 +6016,15 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
 }
+/* Когда проверяли ленту и кнопка «проверить заново» */
+.feed-refresh {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: 0; padding: 4px 6px; border-radius: 8px; cursor: pointer;
+  color: var(--text-muted); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.feed-refresh:hover { color: var(--text-primary, var(--text)); background: var(--surface-2, transparent); }
+.feed-at { color: var(--text-muted); font-weight: 400; }
+
 /* Строка «спросить» на главной */
 .ask-box { display: flex; flex-direction: column; gap: 8px; }
 .ask-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border: 1px dashed var(--border-strong, var(--border)); border-radius: var(--radius, 12px); background: var(--surface-1, transparent); }

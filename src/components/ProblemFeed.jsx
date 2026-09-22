@@ -12,8 +12,13 @@ import { fetchAlerts } from "../poster";
 import { describe, severity, alertLink, sortAlerts, alertsForSpot } from "../alertText";
 import { getUserSpotId } from "../auth.jsx";
 
+const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
 export default function ProblemFeed({ onNavigate }) {
   const [state, setState] = useState({ status: "loading", alerts: [], failed: [] });
+  // tick — «пересчитать»: возврат на вкладку или кнопка. Владелец держит
+  // дашборд открытым весь день, и лента, собранная утром, к обеду врёт
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,7 +37,7 @@ export default function ProblemFeed({ onNavigate }) {
         // Куратор отвечает за одну точку — чужие тревоги ему не нужны и
         // не его дело. У владельца и управляющего spotId нет, они видят сеть.
         const mine = alertsForSpot(r.alerts, getUserSpotId());
-        setState({ status: "ok", alerts: sortAlerts(mine), failed: r.failed || [], done });
+        setState({ status: "ok", alerts: sortAlerts(mine), failed: r.failed || [], done, at: new Date() });
       };
 
       try {
@@ -50,7 +55,26 @@ export default function ProblemFeed({ onNavigate }) {
       }
     }
     return () => { cancelled = true; clearTimeout(t); };
+  }, [tick]);
+
+  // Вернулись на вкладку спустя время — лента пересобирается сама, но не
+  // чаще раза в пять минут: переключение окон не должно дёргать Poster
+  useEffect(() => {
+    let last = Date.now();
+    const onVisible = () => {
+      if (document.hidden || Date.now() - last < 5 * 60 * 1000) return;
+      last = Date.now();
+      setTick((v) => v + 1);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
+
+  const refreshBtn = (
+    <button className="feed-refresh" onClick={() => setTick((v) => v + 1)} title="Проверить заново">
+      <i className="ti ti-refresh" aria-hidden="true" /> {state.at ? hhmm(state.at) : ""}
+    </button>
+  );
 
   if (state.status === "loading") {
     return (
@@ -66,7 +90,12 @@ export default function ProblemFeed({ onNavigate }) {
     // а это разные вещи.
     return (
       <div className="cl-zone feed">
-        <div className="cl-zone-title"><i className="ti ti-alert-triangle" aria-hidden="true" /> Проверку сделать не вышло</div>
+        <div className="cl-zone-title">
+          <i className="ti ti-alert-triangle" aria-hidden="true" /> Проверку сделать не вышло
+          <button className="feed-refresh" onClick={() => setTick((v) => v + 1)}>
+            <i className="ti ti-refresh" aria-hidden="true" /> Ещё раз
+          </button>
+        </div>
         <div className="feed-empty-sub">{state.error || "Poster не ответил"}</div>
       </div>
     );
@@ -80,7 +109,7 @@ export default function ProblemFeed({ onNavigate }) {
         <div className="feed-ok-row">
           <i className="ti ti-circle-check" aria-hidden="true" />
           <div>
-            <div className="feed-ok-title">Всё в порядке</div>
+            <div className="feed-ok-title">Всё в порядке{state.at && <span className="feed-at"> · проверено {hhmm(state.at)}</span>}</div>
             <div className="feed-empty-sub">
               {getUserSpotId() ? "На вашей точке чеки закрывают и остатки в порядке" : "Чеки закрывают, точки работают, поставки проводят"}
               {failed.length ? ` · не проверил: ${failed.join(", ")}` : ""}
@@ -96,6 +125,7 @@ export default function ProblemFeed({ onNavigate }) {
       <div className="cl-zone-title">
         <i className="ti ti-alert-triangle" aria-hidden="true" /> Требует внимания
         <span className="feed-count">{alerts.length}</span>
+        {refreshBtn}
       </div>
 
       {alerts.map((a) => {
