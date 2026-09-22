@@ -265,6 +265,41 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
     return [`<b>Точки по кассе ${escapeHtml(when)}</b>`, ...lines, "", `Итого: ${fmt(s.total)}`].join("\n");
   }
 
+  // «Что на Абае берут чаще, чем на Дубае» — доли позиций двух точек
+  if (parsed.metric === "products" && parsed.spot2?.spotId) {
+    const idA = String(parsed.spot?.spotId || ""), idB = String(parsed.spot2.spotId);
+    const nameA = spotNameByPosterId(idA), nameB = spotNameByPosterId(idB);
+    const acc = new Map();
+    let ta = 0, tb = 0;
+    for (const d of days || []) {
+      for (const [spot, rows] of Object.entries(d.rowsBySpot || {})) {
+        const isA = String(spot) === idA, isB = String(spot) === idB;
+        if (!isA && !isB) continue;
+        for (const [name, r] of Object.entries(rows || {})) {
+          const e = acc.get(name) || { name, a: 0, b: 0 };
+          if (isA) { e.a += r.qty || 0; ta += r.qty || 0; } else { e.b += r.qty || 0; tb += r.qty || 0; }
+          acc.set(name, e);
+        }
+      }
+    }
+    if (!ta && !tb) return `Продаж ${escapeHtml(nameA)} и ${escapeHtml(nameB)} ${escapeHtml(when)} не нашёл.`;
+    const share = (n, t) => (t ? (n / t) * 100 : 0);
+    const rows = [...acc.values()].map((e) => ({ ...e, diff: share(e.a, ta) - share(e.b, tb) }));
+    const one = (e) => `${escapeHtml(e.name)} — ${int(e.a)} (${share(e.a, ta).toFixed(1).replace(".", ",")} %) против ${int(e.b)} (${share(e.b, tb).toFixed(1).replace(".", ",")} %)`;
+    const more = rows.filter((e) => e.a > 0 && e.b > 0).sort((x, y) => y.diff - x.diff);
+    const onlyA = rows.filter((e) => e.a > 0 && !e.b).sort((x, y) => y.a - x.a).slice(0, 5);
+    const onlyB = rows.filter((e) => e.b > 0 && !e.a).sort((x, y) => y.b - x.b).slice(0, 5);
+    const out = [`<b>${escapeHtml(nameA)} против ${escapeHtml(nameB)} ${escapeHtml(when)}</b>`, "<i>доля позиции в своей точке</i>"];
+    if (more.length) {
+      out.push("", `Чаще на ${escapeHtml(nameA)}:`, ...more.slice(0, 5).map((e) => `• ${one(e)}`));
+      const less = more.slice().reverse().filter((e) => e.diff < 0).slice(0, 5);
+      if (less.length) out.push("", `Чаще на ${escapeHtml(nameB)}:`, ...less.map((e) => `• ${one(e)}`));
+    }
+    if (onlyA.length) out.push("", `Только на ${escapeHtml(nameA)}: ${onlyA.map((e) => escapeHtml(e.name)).join(", ")}`);
+    if (onlyB.length) out.push("", `Только на ${escapeHtml(nameB)}: ${onlyB.map((e) => escapeHtml(e.name)).join(", ")}`);
+    return out.join("\n");
+  }
+
   if (parsed.metric === "products") {
     let list = s.products;
     if (parsed.product) list = list.filter((p) => productMatches(p.name, parsed.product));

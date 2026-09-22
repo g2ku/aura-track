@@ -89,6 +89,10 @@ section("Ответы");
   ok(f && f.text.startsWith("<b>Касса</b>") && f.text.includes("за август") && f.text.includes("за сентябрь"), "сравнение месяцев — по кассе, а не «точки»");
   ok(/📈|📉|➡️/.test(f.text), "с процентом");
 
+  const vs = await answerQuestion("что на абае берут чаще чем на дубае вчера", deps);
+  ok(vs && vs.text.startsWith("<b>Абая против Дубай"), `сравнение точек по товарам: ${vs?.text?.split("\n")[0]}`);
+  ok(vs.text.includes("доля позиции в своей точке"), "с оговоркой про доли");
+  ok(vs.text.includes("Только на Абая: Латте 0,4, Капучино L") && vs.text.includes("Только на Дубай: Латте 0,3"), "и что есть только на одной");
   const hr = await answerQuestion("во сколько пик вчера", deps);
   ok(hr && hr.text.startsWith("<b>Пик ") && hr.text.includes("🔥 14:00"), `пик по часам из итогов: ${hr?.text?.split("\n")[1]}`);
   ok(!hr.text.includes("💤 Тихие часы:"), "три часа в данных — тихих нет, повторов тоже");
