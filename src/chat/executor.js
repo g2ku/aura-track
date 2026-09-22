@@ -670,11 +670,11 @@ async function handleProductsVsSpot(spotA, spotB, period, limit) {
   const onlyB = rows.filter((d) => d.b > 0 && d.a === 0).sort((x, y) => y.b - x.b).slice(0, n);
   const more = rows.filter((d) => d.a > 0 && d.b > 0).sort((x, y) => y.diff - x.diff);
   const lines = [`${nameA} против ${nameB} за ${pl} — доля позиции в своей точке:`];
-  if (more.length) {
-    lines.push("", `Чаще на ${nameA}:`, ...more.slice(0, n).map((d) => `• ${one(d)}`));
-    const less = more.slice().reverse().filter((d) => d.diff < 0).slice(0, n);
-    if (less.length) lines.push("", `Чаще на ${nameB}:`, ...less.map((d) => `• ${one(d)}`));
-  }
+  // Позиция попадает ровно в один список: где её доля выше, там и место
+  const upA = more.filter((d) => d.diff > 0).slice(0, n);
+  const upB = more.filter((d) => d.diff < 0).reverse().slice(0, n);
+  if (upA.length) lines.push("", `Чаще на ${nameA}:`, ...upA.map((d) => `• ${one(d)}`));
+  if (upB.length) lines.push("", `Чаще на ${nameB}:`, ...upB.map((d) => `• ${one(d)}`));
   if (onlyA.length) lines.push("", `Только на ${nameA}: ${onlyA.map((d) => `${d.name} (${d.a} шт.)`).join(", ")}`);
   if (onlyB.length) lines.push("", `Только на ${nameB}: ${onlyB.map((d) => `${d.name} (${d.b} шт.)`).join(", ")}`);
   lines.push("", `Всего: ${nameA} — ${totalA} шт., ${nameB} — ${totalB} шт.`);

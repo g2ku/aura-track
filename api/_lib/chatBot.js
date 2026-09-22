@@ -290,11 +290,10 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
     const onlyA = rows.filter((e) => e.a > 0 && !e.b).sort((x, y) => y.a - x.a).slice(0, 5);
     const onlyB = rows.filter((e) => e.b > 0 && !e.a).sort((x, y) => y.b - x.b).slice(0, 5);
     const out = [`<b>${escapeHtml(nameA)} против ${escapeHtml(nameB)} ${escapeHtml(when)}</b>`, "<i>доля позиции в своей точке</i>"];
-    if (more.length) {
-      out.push("", `Чаще на ${escapeHtml(nameA)}:`, ...more.slice(0, 5).map((e) => `• ${one(e)}`));
-      const less = more.slice().reverse().filter((e) => e.diff < 0).slice(0, 5);
-      if (less.length) out.push("", `Чаще на ${escapeHtml(nameB)}:`, ...less.map((e) => `• ${one(e)}`));
-    }
+    const upA = more.filter((e) => e.diff > 0).slice(0, 5);
+    const upB = more.filter((e) => e.diff < 0).reverse().slice(0, 5);
+    if (upA.length) out.push("", `Чаще на ${escapeHtml(nameA)}:`, ...upA.map((e) => `• ${one(e)}`));
+    if (upB.length) out.push("", `Чаще на ${escapeHtml(nameB)}:`, ...upB.map((e) => `• ${one(e)}`));
     if (onlyA.length) out.push("", `Только на ${escapeHtml(nameA)}: ${onlyA.map((e) => escapeHtml(e.name)).join(", ")}`);
     if (onlyB.length) out.push("", `Только на ${escapeHtml(nameB)}: ${onlyB.map((e) => escapeHtml(e.name)).join(", ")}`);
     return out.join("\n");
