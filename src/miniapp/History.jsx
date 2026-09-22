@@ -52,6 +52,9 @@ export default function History({ api, today, keepDays, skus, canReconcile = tru
     : PERIODS.find((p) => p.id === pick.kind)?.title || "";
 
   const total = (o) => skus.reduce((s, k) => s + (o?.[k.id] || 0), 0);
+  // С единицами: «300 × 350, 100 × 450» — «300 / 100» читалось только
+  // вместе с примечанием внизу карточки
+  const withUnits = (o) => skus.map((s) => `${num(o?.[s.id])} × ${s.short}`).join(", ");
 
   return (
     <>
@@ -120,7 +123,7 @@ export default function History({ api, today, keepDays, skus, canReconcile = tru
             {data.branches?.length ? data.branches.map((b) => (
               <div className="branch-line" key={b.branch}>
                 <span className="grow name">{b.branch}</span>
-                <span className="muted num">{skus.map((s) => num(b.qty?.[s.id])).join(" / ")}</span>
+                <span className="muted num">{withUnits(b.qty)}</span>
                 <span className="days muted">{b.trips} {b.trips === 1 ? "заезд" : "заезд" + (b.trips % 10 >= 2 && b.trips % 10 <= 4 && (b.trips % 100 < 12 || b.trips % 100 > 14) ? "а" : "ов")}</span>
               </div>
             )) : <div className="muted">За этот период выдач не было</div>}
@@ -128,13 +131,11 @@ export default function History({ api, today, keepDays, skus, canReconcile = tru
             {!!total(data.in) && (
               <div className="branch-line" style={{ marginTop: 8 }}>
                 <span className="grow name">Пришло на склад</span>
-                <span className="muted num">{skus.map((s) => num(data.in?.[s.id])).join(" / ")}</span>
+                <span className="muted num">{withUnits(data.in)}</span>
               </div>
             )}
 
-            <div className="note">
-              Числа — {skus.map((s) => s.short).join(" / ")}. Журнал хранится {keepDays || 365} дней.
-            </div>
+            <div className="note">Журнал хранится {keepDays || 365} дней.</div>
           </div>
 
           {!withFeed && (
