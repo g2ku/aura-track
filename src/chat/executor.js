@@ -216,6 +216,13 @@ async function executeInner(parsed, userBranch) {
   }
 
   try {
+    // «Сравни сегодня со вчера в это же время» — два дня, но только до
+    // текущего часа: полный вчерашний день против половины сегодняшнего
+    // ничего не говорит
+    if (parsed.hours && period2 && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
+      return await handleHoursCompare(metric === "compareBranches" ? "cash" : metric, effectiveSpot, period, period2, parsed.hours, ipGroup);
+    }
+
     if (operation === "percentChange" && period2) {
       // Сезонное меню сравнивается своими итогами: общий обработчик
       // сравнения про категории не знает
@@ -1123,6 +1130,24 @@ async function handleHours(metric, spot, period, hours, ipGroup) {
     if (rows.length > 1) lines.push("", ...rows.map((b) => `• ${sn(b)}: ${metric === "checks" ? `${b.winN} чеков` : fmt(b.win)} (${b.all ? Math.round((b.win / b.all) * 100) : 0} %)`));
   }
   return { text: lines.join("\n") + note, data: { total, all, count: inWindow.length, hours } };
+}
+
+// Два дня в одном окне часов: «сегодня против вчера в это же время»
+async function handleHoursCompare(metric, spot, p1, p2, hours, ipGroup) {
+  const one = async (p) => {
+    const r = await handleHours(metric, spot, p, hours, ipGroup);
+    return { label: formatPeriodLabel(p), value: r?.data?.total ?? 0, count: r?.data?.count ?? 0 };
+  };
+  const [a, b] = await Promise.all([one(p1), one(p2)]);
+  const useChecks = metric === "checks";
+  const va = useChecks ? a.count : a.value, vb = useChecks ? b.count : b.value;
+  const unit = (v) => (useChecks ? `${v} чеков` : fmt(v));
+  const pct = vb ? Math.round(((va - vb) / Math.abs(vb)) * 1000) / 10 : null;
+  const sign = pct == null ? "" : pct > 0 ? `📈 +${String(pct).replace(".", ",")} %` : pct < 0 ? `📉 −${String(Math.abs(pct)).replace(".", ",")} %` : "➡️ поровну";
+  return {
+    text: `${useChecks ? "Чеки" : "Касса"} ${label(spot)} ${hours.label}:\n${a.label}: ${unit(va)}\n${b.label}: ${unit(vb)}\n\n${sign}`,
+    data: { a, b, pct, hours },
+  };
 }
 
 // ─── Стаканы ─────────────────────────────────────────────────────

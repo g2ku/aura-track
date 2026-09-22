@@ -33,7 +33,7 @@ const METRICS = [
   // «продав» само по себе — про чеки. Поэтому стоят выше чеков.
   { keys: ["что продав", "что продал", "что покупа", "что берут", "что брали", "что заказыва", "продаваем", "популярн", "хит продаж", "топ товар", "топ продаж", "топ позиц", "не продав", "не продал", "без продаж", "нет продаж", "мертвые позиц", "мёртвые позиц", "не продает", "не продаёт"], value: "products" },
   // «Сколько заработаем» — про будущее, это прогноз
-  { keys: ["заработаем", "заработаю", "выйдем на", "сколько будет к концу"], value: "forecast" },
+  { keys: ["заработаем", "заработаю", "выйдем на", "сколько будет к концу", "к концу месяца", "до конца месяца", "по итогам месяца"], value: "forecast" },
   { keys: ["касс", "каса", "выручк", "деньг", "денег", "средств", "заработ", "оборот", "доход", "бабк", "бабл", "деньж", "сколько сделал", "сделали за", "сделали вчера", "сделали сегодня", "торгуем", "наторгов", "торговл", "как дела", "как день", "как идут", "как идет", "как идёт", "что по деньгам"], value: "cash" },
   { keys: ["средний чек", "средняя сумма"], value: "avgCheck" },
   { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж", "продан", "продав", "человек", "людей", "гостей", "гостя", "клиент", "посетител"], value: "checks" },
@@ -196,6 +196,8 @@ const STOP_WORDS = new Set([
   "скидок", "скидки", "скидка", "скидку", "дали", "давали", "закрылись", "закрылся", "закрылась", "закрываются", "закрывается", "работал", "работала", "работали", "работает", "стоял", "стояла", "смен", "смена", "смены", "возвратов", "возврат", "возвраты",
   "самый", "самая", "самое", "самые", "самых", "лучший", "лучшие", "лучших", "худший", "худшие", "худших", "популярный", "популярные", "прибыльный", "новый", "новые", "старый", "первый", "первые", "последний", "последние",
   "полгода", "полугодие", "полугодия", "выходные", "выходных", "будни", "будням", "будних", "половина", "половину", "половине", "начала", "начало", "конца", "конец", "недавно", "давно", "сутки", "суток",
+  "себестоимость", "себестоимости", "наценка", "наценку", "наценки", "стоит", "обходится", "закупка", "закупки",
+  "будет", "концу", "конце", "итогам", "итогу",
   // Предлоги и наречия времени — раньше ловились как «начинается с по/на/за»
   "после", "перед", "около", "между", "через", "без", "под", "над", "при", "про", "об", "обо",
   "обед", "обеда", "утро", "утра", "утром", "вечер", "вечера", "вечером", "день", "днем", "днём", "ночь", "ночью",
@@ -327,7 +329,10 @@ export function hasExplicitPeriod(text) {
   return parsePeriodExplicit(normalize(text)) !== null;
 }
 
-function parsePeriodExplicit(text) {
+function parsePeriodExplicit(rawText) {
+  // «По дням недели за месяц» — «недели» здесь часть разреза, а не срок:
+  // без этого период съезжал на неделю
+  const text = String(rawText).replace(/дн[а-яё]*\s+недел[а-яё]*/g, " ");
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -486,7 +491,7 @@ function parsePeriodExplicit(text) {
   // «В среду», «в прошлую пятницу» — ближайший такой день назад (сегодня
   // тоже считается). «По понедельникам» без «в» — это разрез по дням
   // недели, сюда не попадает.
-  const wd = text.match(/(?:^|\s)(?:в|во)\s+(?:(прошл[а-яё]+)\s+)?(понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)(?![а-яё])/);
+  const wd = text.match(/(?:^|\s)(?:(?:в|во|как)\s+)?(?:(прошл[а-яё]+)\s+)?(понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)(?![а-яё])/);
   if (wd) {
     const idx = ["понедельник", "вторник", "сред", "четверг", "пятниц", "суббот", "воскресенье"].findIndex((k) => wd[2].startsWith(k));
     const todayIdx = (now.getDay() + 6) % 7;
@@ -533,6 +538,21 @@ function parsePeriodExplicit(text) {
     }
   }
 
+  // «В этот день год назад», «год назад» — та же дата прошлого года
+  if (/(?:в\s+)?(?:этот|тот)\s+день\s+год\s+назад|ровно\s+год\s+назад|год\s+назад(?!\s*[-–]\s*)/.test(text) && !/за\s+год/.test(text)) {
+    const d = new Date(currentYear - 1, now.getMonth(), now.getDate());
+    return { from: fmtDate(d), to: fmtDate(d) };
+  }
+  // «В прошлом сентябре» — этот месяц прошлого года
+  const prevMonthNamed = text.match(/прошл[а-яё]+\s+(январ|феврал|март|апрел|ма[йея]|июн|июл|август|сентябр|октябр|ноябр|декабр)[а-яё]*/);
+  if (prevMonthNamed) {
+    const m = findMonth(prevMonthNamed[1]);
+    if (m) {
+      const y = currentYear - 1;
+      const last = new Date(y, m, 0).getDate();
+      return { from: `${y}-${String(m).padStart(2, "0")}-01`, to: `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}` };
+    }
+  }
   // «Прошлый год» — целиком
   if (/прошл[а-яё]+\s+год/.test(text)) {
     return { from: `${currentYear - 1}-01-01`, to: `${currentYear - 1}-12-31` };
@@ -670,6 +690,15 @@ function parseComparisonPeriods(text) {
   const lower = text.toLowerCase();
   const now = new Date();
   const currentYear = now.getFullYear();
+
+  // «Сравни сегодня со вчера» — самая частая пара у владельца
+  if (/сегодня/.test(lower) && /вчера|вчерашн/.test(lower) && /сравн|против|vs|чем/.test(lower)) {
+    const y = new Date(now.getTime() - 86400000);
+    return [
+      { from: fmtDate(now), to: fmtDate(now), label: "сегодня" },
+      { from: fmtDate(y), to: fmtDate(y), label: "вчера" },
+    ];
+  }
 
   // «Эту неделю с прошлой», «этот месяц с прошлым» — относительные пары.
   // Месяц сравниваем честно: столько же дней с начала, а не целый прошлый
@@ -898,6 +927,12 @@ const MONTH_AFTER = "(?:\\s+(?:январ|феврал|март|апрел|ма[
 export function parseHours(text) {
   const t = String(text).toLowerCase();
   const h = (v) => Math.min(24, Math.max(0, Number(v)));
+  // «В это же время», «на этот час» — с начала дня по текущий час: так
+  // сегодня сравнивают со вчера честно, а не полный день с неполным
+  if (/в\s+это\s+же\s+врем|на\s+это\s+врем|на\s+этот\s+час|к\s+этому\s+час/.test(t)) {
+    const now = new Date();
+    return { from: 0, to: Math.min(24, now.getHours() + 1), label: `до ${String(now.getHours() + 1).padStart(2, "0")}:00` };
+  }
   // «До 12 сентября», «после 5 сентября», «с 1 сентября до 10 сентября» —
   // это даты: число, за которым идёт месяц, часом не считается
   const dateLike = new RegExp(`(?:до|после|с|по)\\s+\\d{1,2}${MONTH_AFTER}`);
@@ -1044,6 +1079,7 @@ export async function parseQuestion(text) {
   const compPeriods = parseComparisonPeriods(lower);
   if (compPeriods) {
     const spot = parseSpot(lower);
+    const hoursInCompare = parseHours(lower);
     // «Сравни эту неделю с прошлой» — сравнение периодов, а не филиалов
     const m = parseMetric(lower, product);
     return {
@@ -1052,6 +1088,7 @@ export async function parseQuestion(text) {
       spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
       period: compPeriods[0],
       period2: compPeriods[1],
+      ...(hoursInCompare ? { hours: hoursInCompare } : {}),
       product,
       category,
       ipGroup,
@@ -1129,6 +1166,9 @@ export async function parseQuestion(text) {
   // «Как дела», «как торгуем», «что по деньгам» — это про сегодня, а не про месяц
   const askingNow = /как\s+(?:дела|день|идут|идет|идёт)|торгуем|что\s+по\s+деньгам/.test(lower);
   const period = explicitPeriod || (askingNow ? { from: fmtDate(new Date()), to: fmtDate(new Date()) } : currentMonthPeriod());
+  // «Что было в этот день год назад», «как прошлый вторник» — назван
+  // конкретный день, а не разрез: слова «день»/«час» здесь не метрика
+  if (["weekday", "hourly"].includes(metric) && explicitPeriod && period.from === period.to) metric = "cash";
   if (byBranchAsked && metric === "products") period.raw = "по филиалам";
   // «Продажи по точкам», «касса по филиалам» — сравнение точек
   if (byBranchAsked && ["cash", "checks", "avgCheck"].includes(metric)) { metric = "compareBranches"; spot = null; }
