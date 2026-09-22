@@ -272,7 +272,7 @@ async function executeInner(parsed, userBranch) {
         return await handleProducts(operation, effectiveSpot, period, product, ipGroup, parsed.limit || null);
       case "tax": return await handleTax(operation, effectiveSpot, period, ipGroup);
       case "margin":
-      case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup);
+      case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup, product);
       case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
       case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup);
 
@@ -1278,7 +1278,7 @@ async function handleOpening(spot, period, raw = "") {
 
 // ─── Маржа ───────────────────────────────────────────────────────
 
-async function handleMargin(operation, spot, period, ipGroup) {
+async function handleMargin(operation, spot, period, ipGroup, productName = null) {
   const { loadMargin, calcRecipeCost } = await import("../margin.js");
 
   // Индекс меню здесь не нужен: он весит до мегабайта и тянулся зря
@@ -1307,6 +1307,22 @@ async function handleMargin(operation, spot, period, ipGroup) {
     cost: calcRecipeCost(marginData.ingredients || [], r),
     price: r.salePrice || 0,
   }));
+
+  // Названа позиция — «себестоимость латте», «наценка на круассан»:
+  // отвечаем про неё, а не средним по меню
+  if (productName) {
+    const hit = costs.filter((c) => productMatches(c.name, productName));
+    if (!hit.length) {
+      const close = closestNames(productName, costs.map((c) => c.name), 3);
+      return { text: `«${productName}» в рецептах не нашёл.${close.length ? `\nПохожие: ${close.join(", ")}` : ""}`, data: { suggestions: close } };
+    }
+    const lines = hit.slice(0, 6).map((c) => {
+      const m = c.price > 0 ? ((c.price - c.cost) / c.price * 100).toFixed(1).replace(".", ",") : null;
+      const markup = c.cost > 0 && c.price > 0 ? ` · наценка ×${(c.price / c.cost).toFixed(1).replace(".", ",")}` : "";
+      return `• ${c.name}: себестоимость ${fmt(c.cost)}${c.price ? ` → цена ${fmt(c.price)}` : " (цена не задана)"}${m ? ` · маржа ${m} %${markup}` : ""}`;
+    });
+    return { text: `${lines.join("\n")}\n\nЦены и техкарты — в разделе «Маржа».`, data: { rows: hit } };
+  }
 
   const avgCost = costs.reduce((s, c) => s + c.cost, 0) / costs.length;
   const avgPrice = costs.reduce((s, c) => s + c.price, 0) / costs.length;

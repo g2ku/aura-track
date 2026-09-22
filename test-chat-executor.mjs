@@ -148,6 +148,19 @@ writeFileSync(posterStub, `
   export const getMenuIndex = async () => ({});
   export const getSpots = async () => ({});
 `);
+const marginStub = resolve(dir, "margin.js");
+writeFileSync(marginStub, `
+  // Техкарты: две позиции с себестоимостью и ценой
+  export const loadMargin = async () => ({
+    ingredients: [{ id: "milk", name: "Молоко", price: 600, qty: 1, unit: "л" }],
+    recipes: [
+      { name: "Латте 0,4", salePrice: 1500, ingredients: [{ ingredientId: "milk", qty: 500, unit: "мл" }] },
+      { name: "Круассан", salePrice: 900, ingredients: [{ ingredientId: "milk", qty: 100, unit: "мл" }] },
+    ],
+  });
+  export const calcRecipeCost = (ings, r) => (r.name === "Латте 0,4" ? 300 : 120);
+  export const clearMarginCache = () => {};
+`);
 const fbStub = resolve(dir, "firebase.js");
 writeFileSync(fbStub, `
   const fn = () => new Proxy(function () {}, { get: () => fn(), apply: () => fn() });
@@ -172,6 +185,7 @@ await build({
     setup(b) {
       b.onResolve({ filter: /^(firebase\/|@vercel\/)/ }, () => ({ path: fbStub }));
       b.onResolve({ filter: /(^|\/)poster(\.js)?$/ }, (a) => (a.importer.includes("/src/") ? { path: posterStub } : undefined));
+      b.onResolve({ filter: /(^|\/)margin(\.js)?$/ }, (a) => (a.importer.includes("/src/") ? { path: marginStub } : undefined));
     },
   }],
 });
@@ -383,6 +397,17 @@ section("Часы внутри дня — по чекам");
   ok(e.includes("• Абая:") && e.includes("• Дубай:"), "по точкам, когда спросили всю сеть");
   const w = await ask("выручка с 8 до 11 вчера");
   has(w, "Касса с 8 до 11", "окно из вопроса");
+}
+
+section("Себестоимость и наценка позиции");
+{
+  const t = await ask("себестоимость латте");
+  has(t, "Латте 0,4: себестоимость 300 ₸ → цена 1 500 ₸", "цифры из техкарты");
+  has(t, "маржа 80,0 % · наценка ×5,0", "маржа и наценка");
+  const m = await ask("какая наценка на круассан");
+  has(m, "Круассан: себестоимость", "по другой позиции");
+  const miss = await ask("себестоимость эспрессо");
+  has(miss, "в рецептах не нашёл", "неизвестная позиция");
 }
 
 section("Товары одной точки против другой");

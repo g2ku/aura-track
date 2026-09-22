@@ -39,7 +39,7 @@ const METRICS = [
   { keys: ["чек", "чеки", "чеков", "чекам", "транзакц", "покупк", "продаж", "продан", "продав", "человек", "людей", "гостей", "гостя", "клиент", "посетител"], value: "checks" },
   // Маржа и прибыль — выше товаров: «маржа по товарам» — про маржу
   { keys: ["прибыл", "профит"], value: "profit", unless: /прибыльн[а-яё]*\s+(?:день|дни|час|точк|филиал)/ },
-  { keys: ["марж", "рентабельн"], value: "margin" },
+  { keys: ["марж", "рентабельн", "себестоимост", "наценк", "сколько стоит", "во сколько обходит", "закупочн"], value: "margin" },
   { keys: ["товар", "товары", "товаров", "позици", "меню", "напитк", "продукт"], value: "products" },
   { keys: ["налог", "налога", "налоги"], value: "tax" },
   { keys: ["тренд", "динамик", "измени", "рост", "снижен"], value: "trend" },
@@ -871,6 +871,8 @@ function parseMetric(text, product) {
   // Бариста — тоже: «сколько чеков у Айгерим» вытаскивает имя как товар
   const staffKeys = METRICS.find((m) => m.value === "staff")?.keys || [];
   if (staffKeys.some((k) => lower.includes(k))) return "staff";
+  // «Сколько стоит латте», «себестоимость латте» — про цену, а не продажи
+  if (/себестоимост|наценк|сколько стоит|во сколько обходит|закупочн/.test(lower)) return "margin";
   // If product was detected, default to products (unless explicit metric keyword overrides)
   if (product) {
     // "продажи латте", "сколько O2", "латте за июнь" — all product queries
@@ -1033,7 +1035,7 @@ export async function parseQuestion(text) {
   // «Выручка кофе», «продажи сырников» — метрика названа, а рядом одно
   // незнакомое слово: это товар или категория, исполнитель разберётся
   let productAfterMetric = false;
-  if (!product && !category && ["cash", "checks", "products"].includes(exactMetric(lower) || "")) {
+  if (!product && !category && ["cash", "checks", "products", "margin"].includes(exactMetric(lower) || "")) {
     const rest = unknownWords(lower);
     if (rest.length === 1 && /^[а-яё]{3,}$/.test(rest[0])) { product = rest[0]; guessedProduct = true; productAfterMetric = true; }
   }
