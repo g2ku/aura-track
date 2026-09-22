@@ -7,7 +7,6 @@
 import { useState } from "react";
 import { registerUser } from "../firebase.js";
 import { useAuth } from "../auth.jsx";
-import { useToast } from "../ui";
 import { navigate } from "../router.js";
 
 const inputStyle = {
@@ -24,7 +23,6 @@ const inputStyle = {
 
 export default function RegistrationPage() {
   const { auth } = useAuth();
-  const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");

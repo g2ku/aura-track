@@ -30,7 +30,6 @@ export default function AdminUsers() {
   const toast = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null); // uid of user being edited
 
   useEffect(() => {
     load();

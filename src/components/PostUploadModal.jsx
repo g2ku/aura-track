@@ -6,7 +6,6 @@ export default function PostUploadModal({ open, parsed, fileName, onConfirm, onC
 
   const branches = parsed?.branches || [];
   const items = parsed?.items || [];
-  const totals = parsed?.totals || {};
 
   const branchItems = useMemo(() => {
     const map = {};

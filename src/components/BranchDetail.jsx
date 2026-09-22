@@ -51,7 +51,9 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [selectedDate, setSelectedDate] = useState("");
+  // Фильтр по дню: значение читается ниже, менять его пока неоткуда —
+  // клик по столбцу графика придёт сюда
+  const [selectedDate] = useState("");
   const [chartsReady, setChartsReady] = useState(false);
 
   // Poster cash data per day
