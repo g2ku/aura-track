@@ -244,6 +244,7 @@ async function executeInner(parsed, userBranch) {
     if (metric === "openChecks") return await handleOpenChecks(effectiveSpot);
     if (metric === "alerts") return await handleAlerts();
     if (metric === "cups") return await handleCups(effectiveSpot);
+    if (metric === "discounts") return await handleDiscounts(effectiveSpot, period, ipGroup);
     if (metric === "staff") return await handleStaff(effectiveSpot, period, ipGroup, parsed);
     // Часы внутри дня: «касса до обеда», «чеки после 18» — по чекам
     if (parsed.hours && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
@@ -961,6 +962,8 @@ async function handleStaff(spot, period, ipGroup, parsed) {
   if (!items.length) return { text: `Чеков ${sl} за ${pl} нет.`, data: null };
 
   const q = String(parsed.raw || "").toLowerCase();
+  // «Кто работал вчера» — состав смены, а не рейтинг по кассе
+  const roster = /кто работал|кто стоял|кто был на смене|чья смена|кто сегодня работает/.test(q);
   const measure = /средн/.test(q) ? "avgCheck" : /чек/.test(q) ? "checks" : "cash";
   const by = {};
   let unnamed = 0;
@@ -986,6 +989,29 @@ async function handleStaff(spot, period, ipGroup, parsed) {
     return { text: `${lines.join("\n")}\nЗа ${pl}${note}`, data: { rows: hit } };
   }
 
+  if (roster) {
+    // По точкам: кто и с какого по какой час пробивал чеки
+    const bySpot = {};
+    for (const x of items) {
+      const name = String(x.waiter || "").trim();
+      if (!name) continue;
+      const b = (bySpot[x.spotId] ||= { name: sn(x), people: {} });
+      const p = (b.people[name] ||= { name, checks: 0, cash: 0, from: "", to: "" });
+      p.checks++; p.cash += Number(x.sum) || 0;
+      const t = hhmm(x.dateClose || x.dateOpen);
+      if (t && (!p.from || t < p.from)) p.from = t;
+      if (t && (!p.to || t > p.to)) p.to = t;
+    }
+    const spotsList = Object.values(bySpot).sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    if (!spotsList.length) return { text: `В чеках ${sl} за ${pl} нет имён бариста — Poster их не отдал.`, data: null };
+    const lines = spotsList.map((b) => {
+      const people = Object.values(b.people).sort((x, y) => y.checks - x.checks)
+        .map((p) => `${p.name} (${p.from}–${p.to}, ${p.checks} чек., ${fmt(p.cash)})`);
+      return `• ${b.name}: ${people.join(", ")}`;
+    });
+    return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n")}${note}`, data: { spots: spotsList } };
+  }
+
   const key = measure === "avgCheck" ? "avg" : measure === "checks" ? "checks" : "cash";
   rows.sort((a, b) => b[key] - a[key]);
   const top = rows.slice(0, 12);
@@ -1000,6 +1026,52 @@ async function handleStaff(spot, period, ipGroup, parsed) {
   if (rows.length > top.length) tail.push(`…и ещё ${rows.length - top.length}`);
   if (unnamed) tail.push(`Без имени — ${unnamed} чеков.`);
   return { text: `${title} ${sl} за ${pl}:\n${lines.join("\n")}${tail.length ? `\n\n${tail.join("\n")}` : ""}${note}`, data: { rows, measure } };
+}
+
+// ─── Скидки ──────────────────────────────────────────────────────
+//
+// «Сколько скидок дали за неделю» — сумма скидок в чеках и их доля от
+// того, что могли бы взять. Не дальше месяца: чеки за год не нужны.
+async function handleDiscounts(spot, period, ipGroup) {
+  const todayIso = fmtDateJS(new Date());
+  const to = period.to > todayIso ? todayIso : period.to;
+  let from = period.from;
+  let note = "";
+  if (daysInPeriod(from, to) > 31) {
+    const d = new Date(to + "T00:00:00");
+    d.setDate(d.getDate() - 30);
+    from = fmtDateJS(d);
+    note = "\n\nСмотрел последний месяц периода — дальше чеков слишком много.";
+  }
+  const r = await fetchReceipts(from, to, { includeOpen: false });
+  let items = (r?.receipts || []).filter((x) => x.status !== "open");
+  items = items.filter((x) => matchesSpot({ spotId: x.spotId, spotName: x.spotName }, spot));
+  if (ipGroup) {
+    const keep = await filterByIPGroup(items.map((x) => ({ spotId: x.spotId, spotName: x.spotName })), ipGroup);
+    const ids = new Set(keep.map((x) => String(x.spotId)));
+    items = items.filter((x) => ids.has(String(x.spotId)));
+  }
+  const pl = formatPeriodLabel({ from, to });
+  const sl = label(spot);
+  if (!items.length) return { text: `Чеков ${sl} за ${pl} нет.`, data: null };
+  const withDisc = items.filter((x) => (Number(x.discount) || 0) > 0);
+  const total = withDisc.reduce((s, x) => s + (Number(x.discount) || 0), 0);
+  const cash = items.reduce((s, x) => s + (Number(x.sum) || 0), 0);
+  if (!total) return { text: `Скидок ${sl} за ${pl} не было — все ${items.length} чеков по полной цене.${note}`, data: { total: 0 } };
+  const share = cash + total ? Math.round((total / (cash + total)) * 1000) / 10 : 0;
+  const lines = [`Скидки ${sl} за ${pl}: ${fmt(total)} — ${String(share).replace(".", ",")} % от возможной выручки`,
+    `Чеков со скидкой: ${withDisc.length} из ${items.length}`];
+  if (isAll(spot)) {
+    const bySpot = {};
+    for (const x of items) {
+      const b = (bySpot[x.spotId] ||= { spotId: x.spotId, spotName: x.spotName, disc: 0, sum: 0, n: 0 });
+      const d = Number(x.discount) || 0;
+      b.disc += d; b.sum += Number(x.sum) || 0; if (d > 0) b.n++;
+    }
+    const rows = Object.values(bySpot).filter((b) => b.disc > 0).sort((a, b) => b.disc - a.disc);
+    if (rows.length > 1) lines.push("", ...rows.map((b) => `• ${sn(b)}: ${fmt(b.disc)} (${b.n} чек.)`));
+  }
+  return { text: lines.join("\n") + note, data: { total, share, count: withDisc.length, of: items.length } };
 }
 
 // ─── Часы внутри дня ─────────────────────────────────────────────
@@ -1160,19 +1232,24 @@ async function handleOpening(spot, period, raw = "") {
   const items = (r?.receipts || []).filter((x) => x.status !== "open" && x.dateOpen);
   const q = String(raw).toLowerCase();
   const latestFirst = /позж|опозд|поздн/.test(q);
+  // «Во сколько закрылись» — тот же расчёт, но по последнему чеку дня
+  const closing = /закрыл|закрыва|закрыт|до скольки|последний чек/.test(q);
 
-  // Первый чек каждой точки в каждый день
+  // Крайний чек каждой точки в каждый день: первый при открытии,
+  // последний при закрытии
   const first = {}; // spotId → { day → "HH:MM" }
   for (const x of items) {
     if (!matchesSpot({ spotId: x.spotId, spotName: x.spotName }, spot)) continue;
-    const day = String(x.dateOpen).slice(0, 10);
-    const t = hhmm(x.dateOpen);
+    const stamp = closing ? (x.dateClose || x.dateOpen) : x.dateOpen;
+    const day = String(stamp).slice(0, 10);
+    const t = hhmm(stamp);
     if (!t) continue;
     const bySpot = (first[x.spotId] ||= { name: sn(x), days: {} });
-    if (!bySpot.days[day] || t < bySpot.days[day]) bySpot.days[day] = t;
+    const cur = bySpot.days[day];
+    if (!cur || (closing ? t > cur : t < cur)) bySpot.days[day] = t;
   }
   const spots = Object.values(first);
-  if (!spots.length) return { text: `Чеков ${label(spot)} за ${pl} нет — открытие не по чему определить.`, data: null };
+  if (!spots.length) return { text: `Чеков ${label(spot)} за ${pl} нет — ${closing ? "закрытие" : "открытие"} не по чему определить.`, data: null };
 
   const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   const fromMin = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -1180,18 +1257,22 @@ async function handleOpening(spot, period, raw = "") {
     const entries = Object.entries(s.days).sort();
     const mins = entries.map(([, t]) => toMin(t));
     const avg = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
-    const worst = entries.reduce((w, e) => (toMin(e[1]) > toMin(w[1]) ? e : w), entries[0]);
+    // Край: при открытии — самый поздний день, при закрытии — самый ранний
+    const worst = entries.reduce((w, e) => ((closing ? toMin(e[1]) < toMin(w[1]) : toMin(e[1]) > toMin(w[1])) ? e : w), entries[0]);
     return { name: s.name, avg, avgText: fromMin(avg), worstDay: worst[0], worstTime: worst[1], days: entries.length };
   }).sort((a, b) => (latestFirst ? b.avg - a.avg : a.avg - b.avg));
 
   const single = period.from === period.to;
+  const edgeWord = closing ? "раньше всего" : "позже всего";
   const lines = rows.map((d, i) => {
     const mark = latestFirst && i === 0 && rows.length > 1 ? "🐢 " : "• ";
     return single
       ? `${mark}${d.name}: ${d.avgText}`
-      : `${mark}${d.name}: обычно ${d.avgText}, позже всего ${d.worstTime} (${d.worstDay.slice(8, 10)}.${d.worstDay.slice(5, 7)})`;
+      : `${mark}${d.name}: обычно ${d.avgText}, ${edgeWord} ${d.worstTime} (${d.worstDay.slice(8, 10)}.${d.worstDay.slice(5, 7)})`;
   });
-  const title = single ? `Первый чек ${label(spot)} за ${pl}` : `Открытие ${label(spot)} за ${pl} — по первому чеку`;
+  const title = single
+    ? `${closing ? "Последний" : "Первый"} чек ${label(spot)} за ${pl}`
+    : `${closing ? "Закрытие" : "Открытие"} ${label(spot)} за ${pl} — по ${closing ? "последнему" : "первому"} чеку`;
   return { text: `${title}:\n${lines.join("\n")}`, data: { rows } };
 }
 

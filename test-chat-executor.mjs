@@ -80,7 +80,7 @@ globalThis.__poster = {
     let id = 1;
     for (const d of eachDay(from, to).filter((x) => x <= TODAY)) for (const sid of Object.keys(SPOTS)) for (let h = sid === "9" ? 10 : 8; h < 22; h += 2) {
       const sum = sid === "4" && h === 14 ? 48000 : 2500 + h * 100;
-      receipts.push({ id: id++, spotId: sid, spotName: SPOTS[sid], waiter: h < 14 ? "Айгерим" : "Данияр", dateOpen: `${d} ${String(h).padStart(2, "0")}:05:00`, dateClose: `${d} ${String(h).padStart(2, "0")}:12:00`, sum, discount: 0, profit: 0, status: "closed", products: [{ name: "Латте 0,4", qty: 1, sum: 2500 }, { name: "Круассан", qty: 2, sum: sum - 2500 }], paymentTypes: [] });
+      receipts.push({ id: id++, spotId: sid, spotName: SPOTS[sid], waiter: h < 14 ? "Айгерим" : "Данияр", dateOpen: `${d} ${String(h).padStart(2, "0")}:05:00`, dateClose: `${d} ${String(h).padStart(2, "0")}:12:00`, sum, discount: h === 10 ? 500 : 0, profit: 0, status: "closed", products: [{ name: "Латте 0,4", qty: 1, sum: 2500 }, { name: "Круассан", qty: 2, sum: sum - 2500 }], paymentTypes: [] });
     }
     return { receipts, transactionsCount: receipts.length, openCount: 0, daysCount: eachDay(from, to).length };
   },
@@ -346,6 +346,28 @@ section("Бариста — по чекам с именем");
   const miss = await ask("чеки у айгуль вчера");
   has(miss, "не нашёл", "неизвестное имя");
   has(miss, "Есть: Айгерим, Данияр", "и кто есть");
+}
+
+section("Закрытие, состав смены, скидки");
+{
+  const c = await ask("во сколько закрылись вчера");
+  has(c, "Последний чек все филиалы за 19 сентября", "закрытие — по последнему чеку");
+  has(c, "• Абая: 20:12", "время последнего чека");
+  const cw = await ask("во сколько закрывались точки за неделю");
+  has(cw, "Закрытие все филиалы", "за несколько дней — заголовок про закрытие");
+  has(cw, "раньше всего", "и край — самый ранний день");
+
+  const who = await ask("кто работал вчера на абае");
+  has(who, "Кто работал Abaya за 19 сентября", "состав смены");
+  has(who, "Айгерим (08:12–12:12", "с часами и чеками");
+  has(who, "Данияр (14:12", "оба бариста");
+
+  const d = await ask("сколько скидок дали вчера");
+  has(d, "Скидки все филиалы за 19 сентября", "скидки");
+  has(d, "Чеков со скидкой: 3 из 20", "сколько чеков со скидкой");
+  has(d, "% от возможной выручки", "и доля");
+  const d0 = await ask("сколько скидок дали на гагарина вчера");
+  has(d0, "Скидки Gagarina за 19 сентября 2026 г.: 500 ₸", "по точке — своя сумма");
 }
 
 section("Часы внутри дня — по чекам");
