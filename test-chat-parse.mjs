@@ -924,6 +924,7 @@ section("Строка «спросить» на главной");
   const pt = readFileSync("src/components/PinnedTiles.jsx", "utf8");
   ok(/export function AskBox/.test(pt) && pt.includes("<AskBox />"), "поле вопроса на главной, вместе с плитками");
   ok(/sessionStorage\.setItem\(ASK_KEY, question\)/.test(pt) && /navigate\("\/chat"\)/.test(pt), "вопрос уходит в ассистента через тот же ключ, что и плитки");
+  ok(!/^import \{ parseQuestion \}/m.test(pt) && /await Promise\.all\(\[\s*import\("\.\.\/chat\/parser\.js"\)/.test(pt), "разбор и исполнитель грузятся лениво — главная без плиток их не тянет");
   ok(/e\.key === "Enter"/.test(pt), "Enter отправляет");
   ok(!/if \(!pins\.length\) return null;/.test(pt), "без закреплённых плиток строка всё равно на месте");
 }

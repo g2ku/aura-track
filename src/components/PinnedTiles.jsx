@@ -5,8 +5,6 @@
 // Ничего своего: если ассистент умеет — умеет и плитка.
 
 import { useEffect, useState } from "react";
-import { parseQuestion } from "../chat/parser.js";
-import { executeQuery } from "../chat/executor.js";
 import { listPins, removePin, tileLines, titleOf, ASK_KEY } from "../chat/pins.js";
 import { getUserBranch, BRANCHES } from "../auth.jsx";
 import { navigate } from "../router.js";
@@ -37,6 +35,12 @@ function Tile({ pin, onRemove, tick }) {
     let alive = true;
     (async () => {
       try {
+        // Разбор и исполнитель — 30 КБ на двоих; грузим их, только когда
+        // плитка есть. На главной без закреплённых вопросов они не нужны
+        const [{ parseQuestion }, { executeQuery }] = await Promise.all([
+          import("../chat/parser.js"),
+          import("../chat/executor.js"),
+        ]);
         const parsed = (await parseQuestion(pin.question)) || pin.parsed;
         if (!parsed) throw new Error("Вопрос больше не разбирается");
         const r = await executeQuery(parsed, userBranchObj());
