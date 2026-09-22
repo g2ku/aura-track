@@ -1112,6 +1112,11 @@ export async function parseQuestion(text) {
   // «Что на Абае берут чаще, чем на Дубае» — товары двух точек рядом:
   // первая названная против второй
   let spot2 = null;
+  // «Сравни выходные с буднями» — это разрез по дням недели, а не точки
+  if (/будн/.test(lower) && /выходн/.test(lower)) {
+    if (metric === "compareBranches") metric = "cash";
+    operation = "byWeekday";
+  }
   // «Сравни товары Абая и Дубай» — слово «сравни» делает метрику
   // сравнением точек, но названы товары: это их сравнение по точкам
   if (metric === "compareBranches" && countSpots(lower) >= 2 && /товар|позици|меню|напитк|продукт|ассортимент/.test(lower)) metric = "products";

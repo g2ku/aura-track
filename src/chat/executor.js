@@ -1492,7 +1492,9 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
   const q = String(raw).toLowerCase();
-  const only = /будн/.test(q) ? "weekdays" : /выходн/.test(q) ? "weekend" : null;
+  // Названы оба — это сравнение будней с выходными, а не фильтр
+  const both = /будн/.test(q) && /выходн/.test(q);
+  const only = both ? null : /будн/.test(q) ? "weekdays" : /выходн/.test(q) ? "weekend" : null;
 
   let perDay = await fetchCashPerDay(period.from, period.to);
   perDay = perDay.filter((d) => matchesSpot({ spotId: d.spotId, spotName: d.spotName }, spot));
@@ -1525,6 +1527,28 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   if (!indexed.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
 
   const useChecks = metric === "checks";
+
+  // Будни против выходных — две строки вместо семи
+  if (both) {
+    const group = (isWeekend) => {
+      const rows = acc.filter((d, i) => WEEKEND.has(i) === isWeekend && d.days > 0);
+      const days = rows.reduce((n, d) => n + d.days, 0);
+      const total = rows.reduce((n, d) => n + d.total, 0);
+      const tx = rows.reduce((n, d) => n + d.tx, 0);
+      return { days, total, tx, avg: days ? Math.round(total / days) : 0, avgTx: days ? Math.round(tx / days) : 0 };
+    };
+    const wd = group(false), we = group(true);
+    if (!wd.days || !we.days) return { text: `За ${pl} ${sl} нет ${wd.days ? "выходных" : "будних"} дней с продажами.`, data: null };
+    const pick = (g) => (useChecks ? g.avgTx : g.avg);
+    const pct = Math.round(((pick(we) - pick(wd)) / (pick(wd) || 1)) * 1000) / 10;
+    const unit = (v) => (useChecks ? `${v} чеков/день` : `${fmt(v)}/день`);
+    const sign = pct > 0 ? `📈 выходные выше на ${String(pct).replace(".", ",")} %` : pct < 0 ? `📉 выходные ниже на ${String(Math.abs(pct)).replace(".", ",")} %` : "➡️ поровну";
+    return {
+      text: `${useChecks ? "Чеки" : "Касса"} — будни против выходных ${sl}${ipLabel} за ${pl}:\n• Будни: ${unit(pick(wd))} (${wd.days} дн.)\n• Выходные: ${unit(pick(we))} (${we.days} дн.)\n\n${sign}`,
+      data: { weekdays: wd, weekend: we, pct },
+    };
+  }
+
   indexed.sort((a, b) => (useChecks ? b.avgTx - a.avgTx : b.avg - a.avg));
   const lines = indexed.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
