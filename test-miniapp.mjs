@@ -409,7 +409,9 @@ section("Дневник на экране");
   const html = render(h(Feed, { trips, skus: SKUS }));
   ok(html.includes("Кто что записал"), "заголовок");
   ok(html.includes("300 × 350, 100 × 450"), "поездка одной строкой");
-  ok(html.includes("было 120 / —"), "пересчёт показан, а где его нет — прочерк");
+  const cnt = (html.match(/было[^<]*/) || [""])[0];
+  ok(cnt.includes("было на точке") && cnt.includes("120") && cnt.includes("× 350") && cnt.includes("—"),
+     `пересчёт показан с единицами, а где его нет — прочерк: «${cnt}»`);
   ok(html.includes("@kairat") && html.includes("@ravil"), "видно, кто записал");
   ok(html.includes("Приход на склад"), "у прихода вместо филиала — что это приход");
   ok(html.includes("15.09") && html.includes("15:30"), "дата и время по Алматы");

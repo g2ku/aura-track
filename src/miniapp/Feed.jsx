@@ -30,7 +30,7 @@ export default function Feed({ trips, skus }) {
                 : t.items.map((it) => `${num(it.qty)} × ${short(it.sku)}`).join(", ")}
               {/* Пересчёт показываем: по нему видно, откуда взялся прогноз */}
               {t.items.some((it) => it.before != null) && (
-                ` · было ${t.items.map((it) => (it.before == null ? "—" : num(it.before))).join(" / ")}`
+                ` · было на точке ${t.items.map((it) => (it.before == null ? "—" : `${num(it.before)} × ${short(it.sku)}`)).join(", ")}`
               )}
               {t.by ? ` · ${t.by}` : ""}
             </span>
