@@ -44,6 +44,9 @@ export async function scopeFor(uid, { readMeta, now = Date.now() } = {}) {
     return { role: "none", spotId: "", limited: true, error: true };
   }
   const scope = scopeOf(meta);
+  // Память функции живёт минутами, но расти без предела ей незачем:
+  // при переполнении выкидываем самую старую запись
+  if (cache.size >= 200) cache.delete(cache.keys().next().value);
   cache.set(uid, { at: now, scope });
   return scope;
 }

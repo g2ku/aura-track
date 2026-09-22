@@ -43,6 +43,12 @@ section("Роль читается один раз и держится в пам
   const bad = await scopeFor("u2", { readMeta: async () => { throw new Error("база лежит"); } });
   ok(bad.limited && bad.spotId === "" && bad.error, "база не ответила — закрываемся, а не открываем сеть");
   eq((await scopeFor("", { readMeta })).spotId, "", "без uid — ничего");
+  _resetScopeCache();
+  for (let i = 0; i < 250; i++) await scopeFor(`u${i}`, { readMeta, now: 1 });
+  let reads2 = 0;
+  const count = async () => { reads2++; return { role: "admin" }; };
+  await scopeFor("u0", { readMeta: count, now: 2 });
+  eq(reads2, 1, "самые старые записи вытесняются — память не растёт без предела");
 }
 
 section("Ответ Poster режется до точки");
