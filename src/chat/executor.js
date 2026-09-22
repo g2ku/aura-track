@@ -265,6 +265,7 @@ async function executeInner(parsed, userBranch) {
       case "checks": return await handleChecks(operation, effectiveSpot, period, ipGroup, parsed.raw);
       case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
       case "products":
+        if (parsed.spot2) return await handleProductsVsSpot(spot, parsed.spot2, period, parsed.limit || null);
         if (category) return await handleCategory(operation, effectiveSpot, period, category, ipGroup);
         if (/не\s+прода[её]|не\s+продава|не\s+продал|нет\s+продаж|без\s+продаж|мёртв|мертв/.test(String(parsed.raw || "").toLowerCase())) return await handleNotSold(effectiveSpot, period, ipGroup);
         return await handleProducts(operation, effectiveSpot, period, product, ipGroup, parsed.limit || null);
@@ -636,6 +637,48 @@ async function handleAvgCheck(operation, spot, period, ipGroup) {
 }
 
 // ─── Товары ───────────────────────────────────────────────────────
+
+// «Что на Абае берут чаще, чем на Дубае» — товары двух точек рядом.
+// Сравниваем долю позиции в её точке, а не штуки: Абая больше Рамса
+// втрое, и по штукам там всё «чаще». Доля отвечает на вопрос честно.
+async function handleProductsVsSpot(spotA, spotB, period, limit) {
+  const data = await fetchPosterSales(period.from, period.to);
+  const pl = formatPeriodLabel(period);
+  const nameA = spotNameByPosterId(spotA.spotId, "") || spotA.posterName;
+  const nameB = spotNameByPosterId(spotB.spotId, "") || spotB.posterName;
+  const byName = new Map();
+  let totalA = 0, totalB = 0;
+  for (const row of data.rows || []) {
+    const isA = matchesRowSpot(row, spotA), isB = matchesRowSpot(row, spotB);
+    if (!isA && !isB) continue;
+    const k = row.productName;
+    const e = byName.get(k) || { name: k, a: 0, b: 0, aSum: 0, bSum: 0 };
+    if (isA) { e.a += row.qty || 0; e.aSum += row.sum || 0; totalA += row.qty || 0; }
+    else { e.b += row.qty || 0; e.bSum += row.sum || 0; totalB += row.qty || 0; }
+    byName.set(k, e);
+  }
+  if (!totalA && !totalB) return { text: `Продаж ${nameA} и ${nameB} за ${pl} не нашёл.`, data: null };
+  const pct = (n, total) => (total ? (n / total) * 100 : 0);
+  const rows = [...byName.values()].map((e) => ({
+    ...e, shareA: pct(e.a, totalA), shareB: pct(e.b, totalB),
+    diff: pct(e.a, totalA) - pct(e.b, totalB),
+  }));
+  const n = limit || 5;
+  const one = (d) => `${d.name}: ${d.a} шт. (${d.shareA.toFixed(1).replace(".", ",")} %) против ${d.b} шт. (${d.shareB.toFixed(1).replace(".", ",")} %)`;
+  const onlyA = rows.filter((d) => d.a > 0 && d.b === 0).sort((x, y) => y.a - x.a).slice(0, n);
+  const onlyB = rows.filter((d) => d.b > 0 && d.a === 0).sort((x, y) => y.b - x.b).slice(0, n);
+  const more = rows.filter((d) => d.a > 0 && d.b > 0).sort((x, y) => y.diff - x.diff);
+  const lines = [`${nameA} против ${nameB} за ${pl} — доля позиции в своей точке:`];
+  if (more.length) {
+    lines.push("", `Чаще на ${nameA}:`, ...more.slice(0, n).map((d) => `• ${one(d)}`));
+    const less = more.slice().reverse().filter((d) => d.diff < 0).slice(0, n);
+    if (less.length) lines.push("", `Чаще на ${nameB}:`, ...less.map((d) => `• ${one(d)}`));
+  }
+  if (onlyA.length) lines.push("", `Только на ${nameA}: ${onlyA.map((d) => `${d.name} (${d.a} шт.)`).join(", ")}`);
+  if (onlyB.length) lines.push("", `Только на ${nameB}: ${onlyB.map((d) => `${d.name} (${d.b} шт.)`).join(", ")}`);
+  lines.push("", `Всего: ${nameA} — ${totalA} шт., ${nameB} — ${totalB} шт.`);
+  return { text: lines.join("\n"), data: { rows: rows.map((d) => ({ name: d.name, [nameA]: d.a, [nameB]: d.b })), totalA, totalB } };
+}
 
 // «Какие товары не продавались за неделю» — меню против продаж:
 // позиции, у которых за период ни одной продажи. По категориям, чтобы

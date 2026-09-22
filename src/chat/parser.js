@@ -817,12 +817,42 @@ function includesAlias(lower, alias) {
 // Сколько разных филиалов названо: «Абая vs Гагарина», «Коктем и Атакент»
 // — это сравнение, а не касса второго из них.
 function countSpots(lower) {
-  const ids = new Set();
+  return namedSpots(lower).length;
+}
+
+// Точки в порядке, в каком их назвали: «что на Абае берут чаще, чем на
+// Дубае» — первая та, про которую спрашивают. Формы вроде «на абае»
+// узнаются по основе слова, как и в parseSpot: точным списком аliasов
+// обойтись нельзя, иначе вторая точка теряется.
+function namedSpots(lower) {
+  const found = [];
+  const seen = new Set();
+  const add = (at, entry) => {
+    if (!entry || entry.branchId === "all" || seen.has(entry.branchId)) return;
+    seen.add(entry.branchId);
+    found.push({ at, entry });
+  };
   for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
     if (entry.branchId === "all" || alias.length < 3) continue;
-    if (includesAlias(lower, alias)) ids.add(entry.branchId);
+    if (includesAlias(lower, alias)) add(lower.indexOf(alias), entry);
   }
-  return ids.size;
+  // Слово за словом: «абае», «дубае», «коктеме» — по основе
+  const ws = words(lower);
+  let at = 0;
+  for (const w of ws) {
+    at = lower.indexOf(w, at);
+    if (w.length >= 4) {
+      let best = null, bestScore = 0;
+      for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
+        if (alias.length < 4 || entry.branchId === "all" || alias.includes(" ")) continue;
+        const sc = matchPhrase(w, alias);
+        if (sc > bestScore) { best = entry; bestScore = sc; }
+      }
+      if (bestScore) add(at, best);
+    }
+    at += w.length;
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.entry);
 }
 
 // ─── Парсинг метрики ──────────────────────────────────────────────
@@ -1066,6 +1096,17 @@ export async function parseQuestion(text) {
     metric = "compareBranches";
     spot = null;
   }
+  // «Что на Абае берут чаще, чем на Дубае» — товары двух точек рядом:
+  // первая названная против второй
+  let spot2 = null;
+  // «Сравни товары Абая и Дубай» — слово «сравни» делает метрику
+  // сравнением точек, но названы товары: это их сравнение по точкам
+  if (metric === "compareBranches" && countSpots(lower) >= 2 && /товар|позици|меню|напитк|продукт|ассортимент/.test(lower)) metric = "products";
+  if (metric === "products" && countSpots(lower) >= 2) {
+    const two = namedSpots(lower);
+    spot = two[0];
+    spot2 = two[1];
+  }
   const explicitPeriod = parsePeriodExplicit(lower);
   // «Как дела», «как торгуем», «что по деньгам» — это про сегодня, а не про месяц
   const askingNow = /как\s+(?:дела|день|идут|идет|идёт)|торгуем|что\s+по\s+деньгам/.test(lower);
@@ -1142,6 +1183,7 @@ export async function parseQuestion(text) {
     ...(hours ? { hours } : {}),
     ...(person ? { person } : {}),
     ...(limit ? { limit } : {}),
+    ...(spot2 ? { spot2 } : {}),
     product,
     category,
     ipGroup,

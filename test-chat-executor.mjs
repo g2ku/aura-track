@@ -53,6 +53,10 @@ function salesFor(from, to) {
     cashBySpot[sid] = cash; txBySpot[sid] = tx;
     rows.push({ spotId: sid, spotName: SPOTS[sid], productName: "Латте 0,4", qty: tx, sum: Math.round(cash * 0.6) });
     rows.push({ spotId: sid, spotName: SPOTS[sid], productName: "Круассан", qty: Math.round(tx / 2), sum: Math.round(cash * 0.4) });
+    // Позиции, которые есть только на одной точке. Названия — вне меню
+    // фикстуры: «какие не продавались» считает по меню, и эти его не трогают
+    if (sid === "4") rows.push({ spotId: sid, spotName: SPOTS[sid], productName: "Флэт уайт", qty: 30, sum: 90000 });
+    if (sid === "9") rows.push({ spotId: sid, spotName: SPOTS[sid], productName: "Матча", qty: 12, sum: 24000 });
   }
   return { rows, spotNames: SPOTS, transactionsCount: Object.values(txBySpot).reduce((a, b) => a + b, 0), txBySpot, cashBySpot, daysCount: days.length };
 }
@@ -284,9 +288,10 @@ section("Разрезы: часы, дни недели, товары");
   has(p, "Латте 0,4", "товары — лучший на первом месте");
   const one = await ask("топ 1 товар за неделю");
   ok(one.includes("1. Латте 0,4") && !one.includes("2. "), "«топ 1» — одна строка");
-  const worst = await ask("2 худших товара за неделю");
+  const worst = await ask("5 худших товаров за неделю");
   has(worst, "Худшие товары", "худшие — с конца");
-  ok(worst.indexOf("Круассан") < worst.indexOf("Латте 0,4"), "круассан (меньше выручка) первым");
+  ok(worst.indexOf("Круассан") < worst.indexOf("Латте 0,4"), "круассан (меньше выручка) раньше латте");
+  ok(worst.indexOf("Матча") < worst.indexOf("Круассан"), "а самая слабая позиция — первой");
   const bs = await ask("товары по филиалам за неделю");
   has(bs, "Абая", "товары по филиалам — разрез по точкам");
 }
@@ -356,6 +361,18 @@ section("Часы внутри дня — по чекам");
   ok(e.includes("• Абая:") && e.includes("• Дубай:"), "по точкам, когда спросили всю сеть");
   const w = await ask("выручка с 8 до 11 вчера");
   has(w, "Касса с 8 до 11", "окно из вопроса");
+}
+
+section("Товары одной точки против другой");
+{
+  const t = await ask("что на абае берут чаще чем на дубае за вчера");
+  has(t, "Абая против Дубай за 19 сентября", "заголовок с обеими точками");
+  has(t, "доля позиции в своей точке", "сравниваем доли, а не штуки");
+  has(t, "Только на Абая: Флэт уайт (30 шт.)", "что есть только здесь");
+  has(t, "Только на Дубай: Матча (12 шт.)", "и только там");
+  has(t, "Всего: Абая —", "и общий счёт");
+  const r = await ask("сравни товары дубай и абая за вчера");
+  has(r, "Дубай против Абая", "порядок — как назвали");
 }
 
 section("Какие товары не продавались");
