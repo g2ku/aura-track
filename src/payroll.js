@@ -267,11 +267,30 @@ export function calcPayroll({ staff, shortageRows, surplusRows }) {
     .filter((s) => !s.excluded && +s.hours > 0 && +s.hours <= MIN_HOURS_FOR_SHORTAGE)
     .map((s) => s.name);
 
+  // Сравниваем сами объекты строк, а не их id.
+  //
+  // id — это имя сотрудника, и на нём расчёт ломался: две Айгуль на одной
+  // точке считались одним человеком, и та, что отработала 10 часов,
+  // получала списание вместе с той, что отстояла 30. Правило «недостача
+  // только тем, у кого больше 19 часов» при этом молча нарушалось.
+  const chargedSet = new Set(charged);
   const rows = (staff || []).map((s) => {
-    const share = charged.some((c) => c.id === s.id) ? perPerson : 0;
+    const share = chargedSet.has(s) ? perPerson : 0;
     const withShare = { ...s, shortage: share };
     return { ...withShare, total: calcRow(withShare) };
   });
+
+  // Одно имя дважды в списке часов — либо две смены одного человека,
+  // либо два разных человека. Мы не угадываем: считаем как есть, но
+  // говорим вслух, потому что цена ошибки — чужие деньги.
+  const seenNames = new Set();
+  const duplicateNames = [];
+  for (const s of staff || []) {
+    const n = String(s.name || "").trim().toLowerCase();
+    if (!n) continue;
+    if (seenNames.has(n) && !duplicateNames.includes(s.name)) duplicateNames.push(s.name);
+    seenNames.add(n);
+  }
 
   // Остаток от деления: суммы долей могут не совпасть с net на пару тенге.
   const distributed = perPerson * charged.length;
@@ -283,6 +302,7 @@ export function calcPayroll({ staff, shortageRows, surplusRows }) {
     perPerson,
     chargedCount: charged.length,
     belowHours,
+    duplicateNames,
     roundingDiff: net - distributed,
     hoursSum: Math.round(rows.reduce((s, r) => s + (+r.hours || 0), 0) * 100) / 100,
     rows,

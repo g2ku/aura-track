@@ -659,6 +659,15 @@ function BranchBlock({
                 <span className="pr-dots" /><span>0 ₸</span>
               </div>
             )}
+            {result.duplicateNames?.length > 0 && (
+              <div className="pr-line pr-line-dim pr-bad">
+                <span>
+                  Имя встречается дважды: {result.duplicateNames.join(", ")}. Если это
+                  два разных человека — всё верно. Если один, часы лучше сложить в одну строку.
+                </span>
+                <span className="pr-dots" /><span />
+              </div>
+            )}
             {result.chargedCount === 0 && result.net > 0 && (
               <div className="pr-line pr-line-dim pr-bad">
                 <span>Недостачу не на кого списать: никто не отработал больше {MIN_HOURS_FOR_SHORTAGE} ч</span>
