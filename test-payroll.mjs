@@ -449,6 +449,78 @@ section("Одно имя дважды: недостача не перескак�
   eq(clean.chargedCount, 2, "оба списываются");
 }
 
+section("Инварианты зарплаты: четыреста случайных листов");
+{
+  // Правила заказчика проверяются не на одном примере, а на том, что
+  // они не могут нарушиться ни при каком составе смены: случайные
+  // часы, ставки, исключения, авансы, штрафы и повторяющиеся имена.
+  let seed = 11;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const NAMES = ["Аружан", "Бекзат", "Айгуль", "Данияр", "Айгуль", "Марат", "Диана"];
+  let broken = 0, first = "";
+  const bad = (c, m) => { if (!c) { broken++; if (!first) first = m; } };
+
+  for (let run = 0; run < 400; run++) {
+    const staff = Array.from({ length: 1 + rnd(6) }, () => ({
+      id: NAMES[rnd(NAMES.length)],
+      name: NAMES[rnd(NAMES.length)],
+      rate: 800 + rnd(800),
+      hours: rnd(50),
+      excluded: rnd(6) === 0,
+      advance: rnd(3) ? rnd(30000) : 0,
+      debt: rnd(4) ? 0 : rnd(10000),
+      remainder: rnd(5) ? 0 : rnd(5000),
+      fine: rnd(5) ? 0 : rnd(8000),
+      bonus: rnd(4) ? 0 : rnd(15000),
+    }));
+    const shortageRows = Array.from({ length: rnd(4) }, () => ({ sum: rnd(60000) }));
+    const surplusRows = Array.from({ length: rnd(4) }, () => ({ sum: rnd(40000) }));
+    const r = calcPayroll({ staff, shortageRows, surplusRows });
+
+    // Правило 3: излишки показываются, но недостачу не уменьшают
+    bad(r.net === r.shortageSum, `net ${r.net} ≠ недостача ${r.shortageSum} при излишках ${r.surplusSum}`);
+
+    // Правило 4: списание только тем, кто больше порога и не исключён
+    r.rows.forEach((row, i) => {
+      const src = staff[i];
+      const should = !src.excluded && +src.hours > MIN_HOURS_FOR_SHORTAGE;
+      bad(row.shortage === (should ? r.perPerson : 0),
+        `${src.name} ${src.hours} ч (исключён: ${src.excluded}) → списание ${row.shortage}`);
+    });
+
+    // Ничего не теряется: роздано + «не разделилось» = вся недостача
+    const distributed = r.rows.reduce((s, x) => s + x.shortage, 0);
+    bad(distributed + r.roundingDiff === r.net, `роздано ${distributed} + остаток ${r.roundingDiff} ≠ ${r.net}`);
+
+    // Формула строки — та же, что в листе
+    r.rows.forEach((row) => {
+      const want = Math.round(row.rate * row.hours - row.shortage - (row.advance || 0)
+        - (row.debt || 0) - (row.remainder || 0) - (row.fine || 0) + (row.bonus || 0));
+      bad(row.total === want, `итог ${row.total} ≠ формула ${want}`);
+      bad(row.total === calcRow(row), "calcRow и строка расходятся");
+    });
+
+    bad(r.payout === r.rows.reduce((s, x) => s + Math.max(0, x.total), 0), "к выплате ≠ сумма положительных итогов");
+    bad(r.total === r.rows.reduce((s, x) => s + x.total, 0), "итог ≠ сумма строк");
+    bad(r.negative.every((x) => x.total < 0), "в «минусовых» попал неотрицательный");
+    bad(r.hoursSum === Math.round(staff.reduce((s, x) => s + (+x.hours || 0), 0) * 100) / 100, "часы не сходятся");
+
+    // Ещё один человек сверх порога — доля каждого не растёт
+    if (r.chargedCount > 0 && r.net > 0) {
+      const more = calcPayroll({ staff: [...staff, { id: "новый", name: "Новый", rate: 1000, hours: 40 }], shortageRows, surplusRows });
+      bad(more.perPerson <= r.perPerson, `доля выросла от добавления человека: ${r.perPerson} → ${more.perPerson}`);
+      bad(more.chargedCount === r.chargedCount + 1, "число списывающихся не выросло");
+    }
+
+    // Свод: заблокированный филиал в суммы не входит
+    const sm = summarize([{ name: "A", result: r }, { name: "B", result: null }, { name: "C", result: r }]);
+    bad(sm.blockedCount === 1, `заблокированных ${sm.blockedCount}`);
+    bad(sm.payout === r.payout * 2, "свод к выплате не сходится");
+    bad(sm.shortage === r.shortageSum * 2, "свод недостачи не сходится");
+  }
+  ok(broken === 0, `правила зарплаты держатся на 400 листах${broken ? ` (нарушений ${broken}, первое: ${first})` : ""}`);
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
