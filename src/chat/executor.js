@@ -1305,6 +1305,7 @@ async function handleOpening(spot, period, raw = "") {
 
 async function handleMargin(operation, spot, period, ipGroup, productName = null) {
   const { loadMargin, calcRecipeCost } = await import("../margin.js");
+  const { categoryMargins, marginTotals } = await import("../menuMatrix.js");
 
   // Индекс меню здесь не нужен: он весит до мегабайта и тянулся зря
   const [cashData, marginData] = await Promise.all([
@@ -1349,23 +1350,79 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
     return { text: `${lines.join("\n")}\n\nЦены и техкарты — в разделе «Маржа».`, data: { rows: hit } };
   }
 
-  const avgCost = costs.reduce((s, c) => s + c.cost, 0) / costs.length;
-  const avgPrice = costs.reduce((s, c) => s + c.price, 0) / costs.length;
-  const avgMargin = avgPrice > 0 ? ((avgPrice - avgCost) / avgPrice * 100).toFixed(1) : 0;
+  // Маржа за период считается по тому, что за этот период продали.
+  //
+  // Раньше здесь стояло среднее по карточкам меню: редкий сироп с
+  // маржой 90% весил столько же, сколько латте на тысячу чашек, и
+  // ответ вообще не зависел от периода — «маржа за июнь» и «за
+  // сентябрь» выдавали одно и то же число.
+  let sales = null;
+  try {
+    sales = await fetchPosterSales(period.from, period.to);
+  } catch {}
 
-  // Top margin products
-  const withMargin = costs
-    .filter(c => c.price > 0)
-    .map(c => ({ ...c, margin: ((c.price - c.cost) / c.price * 100).toFixed(1) }))
-    .sort((a, b) => b.margin - a.margin);
+  const rows = (sales?.rows || []).filter((r) => matchesSpot({ spotId: r.spotId, spotName: r.spotName }, spot));
+  const cats = categoryMargins({
+    sales: rows,
+    recipes: marginData.recipes,
+    costOf: (r) => calcRecipeCost(marginData.ingredients || [], r),
+  });
+  const t = marginTotals(cats);
 
-  const topLines = withMargin.slice(0, 5).map((p, i) =>
-    `${i + 1}. ${p.name}: ${p.margin}% (${fmt(p.cost)} → ${fmt(p.price)})`
+  if (!rows.length || t.covered <= 0) {
+    // Нет продаж или ни одной техкарты под них — честно про карточки
+    const listed = costs.filter((c) => c.price > 0 && c.cost > 0)
+      .map((c) => ({ ...c, margin: (c.price - c.cost) / c.price * 100 }))
+      .sort((a, b) => b.margin - a.margin);
+    const lines = listed.slice(0, 5).map((p, i) =>
+      `${i + 1}. ${p.name}: ${p.margin.toFixed(1).replace(".", ",")} % (${fmt(p.cost)} → ${fmt(p.price)})`
+    ).join("\n");
+    return {
+      text: `Маржа ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\n`
+        + `Посчитать по продажам не вышло — ${rows.length ? "у проданного нет техкарт" : "продаж за период не нашёл"}.\n`
+        + (lines ? `По техкартам, без учёта спроса:\n${lines}` : "Техкарты не заполнены.")
+        + missingNote(),
+      data: { totalCash, byCard: listed.slice(0, 5) },
+    };
+  }
+
+  // Заработок в деньгах, а не процент: процент без объёма обманчив
+  const earners = cats.flatMap((c) => c.products.map((p) => ({
+    ...p,
+    earned: p.revenue - p.cost,
+    pct: p.revenue > 0 ? (p.revenue - p.cost) / p.revenue * 100 : 0,
+  }))).sort((a, b) => b.earned - a.earned);
+
+  const topLines = earners.slice(0, 5).map((p, i) =>
+    `${i + 1}. ${p.name}: ${fmt(Math.round(p.earned))} (${p.pct.toFixed(0)} %, ${p.qty} шт)`
   ).join("\n");
 
+  const worst = earners.filter((p) => p.pct < 25).slice(-3).reverse();
+  const worstLines = worst.length
+    ? `\n\nСамая тонкая маржа:\n` + worst.map((p) => `• ${p.name}: ${p.pct.toFixed(0)} % при ${p.qty} шт`).join("\n")
+    : "";
+
+  const cover = Math.round(t.coverage * 100);
+  const coverNote = cover >= 99
+    ? ""
+    : `\n\nПосчитано по ${cover} % выручки — на остальное (${fmt(Math.round(t.revenue - t.covered))}) нет техкарт.`;
+
   return {
-    text: `Маржинальность ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\nСредняя себестоимость: ${fmt(avgCost)}\nСредняя цена: ${fmt(avgPrice)}\nСредняя маржа: ${avgMargin}%\n\nТоп по марже:\n${topLines}`,
-    data: { totalCash, avgCost, avgPrice, avgMargin, topProducts: withMargin.slice(0, 5) },
+    text: `Маржа ${sl}${ipLabel} за ${pl}:\n`
+      + `Касса: ${fmt(totalCash)}\n\n`
+      + `Продано на ${fmt(Math.round(t.covered))}, себестоимость ${fmt(Math.round(t.cost))}\n`
+      + `Заработали ${fmt(Math.round(t.margin))} — это ${t.marginPct.toFixed(1).replace(".", ",")} %\n\n`
+      + `Больше всего принесли:\n${topLines}${worstLines}${coverNote}`
+      + missingNote(),
+    data: {
+      totalCash,
+      revenue: t.covered,
+      cost: t.cost,
+      margin: t.margin,
+      marginPct: t.marginPct,
+      coverage: t.coverage,
+      topProducts: earners.slice(0, 5),
+    },
   };
 }
 
