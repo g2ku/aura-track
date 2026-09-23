@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashPerDay } from "../poster";
 import { BRANCHES } from "../auth.jsx";
+import { LoadError } from "./Fallbacks.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -39,6 +40,9 @@ export default function AnomalyDetection() {
   const [period, setPeriod] = useState("30d");
   const [dailyData, setDailyData] = useState([]);
   const [loading, setLoading] = useState(false);
+  // Сбой загрузки уходил в консоль, а экран показывал пустоту —
+  // пустой экран читается как «всё хорошо», а это другое
+  const [error, setError] = useState("");
   const [sensitivity, setSensitivity] = useState(2); // standard deviations
 
   const pFrom = period === "7d" ? daysAgoStr(6) : period === "30d" ? daysAgoStr(29) : daysAgoStr(89);
@@ -50,10 +54,12 @@ export default function AnomalyDetection() {
 
   async function loadData() {
     setLoading(true);
+    setError("");
     try {
       setDailyData(await fetchCashPerDay(pFrom, pTo));
     } catch (e) {
-      console.error("[Anomaly] load error:", e);
+      setError(e?.message || "Poster не ответил");
+      setDailyData([]);
     }
     setLoading(false);
   }
@@ -190,8 +196,10 @@ export default function AnomalyDetection() {
       {/* Table */}
       {loading ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Загрузка...</div>
+          <div className="empty-state-title">Считаю…</div>
         </div>
+      ) : error ? (
+        <LoadError error={error} onRetry={loadData} title="Проверить не вышло" />
       ) : anomalies.length === 0 ? (
         <div className="card empty-state" style={{ padding: 48 }}>
           <i className="ti ti-circle-check" style={{ fontSize: 36, color: "var(--text-success)", marginBottom: 12 }} />

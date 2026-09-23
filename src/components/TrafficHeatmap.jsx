@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashPerDay } from "../poster";
 import { BRANCHES } from "../auth.jsx";
+import { LoadError } from "./Fallbacks.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -45,6 +46,9 @@ export default function TrafficHeatmap() {
   const [period, setPeriod] = useState("30d");
   const [dailyData, setDailyData] = useState([]);
   const [loading, setLoading] = useState(false);
+  // Сбой загрузки уходил в консоль, а экран показывал пустоту —
+  // пустой экран читается как «всё хорошо», а это другое
+  const [error, setError] = useState("");
   const [hoveredCell, setHoveredCell] = useState(null);
   const [selected, setSelected] = useState(null);
 
@@ -57,11 +61,13 @@ export default function TrafficHeatmap() {
 
   async function loadData() {
     setLoading(true);
+    setError("");
     try {
       const data = await fetchCashPerDay(pFrom, pTo);
       setDailyData(data);
     } catch (e) {
-      console.error("[Heatmap] load error:", e);
+      setError(e?.message || "Poster не ответил");
+      setDailyData([]);
     }
     setLoading(false);
   }
@@ -148,8 +154,10 @@ export default function TrafficHeatmap() {
 
       {loading ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Загрузка...</div>
+          <div className="empty-state-title">Считаю…</div>
         </div>
+      ) : error ? (
+        <LoadError error={error} onRetry={loadData} title="Карту построить не вышло" />
       ) : (
         <>
           {/* ─── Десктоп: грид ─────────────────────────────────────── */}

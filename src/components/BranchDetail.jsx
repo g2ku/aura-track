@@ -59,6 +59,9 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
   // Poster cash data per day
   const [cashDays, setCashDays] = useState([]);
   const [cashLoading, setCashLoading] = useState(false);
+  // «Нет данных кассы за период» и «Poster не ответил» — разные вещи:
+  // первое значит «не работали», второе — «не знаю»
+  const [cashError, setCashError] = useState("");
 
   useEffect(() => {
     const t = setTimeout(() => setChartsReady(true), 50);
@@ -83,7 +86,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
           }));
         }
       } catch (e) {
-        console.error("[BranchDetail] cash load error:", e);
+        if (!cancelled) setCashError(e?.message || "Poster не ответил");
       }
       if (!cancelled) setCashLoading(false);
     }
@@ -204,6 +207,10 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
         {cashLoading && cashDays.length === 0 ? (
           <div style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>
             <i className="ti ti-loader-2 spin" style={{ marginRight: 6 }} /> Загрузка данных Poster…
+          </div>
+        ) : cashError ? (
+          <div style={{ padding: 32, textAlign: "center", color: "var(--text-danger)" }}>
+            Касса не загрузилась: {cashError}
           </div>
         ) : filteredCash.length === 0 ? (
           <div style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>

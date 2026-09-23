@@ -34,13 +34,16 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("total");
   const [cashBySpot, setCashBySpot] = useState([]);
+  // .catch(() => {}) молча оставлял карточки без кассы: человек видел
+  // филиалы с прочерками и не знал, это простой или сбой
+  const [cashError, setCashError] = useState("");
 
   useEffect(() => {
     let abort = new AbortController();
     const period = userBranch ? 6 : 29;
     fetchCashBySpot(daysAgoStr(period), todayStr(), { signal: abort.signal })
-      .then((data) => { if (!abort.signal.aborted) setCashBySpot(data); })
-      .catch(() => {});
+      .then((data) => { if (!abort.signal.aborted) { setCashBySpot(data); setCashError(""); } })
+      .catch((e) => { if (!abort.signal.aborted && e?.name !== "AbortError") setCashError(e?.message || "Poster не ответил"); });
     return () => abort.abort();
   }, [userBranch]);
 
@@ -134,6 +137,11 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
 
   return (
     <div className="view-wrap branches-view-wrap">
+      {cashError && (
+        <div className="msg err" style={{ marginBottom: 12 }}>
+          Касса по точкам не загрузилась: {cashError}. Остальное — из накладных.
+        </div>
+      )}
       <div className="view-header">
         <div>
           <h1 className="view-title">

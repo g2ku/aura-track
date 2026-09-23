@@ -6,6 +6,7 @@ import { fmt } from "../utils";
 import { fetchCashBySpot, fetchPosterSales } from "../poster";
 import { loadMargin, calcRecipeCost } from "../margin";
 import { BRANCHES } from "../auth.jsx";
+import { LoadError } from "./Fallbacks.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -34,6 +35,9 @@ export default function PnLView({ agg }) {
   const [ingredients, setIngredients] = useState([]);
   const [taxRate, setTaxRate] = useState(TAX_RATE_DEFAULT);
   const [loading, setLoading] = useState(false);
+  // Сбой загрузки уходил в консоль, а экран показывал пустоту —
+  // пустой экран читается как «всё хорошо», а это другое
+  const [error, setError] = useState("");
 
   const pFrom = period === "7d" ? daysAgoStr(6) : period === "30d" ? daysAgoStr(29) : daysAgoStr(89);
   const pTo = todayStr();
@@ -44,6 +48,7 @@ export default function PnLView({ agg }) {
 
   async function loadData() {
     setLoading(true);
+    setError("");
     try {
       const [cash, sales, marginData] = await Promise.all([
         fetchCashBySpot(pFrom, pTo),
@@ -55,7 +60,9 @@ export default function PnLView({ agg }) {
       setRecipes(marginData.recipes || []);
       setIngredients(marginData.ingredients || []);
     } catch (e) {
-      console.error("[PnL] load error:", e);
+      setError(e?.message || "Poster не ответил");
+      setCashData([]);
+      setSalesData([]);
     }
     setLoading(false);
   }
@@ -201,8 +208,10 @@ export default function PnLView({ agg }) {
       {/* Table */}
       {loading ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Загрузка...</div>
+          <div className="empty-state-title">Считаю…</div>
         </div>
+      ) : error ? (
+        <LoadError error={error} onRetry={loadData} title="Прибыль посчитать не вышло" />
       ) : (
         <div className="cl-zone">
           <div className="cl-zone-title"><i className="ti ti-report-money" aria-hidden="true" /> Точки · прибыль</div>

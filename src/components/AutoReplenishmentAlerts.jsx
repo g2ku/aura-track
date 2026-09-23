@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fetchPosterSales } from "../poster";
 import { loadMargin } from "../margin";
+import { LoadError } from "./Fallbacks.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -28,6 +29,9 @@ export default function AutoReplenishmentAlerts() {
   const [recipes, setRecipes] = useState([]);
   const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(false);
+  // Сбой загрузки уходил в консоль, а экран показывал пустоту —
+  // пустой экран читается как «всё хорошо», а это другое
+  const [error, setError] = useState("");
   const [period, setPeriod] = useState("30d");
 
   const pFrom = period === "7d" ? daysAgoStr(6) : period === "30d" ? daysAgoStr(29) : daysAgoStr(89);
@@ -40,6 +44,7 @@ export default function AutoReplenishmentAlerts() {
 
   async function loadData() {
     setLoading(true);
+    setError("");
     try {
       const [marginData, sales] = await Promise.all([
         loadMargin(),
@@ -49,7 +54,8 @@ export default function AutoReplenishmentAlerts() {
       setRecipes(marginData.recipes || []);
       setSalesData(sales.rows || []);
     } catch (e) {
-      console.error("[Replenish] load error:", e);
+      setError(e?.message || "Poster не ответил");
+      setSalesData([]);
     }
     setLoading(false);
   }
@@ -183,8 +189,10 @@ export default function AutoReplenishmentAlerts() {
       {/* Alerts table */}
       {loading ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Загрузка...</div>
+          <div className="empty-state-title">Считаю…</div>
         </div>
+      ) : error ? (
+        <LoadError error={error} onRetry={loadData} title="Остатки посчитать не вышло" />
       ) : alerts.length === 0 ? (
         <div className="card empty-state" style={{ padding: 48 }}>
           <div className="empty-state-title">Нет данных</div>

@@ -6,6 +6,7 @@ import { fmt, downloadCsv } from "../utils";
 import { fetchCashBySpot, fetchCashPerDay } from "../poster";
 import { isAdmin, getUserBranch } from "../auth.jsx";
 import { BRANCHES } from "../auth.jsx";
+import { LoadError } from "./Fallbacks.jsx";
 
 function todayStr() {
   const d = new Date();
@@ -57,6 +58,9 @@ export default function CrossLocationDashboard({ agg }) {
   const [cashData, setCashData] = useState([]);
   const [trendData, setTrendData] = useState({}); // { spotId: [daily totals] }
   const [loading, setLoading] = useState(false);
+  // Сбой загрузки уходил в консоль, а экран показывал пустоту —
+  // пустой экран читается как «всё хорошо», а это другое
+  const [error, setError] = useState("");
   const [sortCol, setSortCol] = useState("total");
   const [sortDir, setSortDir] = useState("desc");
   const [prevCashData, setPrevCashData] = useState([]);
@@ -73,6 +77,7 @@ export default function CrossLocationDashboard({ agg }) {
 
   async function loadData(ref) {
     setLoading(true);
+    setError("");
     try {
       // Текущий период
       const cash = await fetchCashBySpot(dateFrom, dateTo);
@@ -118,7 +123,7 @@ export default function CrossLocationDashboard({ agg }) {
       if (ref.cancelled) return;
       setTrendData(trends);
     } catch (e) {
-      console.error("[CrossLocation] load error:", e);
+      if (!ref.cancelled) setError(e?.message || "Poster не ответил");
     }
     if (!ref.cancelled) setLoading(false);
   }
@@ -235,8 +240,10 @@ export default function CrossLocationDashboard({ agg }) {
 
       {loading && rows.length === 0 ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Загрузка данных...</div>
+          <div className="empty-state-title">Считаю…</div>
         </div>
+      ) : error && rows.length === 0 ? (
+        <LoadError error={error} onRetry={() => loadData({ cancelled: false })} title="Точки не загрузились" />
       ) : rows.length === 0 ? (
         <div className="card empty-state" style={{ padding: 48 }}>
           <i className="ti ti-building-store" style={{ fontSize: 36, color: "var(--text-muted)", marginBottom: 12 }} />
