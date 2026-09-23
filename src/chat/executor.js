@@ -998,6 +998,11 @@ async function handleStaff(spot, period, ipGroup, parsed) {
     b.cash += Number(x.sum) || 0; b.checks++; b.spots.add(sn(x));
   }
   const rows = Object.values(by).map((b) => ({ ...b, avg: b.checks ? Math.round(b.cash / b.checks) : 0, spots: [...b.spots] }));
+  // Чек без имени кассира не попадает ни в чью смену. Молчать об этом
+  // нельзя: состав смены выглядит полным, а часть кассы в нём не учтена.
+  const unnamedNote = unnamed
+    ? `\nБез имени — ${unnamed} ${unnamed === 1 ? "чек" : "чеков"} из ${items.length}: Poster не отдал бариста, в расклад они не вошли.`
+    : "";
   if (!rows.length) return { text: `В чеках ${sl} за ${pl} нет имён бариста — Poster их не отдал.`, data: null };
 
   // Конкретный человек: «чеки у Айгерим»
@@ -1010,7 +1015,7 @@ async function handleStaff(spot, period, ipGroup, parsed) {
       return { text: `Бариста «${parsed.person}» в чеках ${sl} за ${pl} не нашёл.${hint ? `\n${hint}` : ""}`, data: { suggestions: close } };
     }
     const lines = hit.map((b) => `${b.name}: ${fmt(b.cash)} · ${b.checks} чеков · средний чек ${fmt(b.avg)}${b.spots.length ? ` · ${b.spots.join(", ")}` : ""}`);
-    return { text: `${lines.join("\n")}\nЗа ${pl}${note}`, data: { rows: hit } };
+    return { text: `${lines.join("\n")}\nЗа ${pl}${unnamedNote}${note}`, data: { rows: hit } };
   }
 
   if (roster) {
@@ -1033,7 +1038,7 @@ async function handleStaff(spot, period, ipGroup, parsed) {
         .map((p) => `${p.name} (${p.from}–${p.to}, ${p.checks} чек., ${fmt(p.cash)})`);
       return `• ${b.name}: ${people.join(", ")}`;
     });
-    return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n")}${note}`, data: { spots: spotsList } };
+    return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n")}${unnamedNote}${note}`, data: { spots: spotsList } };
   }
 
   const key = measure === "avgCheck" ? "avg" : measure === "checks" ? "checks" : "cash";
@@ -1048,7 +1053,7 @@ async function handleStaff(spot, period, ipGroup, parsed) {
   });
   const tail = [];
   if (rows.length > top.length) tail.push(`…и ещё ${rows.length - top.length}`);
-  if (unnamed) tail.push(`Без имени — ${unnamed} чеков.`);
+  if (unnamed) tail.push(`Без имени — ${unnamed} ${unnamed === 1 ? "чек" : "чеков"} из ${items.length}: Poster не отдал бариста.`);
   return { text: `${title} ${sl} за ${pl}:\n${lines.join("\n")}${tail.length ? `\n\n${tail.join("\n")}` : ""}${note}`, data: { rows, measure } };
 }
 
