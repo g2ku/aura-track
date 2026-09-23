@@ -149,14 +149,18 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
       pct: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue) * 100 : 0,
     }))).sort((a, b) => b.earned - a.earned);
     const cover = Math.round(t.coverage * 100);
+    // Обе цифры рядом: иначе «продано на N» и «посчитано по 91 %»
+    // читались как противоречие — N уже была урезанной
     return [
       `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>`,
-      `Продано на ${fmt(t.covered)}, себестоимость ${fmt(t.cost)}`,
-      `<b>Заработали ${fmt(t.margin)}</b> — ${t.marginPct.toFixed(1).replace(".", ",")} %`,
+      cover >= 99
+        ? `Продано товаров на ${fmt(t.revenue)}`
+        : `Продано товаров на ${fmt(t.revenue)}, из них с техкартой — ${fmt(t.covered)} (${cover} %)`,
+      `Себестоимость ${fmt(t.cost)}`,
+      `<b>Заработали ${fmt(t.margin)}</b> — ${t.marginPct.toFixed(1).replace(".", ",")} %${cover >= 99 ? "" : " от посчитанного"}`,
       "",
       "Больше всего принесли:",
       ...earners.slice(0, 5).map((p, i) => `${i + 1}. ${escapeHtml(p.name)} — ${fmt(p.earned)} (${p.pct.toFixed(0)} %, ${int(p.qty)} шт)`),
-      cover >= 99 ? "" : `\nПосчитано по ${cover} % выручки — на остальное (${fmt(t.revenue - t.covered)}) нет техкарт.`,
     ].filter(Boolean).join("\n");
   }
 

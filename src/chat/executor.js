@@ -1403,16 +1403,20 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
     : "";
 
   const cover = Math.round(t.coverage * 100);
-  const coverNote = cover >= 99
-    ? ""
-    : `\n\nПосчитано по ${cover} % выручки — на остальное (${fmt(Math.round(t.revenue - t.covered))}) нет техкарт.`;
+  // Строка «продано на N» раньше несла покрытую выручку, а ниже стояло
+  // «посчитано по 91 %» — читалось как противоречие: первая цифра уже
+  // была урезанной, но об этом не говорилось. Теперь обе цифры рядом.
+  const soldLine = cover >= 99
+    ? `Продано товаров на ${fmt(Math.round(t.revenue))}`
+    : `Продано товаров на ${fmt(Math.round(t.revenue))}, из них с техкартой — ${fmt(Math.round(t.covered))} (${cover} %)`;
+  const pctWord = cover >= 99 ? "" : " от посчитанного";
 
   return {
     text: `Маржа ${sl}${ipLabel} за ${pl}:\n`
       + `Касса: ${fmt(totalCash)}\n\n`
-      + `Продано на ${fmt(Math.round(t.covered))}, себестоимость ${fmt(Math.round(t.cost))}\n`
-      + `Заработали ${fmt(Math.round(t.margin))} — это ${t.marginPct.toFixed(1).replace(".", ",")} %\n\n`
-      + `Больше всего принесли:\n${topLines}${worstLines}${coverNote}`
+      + `${soldLine}\n`
+      + `Себестоимость ${fmt(Math.round(t.cost))} → заработали ${fmt(Math.round(t.margin))}, это ${t.marginPct.toFixed(1).replace(".", ",")} %${pctWord}\n\n`
+      + `Больше всего принесли:\n${topLines}${worstLines}`
       + missingNote(),
     data: {
       totalCash,
