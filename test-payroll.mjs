@@ -5,6 +5,7 @@ import {
   parseInventoryMessage, priceItems, calcRow, calcPayroll, summarize, MIN_HOURS_FOR_SHORTAGE,
 } from "./src/payroll.js";
 import { matchBranch } from "./api/_lib/branches.js";
+import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -519,6 +520,21 @@ section("Инварианты зарплаты: четыреста случай�
     bad(sm.shortage === r.shortageSum * 2, "свод недостачи не сходится");
   }
   ok(broken === 0, `правила зарплаты держатся на 400 листах${broken ? ` (нарушений ${broken}, первое: ${first})` : ""}`);
+}
+
+section("Сохранённый лист можно открыть обратно");
+{
+  const src = readFileSync("src/components/PayrollView.jsx", "utf8");
+  // loadPayroll существовал и не вызывался ниоткуда: итог недели был
+  // виден в истории, а кто сколько получил — только заново из сообщений
+  ok(/loadPayroll,/.test(src) || /loadPayroll\b/.test(src), "loadPayroll импортирован");
+  ok(/async function openSaved/.test(src), "есть открытие сохранённого листа");
+  ok(/onClick=\{\(\) => \(entries\.length \? setOpenAsk\(h\) : openSaved\(h\.id\)\)\}/.test(src), "строка истории открывает лист");
+  ok(/setEntries\(Array\.isArray\(doc\.entries\)/.test(src), "восстанавливаются входные записи, а не посчитанные строки");
+  ok(!/setPeriod\(/.test(src), "период не восстанавливается отдельно — он выводится из записей");
+  // Черновик заменяется только с подтверждения
+  ok(/<ConfirmModal/.test(src) && /Открыть сохранённый лист\?/.test(src), "перед заменой черновика спрашиваем");
+  ok(/import ConfirmModal from "\.\/ConfirmModal"/.test(src), "модалка импортирована (иначе экран падает на первом кадре)");
 }
 
 console.log("\n══════════════════════════════════════════════════");

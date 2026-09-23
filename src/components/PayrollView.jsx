@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
+import ConfirmModal from "./ConfirmModal";
 import { matchBranch } from "../../api/_lib/branches.js";
 import { fetchPosterPriceList } from "../poster";
 import { resolveProductName } from "../../api/_lib/products.js";
@@ -21,7 +22,7 @@ import {
 } from "../payroll.js";
 import {
   loadPrices, savePrices, loadStaff, saveStaff,
-  savePayroll, loadPayrollList, periodId, PAYROLL_COLLECTION,
+  savePayroll, loadPayroll, loadPayrollList, periodId, PAYROLL_COLLECTION,
 } from "../payrollStore.js";
 
 const EDITABLE = [
@@ -83,6 +84,10 @@ export default function PayrollView() {
   const [hintsLoading, setHintsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState(null);
+  // Лист сохранялся, а открыть его обратно было нечем: loadPayroll
+  // существовал и не вызывался ниоткуда. Итог недели был виден, а кто
+  // сколько получил — только заново из сообщений куратора.
+  const [openAsk, setOpenAsk] = useState(null);
 
   // Прайс и ставки набираются пачкой: восемь цен подряд, потом ставки по
   // списку. Если каждый обработчик будет достраивать список из своего
@@ -345,6 +350,24 @@ export default function PayrollView() {
     setSaving(false);
   }
 
+  // Открываем по входным данным, а не по сохранённым строкам: лист
+  // пересчитывается той же формулой, и расхождения «в базе одно, на
+  // экране другое» возникнуть не может.
+  async function openSaved(id) {
+    setOpenAsk(null);
+    try {
+      const doc = await loadPayroll(id);
+      if (!doc) { toast({ tone: "error", title: "Лист не нашёлся", message: id }); return; }
+      // Период не восстанавливаем отдельно: он выводится из самих
+      // записей, и второй источник правды здесь только мешал бы
+      setEntries(Array.isArray(doc.entries) ? doc.entries : []);
+      setHistory(null);
+      toast({ tone: "success", icon: "ti-check", title: "Лист открыт", message: id });
+    } catch (e) {
+      toast({ tone: "error", title: "Не открылось", message: e.message });
+    }
+  }
+
   async function openHistory() {
     if (history) { setHistory(null); return; }
     const list = await loadPayrollList();
@@ -485,19 +508,35 @@ export default function PayrollView() {
             <div className="pr-items">
               {history.length === 0 && <div className="pr-hint">Сохранённых листов пока нет.</div>}
               {history.map((h) => (
-                <div key={h.id} className="pr-line pr-line-dim">
+                <button
+                  type="button"
+                  key={h.id}
+                  className="pr-line pr-line-dim pr-line-open"
+                  onClick={() => (entries.length ? setOpenAsk(h) : openSaved(h.id))}
+                  title="Открыть лист"
+                >
                   <span>{h.id}</span>
                   <span className="pr-qty">
                     {h.branches?.length || 0} фил. · {new Date(h.updatedAt || 0).toLocaleDateString("ru-RU")}
                   </span>
                   <span className="pr-dots" />
                   <span>{fmt(h.totals?.payout || 0)}</span>
-                </div>
+                  <i className="ti ti-chevron-right" aria-hidden="true" />
+                </button>
               ))}
             </div>
           )}
         </section>
       )}
+
+      <ConfirmModal
+        open={!!openAsk}
+        title="Открыть сохранённый лист?"
+        message={`Текущий черновик (${entries.length} ${entries.length === 1 ? "филиал" : "фил."}) будет заменён листом ${openAsk?.id || ""}. Сохранить его сначала — кнопкой «Сохранить лист».`}
+        confirmText="Открыть"
+        onConfirm={() => openSaved(openAsk.id)}
+        onCancel={() => setOpenAsk(null)}
+      />
 
       {blocks.map((b) => (
         <BranchBlock

@@ -6107,3 +6107,16 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   line-height: 1.5;
 }
 .margin-coverage i { color: var(--text-muted); }
+
+/* История листов зарплаты: строка открывается */
+button.pr-line-open {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+button.pr-line-open:hover { color: var(--text); }
+button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }

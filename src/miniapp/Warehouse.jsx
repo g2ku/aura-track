@@ -96,11 +96,21 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
   // С единицами: «~40 × 350, 20 × 450», а не «40 / 20» — второе читалось
   // только с примечанием внизу
   const withUnits = (q) => skus.map((s) => `${num(q?.[s.id])} × ${s.short}`).join(", ");
+  // Почему у точки нет прогноза — снабженцу это нужнее всего: весь
+  // прогноз держится на его отметке «было до приезда», а какая именно
+  // точка её ждёт, до сих пор не говорилось нигде.
+  const WHY = {
+    "не пересчитывали": "отметьте «было до приезда» — появится прогноз",
+    "нет двух пересчётов": "нужен ещё один пересчёт — и посчитаю расход",
+    "расход нулевой": "расход пока не посчитался",
+  };
+
   const detailOf = (r) => {
     if (r.f?.left) return `на точке ~${withUnits(r.f.left)}`;
     const total = skus.reduce((n, s) => n + (r.got[s.id] || 0), 0);
-    if (total > 0) return `выдано всего ${withUnits(r.got)}`;
-    return null;
+    const why = r.f?.daysLeft == null ? WHY[r.f?.why] : null;
+    if (total > 0) return `выдано всего ${withUnits(r.got)}${why ? ` · ${why}` : ""}`;
+    return why;
   };
 
   // «Ни разу» — не тревога. На свежей установке это все точки подряд, и
