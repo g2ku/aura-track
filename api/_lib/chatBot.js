@@ -184,6 +184,14 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
     const want = PAY_WORDS.find((w) => w.re.test(q))?.id || null;
     const missingToday = (days || []).some((d) => d?.date === today && !d?.pay);
     const tail = missingToday ? ["", "<i>Сегодняшний день без разбивки — она появится ночью.</i>"] : [];
+    // Разбивка может не покрыть всю кассу: Poster отдаёт способ оплаты не
+    // по каждой точке и не за каждый день. Проценты внутри разбивки при
+    // этом верны, а вот «Итого» расходится с ответом про кассу — и без
+    // этой строки непонятно, какой цифре верить.
+    const gap = s.total - all;
+    if (!missingToday && s.total > 0 && gap > Math.max(1, s.total * 0.01)) {
+      tail.push("", `<i>Разбивка покрывает ${fmt(all)} из ${fmt(s.total)} кассы — по остальному Poster способ оплаты не отдал.</i>`);
+    }
     if (want) {
       const v = total[want] || 0;
       const lines = [`<b>${PAY_NAMES[want] || want}${escapeHtml(where)} ${escapeHtml(when)}</b>`, `<b>${fmt(v)}</b> · ${share(v)} от ${fmt(all)}`];

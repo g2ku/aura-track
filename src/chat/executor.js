@@ -1240,7 +1240,21 @@ async function handlePayments(spot, period, ipGroup, raw = "") {
   const order = ["11", "12", "0-card", "0"];
   const rows = Object.entries(total).sort((a, b) => (order.indexOf(a[0]) === -1 ? 99 : order.indexOf(a[0])) - (order.indexOf(b[0]) === -1 ? 99 : order.indexOf(b[0])));
   const lines = rows.map(([id, v]) => `• ${getPaymentMethodName(id)}: ${fmt(v)} (${share(v)})`);
-  return { text: `Способы оплаты ${sl} за ${pl}:\n${lines.join("\n")}\n\nИтого: ${fmt(all)}`, data: { total, all } };
+
+  // Разбивка может не покрыть всю кассу: Poster отдаёт способ оплаты не
+  // по каждой точке и не за каждый день. Проценты внутри неё верны, а
+  // «Итого» расходится с ответом про кассу — без этой строки непонятно,
+  // какой цифре верить.
+  let gapNote = "";
+  try {
+    const cashRows = await filterByIPGroup((await fetchCashBySpot(period.from, period.to)).filter((d) => matchesSpot(d, spot)), ipGroup);
+    const cash = cashRows.reduce((sum, d) => sum + (d.total || 0), 0);
+    if (cash > 0 && cash - all > Math.max(1, cash * 0.01)) {
+      gapNote = `\n\nРазбивка покрывает ${fmt(all)} из ${fmt(cash)} кассы — по остальному Poster способ оплаты не отдал.`;
+    }
+  } catch {}
+
+  return { text: `Способы оплаты ${sl} за ${pl}:\n${lines.join("\n")}\n\nИтого: ${fmt(all)}${gapNote}`, data: { total, all } };
 }
 
 // ─── Во сколько открылись ────────────────────────────────────────

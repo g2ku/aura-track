@@ -317,6 +317,37 @@ section("Кнопки под ответом не повторяют заданн
   }
 }
 
+section("Разбивка по оплатам не выдаёт себя за всю кассу");
+
+{
+  // В фикстуре у точки «11» касса есть, а способа оплаты нет — ровно как
+  // бывает в Poster. Проценты внутри разбивки при этом верны, а «Итого»
+  // расходится с ответом про кассу, и молчать об этом нельзя: два ответа
+  // с разными суммами читаются как ошибка в одном из них.
+  // У точки «11» касса есть, а способа оплаты нет — ровно так Poster и
+  // отдаёт, когда терминал не отчитался
+  const holed = (d) => ({ ...d, pay: { ...d.pay, bySpot: { "4": d.pay.bySpot["4"], "9": d.pay.bySpot["9"] } } });
+  const depsHole = {
+    ...deps,
+    getDays: async (from, to) => (await deps.getDays(from, to)).map(holed),
+    getToday: async (np) => holed(await deps.getToday(np)),
+  };
+  const pay = (await answerQuestion("способы оплаты за вчера", depsHole)).text;
+  const cash = (await answerQuestion("касса вчера", depsHole)).text;
+  const N = (x) => Number(String(x).replace(/[^\d]/g, ""));
+  const payTotal = N(pay.split("Итого:")[1].split("₸")[0]);
+  const cashTotal = N(cash.split("\n")[1]);
+  ok(payTotal < cashTotal, `разбивка (${payTotal}) меньше кассы (${cashTotal}) — фикстура с дырой`);
+  ok(/Разбивка покрывает/.test(pay), "и об этом сказано прямо в ответе");
+  ok(pay.includes(String(cashTotal).replace(/\B(?=(\d{3})+(?!\d))/g, " ")) || /из .+ кассы/.test(pay), "названа полная касса");
+
+  // Проценты считаются внутри разбивки, а не от кассы — иначе они не
+  // сложатся в сто
+  const shares = [...pay.matchAll(/\((\d+) %\)/g)].map((m) => Number(m[1]));
+  const sum = shares.reduce((a, b) => a + b, 0);
+  ok(Math.abs(sum - 100) <= 2, `доли складываются в сто: ${shares.join("+")} = ${sum}`);
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
