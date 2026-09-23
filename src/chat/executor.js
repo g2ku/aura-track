@@ -582,7 +582,7 @@ async function handleBiggestReceipts(spot, period, ipGroup) {
 }
 
 async function handleChecks(operation, spot, period, ipGroup, raw = "") {
-  if (operation === "max" && /сам[а-яё]+\s+(?:дорог|больш|крупн)|крупн[а-яё]*\s+чек|дорог[а-яё]*\s+чек|максимальн[а-яё]*\s+чек/.test(String(raw).toLowerCase())) {
+  if (operation === "max" && /сам[а-яё]+\s+(?:дорог|больш|крупн)|крупн[а-яё]*\s+чек|больш[а-яё]*\s+чек|дорог[а-яё]*\s+чек|максимальн[а-яё]*\s+чек/.test(String(raw).toLowerCase())) {
     return handleBiggestReceipts(spot, period, ipGroup);
   }
   const data = await fetchCashBySpot(period.from, period.to);
@@ -844,8 +844,25 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
   const totalQty = products.reduce((s, p) => s + p.qty, 0);
   const totalSum = products.reduce((s, p) => s + p.sum, 0);
   const title = worst ? `Худшие товары${ipLabel} за ${pl} (из ${products.length} наименований с продажами)` : `Товары${ipLabel} за ${pl} (всего ${products.length} наименований)`;
+
+  // «Итого» по товарам и касса за тот же день — разные числа: в товарах
+  // нет скидок, возвратов и того, что прошло мимо позиций. Человек
+  // сравнивает два ответа и видит расхождение без объяснения; строка
+  // ниже говорит, откуда оно, и только когда оно заметное.
+  let cashNote = "";
+  try {
+    const cashRows = await filterByIPGroup((await fetchCashBySpot(period.from, period.to)).filter((d) => matchesSpot(d, spot)), ipGroup);
+    const cash = cashRows.reduce((sum, d) => sum + (d.total || 0), 0);
+    const diff = totalSum - cash;
+    if (cash > 0 && Math.abs(diff) > Math.max(1, cash * 0.02)) {
+      cashNote = diff > 0
+        ? `\n\nКасса за тот же срок — ${fmt(cash)}: она меньше на ${fmt(diff)} за счёт скидок и возвратов.`
+        : `\n\nКасса за тот же срок — ${fmt(cash)}: на ${fmt(-diff)} больше, чем сумма позиций.`;
+    }
+  } catch {}
+
   return {
-    text: `${title}:\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}`,
+    text: `${title}:\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}${cashNote}`,
     data: { products: top, totalQty, totalSum },
   };
 }
