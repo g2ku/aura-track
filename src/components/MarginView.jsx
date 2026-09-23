@@ -1,9 +1,10 @@
 // MarginView — калькулятор маржинальности: ингредиенты, рецепты, дашборд чистой маржи.
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEGORIES, UNITS } from "../margin.js";
 import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
+import { categoryMargins, marginTotals } from "../menuMatrix.js";
 
 const TABS = [
   { id: "builder", label: "Создать напиток", icon: "ti-glass" },
@@ -676,6 +677,10 @@ function DashboardTab({ ingredients, recipes }) {
   });
   const [salesData, setSalesData] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Сбой Poster уходил в console.warn, а экран говорил «Нет данных —
+  // добавьте рецепты»: посылал чинить не то, что сломалось.
+  const [error, setError] = useState("");
+  const [expandedCat, setExpandedCat] = useState(null);
 
   useEffect(() => {
     load();
@@ -683,62 +688,28 @@ function DashboardTab({ ingredients, recipes }) {
 
   async function load() {
     setLoading(true);
+    setError("");
     try {
       const sales = await fetchPosterSales(period.from, period.to);
       setSalesData(sales);
     } catch (e) {
-      console.warn("[Margin dashboard] load error:", e);
+      setError(e?.message || "Poster не ответил");
+      setSalesData(null);
     }
     setLoading(false);
   }
 
-  const categoryStats = useMemo(() => {
-    if (!salesData) return [];
-    const recipeMap = {};
-    for (const r of recipes) {
-      recipeMap[r.name.toLowerCase()] = r;
-    }
+  const categoryStats = useMemo(
+    () => categoryMargins({
+      sales: salesData?.rows || [],
+      recipes,
+      costOf: (r) => calcRecipeCost(ingredients, r),
+    }),
+    [salesData, ingredients, recipes]
+  );
 
-    const cats = {};
-    for (const row of salesData.rows) {
-      const productName = row.productName || "";
-      const recipe = recipeMap[productName.toLowerCase()];
-      const cat = recipe ? recipe.category : "Другое";
-
-      if (!cats[cat]) cats[cat] = { name: cat, qty: 0, revenue: 0, cost: 0, margin: 0, products: {} };
-
-      cats[cat].qty += row.qty || 0;
-      cats[cat].revenue += row.sum || 0;
-
-      if (recipe) {
-        const costPerUnit = calcRecipeCost(ingredients, recipe);
-        const totalCost = costPerUnit * (row.qty || 0);
-        cats[cat].cost += totalCost;
-
-        if (!cats[cat].products[productName]) {
-          cats[cat].products[productName] = { name: productName, qty: 0, revenue: 0, cost: 0 };
-        }
-        cats[cat].products[productName].qty += row.qty || 0;
-        cats[cat].products[productName].revenue += row.sum || 0;
-        cats[cat].products[productName].cost += totalCost;
-      }
-    }
-
-    return Object.values(cats)
-      .map((c) => {
-        c.margin = c.revenue - c.cost;
-        c.marginPct = c.revenue > 0 ? ((c.margin / c.revenue) * 100).toFixed(1) : "0.0";
-        return c;
-      })
-      .sort((a, b) => b.revenue - a.revenue);
-  }, [salesData, ingredients, recipes]);
-
-  const totalRevenue = categoryStats.reduce((s, c) => s + c.revenue, 0);
-  const totalCost = categoryStats.reduce((s, c) => s + c.cost, 0);
-  const totalMargin = totalRevenue - totalCost;
-  const totalMarginPct = totalRevenue > 0 ? ((totalMargin / totalRevenue) * 100).toFixed(1) : "0.0";
-
-  const [expandedCat, setExpandedCat] = useState(null);
+  const totals = useMemo(() => marginTotals(categoryStats), [categoryStats]);
+  const coveragePct = Math.round(totals.coverage * 100);
 
   return (
     <div>
@@ -766,47 +737,66 @@ function DashboardTab({ ingredients, recipes }) {
           <div className="margin-form-field margin-form-field--btn">
             <label className="form-label">&nbsp;</label>
             <button className="btn btn-out" onClick={load} disabled={loading}>
-              {loading ? "⏳ Загрузка..." : "🔄 Обновить"}
+              {loading ? "Считаю…" : "Обновить"}
             </button>
           </div>
         </div>
       </div>
 
+      {error && <div className="msg err" style={{ marginBottom: 12 }}>Не посчитал: {error}</div>}
+
       {loading && !salesData ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Загрузка данных...</div>
+          <div className="empty-state-title">Считаю…</div>
         </div>
       ) : categoryStats.length === 0 ? (
         <div className="card empty-state" style={{ padding: 48 }}>
           <i className="ti ti-chart-line" style={{ fontSize: 36, color: "var(--text-muted)", marginBottom: 12 }} />
-          <div className="empty-state-title">Нет данных</div>
+          <div className="empty-state-title">{error ? "Данные не пришли" : "Нет продаж за период"}</div>
           <div className="empty-state-sub">
-            {recipes.length === 0
-              ? "Сначала добавьте рецепты на вкладке «Рецепты»"
-              : "Нет данных о продажах за выбранный период"}
+            {error
+              ? "Проверьте подключение к Poster и нажмите «Обновить»."
+              : recipes.length === 0
+                ? "Добавьте техкарты на вкладке «Рецепты» — тогда к выручке добавится себестоимость."
+                : "Выберите другой период."}
           </div>
         </div>
       ) : (
         <>
-          {/* Summary cards */}
           <div className="margin-summary">
             <div className="margin-summary-card">
               <div className="margin-summary-label">Выручка</div>
-              <div className="margin-summary-value">{fmt(totalRevenue)}</div>
+              <div className="margin-summary-value">{fmt(totals.revenue)}</div>
             </div>
             <div className="margin-summary-card">
               <div className="margin-summary-label">Себестоимость</div>
-              <div className="margin-summary-value" style={{ color: "var(--text-danger)" }}>{fmt(totalCost)}</div>
+              <div className="margin-summary-value" style={{ color: "var(--text-danger)" }}>{fmt(totals.cost)}</div>
             </div>
             <div className="margin-summary-card">
               <div className="margin-summary-label">Чистая маржа</div>
-              <div className="margin-summary-value" style={{ color: totalMargin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
-                {fmt(totalMargin)} <span style={{ fontSize: 14 }}>({totalMarginPct}%)</span>
+              <div className="margin-summary-value" style={{ color: totals.margin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                {fmt(totals.margin)}{" "}
+                <span style={{ fontSize: 14 }}>
+                  ({totals.marginPct === null ? "—" : `${totals.marginPct.toFixed(1)}%`})
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Category breakdown */}
+          {/* Насколько цифре верить. Раньше выручка без техкарты молча
+              шла в маржу как чистая прибыль и завышала процент. */}
+          <div className="margin-coverage">
+            {coveragePct >= 99 ? (
+              <>Себестоимость известна по всей выручке за период.</>
+            ) : (
+              <>
+                <i className="ti ti-info-circle" aria-hidden="true" />{" "}
+                Процент посчитан по {coveragePct}% выручки — остальное продано без техкарты
+                ({fmt(Math.round(totals.revenue - totals.covered))}). Заведите техкарты, и маржа станет точной.
+              </>
+            )}
+          </div>
+
           <div className="table-card">
             <table className="data-table">
               <thead>
@@ -823,9 +813,8 @@ function DashboardTab({ ingredients, recipes }) {
                 {categoryStats.map((cat) => {
                   const isExpanded = expandedCat === cat.name;
                   return (
-                    <>
+                    <Fragment key={cat.name}>
                       <tr
-                        key={cat.name}
                         style={{ cursor: "pointer" }}
                         onClick={() => setExpandedCat(isExpanded ? null : cat.name)}
                         className="clickable-row"
@@ -838,13 +827,19 @@ function DashboardTab({ ingredients, recipes }) {
                         </td>
                         <td className="text-right">{cat.qty.toLocaleString("ru-RU")}</td>
                         <td className="text-right">{fmt(cat.revenue)}</td>
-                        <td className="text-right">{fmt(cat.cost)}</td>
+                        <td className="text-right">{cat.covered > 0 ? fmt(cat.cost) : "—"}</td>
                         <td className="text-right" style={{ color: cat.margin >= 0 ? "var(--text-success)" : "var(--text-danger)", fontWeight: 600 }}>
-                          {fmt(cat.margin)}
+                          {cat.covered > 0 ? fmt(cat.margin) : "—"}
                         </td>
-                        <td className="text-right" style={{ fontWeight: 600 }}>{cat.marginPct}%</td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>
+                          {cat.marginPct === null ? (
+                            <span className="muted" title="Нет техкарты — считать нечем">нет карты</span>
+                          ) : (
+                            `${cat.marginPct.toFixed(1)}%`
+                          )}
+                        </td>
                       </tr>
-                      {isExpanded && Object.values(cat.products).map((p) => {
+                      {isExpanded && cat.products.map((p) => {
                         const pMargin = p.revenue - p.cost;
                         const pMarginPct = p.revenue > 0 ? ((pMargin / p.revenue) * 100).toFixed(1) : "0.0";
                         return (
@@ -860,7 +855,14 @@ function DashboardTab({ ingredients, recipes }) {
                           </tr>
                         );
                       })}
-                    </>
+                      {isExpanded && cat.covered < cat.revenue && (
+                        <tr style={{ background: "var(--surface-2)" }}>
+                          <td colSpan={6} style={{ paddingLeft: 32, fontSize: 12, color: "var(--text-muted)" }}>
+                            Без техкарты в этой категории: {fmt(Math.round(cat.revenue - cat.covered))} выручки — в маржу не вошли.
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

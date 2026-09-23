@@ -6094,3 +6094,16 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   color: var(--text-secondary);
 }
 .pm-insight b { color: var(--text); font-weight: 600; }
+
+/* Маржа: насколько цифре верить */
+.margin-coverage {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-cap, 12px);
+  line-height: 1.5;
+}
+.margin-coverage i { color: var(--text-muted); }

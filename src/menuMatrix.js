@@ -100,3 +100,71 @@ export function matrixStats(matrix, days = 30) {
 export function periodDays(period) {
   return period === "7d" ? 7 : period === "90d" ? 90 : 30;
 }
+
+// Маржа по категориям — для дашборда раздела «Маржа».
+//
+// Тонкость, из-за которой итог врал: себестоимость копится только по
+// позициям с техкартой, а выручка — по всем подряд. Позиции без
+// техкарты попадали в «Другое» с нулевой себестоимостью и показывали
+// 100% маржи, а общий процент считался от всей выручки — и выходил
+// заметно выше правды. Поэтому выручка делится надвое: covered (есть
+// чем считать) и rest. Процент — только от covered, а доля покрытия
+// показывается рядом, чтобы было видно, насколько цифре верить.
+export function categoryMargins({ sales = [], recipes = [], costOf = () => 0 } = {}) {
+  const byRecipe = new Map();
+  for (const r of recipes) byRecipe.set(normalizeName(r.name), r);
+
+  const cats = new Map();
+  for (const row of sales) {
+    const name = row.productName || "";
+    const recipe = byRecipe.get(normalizeName(name));
+    const cost = recipe ? costOf(recipe) : 0;
+    const counted = !!recipe && cost > 0;
+    const cat = recipe?.category || "Другое";
+
+    if (!cats.has(cat)) {
+      cats.set(cat, { name: cat, qty: 0, revenue: 0, covered: 0, cost: 0, products: new Map() });
+    }
+    const c = cats.get(cat);
+    const qty = row.qty || 0;
+    const sum = row.sum || 0;
+    c.qty += qty;
+    c.revenue += sum;
+    if (!counted) continue;
+
+    c.covered += sum;
+    c.cost += cost * qty;
+    // Ключ — нормализованное имя: «Латте» и «латте» в выгрузке Poster
+    // встречаются вперемешку и иначе разъезжаются на два товара
+    const key = normalizeName(name);
+    const p = c.products.get(key) || { name, qty: 0, revenue: 0, cost: 0 };
+    p.qty += qty;
+    p.revenue += sum;
+    p.cost += cost * qty;
+    c.products.set(key, p);
+  }
+
+  return [...cats.values()]
+    .map((c) => ({
+      ...c,
+      products: [...c.products.values()].sort((a, b) => b.revenue - a.revenue),
+      margin: c.covered - c.cost,
+      marginPct: c.covered > 0 ? ((c.covered - c.cost) / c.covered) * 100 : null,
+      coverage: c.revenue > 0 ? c.covered / c.revenue : 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+export function marginTotals(cats = []) {
+  const revenue = cats.reduce((s, c) => s + c.revenue, 0);
+  const covered = cats.reduce((s, c) => s + c.covered, 0);
+  const cost = cats.reduce((s, c) => s + c.cost, 0);
+  return {
+    revenue,
+    covered,
+    cost,
+    margin: covered - cost,
+    marginPct: covered > 0 ? ((covered - cost) / covered) * 100 : null,
+    coverage: revenue > 0 ? covered / revenue : 0,
+  };
+}

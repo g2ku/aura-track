@@ -1,6 +1,6 @@
 // test-menu-matrix.mjs — счёт «Меню-инжиниринга».
 
-import { buildMatrix, matrixStats, periodDays, normalizeName } from "./src/menuMatrix.js";
+import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals } from "./src/menuMatrix.js";
 
 let passed = 0, failed = 0;
 function eq(a, b, label) {
@@ -93,6 +93,42 @@ eq(periodDays("7d"), 7, "7d → 7");
 eq(periodDays("30d"), 30, "30d → 30");
 eq(periodDays("90d"), 90, "90d → 90");
 eq(periodDays(undefined), 30, "по умолчанию 30");
+
+console.log("\n📋 Тест 6: маржа по категориям — процент только от посчитанного");
+const cats = categoryMargins({ sales, recipes, costOf });
+const coffee = cats.find((c) => c.name === "Кофе");
+eq(coffee.qty, 610, "кофе: 400 латте + 210 американо");
+eq(coffee.revenue, 480000 + 21000, "кофе: выручка");
+eq(coffee.covered, 480000 + 21000, "кофе: считается вся выручка — техкарты есть");
+near(coffee.coverage, 1, "кофе: покрытие 100%");
+eq(coffee.cost, 400 * 180 + 210 * 90, "кофе: себестоимость");
+near(coffee.marginPct, ((501000 - 90900) / 501000) * 100, "кофе: маржа от покрытой выручки");
+eq(coffee.products.length, 2, "внутри кофе — два товара");
+eq(coffee.products[0].name, "Латте", "первым — тот, что дал больше выручки");
+
+// «Другое» — круассан без техкарты: выручка есть, считать нечем
+const other = cats.find((c) => c.name === "Другое");
+eq(other.revenue, 54000, "«Другое»: выручка круассана");
+eq(other.covered, 0, "«Другое»: считать нечем");
+eq(other.marginPct, null, "«Другое»: маржа не 100%, а неизвестна");
+eq(other.coverage, 0, "«Другое»: покрытие ноль");
+
+// Чай: техкарта есть, но пустая — в покрытие не идёт
+const teaCat = cats.find((c) => c.name === "Чай");
+eq(teaCat.revenue, 28000, "чай: выручка есть");
+eq(teaCat.covered, 0, "чай: пустая техкарта — не покрыт");
+eq(teaCat.marginPct, null, "чай: маржа неизвестна");
+
+console.log("\n📋 Тест 7: итог не завышен непосчитанной выручкой");
+const t = marginTotals(cats);
+eq(t.revenue, 480000 + 21000 + 70000 + 28000 + 54000 + 250, "итоговая выручка — вся");
+eq(t.covered, 480000 + 21000 + 70000 + 250, "покрыта — только там, где есть техкарта");
+const naive = ((t.revenue - t.cost) / t.revenue) * 100;
+eq(t.marginPct < naive, true, "наивный процент был завышен: непосчитанная выручка шла как чистая прибыль");
+near(naive - t.marginPct, 2.4, "разница между враньём и правдой — около 2,4 пункта", 0.2);
+near(t.coverage, t.covered / t.revenue, "доля покрытия посчитана");
+eq(marginTotals([]).marginPct, null, "нет категорий — нет процента, а не 0%");
+eq(categoryMargins({}).length, 0, "пустой вход — пусто, без падения");
 
 console.log("\n══════════════════════════════════════════════════");
 console.log(`✅ Пройдено: ${passed}`);
