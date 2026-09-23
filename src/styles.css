@@ -6085,3 +6085,12 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 @keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .pin-skeleton > span, .chat-skeleton > span { animation: none; } }
 .kpi-card.kpi-loading { justify-content: center; min-height: 96px; }
+
+/* Меню-инжиниринг: строки выводов — читаются, а не просматриваются */
+.pm-insight {
+  font-size: var(--fs-sec, 13px);
+  line-height: 1.5;
+  padding: 3px 0;
+  color: var(--text-secondary);
+}
+.pm-insight b { color: var(--text); font-weight: 600; }

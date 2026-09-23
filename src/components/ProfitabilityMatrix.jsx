@@ -1,10 +1,13 @@
 // ProfitabilityMatrix — Меню-инжиниринг.
-// Убыточные/перекредитованные позиции, звёзды, скрытые gems.
+//
+// Один вопрос: на чём мы зарабатываем и на чём теряем. Счёт вынесен
+// в menuMatrix.js и покрыт тестами; здесь — только показ.
 
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchPosterSales } from "../poster";
 import { loadMargin, calcRecipeCost } from "../margin";
+import { buildMatrix, matrixStats, periodDays } from "../menuMatrix.js";
 
 function todayStr() {
   const d = new Date();
@@ -17,9 +20,7 @@ function daysAgoStr(n) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function normalize(s) {
-  return (s || "").toLowerCase().trim();
-}
+const pct = (v) => `${v > 0 ? "" : ""}${v.toFixed(1)}%`;
 
 export default function ProfitabilityMatrix() {
   const [period, setPeriod] = useState("30d");
@@ -27,107 +28,67 @@ export default function ProfitabilityMatrix() {
   const [ingredients, setIngredients] = useState([]);
   const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(false);
+  // Раньше сбой Poster уходил в console.error, а экран говорил «Нет
+  // данных — добавьте рецепты». Это неправда и посылает чинить не то.
+  const [error, setError] = useState("");
 
-  const pFrom = period === "7d" ? daysAgoStr(6) : period === "30d" ? daysAgoStr(29) : daysAgoStr(89);
+  const days = periodDays(period);
+  const pFrom = daysAgoStr(days - 1);
   const pTo = todayStr();
 
   useEffect(() => {
-    loadData();
-  }, [period]);
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const marginData = await loadMargin();
+        if (!alive) return;
+        setRecipes(marginData.recipes || []);
+        setIngredients(marginData.ingredients || []);
 
-  async function loadData() {
-    setLoading(true);
-    try {
-      const marginData = await loadMargin();
-      setRecipes(marginData.recipes || []);
-      setIngredients(marginData.ingredients || []);
-
-      const sales = await fetchPosterSales(pFrom, pTo);
-      setSalesData(sales.rows || []);
-    } catch (e) {
-      console.error("[Profitability] load error:", e);
-    }
-    setLoading(false);
-  }
-
-  // Агрегация продаж по продукту
-  const productSales = useMemo(() => {
-    const map = {};
-    for (const row of salesData) {
-      const key = normalize(row.productName);
-      if (!map[key]) {
-        map[key] = { name: row.productName, qty: 0, revenue: 0 };
+        const sales = await fetchPosterSales(pFrom, pTo);
+        if (!alive) return;
+        setSalesData(sales.rows || []);
+      } catch (e) {
+        if (alive) { setError(e?.message || "Не удалось загрузить данные"); setSalesData([]); }
+      } finally {
+        if (alive) setLoading(false);
       }
-      map[key].qty += row.qty || 0;
-      map[key].revenue += row.sum || 0;
-    }
-    return Object.values(map);
-  }, [salesData]);
+    })();
+    return () => { alive = false; };
+  }, [period, pFrom, pTo]);
 
-  // Сопоставление с рецептами
-  const matrix = useMemo(() => {
-    return productSales.map((ps) => {
-      const recipe = recipes.find((r) => normalize(r.name) === normalize(ps.name));
-      let costPerUnit = 0;
-      let marginPct = null;
-      let category = "Другое";
+  const matrix = useMemo(
+    () => buildMatrix({
+      sales: salesData,
+      recipes,
+      costOf: (r) => calcRecipeCost(ingredients, r),
+    }),
+    [salesData, recipes, ingredients]
+  );
 
-      if (recipe) {
-        costPerUnit = calcRecipeCost(ingredients, recipe);
-        const avgPrice = ps.qty > 0 ? ps.revenue / ps.qty : 0;
-        marginPct = avgPrice > 0 ? ((avgPrice - costPerUnit) / avgPrice * 100) : 0;
-        category = recipe.category || "Другое";
-      }
+  const stats = useMemo(() => matrixStats(matrix, days), [matrix, days]);
 
-      return {
-        name: ps.name,
-        qty: ps.qty,
-        revenue: ps.revenue,
-        costPerUnit,
-        totalCost: costPerUnit * ps.qty,
-        marginPct,
-        category,
-        avgPrice: ps.qty > 0 ? ps.revenue / ps.qty : 0,
-      };
-    }).sort((a, b) => b.revenue - a.revenue);
-  }, [productSales, recipes, ingredients]);
-
-  // Статистика
-  const stats = useMemo(() => {
-    const withMargin = matrix.filter((m) => m.marginPct !== null);
-    const profitable = withMargin.filter((m) => m.marginPct > 60);
-    const losers = withMargin.filter((m) => m.marginPct < 0);
-    const highVolumeLowMargin = withMargin.filter((m) => m.qty > 50 && m.marginPct < 20);
-    const lowVolumeHighMargin = withMargin.filter((m) => m.qty <= 10 && m.marginPct > 70);
-
-    return {
-      profitable: profitable.length,
-      losers: losers.length,
-      highVolumeLowMargin: highVolumeLowMargin.length,
-      lowVolumeHighMargin: lowVolumeHighMargin.length,
-      losersList: losers.slice(0, 5),
-      highVolumeList: highVolumeLowMargin.slice(0, 5),
-      gemsList: lowVolumeHighMargin.slice(0, 5),
-    };
-  }, [matrix]);
-
-  function getMarginColor(pct) {
-    if (pct === null) return "var(--text-muted)";
-    if (pct > 60) return "var(--text-success)";
-    if (pct > 30) return "var(--text-warning)";
+  function marginColor(v) {
+    if (v === null) return "var(--text-muted)";
+    if (v > 60) return "var(--text-success)";
+    if (v > 30) return "var(--text-warning)";
     return "var(--text-danger)";
   }
+
+  const known = matrix.filter((m) => m.marginPct !== null);
+  const unknown = matrix.filter((m) => m.marginPct === null);
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">Меню-инжиниринг</h1>
-          <div className="page-sub">Прибыльность каждой позиции меню</div>
+          <div className="page-sub">На чём зарабатываем и на чём теряем</div>
         </div>
       </div>
 
-      {/* Period selector */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
         {[
           { id: "7d", label: "7 дней" },
@@ -144,97 +105,143 @@ export default function ProfitabilityMatrix() {
         ))}
       </div>
 
-      {/* Stats cards */}
+      {error && (
+        <div className="msg err" style={{ marginBottom: 12 }}>
+          Не посчитал: {error}
+        </div>
+      )}
+
       <div className="profit-matrix-grid" style={{ marginBottom: 16 }}>
         <div className="profit-matrix-card">
-          <div className="profit-matrix-card-name">Всего позиций</div>
-          <div className="profit-matrix-card-revenue" style={{ fontSize: 24 }}>{matrix.length}</div>
+          <div className="profit-matrix-card-name">Позиций в продаже</div>
+          <div className="profit-matrix-card-revenue" style={{ fontSize: 24 }}>{stats.total}</div>
         </div>
         <div className="profit-matrix-card">
-            <div className="profit-matrix-card-name">Прибыльные (&gt;60%)</div>
+          <div className="profit-matrix-card-name">Маржа выше 60%</div>
           <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "var(--text-success)" }}>{stats.profitable}</div>
         </div>
         <div className="profit-matrix-card">
-            <div className="profit-matrix-card-name">Убыточные (&lt;0%)</div>
+          <div className="profit-matrix-card-name">Продаём в убыток</div>
           <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "var(--text-danger)" }}>{stats.losers}</div>
         </div>
         <div className="profit-matrix-card">
-          <div className="profit-matrix-card-name">Скрытые gems</div>
-          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "var(--text-warning)" }}>{stats.lowVolumeHighMargin}</div>
+          <div className="profit-matrix-card-name">Нет техкарты</div>
+          <div className="profit-matrix-card-revenue" style={{ fontSize: 24, color: "var(--text-muted)" }}>{stats.noRecipe.length + stats.noCost.length}</div>
         </div>
       </div>
 
-      {/* Insights */}
       {stats.losersList.length > 0 && (
         <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "var(--text-danger)" }}>
           <div className="status-block-head" style={{ borderLeftColor: "var(--text-danger)", color: "var(--text-danger)", fontWeight: 700 }}>
-            <i className="ti ti-alert-triangle" aria-hidden="true" /> Убыточные позиции
+            <i className="ti ti-alert-triangle" aria-hidden="true" /> Продаём дешевле, чем готовим
           </div>
           {stats.losersList.map((l) => (
-            <div key={l.name} style={{ fontSize: 13, marginBottom: 4 }}>
-              {l.name}: маржа {l.marginPct?.toFixed(1)}%, продано {l.qty} шт
+            <div key={l.name} className="pm-insight">
+              <b>{l.name}</b> — {pct(l.marginPct)}: цена {fmt(Math.round(l.avgPrice))}, себестоимость {fmt(Math.round(l.costPerUnit))}. Продано {l.qty} шт.
             </div>
           ))}
         </div>
       )}
 
-      {stats.gemsList.length > 0 && (
+      {/* Самая дорогая строка меню: возим мешками, зарабатываем копейки.
+          Считалось и раньше, но на экран не выводилось вовсе. */}
+      {stats.workhorsesList.length > 0 && (
         <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "var(--text-warning)" }}>
           <div className="status-block-head" style={{ borderLeftColor: "var(--text-warning)", color: "var(--text-warning)", fontWeight: 700 }}>
-            <i className="ti ti-bulb" aria-hidden="true" /> Скрытые gems
+            <i className="ti ti-repeat" aria-hidden="true" /> Продаём много, зарабатываем мало
           </div>
-          {stats.gemsList.map((g) => (
-            <div key={g.name} style={{ fontSize: 13, marginBottom: 4 }}>
-              {g.name}: маржа {g.marginPct?.toFixed(1)}%, продано {g.qty} шт — стоит продвигать
+          {stats.workhorsesList.map((w) => (
+            <div key={w.name} className="pm-insight">
+              <b>{w.name}</b> — {Math.round(w.qty / days)} шт в день при марже {pct(w.marginPct)}.
+              Плюс сто тенге к цене — это {fmt(Math.round(w.qty * 100))} за период.
             </div>
           ))}
         </div>
       )}
 
-      {/* Позиции — лента как на дашборде */}
+      {stats.quietList.length > 0 && (
+        <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "var(--text-success)" }}>
+          <div className="status-block-head" style={{ borderLeftColor: "var(--text-success)", color: "var(--text-success)", fontWeight: 700 }}>
+            <i className="ti ti-bulb" aria-hidden="true" /> Незаметные, но выгодные
+          </div>
+          {stats.quietList.map((g) => (
+            <div key={g.name} className="pm-insight">
+              <b>{g.name}</b> — маржа {pct(g.marginPct)}, а берут всего {g.qty} шт за период. Стоит показать на витрине.
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Загрузка...</div>
+          <div className="empty-state-title">Считаю…</div>
         </div>
       ) : matrix.length === 0 ? (
         <div className="card empty-state" style={{ padding: 48 }}>
-          <div className="empty-state-title">Нет данных</div>
-          <div className="empty-state-sub">Добавьте рецепты в разделе Маржа</div>
+          <div className="empty-state-title">{error ? "Данные не пришли" : "За период ничего не продано"}</div>
+          <div className="empty-state-sub">
+            {error ? "Проверьте подключение к Poster и повторите." : "Выберите другой период."}
+          </div>
         </div>
       ) : (
-        <div className="cl-zone">
-          <div className="cl-zone-title"><i className="ti ti-chart-pie" aria-hidden="true" /> Позиции · маржа</div>
-          {matrix.map((m) => (
-            <div key={m.name} className="cl-spot">
-              <div className="cl-spot-head">
-                <span className="cl-spot-name-text">{m.name}</span>
-                <div className="cl-spot-cash" style={{ color: getMarginColor(m.marginPct), fontWeight: 700 }}>
-                  {m.marginPct !== null ? `${m.marginPct.toFixed(1)}%` : "—"}
+        <>
+          <div className="cl-zone">
+            <div className="cl-zone-title"><i className="ti ti-chart-pie" aria-hidden="true" /> Позиции · маржа</div>
+            {known.map((m) => (
+              <div key={m.name} className="cl-spot">
+                <div className="cl-spot-head">
+                  <span className="cl-spot-name-text">{m.name}</span>
+                  <div className="cl-spot-cash" style={{ color: marginColor(m.marginPct), fontWeight: 700 }}>
+                    {pct(m.marginPct)}
+                  </div>
+                </div>
+                <div className="cl-line">
+                  <span className="cl-line-label">Цена / себестоимость</span>
+                  <span className="cl-line-dots" />
+                  <span className="cl-line-value">{fmt(Math.round(m.avgPrice))} / {fmt(Math.round(m.costPerUnit))}</span>
+                </div>
+                <div className="cl-line">
+                  <span className="cl-line-label">Продано</span>
+                  <span className="cl-line-dots" />
+                  <span className="cl-line-value">{m.qty} шт · {Math.round(m.qty / days)} в день</span>
+                </div>
+                <div className="cl-line">
+                  <span className="cl-line-label">Выручка</span>
+                  <span className="cl-line-dots" />
+                  <span className="cl-line-value">{fmt(m.revenue)}</span>
+                </div>
+                <div className="cl-line">
+                  <span className="cl-line-label">Заработали</span>
+                  <span className="cl-line-dots" />
+                  <span className="cl-line-value">{fmt(Math.round(m.revenue - m.totalCost))}</span>
                 </div>
               </div>
-              <div className="cl-line">
-                <span className="cl-line-label">Категория</span>
-                <span className="cl-line-dots" />
-                <span className="cl-line-value">{m.category || "—"}</span>
+            ))}
+          </div>
+
+          {/* Непосчитанное — не «плохая маржа», а невведённая техкарта.
+              Отдельным списком, потому что это готовое дело. */}
+          {unknown.length > 0 && (
+            <div className="cl-zone" style={{ marginTop: 12 }}>
+              <div className="cl-zone-title">
+                <i className="ti ti-help-circle" aria-hidden="true" /> Маржа неизвестна · {unknown.length}
               </div>
-              <div className="cl-line">
-                <span className="cl-line-label">Продано</span>
-                <span className="cl-line-dots" />
-                <span className="cl-line-value">{m.qty} шт</span>
+              <div className="pm-insight" style={{ paddingBottom: 6 }}>
+                По этим позициям нет техкарты или в ней не проставлены ингредиенты.
+                Заведите их в разделе «Маржа» — и они появятся в списке выше.
               </div>
-              <div className="cl-line">
-                <span className="cl-line-label">Выручка</span>
-                <span className="cl-line-dots" />
-                <span className="cl-line-value">{fmt(m.revenue)}</span>
-              </div>
-              <div className="cl-line">
-                <span className="cl-line-label">Себестоимость</span>
-                <span className="cl-line-dots" />
-                <span className="cl-line-value">{m.totalCost > 0 ? `${fmt(Math.round(m.totalCost))}` : "—"}</span>
-              </div>
+              {unknown.map((m) => (
+                <div key={m.name} className="cl-line">
+                  <span className="cl-line-label">{m.name}</span>
+                  <span className="cl-line-dots" />
+                  <span className="cl-line-value">
+                    {m.qty} шт · {fmt(m.revenue)} · {m.unknown === "no-recipe" ? "нет техкарты" : "пустая техкарта"}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
