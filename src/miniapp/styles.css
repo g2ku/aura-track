@@ -195,10 +195,28 @@ button.primary:disabled { opacity: .5; }
    должно читаться наверняка. */
 
 /* ─── Строки филиалов ──────────────────────────────────────────────── */
-.branch-line { display: flex; align-items: baseline; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.branch-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .branch-line:last-child { border-bottom: none; }
-.branch-line .detail { display: block; color: var(--muted); font-size: var(--fs-cap); margin-top: 4px; font-variant-numeric: tabular-nums; }
+/* Подробность — своей строкой во всю ширину карточки: рядом с
+   «хватит на 6 дней» она ломалась посреди числа */
+.branch-line .detail { flex: 1 0 100%; color: var(--muted); font-size: var(--fs-cap); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .branch-line .days { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Строка-кнопка: ведёт в развоз с этой точкой. Выглядит той же строкой —
+   иначе список из восьми точек превращается в восемь кнопок и рябит */
+button.branch-line {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button.branch-line:last-of-type { border-bottom: none; }
+button.branch-line:active { background: var(--line); }
+.branch-line .chev { flex: 0 0 auto; color: var(--muted); font-size: var(--fs-h1); line-height: 1; font-style: normal; }
 .days { font-size: var(--fs-sec); }
 .days.warn { color: var(--danger); font-weight: 600; }
 

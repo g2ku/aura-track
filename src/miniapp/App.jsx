@@ -39,6 +39,11 @@ export default function App({ tg }) {
     } catch (_) { return { tab: null, branch: "" }; }
   });
   const [tab, setTab] = useState(link.tab);
+  // Точка, выбранная касанием в «Складе»: «у Абаи кончается» → сразу
+  // развоз с уже выбранной Абаей. Раньше её приходилось искать заново
+  // в списке из восьми штук, помня, какая горела.
+  const [jumpBranch, setJumpBranch] = useState("");
+  const goGive = useCallback((b) => { setJumpBranch(b); setTab("give"); }, []);
 
   // Всё, что показываем, — то и запоминаем: следующий запуск начнётся с этого
   const setData = useCallback((next) => {
@@ -223,10 +228,10 @@ export default function App({ tg }) {
           tg={tg}
           state={state} skus={skus} branches={branches} today={today}
           forecast={data.forecast} lastTrip={data.lastTrip} soonDays={data.soonDays}
-          onSend={send} onUndo={undo} initialBranch={link.branch}
+          onSend={send} onUndo={undo} initialBranch={jumpBranch || link.branch}
         />
       )}
-      {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} forecast={data.forecast} soonDays={data.soonDays} onSend={send} onUndo={isAdmin ? undo : null} isAdmin={isAdmin} />}
+      {active === "stock" && <Warehouse state={state} skus={skus} branches={branches} today={today} forecast={data.forecast} soonDays={data.soonDays} onSend={send} onUndo={isAdmin ? undo : null} isAdmin={isAdmin} onPick={view.canGive ? goGive : null} />}
       {active === "history" && <History api={api} today={data.date} keepDays={data.keepDays} skus={skus} canReconcile={who.role !== "supplier"} />}
     </>
   );

@@ -22,9 +22,9 @@ export default function Feed({ trips, skus }) {
       <div className="label">Кто что записал</div>
       {trips.map((t, i) => (
         <div className="branch-line" key={`${t.at}-${t.branch}-${i}`}>
-          <span className="grow">
-            <span className="name">{t.kind === "in" ? "Приход на склад" : t.branch}</span>
-            <span className="detail">
+          <span className="grow name">{t.kind === "in" ? "Приход на склад" : t.branch}</span>
+          <span className="days muted">{when(t.at)}</span>
+          <span className="detail">
               {t.kind === "skip"
                 ? `не смог заехать${t.reason ? `: ${t.reason}` : ""}`
                 : t.items.map((it) => `${num(it.qty)} × ${short(it.sku)}`).join(", ")}
@@ -32,10 +32,8 @@ export default function Feed({ trips, skus }) {
               {t.items.some((it) => it.before != null) && (
                 ` · было на точке ${t.items.map((it) => (it.before == null ? "—" : `${num(it.before)} × ${short(it.sku)}`)).join(", ")}`
               )}
-              {t.by ? ` · ${t.by}` : ""}
-            </span>
+            {t.by ? ` · ${t.by}` : ""}
           </span>
-          <span className="days muted">{when(t.at)}</span>
         </div>
       ))}
     </div>

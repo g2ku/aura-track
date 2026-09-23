@@ -37,7 +37,7 @@ function daysWord(n) {
   return `возили ${n} ${w} назад`;
 }
 
-export default function Warehouse({ state, skus, branches, today, forecast, soonDays = 4, onSend, onUndo, isAdmin }) {
+export default function Warehouse({ state, skus, branches, today, forecast, soonDays = 4, onSend, onUndo, isAdmin, onPick = null }) {
   const [add, setAdd] = useState(() => Object.fromEntries(skus.map((s) => [s.id, ""])));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -182,14 +182,25 @@ export default function Warehouse({ state, skus, branches, today, forecast, soon
         {rows.map((r) => {
           const detail = detailOf(r);
           const st = statusOf(r);
-          return (
-            <div className="branch-line" key={r.branch}>
-              <span className="grow">
-                <span className="name">{r.branch}</span>
-                {detail && <span className="detail">{detail}</span>}
-              </span>
+          // Строка ведёт в развоз с этой точкой: «у Абаи кончается» и
+          // «везу на Абаю» — одно движение, а не поиск в списке заново
+          // Подробность — своей строкой во всю ширину: «на точке ~240 × 350,
+          // 60 × 450» не помещалось рядом с «хватит на 6 дней» и ломалось
+          // посреди числа
+          const row = (
+            <>
+              <span className="grow name">{r.branch}</span>
               <span className={`days ${st.warn ? "warn" : "muted"}`}>{st.text}</span>
-            </div>
+              {onPick && <i className="chev" aria-hidden="true">›</i>}
+              {detail && <span className="detail">{detail}</span>}
+            </>
+          );
+          return onPick ? (
+            <button className="branch-line tappable" key={r.branch} onClick={() => onPick(r.branch)}>
+              {row}
+            </button>
+          ) : (
+            <div className="branch-line" key={r.branch}>{row}</div>
           );
         })}
         {!fresh && (

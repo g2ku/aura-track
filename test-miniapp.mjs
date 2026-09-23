@@ -119,7 +119,13 @@ section("Ссылка открывает нужный экран и точку")
 {
   const app = readFileSync("src/miniapp/App.jsx", "utf8");
   ok(/q\.get\("tab"\)/.test(app) && /q\.get\("branch"\)/.test(app), "?tab= и ?branch= читаются из адреса");
-  ok(/initialBranch=\{link\.branch\}/.test(app), "точка из ссылки уходит в развоз");
+  ok(/initialBranch=\{jumpBranch \|\| link\.branch\}/.test(app), "точка из ссылки уходит в развоз");
+  // Касание точки в «Складе» — тот же путь, только без ссылки
+  ok(/setJumpBranch\(b\); setTab\("give"\)/.test(app), "касание точки в «Складе» переключает на развоз");
+  ok(/onPick=\{view\.canGive \? goGive : null\}/.test(app), "и только тому, кому развоз вообще доступен");
+  const wh = readFileSync("src/miniapp/Warehouse.jsx", "utf8");
+  ok(/onPick \? \(/.test(wh) && /button className="branch-line tappable"/.test(wh), "строка точки становится кнопкой, когда есть куда вести");
+  ok(/<div className="branch-line" key=\{r\.branch\}>\{row\}<\/div>/.test(wh), "а без права — обычная строка, не кнопка");
   const w = readFileSync("api/tg/watch.js", "utf8");
   ok(w.includes("/miniapp.html?tab=give"), "кнопка «Открыть маршрут» ведёт сразу на развоз");
 }
