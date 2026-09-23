@@ -505,6 +505,17 @@ export async function answerQuestion(text, deps) {
   if (parsed.note) lines.push(`<i>${escapeHtml(parsed.note)}</i>`);
   lines.push(answer);
   if (todayMissing) lines.push("<i>Сегодняшний день не вошёл: Poster не ответил.</i>");
+
+  // Ночью сторож сверяет два метода Poster и, если они разошлись больше
+  // чем на процент, помечает день. Тревога уходит один раз в 03:30 — а
+  // спрашивают про этот день неделю спустя, и цифра приходит как ни в
+  // чём не бывало. Метка обязана ехать вместе с ответом.
+  const shaky = (days || []).filter((d) => d?.mismatch).map((d) => d.date).sort();
+  if (shaky.length) {
+    lines.push(shaky.length === 1
+      ? `<i>⚠️ За ${escapeHtml(shaky[0])} два метода Poster разошлись — цифре за этот день верить нельзя без проверки.</i>`
+      : `<i>⚠️ За ${shaky.length} дн. два метода Poster разошлись (${escapeHtml(shaky.slice(0, 3).join(", "))}${shaky.length > 3 ? "…" : ""}) — в итоге они учтены как есть.</i>`);
+  }
   // buttons — кнопки под ответом; не followUps: так в вебхуке зовутся
   // догоняющие сообщения в другие чаты
   return { text: lines.join("\n"), parsed, buttons: botFollowUps(parsed, { today }) };

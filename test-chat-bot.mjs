@@ -378,6 +378,30 @@ section("Пик по часам не выдаёт себя за всю касс�
   ok(/Пик/.test(full), "а сам ответ на месте");
 }
 
+section("Подозрительный день не приходит как обычный");
+
+{
+  // Ночью сторож сверяет два метода Poster и помечает день, если они
+  // разошлись. Тревога уходит один раз в 03:30 — а спрашивают про этот
+  // день неделю спустя, и цифра приходила как ни в чём не бывало.
+  const flag = (d) => ({ ...d, mismatch: { date: d.date, byTx: 170000, byDash: 150000, pct: 12 } });
+  const depsBad = {
+    ...deps,
+    getDays: async (from, to) => (await deps.getDays(from, to)).map(flag),
+    getToday: async (np) => await deps.getToday(np),
+  };
+  const one = (await answerQuestion("касса вчера", depsBad)).text;
+  ok(/два метода Poster разошлись/.test(one), "про расхождение сказано");
+  ok(/верить нельзя без проверки/.test(one), "и что цифре нельзя верить");
+
+  const many = (await answerQuestion("касса за неделю", depsBad)).text;
+  ok(/За \d+ дн\. два метода Poster разошлись/.test(many), "за период — сколько таких дней");
+
+  // Чистые дни — никакой лишней тревоги
+  const clean = (await answerQuestion("касса вчера", deps)).text;
+  ok(!/разошлись/.test(clean), "на чистых днях предупреждения нет");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

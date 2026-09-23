@@ -162,6 +162,9 @@ export function toClientDays(docs, { products = true } = {}) {
       hasProducts: products ? d.hasProducts !== false : false,
       pay: d.pay || null,
       hours: d.hours || null,
+      // Метка «два метода Poster разошлись» едет вместе с днём: без неё
+      // сайт показывает подозрительную цифру как обычную
+      mismatch: d.mismatch || null,
       source: "rollup",
     };
   }
