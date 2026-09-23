@@ -348,6 +348,36 @@ section("Разбивка по оплатам не выдаёт себя за в
   ok(Math.abs(sum - 100) <= 2, `доли складываются в сто: ${shares.join("+")} = ${sum}`);
 }
 
+section("Пик по часам не выдаёт себя за всю кассу");
+
+{
+  // Чек без времени закрытия попадает в дневную кассу, но не в
+  // почасовую — час у него неизвестен. Тогда «пик» считается от меньшей
+  // базы, и цифра тихо расходится с ответом про кассу за тот же день.
+  const thin = (d) => ({ ...d, hours: { "4": { cash: d.hours["4"].cash.map((v) => Math.round(v / 2)), tx: d.hours["4"].tx } } });
+  const depsThin = {
+    ...deps,
+    getDays: async (from, to) => (await deps.getDays(from, to)).map(thin),
+    getToday: async (np) => thin(await deps.getToday(np)),
+  };
+  const r = (await answerQuestion("во сколько пик вчера", depsThin)).text;
+  ok(/По часам разложилось/.test(r), "о неполной раскладке сказано");
+  ok(/не дал времени закрытия/.test(r), "и названа причина");
+
+  // Когда всё разложилось — лишней строки быть не должно. В основной
+  // фикстуре у точки «11» касса есть, а часов нет, поэтому здесь её
+  // убираем: иначе оговорка законно печатается и там.
+  const even = (d) => ({ ...d, cashBySpot: { "4": d.cashBySpot["4"], "9": d.cashBySpot["9"] } });
+  const depsEven = {
+    ...deps,
+    getDays: async (from, to) => (await deps.getDays(from, to)).map(even),
+    getToday: async (np) => even(await deps.getToday(np)),
+  };
+  const full = (await answerQuestion("во сколько пик вчера", depsEven)).text;
+  ok(!/По часам разложилось/.test(full), "при полной раскладке оговорки нет");
+  ok(/Пик/.test(full), "а сам ответ на месте");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

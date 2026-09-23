@@ -244,6 +244,10 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
   if (parsed.operation === "byHour" && ["cash", "checks", "avgCheck"].includes(metric)) {
     const cash = Array(24).fill(0), tx = Array(24).fill(0);
     let covered = 0, skippedToday = false;
+    // Чек без времени закрытия попадает в дневную кассу, но не в
+    // почасовую: час у него неизвестен. Тогда «пик» считается от меньшей
+    // базы — и цифра расходится с ответом про кассу за тот же день.
+    let hourCash = 0, dayCash = 0;
     for (const d of days || []) {
       if (!d?.hours) { if (d?.date === today) skippedToday = true; continue; }
       covered++;
@@ -251,7 +255,12 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
         if (spots && !spots.has(String(spot))) continue;
         for (let h = 0; h < 24; h++) { cash[h] += hs.cash?.[h] || 0; tx[h] += hs.tx?.[h] || 0; }
       }
+      for (const [spot, v] of Object.entries(d.cashBySpot || {})) {
+        if (spots && !spots.has(String(spot))) continue;
+        dayCash += v;
+      }
     }
+    hourCash = cash.reduce((a, b) => a + b, 0);
     if (!covered) return `Разбивки по часам ${escapeHtml(when)} ещё нет — она собирается по ночам.`;
     const rows = Array.from({ length: 24 }, (_, h) => ({ h, cash: cash[h], tx: tx[h] })).filter((r) => r.tx > 0);
     const key = metric === "checks" ? "tx" : "cash";
@@ -265,6 +274,9 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
       ...(quiet.length ? ["", "💤 Тихие часы:", ...quiet.map((r) => `• ${line(r)}`)] : []),
       covered > 1 ? `<i>Среднее за ${covered} дн.</i>` : "",
       skippedToday ? "<i>Сегодняшний день не вошёл — по часам он появится ночью.</i>" : "",
+      dayCash > 0 && dayCash - hourCash > dayCash * 0.05
+        ? `<i>По часам разложилось ${fmt(hourCash)} из ${fmt(dayCash)} — у остальных чеков Poster не дал времени закрытия.</i>`
+        : "",
     ].filter(Boolean).join("\n");
   }
 
