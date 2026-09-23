@@ -6,7 +6,7 @@ import { smartParse, shareToTelegram } from "../chat/smart.js";
 import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
 import { remember, recallEntry, shareLearned, syncShared, forgetShared, LINK_WINDOW_MS } from "../chat/memory.js";
 import { addPin, isPinned, ASK_KEY } from "../chat/pins.js";
-import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
+import { mergeTranscript, voiceErrorText, voiceSupport } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, spotNameByPosterId, BRANCHES, isAdmin, isAdminOrManager } from "../auth.jsx";
 import { downloadCsv } from "../utils";
 import { tableOf, csvName } from "../chat/table.js";
@@ -167,12 +167,21 @@ const SpeechRecognitionImpl =
     ? (window.SpeechRecognition || window.webkitSpeechRecognition || null)
     : null;
 
+// Почему голос может не работать — считаем один раз, до нажатия.
+const VOICE = voiceSupport({
+  hasApi: !!SpeechRecognitionImpl,
+  secure: typeof window === "undefined" ? true : window.isSecureContext !== false,
+  ua: typeof navigator === "undefined" ? "" : navigator.userAgent || "",
+});
+
 export default function DataChat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState(null);
+  // Ожидание разрешения на микрофон: без него нажатие выглядит как ничто
+  const [preparing, setPreparing] = useState(false);
   const userBranch = getUserBranch();
   const branchLabel = userBranch ? getSpotNameForBranch(userBranch) : null;
   const userBranchObj = userBranch && BRANCHES[userBranch]
@@ -198,67 +207,130 @@ export default function DataChat() {
   const sugRef = useRef(null);
   const recognitionRef = useRef(null);
   const baseInputRef = useRef("");
+  // Слушаем, пока человек не нажал «стоп»: onend срабатывает сам собой
+  const wantRef = useRef(false);
+  const restartsRef = useRef(0);
   // Последний непонятый вопрос: если следом придёт понятный — запомним связку
   const lastFailRef = useRef(null);
 
-  // ─── Voice input ─────────────────────────────────────────────────
+  // ─── Голосовой ввод ──────────────────────────────────────────────
+  // Три вещи, из-за которых он «не работал»:
+  //   1) во встроенном браузере Телеграма API просто нет, а подсказка об
+  //      этом гасла через 4 секунды — выглядело как мёртвая кнопка;
+  //   2) распознавание обрывалось на первой паузе (continuous по
+  //      умолчанию выключен) — фраза «касса за июнь по точкам» не
+  //      доживала до конца;
+  //   3) разрешение на микрофон браузер спрашивал не всегда — просим сами.
   const stopListening = useCallback(() => {
+    wantRef.current = false;
+    setPreparing(false);
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
     }
     setListening(false);
   }, []);
 
-  const toggleListening = useCallback(() => {
+  const flash = useCallback((text) => {
+    setVoiceError({ text, sticky: false });
+    setTimeout(() => setVoiceError((v) => (v && !v.sticky ? null : v)), 4000);
+  }, []);
+
+  const startRecognition = useCallback(() => {
+    const rec = new SpeechRecognitionImpl();
+    rec.lang = "ru-RU";
+    // Без continuous распознавание закрывается на первой же паузе.
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+
+    rec.onresult = (e) => {
+      let transcript = "";
+      for (let i = 0; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript;
+      }
+      setInput(mergeTranscript(baseInputRef.current, transcript));
+    };
+
+    rec.onerror = (e) => {
+      // Тишина — не ошибка: продолжаем слушать, человек ещё думает.
+      if (e.error === "no-speech") return;
+      const msg = voiceErrorText(e.error);
+      if (msg) flash(msg);
+      wantRef.current = false;
+      setListening(false);
+    };
+
+    rec.onend = () => {
+      if (recognitionRef.current === rec) recognitionRef.current = null;
+      // Сессия распознавания живёт минуту-две и закрывается сама.
+      // Пока человек не нажал «стоп» — поднимаем заново, дописывая
+      // к уже сказанному, иначе продиктованное затрётся.
+      if (wantRef.current && restartsRef.current < 20) {
+        restartsRef.current += 1;
+        baseInputRef.current = inputRef.current?.value ?? baseInputRef.current;
+        try { startRecognition(); return; } catch {}
+      }
+      wantRef.current = false;
+      setListening(false);
+    };
+
+    recognitionRef.current = rec;
+    rec.start();
+  }, [flash]);
+
+  const toggleListening = useCallback(async () => {
     if (listening) { stopListening(); return; }
 
-    if (!SpeechRecognitionImpl) {
-      // Fallback: iOS Safari / unsupported — focus input, keyboard has dictation mic
-      setVoiceError("Нажмите на значок микрофона на клавиатуре (диктовка).");
-      setTimeout(() => setVoiceError(null), 4000);
+    if (!VOICE.ok) {
+      // Висит до следующего нажатия: это не мигающая ошибка, а объяснение,
+      // что делать. Ровно оно и пропадало раньше за четыре секунды.
+      setVoiceError({ text: VOICE.text, sticky: true });
       inputRef.current?.focus();
       return;
     }
 
     setVoiceError(null);
     baseInputRef.current = input;
+    restartsRef.current = 0;
+    setPreparing(true);
+
+    // Микрофон просим заранее — но не ждём ответа как условия запуска.
+    // В части окружений окно разрешения не показывается вовсе, и обещание
+    // висит бесконечно: получалась ровно та мёртвая кнопка, ради которой
+    // всё и затевалось. Полторы секунды на окно, дальше пробуем говорить —
+    // SpeechRecognition спросит разрешение сам и вернёт понятный код.
     try {
-      const rec = new SpeechRecognitionImpl();
-      rec.lang = "ru-RU";
-      rec.interimResults = true;
-      rec.maxAlternatives = 1;
-
-      rec.onresult = (e) => {
-        let transcript = "";
-        for (let i = 0; i < e.results.length; i++) {
-          transcript += e.results[i][0].transcript;
+      if (navigator.mediaDevices?.getUserMedia) {
+        const grant = navigator.mediaDevices.getUserMedia({ audio: true })
+          .then((stream) => { stream.getTracks().forEach((t) => t.stop()); return "ok"; });
+        const res = await Promise.race([
+          grant.catch((e) => e),
+          new Promise((r) => setTimeout(() => r("timeout"), 1500)),
+        ]);
+        if (res instanceof Error) {
+          setPreparing(false);
+          setVoiceError({
+            text: res.name === "NotAllowedError"
+              ? "Микрофон запрещён этому сайту. Разрешите его в настройках браузера и нажмите ещё раз."
+              : "Микрофон недоступен: " + (res.message || "неизвестно"),
+            sticky: true,
+          });
+          return;
         }
-        setInput(mergeTranscript(baseInputRef.current, transcript));
-      };
+      }
+    } catch {}
 
-      rec.onerror = (e) => {
-        const msg = voiceErrorText(e.error);
-        if (msg) {
-          setVoiceError(msg);
-          setTimeout(() => setVoiceError(null), 4000);
-        }
-        setListening(false);
-      };
-
-      rec.onend = () => {
-        setListening(false);
-        if (recognitionRef.current === rec) recognitionRef.current = null;
-      };
-
-      recognitionRef.current = rec;
+    setPreparing(false);
+    try {
+      wantRef.current = true;
       setListening(true);
-      rec.start();
-    } catch (e) {
-      setVoiceError("Не удалось запустить голосовой ввод.");
-      setTimeout(() => setVoiceError(null), 4000);
+      startRecognition();
+    } catch {
+      wantRef.current = false;
+      flash("Не удалось запустить голосовой ввод.");
       setListening(false);
     }
-  }, [listening, stopListening, input]);
+  }, [listening, stopListening, input, startRecognition, flash]);
 
   useEffect(() => {
     return () => stopListening();
@@ -621,24 +693,27 @@ export default function DataChat() {
 
       {/* Input */}
       <div className="chat-input-wrap">
-        {isAdmin() && (
-          <button
-            className={`chat-mic-btn${listening ? " listening" : ""}`}
-            onClick={toggleListening}
-            title={listening ? "Остановить запись" : "Голосовой ввод"}
-            aria-label={listening ? "Остановить запись" : "Голосовой ввод"}
-          >
-            <i className={`ti ${listening ? "ti-player-stop" : "ti-microphone"}`} />
-            {listening && <span className="chat-mic-pulse" />}
-          </button>
-        )}
+        {/* Голос — способ ввода, а не право доступа: куратору на точке он
+            нужнее, чем владельцу за столом. Раньше кнопка была только у
+            админа, и на телефоне её просто не было. */}
+        <button
+          type="button"
+          className={`chat-mic-btn${listening ? " listening" : ""}${preparing ? " preparing" : ""}`}
+          onClick={toggleListening}
+          disabled={preparing}
+          title={listening ? "Остановить запись" : "Голосовой ввод"}
+          aria-label={listening ? "Остановить запись" : "Голосовой ввод"}
+        >
+          <i className={`ti ${preparing ? "ti-loader-2 spin" : listening ? "ti-player-stop" : "ti-microphone"}`} />
+          {listening && <span className="chat-mic-pulse" />}
+        </button>
         <input
           ref={inputRef}
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={listening ? "Говорите…" : (isAdmin() ? "Напишите или скажите вопрос…" : "Напишите вопрос…")}
+          placeholder={listening ? "Говорите…" : "Напишите или скажите вопрос…"}
           disabled={loading}
           className={`chat-input${listening ? " listening" : ""}`}
         />
@@ -650,6 +725,12 @@ export default function DataChat() {
           <i className="ti ti-send" />
         </button>
       </div>
+      {preparing && (
+        <div className="chat-listening-bar">
+          <i className="ti ti-loader-2 spin" />
+          Спрашиваю разрешение на микрофон…
+        </div>
+      )}
       {listening && (
         <div className="chat-listening-bar">
           <i className="ti ti-microphone" />
@@ -657,9 +738,14 @@ export default function DataChat() {
         </div>
       )}
       {voiceError && (
-        <div className="chat-voice-error">
-          <i className="ti ti-alert-triangle" />
-          {voiceError}
+        <div className={`chat-voice-error${voiceError.sticky ? " sticky" : ""}`}>
+          <i className={`ti ti-${voiceError.sticky ? "info-circle" : "alert-triangle"}`} />
+          <span className="grow">{voiceError.text}</span>
+          {voiceError.sticky && (
+            <button className="chat-voice-close" onClick={() => setVoiceError(null)} aria-label="Понятно">
+              <i className="ti ti-x" />
+            </button>
+          )}
         </div>
       )}
     </div>

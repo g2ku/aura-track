@@ -3003,6 +3003,7 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 }
 .chat-mic-btn:hover { border-color: var(--text-accent); color: var(--text-accent); }
 .chat-mic-btn:active { transform: scale(0.95); }
+.chat-mic-btn:disabled { opacity: 0.6; cursor: default; }
 .chat-mic-btn i { font-size: 18px; }
 .chat-mic-btn.listening {
   border-color: var(--text-danger);
@@ -3061,6 +3062,25 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   animation: fadeIn 0.15s ease;
 }
 .chat-voice-error i { font-size: 15px; flex-shrink: 0; }
+.chat-voice-error .grow { flex: 1; min-width: 0; line-height: 1.4; }
+/* Объяснение «почему нельзя говорить» — не тревога, а подсказка:
+   спокойный фон и явное «понятно», потому что висит до закрытия */
+.chat-voice-error.sticky {
+  align-items: flex-start;
+  background: var(--surface-1);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+.chat-voice-close {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted, var(--text-secondary));
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.chat-voice-close:hover { color: var(--text); }
 
 @media (max-width: 480px) {
   .chat-mic-btn { width: 42px; height: 42px; }
