@@ -287,6 +287,36 @@ section("Маржа в боте — из ночных итогов и техка
   ok(!/0,0 %/.test(bare.text), "и никакого выдуманного процента");
 }
 
+section("Кнопки под ответом не повторяют заданный вопрос");
+
+{
+  const { botFollowUps } = await import("./api/_lib/chatBot.js");
+  const btns = async (q) => botFollowUps(await looksLikeQuestion(q), { today: TODAY });
+
+  // Спросили про месяц — кнопка «маржа за месяц» вернула бы тот же ответ
+  const mm = await btns("маржа за месяц");
+  ok(!mm.includes("маржа за месяц"), `на «маржа за месяц» нет кнопки с тем же вопросом: ${mm.join(" · ")}`);
+  ok(mm.includes("маржа за неделю"), "а предложен другой отрезок");
+
+  const md = await btns("маржа за вчера");
+  ok(md.includes("маржа за месяц"), "со вчера зовём в месяц");
+  ok(!md.includes("маржа вчера"), "и не повторяем себя");
+
+  const cash = await btns("касса вчера");
+  ok(!cash.includes("касса вчера"), "то же правило для кассы");
+  ok(cash.length >= 3, "кнопок осталось не меньше трёх");
+
+  // Маржу бот научился считать только что — про неё должны узнать
+  const prod = await btns("товары за месяц");
+  ok(prod.includes("маржа за месяц"), "от товаров есть дорожка к марже");
+
+  for (const q of ["касса вчера", "чеки за неделю", "товары за месяц", "маржа за вчера", "способы оплаты за неделю"]) {
+    const list = await btns(q);
+    ok(list.every((b) => Buffer.byteLength(`q:${b}`, "utf8") <= 64), `«${q}» — все кнопки влезают в 64 байта`);
+    ok(new Set(list).size === list.length, `«${q}» — без повторов`);
+  }
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

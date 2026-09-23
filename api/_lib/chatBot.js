@@ -506,14 +506,25 @@ export function botFollowUps(parsed, { today } = {}) {
   if (m === "cash") list = [`чеки ${tail}`, spot ? `касса по точкам ${whenWord}` : `кто просел за неделю`, `товары ${tail}`, single ? "касса за неделю" : "тренд кассы"];
   else if (m === "checks") list = [`касса ${tail}`, `средний чек ${tail}`, spot ? `чеки по точкам ${whenWord}` : `чеки по будням за месяц`];
   else if (m === "avgCheck") list = [`касса ${tail}`, `чеки ${tail}`, `средний чек по точкам ${whenWord}`];
-  else if (m === "products") list = [`касса ${tail}`, `товары по точкам ${whenWord}`, "что продавалось вчера"];
+  // «Что продавалось» и «сколько на этом заработали» — соседние вопросы,
+  // и второй бот научился отвечать только что: без кнопки о нём не узнают
+  else if (m === "products") list = [`касса ${tail}`, `маржа ${tail}`, `товары по точкам ${whenWord}`, "что продавалось вчера"];
+  else if (m === "margin") {
+    list = parsed.product
+      ? ["маржа за неделю", `товары ${whenWord || "вчера"}`, "касса за неделю"]
+      : [`товары ${tail}`, `касса ${tail}`, fullMonth ? "маржа за неделю" : "маржа за месяц"];
+  }
   else if (m === "compareBranches") list = [`касса ${whenWord}`, `чеки по точкам ${whenWord}`, "кто просел за неделю"];
   else if (m === "payments") list = [`касса ${tail}`, `доля каспи ${tail}`, "способы оплаты за месяц"];
   else list = ["касса вчера", "касса за неделю", "что продавалось вчера"];
+  // Кнопка, повторяющая только что заданный вопрос, — чистый шум:
+  // человек нажмёт и получит тот же ответ второй раз
+  const WORD = { cash: "касса", checks: "чеки", avgCheck: "средний чек", products: "товары", payments: "способы оплаты", margin: "маржа" };
+  const selfQ = WORD[m] ? `${WORD[m]} ${tail}`.replace(/\s+/g, " ").trim() : "";
   const seen = new Set();
   return list
     .map((q) => q.replace(/\s+/g, " ").trim())
-    .filter((q) => q && !seen.has(q) && seen.add(q) && Buffer.byteLength(`q:${q}`, "utf8") <= 64)
+    .filter((q) => q && q !== selfQ && !seen.has(q) && seen.add(q) && Buffer.byteLength(`q:${q}`, "utf8") <= 64)
     .slice(0, 4);
 }
 
