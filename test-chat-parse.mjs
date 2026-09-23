@@ -953,6 +953,51 @@ section("Исполнитель и клиент собраны правильн�
   ok(readFileSync("src/chat/understand.js", "utf8").indexOf("parseQuestion(q)") < readFileSync("src/chat/understand.js", "utf8").indexOf("await smart("), "правила — до модели");
 }
 
+section("Глагол — не товар");
+
+{
+  // Шаблон «сколько …» вытаскивал в товар всё, что шло следом, и
+  // ассистент уверенно отвечал «товар "потеряли" не продавался».
+  // Такой ответ хуже честного «не понял»: он звучит правдоподобно.
+  const noProduct = async (q, label) => {
+    const p = await ask(q);
+    ok(!p?.product, `${label}: «${q}» → товар «${p?.product}»`);
+  };
+  await noProduct("сколько потеряли на скидках", "потеряли");
+  await noProduct("сколько зарабатываем в день", "зарабатываем");
+  await noProduct("сколько человек пришло вчера", "пришло");
+  await noProduct("сколько мы должны поставщикам", "должны/поставщикам");
+  await noProduct("какой напиток самый ходовой", "ходовой");
+  await noProduct("во сколько больше всего народу", "народу");
+  await noProduct("сколько чашек продали", "чашек");
+
+  // А настоящие товары товарами и остаются
+  const latte = await ask("сколько латте продали вчера");
+  ok(/латте/i.test(latte?.product || ""), `«сколько латте продали вчера» → товар ${latte?.product}`);
+  const milk = await ask("сколько молока ушло за неделю");
+  ok(/молок/i.test(milk?.product || ""), `«сколько молока ушло за неделю» → товар ${milk?.product}`);
+}
+
+section("Вопрос попадает в свою метрику");
+
+{
+  const m = async (q, want) => {
+    const p = await ask(q);
+    eq(p?.metric, want, `«${q}» → ${want}`);
+  };
+  await m("сколько потеряли на скидках", "discounts");
+  await m("какой напиток самый ходовой", "products");
+  await m("сколько человек пришло вчера", "checks");
+  await m("во сколько больше всего народу", "checks");
+
+  // «до скольки» нечётко совпадало с «сколько мы …», и вопрос про долги
+  // поставщикам уезжал во «время закрытия точки»
+  await m("сколько мы должны поставщикам", "cash");
+  await m("до скольки работала абая", "opening");
+  await m("до скольки открыт дубай", "opening");
+  await m("во сколько закрылись вчера", "opening");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
