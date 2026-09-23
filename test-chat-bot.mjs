@@ -37,8 +37,22 @@ const day = (date, k = 1) => ({
 });
 const daysOf = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
 const range = (from, to, k) => { const out = []; for (let d = from; d <= to; d = shift(d, 1)) out.push(day(d, k)); return out; };
+// Техкарты: под «Латте 0,4» и «Капучино L» есть, под «Латте 0,3» нет —
+// значит покрытие заведомо неполное, и это должно быть сказано вслух
+const MARGIN = {
+  ingredients: [
+    { id: "milk", name: "Молоко", unit: "л", pricePerUnit: 600 },
+    { id: "beans", name: "Зерно", unit: "кг", pricePerUnit: 6000 },
+  ],
+  recipes: [
+    { name: "Латте 0,4", category: "Кофе", salePrice: 1500, items: [{ ingredientId: "milk", qty: 300, unit: "мл" }, { ingredientId: "beans", qty: 18, unit: "г" }] },
+    { name: "Капучино L", category: "Кофе", salePrice: 1800, items: [{ ingredientId: "milk", qty: 200, unit: "мл" }, { ingredientId: "beans", qty: 18, unit: "г" }] },
+  ],
+};
+
 const deps = {
   today: TODAY, siteUrl: "https://site",
+  getMargin: async () => MARGIN,
   getDays: async (from, to) => range(from, to, 1),
   getToday: async (needProducts) => ({ ...day(TODAY, 0.5), rowsBySpot: needProducts ? day(TODAY, 0.5).rowsBySpot : {} }),
 };
@@ -245,6 +259,32 @@ section("В боте: команда и личка");
 
   const help = readFileSync("api/_lib/commands.js", "utf8");
   ok(help.includes("/спроси касса вчера — ассистент"), "команда — в справке");
+}
+
+section("Маржа в боте — из ночных итогов и техкарт");
+
+{
+  const r = await answerQuestion("какая маржа за вчера", deps);
+  ok(r && /Продано на/.test(r.text), "считает по проданному");
+  ok(/Заработали/.test(r.text), "итог в деньгах");
+  ok(/Больше всего принесли:/.test(r.text), "и кто принёс");
+  // «Латте 0,3» продаётся, техкарты под ним нет — молчать об этом нельзя
+  ok(/Посчитано по \d+ % выручки/.test(r.text), "названа доля покрытия");
+  ok(!/Это умеет только сайт/.test(r.text), "на сайт больше не отсылает");
+
+  // Себестоимость позиции — та же метрика, но ответ про позицию
+  const one = await answerQuestion("себестоимость латте 0,4", deps);
+  ok(one && /себестоимость/.test(one.text), "по позиции — про себестоимость");
+  ok(/наценка ×/.test(one.text), "и наценка");
+  ok(!/Больше всего принесли/.test(one.text), "а не сводка за период");
+
+  const miss = await answerQuestion("себестоимость раф", deps);
+  ok(miss && /в техкартах не нашёл/.test(miss.text), "неизвестная позиция названа");
+
+  // Без техкарт вообще — честный отказ, а не нулевая маржа
+  const bare = await answerQuestion("маржа за вчера", { ...deps, getMargin: async () => ({ recipes: [], ingredients: [] }) });
+  ok(bare && /Техкарты не заведены/.test(bare.text), "нет техкарт — так и сказано");
+  ok(!/0,0 %/.test(bare.text), "и никакого выдуманного процента");
 }
 
 console.log("\n══════════════════════════════════════════════════");

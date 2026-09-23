@@ -109,6 +109,23 @@ export async function getProducts() {
   }
 }
 
+// Техкарты и ингредиенты: settings/margin — тот же документ, что правит
+// сайт в разделе «Маржа». Боту нужен только на чтение: считать
+// себестоимость по ночным итогам, не ходя в Poster.
+export async function getMarginSettings() {
+  try {
+    const snap = await getDb().collection("settings").doc("margin").get();
+    const d = snap.exists ? snap.data() : null;
+    return {
+      recipes: Array.isArray(d?.recipes) ? d.recipes : [],
+      ingredients: Array.isArray(d?.ingredients) ? d.ingredients : [],
+    };
+  } catch (e) {
+    console.error("[bot] не смог прочитать техкарты:", e?.message);
+    return { recipes: [], ingredients: [] };
+  }
+}
+
 export async function saveProducts(names) {
   await getDb().collection("settings").doc("products").set(
     { names, updatedAt: Date.now() },
@@ -367,7 +384,7 @@ export function botStore() {
     getDoc, getDocsRange, appendEntry, undoEntry, setConfig,
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
     getCupState, applyCupMoves, undoCupMoves, getCupDays, getCupDay, purgeCupDays,
-    getSalesDays, getMenuIndex, getChatLearned,
+    getSalesDays, getMenuIndex, getChatLearned, getMarginSettings,
   };
 }
 

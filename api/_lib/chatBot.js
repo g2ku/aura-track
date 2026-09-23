@@ -20,12 +20,14 @@ import { baselinePeriods, formatContext, averageOf } from "../../src/chat/contex
 import { productMatches } from "../../src/chat/normalize.js";
 import { spotNameByPosterId, DEFAULT_IP_GROUPS, BRANCHES } from "./branches.js";
 import { escapeHtml } from "./dailyDoc.js";
+import { categoryMargins, marginTotals } from "../../src/menuMatrix.js";
+import { calcRecipeCost } from "../../src/recipeCost.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
 const int = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0));
 
 // Что бот умеет сам; остальное — только сайт
-const SUPPORTED = new Set(["cash", "checks", "avgCheck", "products", "compareBranches", "payments", "hourly"]);
+const SUPPORTED = new Set(["cash", "checks", "avgCheck", "products", "compareBranches", "payments", "hourly", "margin"]);
 const PAY_NAMES = { 0: "Наличные", "0-card": "Карточки", 11: "Kaspi", 12: "Halyk" };
 const PAY_WORDS = [
   { re: /наличн|налом/, id: "0" },
@@ -93,7 +95,7 @@ export function sumDays(days, spots = null) {
 
 // Текст ответа. days — дни спрошенного отрезка; baseDays — дни опор
 // (по датам); today — чтобы не сравнивать незаконченный день.
-export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
+export function answerFrom(parsed, days, { today, baseDays = {}, margin = null } = {}) {
   if (!parsed) return null;
   const spots = spotsFor(parsed);
   const where = parsed.ipGroup?.name ? ` (${parsed.ipGroup.name})`
@@ -105,6 +107,59 @@ export function answerFrom(parsed, days, { today, baseDays = {} } = {}) {
 
   // Способы оплаты — из поля pay суточных итогов (сегодня его нет:
   // сегодняшний день считается из чеков без разбивки, и в ответ не входит)
+  // Маржа за период — из ночных итогов и техкарт, без единого запроса
+  // в Poster. Считает тот же модуль, что и сайт (menuMatrix), поэтому
+  // цифра в боте и на сайте не разъедется.
+  if (parsed.metric === "margin") {
+    if (!margin || !margin.recipes?.length) {
+      return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nТехкарты не заведены — считать нечем. Раздел «Маржа» на сайте.`;
+    }
+    // «Себестоимость латте», «наценка на круассан» — про позицию, а не
+    // про период: метрика та же, поэтому разводим здесь
+    if (parsed.product) {
+      const hit = margin.recipes.filter((r) => productMatches(r.name, parsed.product));
+      if (!hit.length) return `«${escapeHtml(parsed.product)}» в техкартах не нашёл.`;
+      const lines = hit.slice(0, 6).map((r) => {
+        const cost = calcRecipeCost(margin.ingredients || [], r);
+        const price = r.salePrice || 0;
+        const m = price > 0 && cost > 0 ? ((price - cost) / price) * 100 : null;
+        const markup = cost > 0 && price > 0 ? ` · наценка ×${(price / cost).toFixed(1).replace(".", ",")}` : "";
+        return `• ${escapeHtml(r.name)}: себестоимость ${fmt(cost)}`
+          + (price ? ` → цена ${fmt(price)}` : " (цена не задана)")
+          + (m === null ? "" : ` · маржа ${m.toFixed(1).replace(".", ",")} %${markup}`);
+      });
+      return lines.join("\n");
+    }
+
+    const rows = s.products.map((p) => ({ productName: p.name, qty: p.qty, sum: p.sum }));
+    const cats = categoryMargins({
+      sales: rows,
+      recipes: margin.recipes,
+      costOf: (r) => calcRecipeCost(margin.ingredients || [], r),
+    });
+    const t = marginTotals(cats);
+    if (!rows.length) return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nПродаж за период не нашёл.`;
+    if (!(t.covered > 0)) {
+      return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nНи под одной проданной позицией нет техкарты — считать нечем.`;
+    }
+    // Топ — по заработанным деньгам: процент без объёма обманчив
+    const earners = cats.flatMap((c) => c.products.map((p) => ({
+      ...p,
+      earned: p.revenue - p.cost,
+      pct: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue) * 100 : 0,
+    }))).sort((a, b) => b.earned - a.earned);
+    const cover = Math.round(t.coverage * 100);
+    return [
+      `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>`,
+      `Продано на ${fmt(t.covered)}, себестоимость ${fmt(t.cost)}`,
+      `<b>Заработали ${fmt(t.margin)}</b> — ${t.marginPct.toFixed(1).replace(".", ",")} %`,
+      "",
+      "Больше всего принесли:",
+      ...earners.slice(0, 5).map((p, i) => `${i + 1}. ${escapeHtml(p.name)} — ${fmt(p.earned)} (${p.pct.toFixed(0)} %, ${int(p.qty)} шт)`),
+      cover >= 99 ? "" : `\nПосчитано по ${cover} % выручки — на остальное (${fmt(t.revenue - t.covered)}) нет техкарт.`,
+    ].filter(Boolean).join("\n");
+  }
+
   if (parsed.metric === "payments") {
     const total = {};
     const bySpot = {};
@@ -398,7 +453,9 @@ export async function answerQuestion(text, deps) {
     const past = to === today ? (period.from < today ? await deps.getDays(period.from, shiftYmd(today, -1)) : []) : await deps.getDays(period.from, to);
     let live = [];
     if (to === today) {
-      const t = await deps.getToday(parsed.metric === "products");
+      // Маржа тоже считается по товарам — сегодняшний день без них
+      // дал бы нулевую себестоимость и завышенный процент
+      const t = await deps.getToday(parsed.metric === "products" || parsed.metric === "margin");
       if (t) live = [t]; else todayMissing = true;
     }
     return [...past, ...live];
@@ -413,7 +470,11 @@ export async function answerQuestion(text, deps) {
   } else if (base?.kind === "span") {
     baseDays.prev = await load(base.prev);
   }
-  const answer = answerFrom(parsed, days, { today, baseDays });
+  // Техкарты тянем только под вопрос про маржу
+  const margin = parsed.metric === "margin" && deps.getMargin
+    ? await deps.getMargin().catch(() => null)
+    : null;
+  const answer = answerFrom(parsed, days, { today, baseDays, margin });
   if (!answer) return null;
   const lines = [];
   // Вопрос понят через память исправлений — говорим, как поняли

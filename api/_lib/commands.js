@@ -162,6 +162,9 @@ async function askBot(text, store, ctx = null) {
     siteUrl: siteUrl(),
     recall: recallFrom(learned),
     getDays: (from, to) => store.getSalesDays(from, to),
+    // Техкарты — только когда спросили про маржу: лишний запрос в базу
+    // на каждый «касса вчера» не нужен
+    getMargin: store.getMarginSettings || null,
     // Сегодня — из чеков вживую. Poster не ответил — отвечаем без
     // сегодняшнего дня, а не ошибкой: прошлые дни-то на месте.
     getToday: store.getTodaySales || (async (needProducts) => {
