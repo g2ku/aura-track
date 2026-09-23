@@ -13,7 +13,7 @@ import {
   consumptionByBranch, forecast, runningOut, planUndo, rebuildBranch, countedAtOf, journalFeed,
   lastTripByBranch,
   formatSupplierNudge, formatRoutePlan, skipSignals, formatWeeklyReconcile, weekdayOf,
-  formatCupReminder, skuName,
+  formatCupReminder, skuName, suggestFor, loadPlan,
 } from "./api/_lib/cups.js";
 import { verifyInitData, roleOf, canWrite, MAX_AGE_SEC } from "./api/_lib/telegramAuth.js";
 import { matchIngredient, resolveCupIngredients, reconcileCups, formatReconcile, totalDiff } from "./api/_lib/cupsPoster.js";
@@ -1112,6 +1112,136 @@ section("Что возили в прошлый раз");
     { kind: "out", sku: "450", qty: 20, branch: "Рамс", at: t + 1000 },
   ] }];
   eq(lastTripByBranch(noOp)["Рамс"], { "350": 10, "450": 20 }, "старые записи без метки тоже собираются");
+}
+
+section("Инварианты склада: сотни случайных развозов");
+{
+  // Проверка не на «ожидаемое число», а на то, что не может быть
+  // нарушено ни при каком раскладе: склад = приход − выдача, сводка =
+  // состояние, журнал восстанавливает и то и другое. Такие ошибки
+  // появляются от редкого сочетания движений, а не от одной строки.
+  const BR = ["Абая", "Дубай", "Рамс", "OBI"];
+  let seed = 42;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  let runs = 0, broken = 0, firstBreak = "";
+  const bad = (cond, msg) => { if (!cond) { broken++; if (!firstBreak) firstBreak = msg; } };
+
+  for (let run = 0; run < 200; run++) {
+    let state = emptyState();
+    const days = [];
+    let at = Date.parse("2026-09-01T08:00:00+05:00");
+
+    for (let d = 0; d < 10; d++) {
+      const moves = [];
+      if (rnd(3) === 0) for (const sku of SKU_IDS) moves.push({ kind: "in", sku, qty: 500 + rnd(500), at: (at += 60000) });
+      const nb = rnd(BR.length) + 1;
+      for (let i = 0; i < nb; i++) {
+        const branch = BR[rnd(BR.length)];
+        if (rnd(8) === 0) { moves.push({ kind: "skip", branch, at: (at += 60000) }); continue; }
+        for (const sku of SKU_IDS) {
+          const m = { kind: "out", branch, sku, qty: rnd(60) + 1, at: (at += 1000) };
+          if (rnd(2)) m.before = rnd(80);
+          moves.push(m);
+        }
+      }
+      // Склад в минусе — движение отвергнуто, и это правильное поведение
+      const r = applyMoves(state, moves, { branches: BR });
+      if (r.error) continue;
+      state = r.state;
+      days.push({ date: `2026-09-${String(d + 1).padStart(2, "0")}`, moves });
+      at += 86400000;
+    }
+    if (!days.length) continue;
+    runs++;
+
+    const sum = summarizePeriod(days);
+    for (const sku of SKU_IDS) {
+      bad(state.stock[sku] === sum.in[sku] - sum.out[sku],
+        `склад ${sku}: ${state.stock[sku]} ≠ ${sum.in[sku]} − ${sum.out[sku]}`);
+      bad(sum.branches.reduce((a, b) => a + b.qty[sku], 0) === sum.out[sku],
+        `сумма по точкам ${sku} ≠ выдано`);
+    }
+    for (const b of sum.branches) for (const sku of SKU_IDS) {
+      bad((state.branches[b.branch]?.[sku] || 0) === b.qty[sku], `${b.branch}/${sku}: состояние ≠ сводка`);
+    }
+    // Журнал должен восстанавливать живое состояние точки
+    const allMoves = days.flatMap((d) => d.moves);
+    for (const br of BR) {
+      const re = rebuildBranch(allMoves, br);
+      for (const sku of SKU_IDS) {
+        bad(re.onHand[sku] === (state.onHand[br]?.[sku] || 0), `${br}/${sku}: остаток из журнала ≠ состояние`);
+      }
+      bad((re.lastOut || null) === (state.lastOut[br] || null), `${br}: последний заезд из журнала ≠ состояние`);
+    }
+    // Ни одна точка с выдачей не пропала из дневника
+    const feedBr = new Set(journalFeed(days, { limit: 1000 }).filter((f) => f.kind !== "in" && f.kind !== "skip").map((f) => f.branch));
+    for (const b of new Set(allMoves.filter((m) => m.kind === "out").map((m) => m.branch))) {
+      bad(feedBr.has(b), `точка ${b} есть в выдачах, но не в дневнике`);
+    }
+  }
+  ok(runs >= 150, `прогонов с записанными днями: ${runs}`);
+  ok(broken === 0, `инварианты склада держатся${broken ? ` (нарушений ${broken}, первое: ${firstBreak})` : ""}`);
+}
+
+section("Прогноз и подсказка не расходятся");
+{
+  const BR = ["Абая", "Дубай", "Рамс"];
+  let seed = 7;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const DAY = 86400000;
+  let checked = 0, broken = 0, firstBreak = "";
+  const bad = (c, m) => { if (!c) { broken++; if (!firstBreak) firstBreak = m; } };
+
+  for (let run = 0; run < 150; run++) {
+    let at = Date.parse("2026-09-01T09:00:00+05:00");
+    let state = applyMoves(emptyState(), SKU_IDS.map((sku) => ({ kind: "in", sku, qty: 100000, at })), { branches: BR }).state;
+    const days = [{ date: "2026-09-01", moves: [] }];
+    for (let d = 1; d <= 6; d++) {
+      at += DAY;
+      const moves = [];
+      for (const branch of BR) for (const sku of SKU_IDS) {
+        moves.push({ kind: "out", branch, sku, qty: 100 + rnd(100), before: rnd(50), at: at + rnd(1000) });
+      }
+      const r = applyMoves(state, moves, { branches: BR });
+      if (r.error) break;
+      state = r.state;
+      days.push({ date: `2026-09-0${d + 1}`, moves });
+    }
+
+    const rows = forecast(state, BR, days, { now: at + DAY / 2 });
+    for (const row of rows) {
+      if (row.daysLeft == null) continue;
+      checked++;
+      // «Хватит на N дней» — это минимальное «остаток ÷ расход» по стаканам
+      let worst = Infinity;
+      for (const id of SKU_IDS) {
+        const per = row.perDay?.[id] || 0;
+        const left = row.left?.[id];
+        if (per && left != null) worst = Math.min(worst, left / per);
+      }
+      if (worst !== Infinity) bad(Math.abs(row.daysLeft - Math.floor(worst)) <= 1, `${row.branch}: хватит на ${row.daysLeft}, из остатков ${Math.floor(worst)}`);
+      for (const id of SKU_IDS) bad((row.left?.[id] ?? 0) >= 0, `${row.branch}/${id}: остаток отрицательный`);
+
+      // Подсказка «сколько привезти» обязана покрыть неделю расхода
+      const s = suggestFor(row, { days: 7 });
+      if (!s) continue;
+      for (const id of SKU_IDS) {
+        const per = row.perDay?.[id] || 0;
+        if (per <= 0) continue;
+        bad((row.left?.[id] ?? 0) + s[id] >= per * 7 - 1, `${row.branch}/${id}: подсказки не хватит на неделю`);
+        bad(s[id] % 50 === 0, `${row.branch}/${id}: подсказка ${s[id]} не кратна упаковке`);
+      }
+    }
+    // План на маршрут — ровно сумма подсказок по горящим точкам
+    const plan = loadPlan(rows, { soonDays: 4, days: 7 });
+    if (plan) {
+      const manual = Object.fromEntries(SKU_IDS.map((id) => [id, 0]));
+      for (const r of runningOut(rows, 4)) { const s = suggestFor(r, { days: 7 }); if (s) for (const id of SKU_IDS) manual[id] += s[id]; }
+      for (const id of SKU_IDS) bad(plan[id] === manual[id], `план ${id}: ${plan[id]} ≠ сумма подсказок ${manual[id]}`);
+    }
+  }
+  ok(checked > 100, `прогнозов с числом дней проверено: ${checked}`);
+  ok(broken === 0, `прогноз и подсказки согласованы${broken ? ` (нарушений ${broken}, первое: ${firstBreak})` : ""}`);
 }
 
 console.log("\n══════════════════════════════════════════════════");
