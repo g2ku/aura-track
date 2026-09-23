@@ -62,8 +62,14 @@ async function processUpdate(update) {
   let msg = update?.message || update?.edited_message;
   const cq = update?.callback_query;
   if (cq) {
-    // Кнопка нажата — Telegram ждёт подтверждения, иначе крутит часики
-    tgCall("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => {});
+    // Кнопка нажата — Telegram ждёт подтверждения, иначе крутит часики.
+    // Заодно говорим, что считаем: ответ идёт из Poster по нескольку
+    // секунд, и всё это время нажатие выглядело как «ничего не случилось».
+    const asked = String(cq.data || "").startsWith("q:") ? String(cq.data).slice(2) : "";
+    tgCall("answerCallbackQuery", {
+      callback_query_id: cq.id,
+      ...(asked ? { text: `Считаю: ${asked}` } : {}),
+    }).catch(() => {});
     msg = messageFromCallback(cq);
   }
   // Накладную часто присылают фотографией с подписью — тогда текст лежит

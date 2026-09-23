@@ -127,7 +127,11 @@ section("Нажатие кнопки — тот же вопрос");
 {
   T.calls.length = 0;
   await post({ callback_query: { id: "cq1", data: "q:чеки вчера", from: { id: 777, first_name: "Р" }, message: { message_id: 11, chat: { id: 777, type: "private" } } } });
-  ok(T.calls.some((c) => c[0] === "answerCallbackQuery" && c[1].callback_query_id === "cq1"), "Telegram получил подтверждение нажатия");
+  const ack = T.calls.find((c) => c[0] === "answerCallbackQuery" && c[1].callback_query_id === "cq1");
+  ok(!!ack, "Telegram получил подтверждение нажатия");
+  // Ответ из Poster идёт несколько секунд: без этого всплывающего текста
+  // нажатие всё это время выглядит как «ничего не случилось»
+  ok(/^Считаю: /.test(ack?.[1]?.text || ""), `и человек сразу видит, что считаем: ${ack?.[1]?.text}`);
   const m = sent()[0];
   ok(m && m.text.startsWith("<b>Чеки за"), `ответ на вопрос с кнопки: ${m?.text?.split("\n")[0]}`);
   ok(!m.reply_parameters, "без цитаты сообщения бота");
