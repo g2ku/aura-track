@@ -7,15 +7,32 @@ import { fetchCashBySpot as fetchCashBySpotRaw, fetchPosterSales as fetchPosterS
 // без сегодняшнего дня — это другая цифра. Вопросы идут по одному, поэтому
 // одного поля на модуль хватает: executeQuery его обнуляет и дочитывает.
 let missingDays = new Set();
-const noteMissing = (r) => { for (const d of r?.failedDays || []) missingDays.add(d); return r; };
+// Дни, которые ночная сверка пометила: два метода Poster разошлись больше
+// чем на процент. Цифра за них в ответе есть — но верить ей без проверки
+// нельзя, и об этом надо сказать так же, как о недостающих днях
+let shakyDays = new Set();
+const noteMissing = (r) => {
+  for (const d of r?.failedDays || []) missingDays.add(d);
+  for (const d of r?.shakyDays || []) shakyDays.add(d);
+  return r;
+};
 const fetchCashBySpot = (from, to, opts) => fetchCashBySpotRaw(from, to, opts).then(noteMissing);
 const fetchPosterSales = (from, to, opts) => fetchPosterSalesRaw(from, to, opts).then(noteMissing);
 function missingNote() {
   const days = [...missingDays].sort();
-  if (!days.length) return "";
-  return days.length === 1
-    ? `\n⚠️ Poster не ответил за ${describeDayList(days)} — цифры без этого дня.`
-    : `\n⚠️ Poster не ответил за ${days.length} дн. (${describeDayList(days)}) — цифры без них.`;
+  const shaky = [...shakyDays].sort();
+  const out = [];
+  if (days.length) {
+    out.push(days.length === 1
+      ? `⚠️ Poster не ответил за ${describeDayList(days)} — цифры без этого дня.`
+      : `⚠️ Poster не ответил за ${days.length} дн. (${describeDayList(days)}) — цифры без них.`);
+  }
+  if (shaky.length) {
+    out.push(shaky.length === 1
+      ? `⚠️ За ${describeDayList(shaky)} два метода Poster разошлись — цифре за этот день верить нельзя без проверки.`
+      : `⚠️ За ${shaky.length} дн. (${describeDayList(shaky)}) два метода Poster разошлись — в итоге они учтены как есть.`);
+  }
+  return out.length ? `\n${out.join("\n")}` : "";
 }
 import { resolveSpecialCategory, productNamesIn, seasonTitle, findCategory } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
@@ -199,6 +216,7 @@ const avgCheckOf = (rows) => { const t = sumTx(rows); return t ? sumCash(rows) /
 export async function executeQuery(parsed, userBranch) {
   if (!parsed) return { text: "Не могу распознать вопрос. Попробуйте перефразировать.", data: null };
   missingDays = new Set();
+  shakyDays = new Set();
   const r = await executeInner(parsed, userBranch);
   const note = missingNote();
   return note && r?.text ? { ...r, text: r.text + note, data: r.data ? { ...r.data, missingDays: [...missingDays] } : r.data } : r;
@@ -1416,8 +1434,7 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
     return {
       text: `Маржа ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\n`
         + `Посчитать по продажам не вышло — ${rows.length ? "у проданного нет техкарт" : "продаж за период не нашёл"}.\n`
-        + (lines ? `По техкартам, без учёта спроса:\n${lines}` : "Техкарты не заполнены.")
-        + missingNote(),
+        + (lines ? `По техкартам, без учёта спроса:\n${lines}` : "Техкарты не заполнены."),
       data: { totalCash, byCard: listed.slice(0, 5) },
     };
   }
@@ -1452,8 +1469,8 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
       + `Касса: ${fmt(totalCash)}\n\n`
       + `${soldLine}\n`
       + `Себестоимость ${fmt(Math.round(t.cost))} → заработали ${fmt(Math.round(t.margin))}, это ${t.marginPct.toFixed(1).replace(".", ",")} %${pctWord}\n\n`
-      + `Больше всего принесли:\n${topLines}${worstLines}`
-      + missingNote(),
+      // Про недостающие и сомнительные дни допишет executeQuery — один раз
+      + `Больше всего принесли:\n${topLines}${worstLines}`,
     data: {
       totalCash,
       revenue: t.covered,

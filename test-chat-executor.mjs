@@ -580,6 +580,29 @@ section("Чек без имени кассира не теряется молч�
   ok(/Данияр/.test(person), "по человеку ответ на месте");
 }
 
+section("Сомнительный день помечен и на сайте");
+{
+  // Ночная сверка помечает день, если два метода Poster разошлись.
+  // Бот об этом говорил, а сайт терял метку при переносе дня в кэш
+  const P = globalThis.__poster;
+  const orig = P.fetchCashBySpot;
+  P.fetchCashBySpot = async (...a) => Object.assign(await orig.apply(P, a), { shakyDays: ["2026-09-19"] });
+  const one = await ask("касса вчера");
+  has(one, "два метода Poster разошлись", "про расхождение сказано");
+  has(one, "верить нельзя без проверки", "и чем это грозит");
+
+  // Предупреждения печатаются один раз, даже если обработчик их тоже
+  // собирал: раньше маржа дописывала их сама, и executeQuery — ещё раз
+  P.fetchCashBySpot = async (...a) => Object.assign(await orig.apply(P, a), { failedDays: ["2026-09-18"] });
+  const mg = await ask("маржа за неделю");
+  const times = (mg.match(/Poster не ответил/g) || []).length;
+  ok(times === 1, `«Poster не ответил» в ответе про маржу — ровно один раз (было ${times})`);
+  P.fetchCashBySpot = orig;
+
+  const clean = await ask("касса вчера");
+  ok(!/разошлись/.test(clean), "на чистом дне предупреждения нет");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

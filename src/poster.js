@@ -152,6 +152,7 @@ export async function fetchCashBySpot(dateFrom, dateTo, opts = {}) {
   const out = Object.values(bySpot).sort((a, b) => b.total - a.total);
   // Массив остаётся массивом; пометка о недостающих днях едет с ним
   if (result.failedDays?.length) Object.assign(out, { failedDays: result.failedDays, error: result.error });
+  if (result.shakyDays?.length) Object.assign(out, { shakyDays: result.shakyDays });
   return out;
 }
 
@@ -218,8 +219,10 @@ export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
   if (failedDays.length >= days.length) throw new Error(error || "Poster не ответил");
 
   const perDay = [];
+  const shakyDays = [];
   for (const r of dayResults) {
     if (!r) continue;
+    if (r.mismatch) shakyDays.push(fromPosterDate(r.yyyymmdd));
     const totals = {};
     if (Object.keys(r.cashBySpot || {}).length) {
       for (const [spotId, v] of Object.entries(r.cashBySpot)) totals[spotId] = v || 0;
@@ -242,6 +245,7 @@ export async function fetchCashPerDay(dateFrom, dateTo, opts = {}) {
     }
   }
   if (failedDays.length) Object.assign(perDay, { failedDays: failedDays.sort(), error });
+  if (shakyDays.length) Object.assign(perDay, { shakyDays: shakyDays.sort() });
   return perDay;
 }
 
@@ -683,6 +687,10 @@ async function seedDaysFromServer(fromYmd, toYmd, opts = {}, { products = true }
             rowsBySpot: e.rowsBySpot || {}, transactionsCount: e.transactionsCount || 0,
             txBySpot: e.txBySpot || {}, cashBySpot: e.cashBySpot || {}, hasProducts: e.hasProducts !== false,
             ...(e.hours ? { hours: e.hours } : {}),
+            // Ночная сверка двух методов Poster: день помечен — цифре
+            // верить нельзя без проверки. Бот об этом говорит; сайт терял
+            // метку ровно здесь, при переносе дня в кэш
+            ...(e.mismatch ? { mismatch: e.mismatch } : {}),
           });
           if (e.pay) pay[day] = { ts: Date.now(), total: e.pay.total || {}, bySpot: e.pay.bySpot || {}, lastOrder: e.pay.lastOrder || {}, openRows: [] };
           n++;
@@ -1456,9 +1464,14 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     let transactionsCount = 0;
     const txBySpot = {};
     const cashBySpot = {};
+    // Самый частый путь — прошлые дни уже лежат из ночных итогов. Метку
+    // сверки собирать надо и здесь, иначе до ответа она не доедет почти
+    // никогда (медленный путь нужен лишь для дней, которых нет в кэше)
+    const shakyDays = [];
     for (const yyyymmdd of days) {
       const entry = getCachedDay(yyyymmdd, withProducts);
       if (!entry) continue;
+      if (entry.mismatch) shakyDays.push(fromPosterDate(yyyymmdd));
       transactionsCount += entry.transactionsCount || 0;
       for (const [spotId, count] of Object.entries(entry.txBySpot || {})) {
         txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
@@ -1478,7 +1491,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       }
     }
     const rows = buildRows(spots, merged);
-    return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length };
+    return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays: days.length, freshDays: 0, daysCount: days.length, ...(shakyDays.length ? { shakyDays } : {}) };
   }
 
   // Загружаем только некэшированные дни (не весь период!)
@@ -1557,11 +1570,13 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
 
   const uncachedSet = new Set(uncachedDays);
 
+  const shakyDays = [];
   for (const yyyymmdd of days) {
     // Если день уже в кэше — берём оттуда, не перезаписываем
     if (!uncachedSet.has(yyyymmdd)) {
       const cached = getCachedDay(yyyymmdd, withProducts);
       if (cached) {
+        if (cached.mismatch) shakyDays.push(fromPosterDate(yyyymmdd));
         transactionsCount += cached.transactionsCount || 0;
         for (const [spotId, count] of Object.entries(cached.txBySpot || {})) {
           txBySpot[spotId] = (txBySpot[spotId] || 0) + count;
@@ -1665,6 +1680,7 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     rows, spotNames, transactionsCount, txBySpot, cashBySpot,
     cachedDays: days.length - uncachedDays.length, freshDays: fetchError ? 0 : uncachedDays.length, daysCount: days.length,
     ...(fetchError ? { failedDays, error: fetchError.message || "Poster не ответил" } : {}),
+    ...(shakyDays.length ? { shakyDays } : {}),
   };
 }
 
@@ -1675,10 +1691,12 @@ function mergeSales(parts) {
   const txBySpot = {}, cashBySpot = {};
   let transactionsCount = 0, cachedDays = 0, freshDays = 0, daysCount = 0;
   const failedDays = [];
+  const shakyDays = [];
   let error = null;
   for (const r of parts) {
     Object.assign(spotNames, r.spotNames || {});
     if (r.failedDays?.length) { failedDays.push(...r.failedDays); error = error || r.error; }
+    if (r.shakyDays?.length) shakyDays.push(...r.shakyDays);
     transactionsCount += r.transactionsCount || 0;
     cachedDays += r.cachedDays || 0; freshDays += r.freshDays || 0; daysCount += r.daysCount || 0;
     for (const [k, v] of Object.entries(r.txBySpot || {})) txBySpot[k] = (txBySpot[k] || 0) + v;
@@ -1694,7 +1712,7 @@ function mergeSales(parts) {
     if (a.spotName !== b.spotName) return a.spotName.localeCompare(b.spotName, "ru");
     return b.sum - a.sum;
   });
-  return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays, freshDays, daysCount, ...(failedDays.length ? { failedDays, error } : {}) };
+  return { rows, spotNames, transactionsCount, txBySpot, cashBySpot, cachedDays, freshDays, daysCount, ...(failedDays.length ? { failedDays, error } : {}), ...(shakyDays.length ? { shakyDays: shakyDays.sort() } : {}) };
 }
 
 function buildRows(spots, merged) {

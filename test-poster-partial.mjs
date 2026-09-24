@@ -129,6 +129,38 @@ section("Не собрано ничего — ошибка, как и раньш
   eq(r.cashBySpot, { 4: 300000 }, "и цифры на месте");
 }
 
+section("Метка ночной сверки доезжает от сервера до ответа");
+
+{
+  // Сервер отдаёт день с меткой mismatch: два метода Poster разошлись.
+  // Раньше она терялась ровно при переносе дня в кэш — сайт показывал
+  // сомнительную цифру как обычную
+  const shaky = back(9), plain = back(8);
+  const store = JSON.parse(mem.get(CACHE_KEY) || "{}");
+  delete store[shaky]; delete store[plain];
+  mem.set(CACHE_KEY, JSON.stringify(store));
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/api/sales-days")) {
+      const day = (m) => ({ transactionsCount: 5, txBySpot: { 4: 5 }, cashBySpot: { 4: 50000 }, rowsBySpot: {}, hasProducts: false, ...(m ? { mismatch: { byTx: 50000, byDash: 44000, pct: 12 } } : {}) });
+      return new Response(JSON.stringify({ days: { [shaky]: day(true), [plain]: day(false) } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error("сеть");
+  };
+
+  const cash = await fetchCashBySpot(dash(shaky), dash(plain));
+  eq(cash.shakyDays, [dash(shaky)], "касса по точкам несёт помеченный день");
+  ok(!cash.failedDays, "и не путает его с недошедшим");
+
+  const perDay = await fetchCashPerDay(dash(shaky), dash(plain));
+  eq(perDay.shakyDays, [dash(shaky)], "касса по дням — тоже");
+
+  const cached = JSON.parse(mem.get(CACHE_KEY))[shaky];
+  ok(!!cached?.mismatch, "метка лежит в кэше дня, а не только в ответе сервера");
+  ok(!JSON.parse(mem.get(CACHE_KEY))[plain]?.mismatch, "чистый день без метки");
+  globalThis.fetch = prevFetch;
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
