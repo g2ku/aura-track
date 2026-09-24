@@ -1420,6 +1420,7 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
     sales: rows,
     recipes: marginData.recipes,
     costOf: (r) => calcRecipeCost(marginData.ingredients || [], r),
+    aliases: marginData.aliases || {},
   });
   const t = marginTotals(cats);
 

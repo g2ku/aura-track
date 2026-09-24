@@ -119,10 +119,13 @@ export async function getMarginSettings() {
     return {
       recipes: Array.isArray(d?.recipes) ? d.recipes : [],
       ingredients: Array.isArray(d?.ingredients) ? d.ingredients : [],
+      // Привязки «товар Poster → техкарта», которые владелец подтвердил
+      // в разделе «Маржа»: без них бот считал бы по одним точным названиям
+      aliases: d?.aliases && typeof d.aliases === "object" ? d.aliases : {},
     };
   } catch (e) {
     console.error("[bot] не смог прочитать техкарты:", e?.message);
-    return { recipes: [], ingredients: [] };
+    return { recipes: [], ingredients: [], aliases: {} };
   }
 }
 

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, Fragment } from "react";
 import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEGORIES, UNITS } from "../margin.js";
 import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
-import { categoryMargins, marginTotals } from "../menuMatrix.js";
+import { categoryMargins, marginTotals, suggestRecipe, normalizeName } from "../menuMatrix.js";
 
 const TABS = [
   { id: "builder", label: "Создать напиток", icon: "ti-glass" },
@@ -667,7 +667,7 @@ function RecipesTab({ ingredients, recipes, onChange }) {
 
 // ─── Дашборд маржи по продажам ────────────────────────────────────
 
-function DashboardTab({ ingredients, recipes }) {
+function DashboardTab({ ingredients, recipes, aliases = {}, onAliases }) {
   const [period, setPeriod] = useState(() => {
     const now = new Date();
     const m = now.getMonth() + 1;
@@ -704,8 +704,9 @@ function DashboardTab({ ingredients, recipes }) {
       sales: salesData?.rows || [],
       recipes,
       costOf: (r) => calcRecipeCost(ingredients, r),
+      aliases,
     }),
-    [salesData, ingredients, recipes]
+    [salesData, ingredients, recipes, aliases]
   );
 
   const totals = useMemo(() => marginTotals(categoryStats), [categoryStats]);
@@ -717,6 +718,34 @@ function DashboardTab({ ingredients, recipes }) {
     [categoryStats]
   );
   const topMissing = allMissing.slice(0, 10);
+  // Подсказка техкарты для каждого товара без неё — только подсказка:
+  // привязка сохраняется, лишь когда её подтвердят кнопкой
+  const suggestions = useMemo(() => {
+    const m = new Map();
+    for (const x of allMissing) {
+      if (x.reason !== "no-recipe") continue;
+      const r = suggestRecipe(x.name, recipes);
+      if (r) m.set(x.name, r);
+    }
+    return m;
+  }, [allMissing, recipes]);
+  const [linking, setLinking] = useState(false);
+  const link = async (pairs) => {
+    if (!onAliases || !pairs.length) return;
+    setLinking(true);
+    const next = { ...aliases };
+    for (const [productName, recipe] of pairs) next[normalizeName(productName)] = recipe.id;
+    try { await onAliases(next); } finally { setLinking(false); }
+  };
+  const unlink = async (key) => {
+    if (!onAliases) return;
+    const next = { ...aliases };
+    delete next[key];
+    setLinking(true);
+    try { await onAliases(next); } finally { setLinking(false); }
+  };
+  const recipeById = useMemo(() => new Map(recipes.map((r) => [String(r.id), r])), [recipes]);
+  const linkedList = Object.entries(aliases).filter(([, id]) => recipeById.has(String(id)));
 
   return (
     <div>
@@ -839,21 +868,58 @@ function DashboardTab({ ingredients, recipes }) {
               <div className="margin-missing-title">
                 Без техкарты больше всего выручки у этих позиций — название как в Poster:
               </div>
-              {topMissing.map((m) => (
-                <div key={m.name} className="margin-missing-row">
-                  <span className="margin-missing-name">
-                    {m.name}
-                    {m.reason === "no-cost" && <span className="margin-missing-why">техкарта есть, но без ингредиентов</span>}
-                  </span>
-                  <span className="margin-missing-val">
-                    {m.qty.toLocaleString("ru-RU")} шт · {fmt(Math.round(m.revenue))}
-                  </span>
-                </div>
-              ))}
+              {topMissing.map((m) => {
+                const sug = suggestions.get(m.name);
+                return (
+                  <div key={m.name} className="margin-missing-row">
+                    <span className="margin-missing-name">
+                      {m.name}
+                      {m.reason === "no-cost" && <span className="margin-missing-why">техкарта есть, но без ингредиентов</span>}
+                      {sug && (
+                        <span className="margin-missing-why">
+                          похоже на техкарту «{sug.name}»{" "}
+                          <button type="button" className="margin-link-btn" disabled={linking || !onAliases} onClick={() => link([[m.name, sug]])}>
+                            Привязать
+                          </button>
+                        </span>
+                      )}
+                    </span>
+                    <span className="margin-missing-val">
+                      {m.qty.toLocaleString("ru-RU")} шт · {fmt(Math.round(m.revenue))}
+                    </span>
+                  </div>
+                );
+              })}
               {allMissing.length > topMissing.length && (
                 <div className="margin-missing-more">…и ещё {allMissing.length - topMissing.length}</div>
               )}
+              {suggestions.size > 1 && onAliases && (
+                <div className="margin-link-all">
+                  <button type="button" className="btn btn-sm btn-out" disabled={linking} onClick={() => link([...suggestions.entries()])}>
+                    {linking ? "Сохраняю…" : `Привязать все подсказки (${suggestions.size})`}
+                  </button>
+                  <span className="margin-missing-why">
+                    Одна техкарта на все объёмы — это приближение: себестоимость «Латте 0,3» и «Латте 0,4»
+                    выйдет одинаковой. Для точности заведите отдельную техкарту на объём.
+                  </span>
+                </div>
+              )}
             </div>
+          )}
+
+          {/* Сделанные привязки — видно и можно отменить */}
+          {linkedList.length > 0 && (
+            <details className="margin-linked">
+              <summary>Привязано вручную: {linkedList.length}</summary>
+              {linkedList.map(([key, id]) => (
+                <div key={key} className="margin-missing-row">
+                  <span className="margin-missing-name">{key} <span className="margin-linked-arrow">→</span> {recipeById.get(String(id)).name}</span>
+                  <button type="button" className="margin-link-btn" disabled={linking || !onAliases} onClick={() => unlink(key)}>
+                    Отвязать
+                  </button>
+                </div>
+              ))}
+            </details>
           )}
 
           <div className="table-card margin-sales">
@@ -1060,6 +1126,8 @@ export default function MarginView() {
           <DashboardTab
             ingredients={data.ingredients || []}
             recipes={data.recipes || []}
+            aliases={data.aliases || {}}
+            onAliases={(next) => update({ aliases: next })}
           />
         )}
       </div>

@@ -6234,3 +6234,20 @@ button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
 .margin-missing-val { color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .margin-missing-more { color: var(--text-muted); padding-top: 4px; }
 .margin-missing-why { display: block; font-weight: 400; color: var(--text-muted); margin-top: 1px; }
+/* Привязка товара к похожей техкарте — кнопка-ссылка, не второй ряд кнопок */
+.margin-link-btn {
+  font: inherit; font-weight: 600; color: var(--text-accent);
+  background: none; border: 0; padding: 2px 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.margin-link-btn:disabled { opacity: .5; cursor: default; }
+.margin-link-all { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; margin-top: 6px; border-top: 1px solid var(--border); }
+.margin-link-all .btn { align-self: flex-start; }
+.margin-linked {
+  margin: 0 0 12px; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-1);
+  font-size: var(--fs-cap, 12px);
+}
+.margin-linked summary { cursor: pointer; color: var(--text-secondary); padding: 2px 0; }
+.margin-linked .margin-missing-row { align-items: center; }
+.margin-linked-arrow { color: var(--text-muted); font-weight: 400; }

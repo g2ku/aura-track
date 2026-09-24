@@ -413,6 +413,20 @@ section("Маржа: техкарты есть, но ни одна не совп
   ok(/«Латте 0,4», а не «Латте»/.test(r), "и подсказкой, как назвать");
 }
 
+section("Маржа в боте учитывает привязки, подтверждённые в «Марже»");
+{
+  // Техкарта «Латте» без объёма, товар — «Латте 0,4»: без привязки не
+  // считается; владелец привязал на сайте — бот обязан считать так же
+  const generic = { ingredients: MARGIN.ingredients, recipes: [{ id: "latte", name: "Латте", category: "Кофе", salePrice: 1500, items: MARGIN.recipes[0].items }] };
+  const without = (await answerQuestion("маржа за вчера", { ...deps, getMargin: async () => generic })).text;
+  ok(/ни одна не совпала/.test(without), "без привязки — не посчитано");
+
+  const linked = { ...generic, aliases: { "латте 0,4": "latte" } };
+  const withIt = (await answerQuestion("маржа за вчера", { ...deps, getMargin: async () => linked })).text;
+  ok(/Заработали/.test(withIt), "с привязкой — маржа посчитана");
+  ok(/Латте 0,4/.test(withIt), "по товару под его названием из Poster");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

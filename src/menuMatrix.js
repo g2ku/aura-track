@@ -30,10 +30,57 @@ export function normalizeName(s) {
     .trim();
 }
 
+// Какая техкарта считает этот товар.
+//
+// Сначала — точное совпадение названия. Потом — привязка, которую
+// владелец подтвердил сам: aliases = { «нормализованное имя товара»:
+// id техкарты }. Нужна потому, что техкарты по умолчанию названы без
+// объёма («Латте»), а в Poster товары с объёмом («Латте 0,4»), и точное
+// совпадение на проде не случалось ни разу — покрытие было 0 %.
+export function recipeIndex(recipes = [], aliases = {}) {
+  const byName = new Map();
+  const byId = new Map();
+  for (const r of recipes || []) {
+    byName.set(normalizeName(r.name), r);
+    if (r.id != null) byId.set(String(r.id), r);
+  }
+  const linked = new Map();
+  for (const [k, id] of Object.entries(aliases || {})) {
+    const r = byId.get(String(id));
+    if (r) linked.set(normalizeName(k), r);
+  }
+  return (productName) => {
+    const key = normalizeName(productName);
+    return byName.get(key) || linked.get(key) || null;
+  };
+}
+
+// Какую техкарту предложить для товара без неё.
+//
+// Все слова техкарты должны найтись среди слов товара: «Латте» ⊂«Латте
+// 0,4 фирменный». Из подошедших берём самую подробную — у «Айс латте 0,4»
+// «Айс Латте» побеждает «Латте». Если две разные подходят одинаково
+// подробно — не угадываем, предлагать нечего. Это только подсказка:
+// привязка сохраняется, лишь когда её подтвердит человек.
+const words = (s) => normalizeName(s).split(/[\s,.;:()\/\-–—]+/).filter(Boolean);
+
+export function suggestRecipe(productName, recipes = []) {
+  const have = new Set(words(productName));
+  if (!have.size) return null;
+  let best = null, bestLen = 0, tie = false;
+  for (const r of recipes || []) {
+    const need = words(r.name);
+    if (!need.length || !need.every((w) => have.has(w))) continue;
+    if (need.length > bestLen) { best = r; bestLen = need.length; tie = false; }
+    else if (need.length === bestLen && best && best.id !== r.id) tie = true;
+  }
+  return best && !tie ? best : null;
+}
+
 // Строки продаж Poster → позиции с маржой.
 // costOf(recipe) отдаётся снаружи: считать себестоимость умеет margin.js,
 // а тесты подставляют свою.
-export function buildMatrix({ sales = [], recipes = [], costOf = () => 0 } = {}) {
+export function buildMatrix({ sales = [], recipes = [], costOf = () => 0, aliases = {} } = {}) {
   const byProduct = new Map();
   for (const row of sales) {
     const key = normalizeName(row.productName);
@@ -44,11 +91,10 @@ export function buildMatrix({ sales = [], recipes = [], costOf = () => 0 } = {})
     byProduct.set(key, cur);
   }
 
-  const byRecipe = new Map();
-  for (const r of recipes) byRecipe.set(normalizeName(r.name), r);
+  const findRecipe = recipeIndex(recipes, aliases);
 
   return [...byProduct.values()].map((ps) => {
-    const recipe = byRecipe.get(normalizeName(ps.name));
+    const recipe = findRecipe(ps.name);
     const avgPrice = ps.qty > 0 ? ps.revenue / ps.qty : 0;
     const costPerUnit = recipe ? costOf(recipe) : 0;
 
@@ -122,14 +168,13 @@ export function periodDays(period) {
 // заметно выше правды. Поэтому выручка делится надвое: covered (есть
 // чем считать) и rest. Процент — только от covered, а доля покрытия
 // показывается рядом, чтобы было видно, насколько цифре верить.
-export function categoryMargins({ sales = [], recipes = [], costOf = () => 0 } = {}) {
-  const byRecipe = new Map();
-  for (const r of recipes) byRecipe.set(normalizeName(r.name), r);
+export function categoryMargins({ sales = [], recipes = [], costOf = () => 0, aliases = {} } = {}) {
+  const findRecipe = recipeIndex(recipes, aliases);
 
   const cats = new Map();
   for (const row of sales) {
     const name = row.productName || "";
-    const recipe = byRecipe.get(normalizeName(name));
+    const recipe = findRecipe(name);
     const cost = recipe ? costOf(recipe) : 0;
     const counted = !!recipe && cost > 0;
     const cat = recipe?.category || "Другое";

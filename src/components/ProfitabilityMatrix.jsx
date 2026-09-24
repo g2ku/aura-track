@@ -26,6 +26,7 @@ export default function ProfitabilityMatrix() {
   const [period, setPeriod] = useState("30d");
   const [recipes, setRecipes] = useState([]);
   const [ingredients, setIngredients] = useState([]);
+  const [aliases, setAliases] = useState({});
   const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(false);
   // Раньше сбой Poster уходил в console.error, а экран говорил «Нет
@@ -46,6 +47,8 @@ export default function ProfitabilityMatrix() {
         if (!alive) return;
         setRecipes(marginData.recipes || []);
         setIngredients(marginData.ingredients || []);
+        // Привязки «товар Poster → техкарта» из раздела «Маржа» — те же
+        setAliases(marginData.aliases || {});
 
         const sales = await fetchPosterSales(pFrom, pTo);
         if (!alive) return;
@@ -64,8 +67,9 @@ export default function ProfitabilityMatrix() {
       sales: salesData,
       recipes,
       costOf: (r) => calcRecipeCost(ingredients, r),
+      aliases,
     }),
-    [salesData, recipes, ingredients]
+    [salesData, recipes, ingredients, aliases]
   );
 
   const stats = useMemo(() => matrixStats(matrix, days), [matrix, days]);

@@ -1,7 +1,7 @@
 // test-menu-matrix.mjs — счёт «Меню-инжиниринга».
 
 import { readFileSync } from "node:fs";
-import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals } from "./src/menuMatrix.js";
+import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals, suggestRecipe, recipeIndex } from "./src/menuMatrix.js";
 
 let passed = 0, failed = 0;
 function eq(a, b, label) {
@@ -190,6 +190,75 @@ console.log("\n📋 Тест 10: названия сходятся без поб
   eq(tryName("«Латте 0,4»"), true, "кавычки вокруг названия");
   eq(tryName("Латте 0,3"), false, "другой объём — другая позиция, не склеиваем");
   eq(normalizeName("Ёжик"), "ежик", "ё приравнено к е");
+}
+
+console.log("\n📋 Тест 11: подсказка техкарты для товара без неё");
+{
+  // Техкарты по умолчанию названы без объёма, товары в Poster — с ним.
+  // Точное совпадение на проде не случалось ни разу: покрытие 0 %
+  const R = [
+    { id: "l", name: "Латте" }, { id: "al", name: "Айс Латте" }, { id: "ml", name: "Матча Латте" },
+    { id: "c", name: "Капучино" }, { id: "r", name: "Раф" }, { id: "ra", name: "Раф Апельсиновый" },
+    { id: "t", name: "Чай Вишня-мята" },
+  ];
+  const s = (n) => suggestRecipe(n, R)?.name ?? null;
+  eq(s("Латте 0,4 фирменный"), "Латте", "объём и слово после — не мешают");
+  eq(s("Айс латте 0,4"), "Айс Латте", "из подошедших — самая подробная");
+  eq(s("Матча латте"), "Матча Латте", "«Матча Латте», а не просто «Латте»");
+  eq(s("Раф апельсиновый 0,3"), "Раф Апельсиновый", "многословная техкарта");
+  eq(s("Чай вишня-мята 0,5"), "Чай Вишня-мята", "дефис внутри названия");
+  eq(s("Эспрессо"), null, "ничего похожего — ничего не предлагаем");
+  eq(s(""), null, "пустое название — пусто");
+  // Две разные техкарты подходят одинаково — не угадываем
+  const tie = [{ id: "a", name: "Латте Карамель" }, { id: "b", name: "Латте Ваниль" }];
+  eq(suggestRecipe("Латте карамель ваниль", tie), null, "ничья между разными техкартами — без подсказки");
+}
+
+console.log("\n📋 Тест 12: привязка, подтверждённая владельцем, считается");
+{
+  const R = [{ id: "latte", name: "Латте", category: "Кофе" }];
+  const cost12 = () => 180;
+  const sales12 = [
+    { productName: "Латте 0,4 фирменный", qty: 10, sum: 15000 },
+    { productName: "Латте 0,3", qty: 5, sum: 6000 },
+  ];
+  const before = marginTotals(categoryMargins({ sales: sales12, recipes: R, costOf: cost12 }));
+  eq(before.covered, 0, "без привязки — ни одна позиция не посчитана");
+
+  const aliases = { "латте 0,4 фирменный": "latte" };
+  const cats = categoryMargins({ sales: sales12, recipes: R, costOf: cost12, aliases });
+  const t = marginTotals(cats);
+  eq(t.covered, 15000, "привязанный товар посчитан");
+  eq(t.cost, 1800, "по себестоимости своей техкарты");
+  eq(cats.find((c) => c.name === "Кофе")?.products[0]?.name, "Латте 0,4 фирменный", "в категории техкарты, под своим названием");
+  eq(cats.find((c) => c.name === "Другое")?.missing[0]?.name, "Латте 0,3", "непривязанный остался в списке");
+
+  // Привязка на удалённую техкарту ничего не ломает
+  const gone = categoryMargins({ sales: sales12, recipes: R, costOf: cost12, aliases: { "латте 0,3": "deleted" } });
+  eq(marginTotals(gone).covered, 0, "привязка к несуществующей техкарте игнорируется");
+
+  // Точное название важнее привязки
+  const find = recipeIndex([{ id: "a", name: "Латте 0,3" }, { id: "b", name: "Латте" }], { "латте 0,3": "b" });
+  eq(find("Латте 0,3").id, "a", "точное совпадение побеждает привязку");
+
+  // Меню-инжиниринг — те же привязки
+  const m = buildMatrix({ sales: sales12, recipes: R, costOf: cost12, aliases });
+  eq(m.find((x) => x.name === "Латте 0,4 фирменный").marginPct !== null, true, "в меню-инжиниринге привязка тоже работает");
+}
+
+console.log("\n📋 Тест 13: привязки доходят до всех, кто считает маржу");
+{
+  const view = readFileSync("src/components/MarginView.jsx", "utf8");
+  const pm = readFileSync("src/components/ProfitabilityMatrix.jsx", "utf8");
+  const ex = readFileSync("src/chat/executor.js", "utf8");
+  const bot = readFileSync("api/_lib/chatBot.js", "utf8");
+  const store = readFileSync("api/_lib/store.js", "utf8");
+  eq(/aliases=\{data\.aliases \|\| \{\}\}/.test(view) && /onAliases=\{\(next\) => update\(\{ aliases: next \}\)\}/.test(view), true, "«Маржа» читает и сохраняет привязки");
+  eq(/Привязать все подсказки/.test(view) && /Отвязать/.test(view), true, "привязать можно разом, отвязать — по одной");
+  eq(/buildMatrix\(\{[\s\S]*?aliases,[\s\S]*?\}\)/.test(pm), true, "меню-инжиниринг считает с привязками");
+  eq(/aliases: marginData\.aliases \|\| \{\}/.test(ex), true, "ассистент считает с привязками");
+  eq(/aliases: margin\.aliases \|\| \{\}/.test(bot), true, "бот считает с привязками");
+  eq(/aliases: d\?\.aliases/.test(store), true, "сервер отдаёт привязки боту");
 }
 
 console.log("\n══════════════════════════════════════════════════");

@@ -136,6 +136,7 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
       sales: rows,
       recipes: margin.recipes,
       costOf: (r) => calcRecipeCost(margin.ingredients || [], r),
+      aliases: margin.aliases || {},
     });
     const t = marginTotals(cats);
     if (!rows.length) return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nПродаж за период не нашёл.`;
