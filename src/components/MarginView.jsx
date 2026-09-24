@@ -710,6 +710,13 @@ function DashboardTab({ ingredients, recipes }) {
 
   const totals = useMemo(() => marginTotals(categoryStats), [categoryStats]);
   const coveragePct = Math.round(totals.coverage * 100);
+  const nothingCounted = !(totals.covered > 0);
+  // Все позиции без техкарты по сети — отсортированы по выручке
+  const allMissing = useMemo(
+    () => categoryStats.flatMap((c) => c.missing || []).sort((a, b) => b.revenue - a.revenue),
+    [categoryStats]
+  );
+  const topMissing = allMissing.slice(0, 10);
 
   return (
     <div>
@@ -768,17 +775,27 @@ function DashboardTab({ ingredients, recipes }) {
               <div className="margin-summary-label">Выручка</div>
               <div className="margin-summary-value">{fmt(totals.revenue)}</div>
             </div>
+            {/* Ничего не посчитано — это «не знаю», а не «ноль». Зелёный
+                «0 ₸» читался как «заработали ноль», а красный «0 ₸» — как
+                «сырьё ничего не стоит» */}
             <div className="margin-summary-card">
               <div className="margin-summary-label">Себестоимость</div>
-              <div className="margin-summary-value" style={{ color: "var(--text-danger)" }}>{fmt(totals.cost)}</div>
+              <div className="margin-summary-value" style={{ color: nothingCounted ? "var(--text-muted)" : "var(--text-danger)" }}>
+                {nothingCounted ? "—" : fmt(totals.cost)}
+              </div>
             </div>
             <div className="margin-summary-card">
               <div className="margin-summary-label">Чистая маржа</div>
-              <div className="margin-summary-value" style={{ color: totals.margin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
-                {fmt(totals.margin)}{" "}
-                <span style={{ fontSize: 14 }}>
-                  ({totals.marginPct === null ? "—" : `${totals.marginPct.toFixed(1)}%`})
-                </span>
+              <div className="margin-summary-value" style={{ color: nothingCounted ? "var(--text-muted)" : totals.margin >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                {nothingCounted ? "—" : fmt(totals.margin)}
+                {!nothingCounted && (
+                  <>
+                    {" "}
+                    <span style={{ fontSize: 14 }}>
+                      ({totals.marginPct === null ? "—" : `${totals.marginPct.toFixed(1)}%`})
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -788,6 +805,23 @@ function DashboardTab({ ingredients, recipes }) {
           <div className="margin-coverage">
             {coveragePct >= 99 ? (
               <>Себестоимость известна по всей выручке за период.</>
+            ) : nothingCounted ? (
+              // Ноль процентов — не «мало техкарт», а «ни одна не подошла»,
+              // и причин ровно две: карт нет или названия не совпали
+              recipes.length === 0 ? (
+                <>
+                  <i className="ti ti-info-circle" aria-hidden="true" />{" "}
+                  Техкарт пока нет — маржу считать не из чего. Заведите их на вкладке «Рецепты»,
+                  начиная с позиций ниже: они дают больше всего выручки.
+                </>
+              ) : (
+                <>
+                  <i className="ti ti-info-circle" aria-hidden="true" />{" "}
+                  Техкарт {recipes.length}, но ни одна не совпала по названию с проданными позициями.
+                  Название техкарты должно быть таким же, как в Poster: «Латте 0,4», а не «Латте».
+                  Регистр, кавычки и лишние пробелы не важны, объём — важен.
+                </>
+              )
             ) : (
               <>
                 <i className="ti ti-info-circle" aria-hidden="true" />{" "}
@@ -796,6 +830,31 @@ function DashboardTab({ ingredients, recipes }) {
               </>
             )}
           </div>
+
+          {/* Что именно не посчитано — топ позиций по выручке. Раньше была
+              одна сумма «без техкарты», и какие карты заводить, приходилось
+              угадывать */}
+          {topMissing.length > 0 && (
+            <div className="margin-missing">
+              <div className="margin-missing-title">
+                Без техкарты больше всего выручки у этих позиций — название как в Poster:
+              </div>
+              {topMissing.map((m) => (
+                <div key={m.name} className="margin-missing-row">
+                  <span className="margin-missing-name">
+                    {m.name}
+                    {m.reason === "no-cost" && <span className="margin-missing-why">техкарта есть, но без ингредиентов</span>}
+                  </span>
+                  <span className="margin-missing-val">
+                    {m.qty.toLocaleString("ru-RU")} шт · {fmt(Math.round(m.revenue))}
+                  </span>
+                </div>
+              ))}
+              {allMissing.length > topMissing.length && (
+                <div className="margin-missing-more">…и ещё {allMissing.length - topMissing.length}</div>
+              )}
+            </div>
+          )}
 
           <div className="table-card margin-sales">
             <table className="data-table">
@@ -857,8 +916,9 @@ function DashboardTab({ ingredients, recipes }) {
                       })}
                       {isExpanded && cat.covered < cat.revenue && (
                         <tr style={{ background: "var(--surface-2)" }}>
-                          <td colSpan={6} style={{ paddingLeft: 32, fontSize: 12, color: "var(--text-muted)" }}>
-                            Без техкарты в этой категории: {fmt(Math.round(cat.revenue - cat.covered))} выручки — в маржу не вошли.
+                          <td colSpan={6} className="margin-nocard" style={{ paddingLeft: 32, fontSize: 12, color: "var(--text-muted)" }}>
+                            Без техкарты в этой категории: {fmt(Math.round(cat.revenue - cat.covered))} выручки — в маржу не вошли
+                            {cat.missing?.length ? ` (${cat.missing.length} поз.)` : ""}.
                           </td>
                         </tr>
                       )}

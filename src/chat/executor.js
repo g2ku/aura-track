@@ -1431,9 +1431,19 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
     const lines = listed.slice(0, 5).map((p, i) =>
       `${i + 1}. ${p.name}: ${p.margin.toFixed(1).replace(".", ",")} % (${fmt(p.cost)} → ${fmt(p.price)})`
     ).join("\n");
+    // Продажи есть, а техкарты не подошли ни одной — назвать, каких не
+    // хватает: иначе непонятно, что заводить и под каким названием
+    const miss = rows.length
+      ? cats.flatMap((c) => c.missing || []).sort((a, b) => b.revenue - a.revenue).slice(0, 3)
+      : [];
+    const missText = miss.length
+      ? `Больше всего выручки без техкарты:\n${miss.map((m) => `• ${m.name} — ${fmt(Math.round(m.revenue))}`).join("\n")}\n`
+        + "Название техкарты должно быть как в Poster: «Латте 0,4», а не «Латте».\n\n"
+      : "";
     return {
       text: `Маржа ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\n`
-        + `Посчитать по продажам не вышло — ${rows.length ? "у проданного нет техкарт" : "продаж за период не нашёл"}.\n`
+        + `Посчитать по продажам не вышло — ${rows.length ? `ни одна из ${marginData.recipes.length} техкарт не совпала по названию с проданным` : "продаж за период не нашёл"}.\n`
+        + missText
         + (lines ? `По техкартам, без учёта спроса:\n${lines}` : "Техкарты не заполнены."),
       data: { totalCash, byCard: listed.slice(0, 5) },
     };

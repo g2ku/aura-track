@@ -603,6 +603,27 @@ section("Сомнительный день помечен и на сайте");
   ok(!/разошлись/.test(clean), "на чистом дне предупреждения нет");
 }
 
+section("Маржа: техкарты не совпали по названию — ответ называет, каких не хватает");
+{
+  // Заглушка margin.js отдаёт «Латте 0,4» и «Круассан»; подменяем продажи
+  // на позиции, которых в техкартах нет
+  const P = globalThis.__poster;
+  const orig = P.fetchPosterSales;
+  P.fetchPosterSales = async (from, to) => {
+    const r = await orig.call(P, from, to);
+    return { ...r, rows: [
+      { spotId: "4", spotName: "Aura02_Abaya", productName: "Капучино 0,3", qty: 40, sum: 60000 },
+      { spotId: "4", spotName: "Aura02_Abaya", productName: "Раф 0,4", qty: 10, sum: 22000 },
+    ] };
+  };
+  const m = await ask("маржа за вчера");
+  P.fetchPosterSales = orig;
+  has(m, "не совпала по названию", "сказано, что названия не совпали");
+  has(m, "Больше всего выручки без техкарты", "есть список позиций");
+  has(m, "Капучино 0,3", "первой — позиция с большей выручкой");
+  has(m, "«Латте 0,4», а не «Латте»", "подсказка, как назвать техкарту");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

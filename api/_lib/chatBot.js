@@ -140,7 +140,14 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
     const t = marginTotals(cats);
     if (!rows.length) return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nПродаж за период не нашёл.`;
     if (!(t.covered > 0)) {
-      return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nНи под одной проданной позицией нет техкарты — считать нечем.`;
+      // Какие именно — иначе непонятно, что заводить и под каким именем
+      const miss = cats.flatMap((c) => c.missing || []).sort((a, b) => b.revenue - a.revenue).slice(0, 3);
+      return [
+        `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>`,
+        `Техкарт ${margin.recipes.length}, но ни одна не совпала по названию с проданными позициями — считать нечем.`,
+        miss.length ? `\nБольше всего выручки без техкарты:\n${miss.map((m) => `• ${escapeHtml(m.name)} — ${fmt(m.revenue)}`).join("\n")}` : "",
+        "\nНазвание техкарты должно быть как в Poster: «Латте 0,4», а не «Латте».",
+      ].filter(Boolean).join("\n");
     }
     // Топ — по заработанным деньгам: процент без объёма обманчив
     const earners = cats.flatMap((c) => c.products.map((p) => ({

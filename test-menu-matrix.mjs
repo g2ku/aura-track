@@ -153,6 +153,45 @@ console.log("\n📋 Тест 8: раздел «Маржа» на телефон�
   eq(/aria-label="Изменить"/.test(view), true, "а подпись — для экранного диктора и подсказки");
 }
 
+console.log("\n📋 Тест 9: какие позиции без техкарты — списком, а не одной суммой");
+{
+  // На проде «Маржа по продажам» показала 0 % покрытия: вся выручка в
+  // «Другом», и из экрана не было видно, каких техкарт не хватает
+  const sales9 = [
+    { productName: "Латте 0,4", qty: 300, sum: 360000 },
+    { productName: "Капучино", qty: 100, sum: 90000 },
+    { productName: "Раф", qty: 10, sum: 15000 },
+  ];
+  const cats9 = categoryMargins({ sales: sales9, recipes: [], costOf });
+  eq(cats9.length, 1, "без техкарт — одна категория «Другое»");
+  eq(cats9[0].missing.length, 3, "все три позиции в списке непосчитанных");
+  eq(cats9[0].missing[0].name, "Латте 0,4", "первой — та, что дала больше выручки");
+  eq(cats9[0].missing[0].qty, 300, "со штуками");
+  eq(cats9[0].missing[0].reason, "no-recipe", "и причиной: техкарты нет");
+
+  // Пустая техкарта — другая причина: карта есть, ингредиентов нет
+  const cats9b = categoryMargins({ sales: [{ productName: "Чай", qty: 5, sum: 3500 }], recipes, costOf });
+  eq(cats9b[0].missing[0].reason, "no-cost", "пустая техкарта названа отдельно");
+
+  // Посчитанные в список пропущенных не попадают
+  const coffee9 = categoryMargins({ sales, recipes, costOf }).find((c) => c.name === "Кофе");
+  eq(coffee9.missing.length, 0, "у кофе все позиции посчитаны — список пуст");
+}
+
+console.log("\n📋 Тест 10: названия сходятся без побайтного совпадения");
+{
+  const r10 = [{ id: "latte", name: "Латте 0,4", category: "Кофе" }];
+  const cost10 = () => 180;
+  const tryName = (n) => categoryMargins({ sales: [{ productName: n, qty: 1, sum: 1200 }], recipes: r10, costOf: cost10 })[0].covered > 0;
+  eq(tryName("Латте 0,4"), true, "точное совпадение");
+  eq(tryName("латте 0,4"), true, "регистр не важен");
+  eq(tryName("Латте\u00a00,4"), true, "неразрывный пробел из копипасты");
+  eq(tryName("Латте  0,4"), true, "двойной пробел");
+  eq(tryName("«Латте 0,4»"), true, "кавычки вокруг названия");
+  eq(tryName("Латте 0,3"), false, "другой объём — другая позиция, не склеиваем");
+  eq(normalizeName("Ёжик"), "ежик", "ё приравнено к е");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 console.log(`✅ Пройдено: ${passed}`);
 console.log(`❌ Провалено: ${failed}`);

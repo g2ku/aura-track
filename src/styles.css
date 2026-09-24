@@ -6,6 +6,10 @@
 /* ─── 1. Reset ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 * { margin: 0; padding: 0; }
+/* iOS Safari сам увеличивает шрифт в широких блоках («text inflation»).
+   На телефоне владельца строка «Без техкарты…» в таблице маржи вышла
+   вдвое крупнее соседних и уехала за край. Размеры задаём мы. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body, #root {
   height: 100%;
   background: var(--bg);
@@ -5186,6 +5190,10 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .design-v2 .margin-sales .data-table > thead > tr > th:nth-child(4),
   .design-v2 .margin-sales .data-table > tbody > tr > td:nth-child(2):not([colspan]),
   .design-v2 .margin-sales .data-table > tbody > tr > td:nth-child(4) { display: none; }
+  /* Строка «без техкарты» — фраза на всю ширину. С общим запретом
+     переноса она растягивала таблицу за экран, и первая колонка,
+     закреплённая слева, наезжала на «Выручку» */
+  .design-v2 .margin-sales td.margin-nocard { white-space: normal; }
 
   /* Инвентаризация: скрываем «Период» и «Автор» */
   .design-v2 .inventory-table th:nth-child(3),
@@ -6204,3 +6212,25 @@ button.pr-line-open {
 }
 button.pr-line-open:hover { color: var(--text); }
 button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
+
+/* Маржа: какие позиции без техкарты — списком, название как в Poster */
+.margin-missing {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  font-size: var(--fs-cap, 12px);
+}
+.margin-missing-title { color: var(--text-secondary); margin-bottom: 6px; line-height: 1.4; }
+.margin-missing-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+.margin-missing-name { color: var(--text); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.margin-missing-val { color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.margin-missing-more { color: var(--text-muted); padding-top: 4px; }
+.margin-missing-why { display: block; font-weight: 400; color: var(--text-muted); margin-top: 1px; }

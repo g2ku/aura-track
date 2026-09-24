@@ -14,8 +14,20 @@
 //   • позиции без техкарты лежали в общем списке с прочерками, хотя
 //     это не «плохая маржа», а готовое дело: завести техкарту.
 
+// Название из Poster и название техкарты должны сойтись, и сойтись
+// должны одинаковые по смыслу строки, а не только побайтно равные:
+// «Латте  0,4» с двойным пробелом, неразрывный пробел из копипасты,
+// «ё» против «е», кавычки вокруг названия. Размеры и модификаторы не
+// трогаем — «Латте 0,3» и «Латте 0,4» разные позиции с разной
+// себестоимостью, и склеивать их нельзя.
 export function normalizeName(s) {
-  return (s || "").toLowerCase().trim();
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[\u00a0\u202f\u2009]/g, " ")
+    .replace(/[«»"„“”']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Строки продаж Poster → позиции с маржой.
@@ -123,14 +135,23 @@ export function categoryMargins({ sales = [], recipes = [], costOf = () => 0 } =
     const cat = recipe?.category || "Другое";
 
     if (!cats.has(cat)) {
-      cats.set(cat, { name: cat, qty: 0, revenue: 0, covered: 0, cost: 0, products: new Map() });
+      cats.set(cat, { name: cat, qty: 0, revenue: 0, covered: 0, cost: 0, products: new Map(), missing: new Map() });
     }
     const c = cats.get(cat);
     const qty = row.qty || 0;
     const sum = row.sum || 0;
     c.qty += qty;
     c.revenue += sum;
-    if (!counted) continue;
+    if (!counted) {
+      // Что именно не посчитано — список, а не одна сумма: владельцу
+      // надо знать, какие техкарты завести и под каким названием
+      const mk = normalizeName(name);
+      const m = c.missing.get(mk) || { name, qty: 0, revenue: 0, reason: recipe ? "no-cost" : "no-recipe" };
+      m.qty += qty;
+      m.revenue += sum;
+      c.missing.set(mk, m);
+      continue;
+    }
 
     c.covered += sum;
     c.cost += cost * qty;
@@ -148,6 +169,7 @@ export function categoryMargins({ sales = [], recipes = [], costOf = () => 0 } =
     .map((c) => ({
       ...c,
       products: [...c.products.values()].sort((a, b) => b.revenue - a.revenue),
+      missing: [...c.missing.values()].sort((a, b) => b.revenue - a.revenue),
       margin: c.covered - c.cost,
       marginPct: c.covered > 0 ? ((c.covered - c.cost) / c.covered) * 100 : null,
       coverage: c.revenue > 0 ? c.covered / c.revenue : 0,

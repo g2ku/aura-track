@@ -402,6 +402,17 @@ section("Подозрительный день не приходит как об
   ok(!/разошлись/.test(clean), "на чистых днях предупреждения нет");
 }
 
+section("Маржа: техкарты есть, но ни одна не совпала — назвать, каких не хватает");
+{
+  // Так было на проде: 0 % покрытия, и из ответа не понять, что заводить
+  const alien = { ingredients: MARGIN.ingredients, recipes: [{ name: "Латте", category: "Кофе", salePrice: 1500, items: MARGIN.recipes[0].items }] };
+  const r = (await answerQuestion("маржа за вчера", { ...deps, getMargin: async () => alien })).text;
+  ok(/ни одна не совпала по названию/.test(r), "сказано, что названия не совпали");
+  ok(/Больше всего выручки без техкарты/.test(r), "и список позиций без техкарты");
+  ok(/Латте 0,4/.test(r), "с названием как в Poster");
+  ok(/«Латте 0,4», а не «Латте»/.test(r), "и подсказкой, как назвать");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
