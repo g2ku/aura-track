@@ -5113,18 +5113,38 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .design-v2 .products-detail th:nth-child(4),
   .design-v2 .products-detail td:nth-child(4) { display: none; }
 
-  /* Чеки: скрываем #, Открыт, Закрыт, Скидку */
-  .design-v2 .receipts-table th:nth-child(1),
-  .design-v2 .receipts-table th:nth-child(4),
-  .design-v2 .receipts-table th:nth-child(5),
-  .design-v2 .receipts-table th:nth-child(7),
+  /* Чеки на телефоне: кто, где, когда закрыт, сколько.
+     Раньше время пряталось, а показывался «Статус» — «Закрыт» почти в
+     каждой строке, хотя сверху уже есть фильтр «Все / Открытые /
+     Закрытые». Таблица выходила в 500 px, и листать вбок приходилось
+     ради самой пустой колонки. У открытого чека в «Закрыт» — прочерк,
+     так что статус и без колонки виден. Прибыль строки — на экране
+     шире, итог прибыли есть в карточке сверху. */
+  /* Только прямые ячейки внешней таблицы (>): внутри раскрытого чека
+     своя таблица состава, и правило без «>» прятало её первую колонку
+     — на телефоне было видно «1 · 150 000 ₸» без названия товара. */
+  .design-v2 .receipts-table .data-table > thead > tr > th:nth-child(1),
+  .design-v2 .receipts-table .data-table > thead > tr > th:nth-child(4),
+  .design-v2 .receipts-table .data-table > thead > tr > th:nth-child(7),
+  .design-v2 .receipts-table .data-table > thead > tr > th:nth-child(8),
+  .design-v2 .receipts-table .data-table > thead > tr > th:nth-child(9),
   /* Строка с составом чека — одна ячейка на всю ширину, и по счёту она
      тоже первая. Без исключения её прятало вместе с колонкой «№»: чек
      раскрывался, но на телефоне ничего не появлялось. */
-  .design-v2 .receipts-table td:nth-child(1):not(.receipt-details),
-  .design-v2 .receipts-table td:nth-child(4),
-  .design-v2 .receipts-table td:nth-child(5),
-  .design-v2 .receipts-table td:nth-child(7) { display: none; }
+  .design-v2 .receipts-table .data-table > tbody > tr > td:nth-child(1):not(.receipt-details),
+  .design-v2 .receipts-table .data-table > tbody > tr > td:nth-child(4),
+  .design-v2 .receipts-table .data-table > tbody > tr > td:nth-child(7),
+  .design-v2 .receipts-table .data-table > tbody > tr > td:nth-child(8),
+  .design-v2 .receipts-table .data-table > tbody > tr > td:nth-child(9) { display: none; }
+  /* Длинное имя бариста переносится, а не раздвигает таблицу вбок */
+  .design-v2 .receipts-table .data-table > tbody > tr > td:nth-child(2) { white-space: normal; }
+  /* Четыре колонки влезают в экран — общий минимум 500 px для таблиц
+     здесь только заставлял листать вбок */
+  .design-v2 .receipts-table .data-table { min-width: 0; }
+  /* Состав раскрытого чека: название товара переносится, иначе
+     «Круассан миндальный большой» раздвигал таблицу за край экрана */
+  .design-v2 .receipts-table td.receipt-details,
+  .design-v2 .receipts-table td.receipt-details td:first-child { white-space: normal; }
 
   /* Инвентаризация: скрываем «Период» и «Автор» */
   .design-v2 .inventory-table th:nth-child(3),
