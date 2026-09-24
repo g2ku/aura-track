@@ -5183,6 +5183,22 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .design-v2 .sidebar { display: flex; background: var(--surface-1); }
   .design-v2 .hamburger { display: flex; }
   .design-v2 .content { padding: 52px 14px calc(84px + env(safe-area-inset-bottom, 0px)); }
+  /* Кнопка меню закреплена, а страница прокручивается — и контент ехал
+     прямо под неё: вместо «Атакент» было видно «ент ›». Полоса фона за
+     кнопкой гасит то, что уезжает вверх, и кнопка читается кнопкой.
+     Ниже фона шторки (150), чтобы открытое меню затемнялось целиком;
+     сквозь неё проходят касания. */
+  .design-v2 .layout-with-sidebar::before {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: calc(60px + env(safe-area-inset-top, 0px));
+    background: linear-gradient(to bottom, var(--bg) 0%, var(--bg) 72%, transparent 100%);
+    z-index: 140;
+    pointer-events: none;
+  }
+  /* Шапка ассистента живёт в той же полосе — она должна быть поверх */
+  .design-v2 .chat-header { z-index: 145; }
   .design-v2 .btn { min-height: 44px; }
   .design-v2 .btn-sm { min-height: 36px; }
   .design-v2 .icon-btn { width: 40px; height: 40px; }
@@ -5194,6 +5210,13 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .design-v2 .cl-spot { padding: 12px 1px; }
   .design-v2 .cl-line { font-size: 12.5px; }
   .design-v2 .cl-line-dots { background-size: 0.5em 0.32em; }
+  /* Пара «чеки · средний чек» — в одну строку: пунктир между подписью и
+     числом на узком экране не нужен, он и съедал вторую строку */
+  .design-v2 .cl-spot-stats { display: flex; flex-wrap: wrap; column-gap: 18px; }
+  .design-v2 .cl-spot-stats .cl-line { gap: 6px; }
+  .design-v2 .cl-spot-stats .cl-line-dots { display: none; }
+  .design-v2 .cl-spot-stats .cl-line-label,
+  .design-v2 .cl-spot-stats .cl-line-value { max-width: none; }
   .design-v2 .cl-attention-item { font-size: 13.5px; }
   .design-v2 .cl-date { font-size: 12.5px; }
   .design-v2 .cl-zone { margin-top: 18px; padding-top: 12px; }

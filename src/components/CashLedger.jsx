@@ -776,15 +776,20 @@ export default function CashLedger({
                     {fmt(c.total)}
                   </div>
                 </div>
-                <div className="cl-line">
-                  <span className="cl-line-label">Чеки</span>
-                  <span className="cl-line-dots" />
-                  <span className="cl-line-value">{c.txCount.toLocaleString("ru-RU")}</span>
-                </div>
-                <div className="cl-line">
-                  <span className="cl-line-label">Средний чек</span>
-                  <span className="cl-line-dots" />
-                  <span className="cl-line-value">{fmt(c.avgCheck)}</span>
+                {/* Чеки и средний чек — парой: на телефоне встают в одну
+                    строку, иначе восемь точек по три строки — это экран
+                    прокрутки ради двух цифр на точку */}
+                <div className="cl-spot-stats">
+                  <div className="cl-line">
+                    <span className="cl-line-label">Чеки</span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value">{c.txCount.toLocaleString("ru-RU")}</span>
+                  </div>
+                  <div className="cl-line">
+                    <span className="cl-line-label">Средний чек</span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value">{fmt(c.avgCheck)}</span>
+                  </div>
                 </div>
                 {lastOrders && (() => {
                   const ts = lastOrders[String(c.spotId)];
