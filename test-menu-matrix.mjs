@@ -1,5 +1,6 @@
 // test-menu-matrix.mjs — счёт «Меню-инжиниринга».
 
+import { readFileSync } from "node:fs";
 import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals } from "./src/menuMatrix.js";
 
 let passed = 0, failed = 0;
@@ -129,6 +130,28 @@ near(naive - t.marginPct, 2.4, "разница между враньём и пр
 near(t.coverage, t.covered / t.revenue, "доля покрытия посчитана");
 eq(marginTotals([]).marginPct, null, "нет категорий — нет процента, а не 0%");
 eq(categoryMargins({}).length, 0, "пустой вход — пусто, без падения");
+
+console.log("\n📋 Тест 8: раздел «Маржа» на телефоне");
+{
+  const css = readFileSync("src/styles.css", "utf8");
+  const view = readFileSync("src/components/MarginView.jsx", "utf8");
+  const mobile = css.slice(css.indexOf("Маржа: вкладки сеткой 2×2"), css.indexOf("Инвентаризация: скрываем"));
+  eq(mobile.length > 0, true, "правила «Маржи» для телефона на месте");
+
+  // «Маржа по продажам» стояла целиком за правым краем ряда вкладок
+  eq(/\.margin-tabs \{[^}]*display: grid;[^}]*grid-template-columns: 1fr 1fr;/.test(mobile), true, "вкладки на телефоне — сеткой 2×2, все видны");
+  eq(/\.margin-tabs \{\s*display: flex;\s*gap: 4px;/.test(css), true, "у ряда вкладок gap с единицами (было «gap: 4» — правило выбрасывалось)");
+
+  // Каждой таблице — свой класс, иначе правила задели бы соседние
+  for (const cls of ["margin-ingredients", "margin-recipes", "margin-sales"]) {
+    eq(view.includes(`className="table-card ${cls}"`), true, `таблица помечена классом ${cls}`);
+  }
+  // Только прямые ячейки: у раскрытой категории внутри строки той же формы
+  eq(/margin-sales \.data-table > tbody > tr > td:nth-child\(2\):not\(\[colspan\]\)/.test(mobile), true, "«Кол-во» прячется только у прямых ячеек, строка «без техкарты» цела");
+  eq(/margin-sales \.data-table \{ min-width: 0; \}/.test(mobile), true, "маржа по продажам влезает без прокрутки вбок");
+  eq(/margin-ingredients \.btn-label \{ display: none; \}/.test(mobile), true, "у кнопки «Изм.» на телефоне остаётся значок");
+  eq(/aria-label="Изменить"/.test(view), true, "а подпись — для экранного диктора и подсказки");
+}
 
 console.log("\n══════════════════════════════════════════════════");
 console.log(`✅ Пройдено: ${passed}`);

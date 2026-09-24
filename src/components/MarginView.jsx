@@ -394,7 +394,7 @@ function IngredientsTab({ ingredients, onChange }) {
           <div className="empty-state-sub">Добавьте ингредиенты для расчёта себестоимости</div>
         </div>
       ) : (
-        <div className="table-card">
+        <div className="table-card margin-ingredients">
           <table className="data-table">
             <thead>
               <tr>
@@ -414,10 +414,10 @@ function IngredientsTab({ ingredients, onChange }) {
                   <td>{pricePerBaseUnit(ing)}</td>
                   <td>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button className="btn btn-sm btn-out" onClick={() => edit(ing)}>
-                        <i className="ti ti-pencil" /> Изм.
+                      <button className="btn btn-sm btn-out" onClick={() => edit(ing)} title="Изменить" aria-label="Изменить">
+                        <i className="ti ti-pencil" /> <span className="btn-label">Изм.</span>
                       </button>
-                      <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => remove(ing.id)}>
+                      <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => remove(ing.id)} title="Удалить" aria-label="Удалить">
                         <i className="ti ti-trash" />
                       </button>
                     </div>
@@ -618,7 +618,7 @@ function RecipesTab({ ingredients, recipes, onChange }) {
           <div className="empty-state-sub">Добавьте рецепты для расчёта маржинальности</div>
         </div>
       ) : (
-        <div className="table-card">
+        <div className="table-card margin-recipes">
           <table className="data-table">
             <thead>
               <tr>
@@ -797,7 +797,7 @@ function DashboardTab({ ingredients, recipes }) {
             )}
           </div>
 
-          <div className="table-card">
+          <div className="table-card margin-sales">
             <table className="data-table">
               <thead>
                 <tr>

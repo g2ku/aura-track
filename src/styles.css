@@ -3104,7 +3104,7 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
 
 .margin-tabs {
   display: flex;
-  gap: 4;
+  gap: 4px;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0;
@@ -5145,6 +5145,47 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
      «Круассан миндальный большой» раздвигал таблицу за край экрана */
   .design-v2 .receipts-table td.receipt-details,
   .design-v2 .receipts-table td.receipt-details td:first-child { white-space: normal; }
+
+  /* Маржа: вкладки сеткой 2×2. В ряд с прокруткой «Маржа по продажам»
+     — та вкладка, ради которой раздел открывают, — стояла целиком за
+     правым краем, а что ряд листается, не было видно ничем. */
+  .design-v2 .margin-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    overflow: visible;
+    border-bottom: none;
+  }
+  .design-v2 .margin-tabs .btn {
+    border-radius: var(--radius);
+    margin-bottom: 0;
+    justify-content: center;
+    padding: 10px 8px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  /* Ингредиенты: четыре узкие колонки влезают — общий минимум 500 px
+     заставлял листать вбок */
+  .design-v2 .margin-ingredients .data-table { min-width: 0; }
+  /* Длинное название переносится, у «Изм.» остаётся значок — иначе они
+     вдвоём держали таблицу шире экрана */
+  .design-v2 .margin-ingredients .data-table > tbody > tr > td:nth-child(1) { white-space: normal; }
+  .design-v2 .margin-ingredients .btn-label { display: none; }
+  .design-v2 .margin-ingredients .data-table > thead > tr > th,
+  .design-v2 .margin-ingredients .data-table > tbody > tr > td { padding-left: 6px; padding-right: 6px; }
+  /* Рецепты: категорию прячем, название закреплено слева — остальное
+     листается */
+  .design-v2 .margin-recipes .data-table > thead > tr > th:nth-child(2),
+  .design-v2 .margin-recipes .data-table > tbody > tr > td:nth-child(2) { display: none; }
+  /* Маржа по продажам: категория, выручка, маржа и процент. Количество
+     второстепенно, себестоимость — это выручка минус маржа. Только
+     прямые ячейки (>): у раскрытой категории строки товаров той же
+     формы, а строка «без техкарты» — одна ячейка на всю ширину. */
+  .design-v2 .margin-sales .data-table { min-width: 0; }
+  .design-v2 .margin-sales .data-table > thead > tr > th:nth-child(2),
+  .design-v2 .margin-sales .data-table > thead > tr > th:nth-child(4),
+  .design-v2 .margin-sales .data-table > tbody > tr > td:nth-child(2):not([colspan]),
+  .design-v2 .margin-sales .data-table > tbody > tr > td:nth-child(4) { display: none; }
 
   /* Инвентаризация: скрываем «Период» и «Автор» */
   .design-v2 .inventory-table th:nth-child(3),
