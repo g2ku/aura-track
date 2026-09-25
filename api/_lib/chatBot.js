@@ -20,7 +20,7 @@ import { baselinePeriods, formatContext, averageOf } from "../../src/chat/contex
 import { productMatches } from "../../src/chat/normalize.js";
 import { spotNameByPosterId, DEFAULT_IP_GROUPS, BRANCHES } from "./branches.js";
 import { escapeHtml } from "./dailyDoc.js";
-import { categoryMargins, marginTotals, purchaseCosts } from "../../src/menuMatrix.js";
+import { categoryMargins, marginTotals, purchaseCosts, costQuality } from "../../src/menuMatrix.js";
 import { calcRecipeCost } from "../../src/recipeCost.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
@@ -110,6 +110,20 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
   // Маржа за период — из ночных итогов и техкарт, без единого запроса
   // в Poster. Считает тот же модуль, что и сайт (menuMatrix), поэтому
   // цифра в боте и на сайте не разъедется.
+  // Та же проверка, что на экране «Маржа» и у ассистента сайта: ингредиент
+  // без цены даёт в себестоимость ноль — процент выходит сказочным
+  function marginDoubts(rows, margin) {
+    const q = costQuality({ sales: rows, recipes: margin.recipes || [], ingredients: margin.ingredients || [], aliases: margin.aliases || {} });
+    const out = [];
+    if (q.unpriced.length) {
+      const n = q.unpriced.length;
+      out.push(`⚠️ Без цены ${n} ${n === 1 ? "ингредиент" : n < 5 ? "ингредиента" : "ингредиентов"} из проданных техкарт (${escapeHtml(q.unpriced.slice(0, 3).map((u) => u.name).join(", "))}${n > 3 ? "…" : ""}) — себестоимость занижена, процент завышен.`);
+    }
+    if (q.suspect.length) out.push(`⚠️ Цена «${escapeHtml(q.suspect[0].name)}» — ${escapeHtml(q.suspect[0].hint)}.`);
+    if (q.noPackaging) out.push("⚠️ В техкартах нет стаканов и крышек — себестоимость без упаковки.");
+    return out.length ? ["", ...out] : [];
+  }
+
   if (parsed.metric === "margin") {
     // Нет ни техкарт, ни закупочных цен — считать нечем. Покупное (выпечка
     // по накладным) считается и без единой техкарты
@@ -172,6 +186,7 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
       "",
       "Больше всего принесли:",
       ...earners.slice(0, 5).map((p, i) => `${i + 1}. ${escapeHtml(p.name)} — ${fmt(p.earned)} (${p.pct.toFixed(0)} %, ${int(p.qty)} шт)`),
+      ...marginDoubts(rows, margin),
     ].filter(Boolean).join("\n");
   }
 

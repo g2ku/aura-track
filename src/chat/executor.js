@@ -69,12 +69,22 @@ function matchesRowSpot(row, spot) {
 
 // Имя точки в ответе — русское: «Абая», а не «Aura02_Abaya» из Poster.
 // Данные не переименовываем (по сырому имени работают фильтры), только показ.
-const sn = (d) => spotNameByPosterId(d?.spotId, String(d?.spotName || "").replace(/^Aura02[_-]?/i, "")) || d?.spotName || "";
+// Имя точки по-русски — как на всём сайте. Poster пишет латиницей
+// («Zharokova», «Aura02_Abaya»), и без справочника ответ выходил
+// «По филиалам: Zharokova, Rams…», «Средний чек Abaya»
+function ruSpotName(spotId, rawName) {
+  const byId = Object.values(BRANCHES).find((b) => String(b.spotId) === String(spotId ?? ""));
+  if (byId) return byId.spotName;
+  const raw = String(rawName || "").replace(/^Aura02[_-]?/i, "");
+  const byName = Object.entries(BRANCHES).find(([id, b]) => id.replace(/^Aura02_/, "").toLowerCase() === raw.toLowerCase() || b.spotName.toLowerCase() === raw.toLowerCase());
+  return byName ? byName[1].spotName : raw;
+}
+const sn = (d) => ruSpotName(d?.spotId, d?.spotName) || d?.spotName || "";
 
 function label(spot) {
   if (!spot || spot === "all" || (typeof spot === "object" && spot.branchId === "all")) return "все филиалы";
-  if (typeof spot === "string") return spot;
-  return spot.posterName || spot.branchId;
+  if (typeof spot === "string") return ruSpotName(null, spot);
+  return ruSpotName(spot.spotId, spot.posterName || spot.branchId);
 }
 
 function isAll(spot) {
@@ -1409,7 +1419,7 @@ async function handleOpening(spot, period, raw = "") {
 
 async function handleMargin(operation, spot, period, ipGroup, productName = null) {
   const { loadMargin, calcRecipeCost } = await import("../margin.js");
-  const { categoryMargins, marginTotals, purchaseCosts } = await import("../menuMatrix.js");
+  const { categoryMargins, marginTotals, purchaseCosts, costQuality } = await import("../menuMatrix.js");
   // Накладные уже подписаны в сторе сайта — лениво, чтобы исполнитель не
   // тянул стор в свой статический граф
   const { useAppStore } = await import("../store/useAppStore.js");
@@ -1531,13 +1541,30 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
     : `Продано товаров на ${fmt(Math.round(t.revenue))}, из них с техкартой — ${fmt(Math.round(t.covered))} (${cover} %)`;
   const pctWord = cover >= 99 ? "" : " от посчитанного";
 
+  // Та же проверка, что на экране «Маржа»: ингредиент без цены даёт в
+  // себестоимость ноль, и процент выходит сказочным. В бою 25.09.2026
+  // ассистент сказал «91,7 %» без единой оговорки — себестоимость 8 %
+  // выручки для кофе с молоком не бывает
+  const q = costQuality({ sales: rows, recipes: marginData.recipes || [], ingredients: marginData.ingredients || [], aliases: marginData.aliases || {} });
+  const doubts = [];
+  if (q.unpriced.length) {
+    const names = q.unpriced.slice(0, 3).map((u) => u.name).join(", ");
+    doubts.push(`⚠️ Без цены ${q.unpriced.length} ${q.unpriced.length === 1 ? "ингредиент" : q.unpriced.length < 5 ? "ингредиента" : "ингредиентов"} из проданных техкарт (${names}${q.unpriced.length > 3 ? "…" : ""}) — себестоимость занижена, процент завышен. Цены — «Маржа» → «Ингредиенты» → «Без цены, но в техкартах».`);
+  }
+  if (q.suspect.length) {
+    const x = q.suspect[0];
+    doubts.push(`⚠️ Цена «${x.name}» ${String(x.price).replace(".", ",")} ₸ за ${x.unit} — ${x.hint}.`);
+  }
+  if (q.noPackaging) doubts.push("⚠️ В техкартах нет стаканов и крышек — себестоимость без упаковки.");
+  const doubtText = doubts.length ? `\n\n${doubts.join("\n")}` : "";
+
   return {
     text: `Маржа ${sl}${ipLabel} за ${pl}:\n`
       + `Касса: ${fmt(totalCash)}\n\n`
       + `${soldLine}\n`
       + `Себестоимость ${fmt(Math.round(t.cost))} → заработали ${fmt(Math.round(t.margin))}, это ${t.marginPct.toFixed(1).replace(".", ",")} %${pctWord}\n\n`
       // Про недостающие и сомнительные дни допишет executeQuery — один раз
-      + `Больше всего принесли:\n${topLines}${worstLines}`,
+      + `Больше всего принесли:\n${topLines}${worstLines}${doubtText}`,
     data: {
       totalCash,
       revenue: t.covered,
@@ -1546,6 +1573,7 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
       marginPct: t.marginPct,
       coverage: t.coverage,
       topProducts: earners.slice(0, 5),
+      doubts: doubts.length,
     },
   };
 }

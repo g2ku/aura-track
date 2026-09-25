@@ -281,6 +281,12 @@ section("Маржа в боте — из ночных итогов и техка
   const miss = await answerQuestion("себестоимость раф", deps);
   ok(miss && /в техкартах не нашёл/.test(miss.text), "неизвестная позиция названа");
 
+  // Молоко без цены — процент сказочный, и бот обязан это сказать
+  const noPrice = { ...MARGIN, ingredients: [{ ...MARGIN.ingredients[0], pricePerUnit: 0 }, MARGIN.ingredients[1]] };
+  const np = (await answerQuestion("маржа за вчера", { ...deps, getMargin: async () => noPrice })).text;
+  ok(/Без цены 1 ингредиент из проданных техкарт \(Молоко\)/.test(np), `без цены — сказано: ${np.split("\n").slice(-2).join(" / ")}`);
+  ok(!/Без цены/.test(r.text), "с ценами — без лишней оговорки");
+
   // Без техкарт вообще — честный отказ, а не нулевая маржа
   const bare = await answerQuestion("маржа за вчера", { ...deps, getMargin: async () => ({ recipes: [], ingredients: [] }) });
   ok(bare && /Техкарты не заведены/.test(bare.text), "нет техкарт — так и сказано");
