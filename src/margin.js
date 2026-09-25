@@ -136,8 +136,6 @@ const DEFAULT_RECIPES = [
     items: [
       { ingredientId: "ing_coffee", qty: 3, unit: "шт" },
       { ingredientId: "ing_milk", qty: 200, unit: "мл" },
-      { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
     ],
   },
   {
@@ -145,8 +143,6 @@ const DEFAULT_RECIPES = [
     items: [
       { ingredientId: "ing_coffee", qty: 1.5, unit: "шт" },
       { ingredientId: "ing_cream33", qty: 65, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
-      { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
     ],
   },
   {
@@ -154,9 +150,7 @@ const DEFAULT_RECIPES = [
     items: [
       { ingredientId: "ing_coffee", qty: 1.5, unit: "шт" },
       { ingredientId: "ing_cream33", qty: 65, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
       { ingredientId: "ing_orange", qty: 4, unit: "шт" },
-      { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
     ],
   },
   {
@@ -166,8 +160,6 @@ const DEFAULT_RECIPES = [
       { ingredientId: "ing_milk", qty: 275, unit: "мл" },
       { ingredientId: "ing_choc_paste", qty: 25, unit: "г" },
       { ingredientId: "ing_cream10", qty: 15, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
-      { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
     ],
   },
   {
@@ -199,8 +191,6 @@ const DEFAULT_RECIPES = [
       { ingredientId: "ing_coffee", qty: 2, unit: "шт" },
       { ingredientId: "ing_ice", qty: 150, unit: "г" },
       { ingredientId: "ing_milk", qty: 250, unit: "мл" },
-      { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
     ],
   },
   {
