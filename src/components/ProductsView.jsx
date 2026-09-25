@@ -138,7 +138,7 @@ export default function ProductsView({ docs, agg, userBranch }) {
             <i className="ti ti-box" aria-hidden="true" /> Товары
           </h1>
           <div className="view-sub">
-            Всего: <b>{items.length}</b> {items.length === 1 ? "товар" : "товаров"} ·
+            Из накладных · всего: <b>{items.length}</b> {items.length === 1 ? "товар" : "товаров"} ·
             заказов: <b>{grandCount}</b> · сумма: <b style={{ color: "var(--text-accent)" }}>{fmt(grandTotal)}</b>
           </div>
         </div>
@@ -213,9 +213,21 @@ export default function ProductsView({ docs, agg, userBranch }) {
 
       <div className="card table-card products-table">
         {items.length === 0 ? (
-          <div className="empty-mini" style={{ padding: 32, textAlign: "center" }}>
+          <div className="empty-mini" style={{ padding: 32, textAlign: "center", lineHeight: 1.5 }}>
             <i className="ti ti-box-off" aria-hidden="true" style={{ fontSize: 28, display: "block", marginBottom: 6 }} />
-            {q ? "Ничего не найдено по запросу" : "Нет товаров"}
+            {q
+              ? "Ничего не найдено по запросу"
+              : (docs || []).length === 0
+                // Раньше — «Нет товаров», и непонятно, сломано или пусто.
+                // Раздел строится из накладных, а их за всё время нет:
+                // кураторы шлют фото без суммы (25.09.2026)
+                ? <>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Накладных пока нет</div>
+                    <div style={{ color: "var(--text-muted)", maxWidth: 420, margin: "0 auto" }}>
+                      Товары здесь — из накладных. Бот записывает накладную, только если в сообщении или подписи к фото есть сумма: «Атакент сиропы 21600». Что продаётся — спросите ассистента: «топ товаров за неделю».
+                    </div>
+                  </>
+                : "За этот период накладных нет"}
           </div>
         ) : (
           <table className="data-table">

@@ -1404,11 +1404,16 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
     // «Официант» у закрытых чеков стояла пустой. В dash оно есть, и мы
     // этот ответ и так уже скачали ради открытых чеков.
     const waiterById = new Map();
+    // И времени открытия там нет — столбец «Открыт» у закрытых чеков
+    // стоял пустым. В dash оно есть (date_start, мс)
+    const openById = new Map();
     for (const t of dashRows) {
       if (t.name) waiterById.set(String(t.transaction_id), t.name);
+      if (Number(t.date_start)) openById.set(String(t.transaction_id), almatyTimeString(t.date_start));
     }
     for (const r of allReceipts) {
       if (!r.waiter) r.waiter = waiterById.get(String(r.id)) || "";
+      if (!r.dateOpen) r.dateOpen = openById.get(String(r.id)) || "";
     }
 
     openReceipts = await fetchOpenReceipts(dateFrom, dateTo, opts, dashRows);
