@@ -235,3 +235,73 @@ export function marginTotals(cats = []) {
     coverage: revenue > 0 ? covered / revenue : 0,
   };
 }
+
+// Почему себестоимость может быть занижена.
+//
+// Расчёт молча пропускает ингредиент без цены и ингредиент, которого
+// уже нет в списке, — и маржа выходит 90 % там, где на деле 70 %. На
+// проде после привязок кофе показал 91,6 %: латте за 1 500 ₸ по
+// себестоимости около 125 ₸, хотя одно молоко дороже. Здесь — что
+// именно занижает и какую выручку это задевает, по техкартам, которые
+// реально считают проданное.
+const PACKAGING = /стакан|крышк|трубоч|упаковк|пакет|холдер/i;
+
+export function costQuality({ sales = [], recipes = [], ingredients = [], aliases = {} } = {}) {
+  const findRecipe = recipeIndex(recipes, aliases);
+  const ingById = new Map((ingredients || []).map((i) => [i.id, i]));
+
+  // Выручка на техкарту — чтобы находки шли по весу, а не по алфавиту
+  const revByRecipe = new Map();
+  for (const row of sales || []) {
+    const r = findRecipe(row.productName);
+    if (r) revByRecipe.set(r, (revByRecipe.get(r) || 0) + (row.sum || 0));
+  }
+
+  const unpriced = new Map();
+  const missing = [];
+  const suspect = new Map();
+  let packagingSeen = false;
+
+  for (const [r, rev] of revByRecipe) {
+    let lost = 0;
+    for (const it of r.items || []) {
+      const ing = ingById.get(it.ingredientId);
+      if (!ing) { lost++; continue; }
+      if (PACKAGING.test(ing.name || "")) packagingSeen = true;
+      const price = Number(ing.pricePerUnit) || 0;
+      if (price <= 0) {
+        const u = unpriced.get(ing.id) || { name: ing.name, recipes: 0, revenue: 0 };
+        u.recipes++;
+        u.revenue += rev;
+        unpriced.set(ing.id, u);
+        continue;
+      }
+      // Цена за литр в 0,6 ₸ — это цена за миллилитр, введённая в литр.
+      // И наоборот: 600 ₸ «за грамм» — это цена за килограмм
+      const big = ing.unit === "л" || ing.unit === "кг";
+      const small = ing.unit === "мл" || ing.unit === "г";
+      if ((big && price < 20) || (small && price > 200)) {
+        const s = suspect.get(ing.id) || {
+          name: ing.name, unit: ing.unit, price, revenue: 0,
+          hint: big ? `похоже на цену за ${ing.unit === "л" ? "мл" : "г"}` : `похоже на цену за ${ing.unit === "мл" ? "литр" : "кг"}`,
+        };
+        s.revenue += rev;
+        suspect.set(ing.id, s);
+      }
+    }
+    if (lost) missing.push({ name: r.name, count: lost, revenue: rev });
+  }
+
+  const byRev = (a, b) => b.revenue - a.revenue;
+  const unp = [...unpriced.values()].sort(byRev);
+  const sus = [...suspect.values()].sort(byRev);
+  missing.sort(byRev);
+  return {
+    unpriced: unp,
+    suspect: sus,
+    missing,
+    // В техкартах, по которым идёт выручка, нет ни стакана, ни крышки
+    noPackaging: revByRecipe.size > 0 && !packagingSeen,
+    any: unp.length + sus.length + missing.length > 0,
+  };
+}

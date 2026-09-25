@@ -1,7 +1,7 @@
 // test-menu-matrix.mjs — счёт «Меню-инжиниринга».
 
 import { readFileSync } from "node:fs";
-import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals, suggestRecipe, recipeIndex } from "./src/menuMatrix.js";
+import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals, suggestRecipe, recipeIndex, costQuality } from "./src/menuMatrix.js";
 
 let passed = 0, failed = 0;
 function eq(a, b, label) {
@@ -272,6 +272,64 @@ console.log("\n📋 Тест 14: сбой сохранения в «Марже»
   eq(/toast\(\{[\s\S]*?tone: "error"/.test(upd), true, "а показывает уведомление");
   eq(/setData\(next\);[\s\S]*?return true;/.test(upd), true, "данные меняются только после успешной записи");
   eq(/return false;/.test(upd), true, "вызывающий узнаёт о неудаче");
+}
+
+console.log("\n📋 Тест 15: что занижает себестоимость — назвать, а не молчать");
+{
+  // На проде после привязок кофе показал 91,6 % маржи. Расчёт молча
+  // пропускает ингредиенты без цены и удалённые из списка
+  const ING = [
+    { id: "coffee", name: "Кофе (шот)", unit: "шт", pricePerUnit: 90 },
+    { id: "milk", name: "Молоко", unit: "л", pricePerUnit: 0.6 },   // ввели за мл
+    { id: "syrup", name: "Сироп Ваниль", unit: "г", pricePerUnit: 0 }, // цену не ввели
+    { id: "honey", name: "Мёд", unit: "г", pricePerUnit: 0 },
+    { id: "cream", name: "Сливки", unit: "г", pricePerUnit: 1200 },  // ввели за кг
+  ];
+  const REC = [
+    { id: "latte", name: "Латте", items: [
+      { ingredientId: "coffee", qty: 2, unit: "шт" }, { ingredientId: "milk", qty: 300, unit: "мл" },
+      { ingredientId: "syrup", qty: 15, unit: "г" }, { ingredientId: "gone", qty: 1, unit: "шт" },
+    ] },
+    { id: "raf", name: "Раф", items: [
+      { ingredientId: "coffee", qty: 1, unit: "шт" }, { ingredientId: "cream", qty: 60, unit: "г" },
+      { ingredientId: "honey", qty: 10, unit: "г" }, { ingredientId: "syrup", qty: 10, unit: "г" },
+    ] },
+    { id: "unsold", name: "Эспрессо", items: [{ ingredientId: "honey", qty: 1, unit: "г" }] },
+  ];
+  const sales15 = [
+    { productName: "Латте 0,4", qty: 100, sum: 150000 },
+    { productName: "Раф", qty: 20, sum: 40000 },
+  ];
+  const q = costQuality({ sales: sales15, recipes: REC, ingredients: ING, aliases: { "латте 0,4": "latte" } });
+  eq(q.any, true, "находки есть");
+  eq(q.unpriced[0].name, "Сироп Ваниль", "первым — ингредиент без цены, задевающий больше выручки");
+  eq(q.unpriced[0].recipes, 2, "сироп — в двух проданных техкартах");
+  eq(q.unpriced[0].revenue, 190000, "и задевает выручку обеих");
+  eq(q.unpriced.some((u) => u.name === "Мёд" && u.revenue === 40000), true, "мёд — только раф: техкарта «Эспрессо» не продавалась");
+  eq(q.suspect.find((x) => x.name === "Молоко")?.hint, "похоже на цену за мл", "0,6 ₸ за литр — это цена за миллилитр");
+  eq(q.suspect.find((x) => x.name === "Сливки")?.hint, "похоже на цену за кг", "1 200 ₸ за грамм — это цена за килограмм");
+  eq(q.missing[0]?.name, "Латте", "в латте есть удалённый ингредиент");
+  eq(q.missing[0]?.count, 1, "один");
+  eq(q.noPackaging, true, "стаканов и крышек в техкартах нет — сказано");
+
+  // Всё заполнено правильно — находок нет
+  const ok15 = costQuality({
+    sales: [{ productName: "Латте", qty: 1, sum: 1500 }],
+    recipes: [{ id: "l", name: "Латте", items: [{ ingredientId: "m", qty: 300, unit: "мл" }, { ingredientId: "cup", qty: 1, unit: "шт" }] }],
+    ingredients: [{ id: "m", name: "Молоко", unit: "л", pricePerUnit: 650 }, { id: "cup", name: "Стакан 350", unit: "шт", pricePerUnit: 45 }],
+  });
+  eq(ok15.any, false, "правильные цены и единицы — находок нет");
+  eq(ok15.noPackaging, false, "стакан в техкарте есть — упаковка учтена");
+  eq(costQuality({}).any, false, "пустой вход — без падения");
+}
+
+console.log("\n📋 Тест 16: экран маржи называет причину, а не угадывает");
+{
+  const view = readFileSync("src/components/MarginView.jsx", "utf8");
+  eq(/costQuality\(\{ sales: salesData\?\.rows \|\| \[\], recipes, ingredients, aliases \}\)/.test(view), true, "проверка себестоимости считается с привязками");
+  eq(/выше, чем обычно бывает у напитков/.test(view), true, "маржа выше 85 % названа подозрительной");
+  eq(/<b>Без цены<\/b>/.test(view) && /Проверьте единицу:/.test(view) && /Удалённые ингредиенты/.test(view) && /Нет упаковки:/.test(view), true, "все четыре причины выводятся");
+  eq(/every\(\(m\) => m\.reason === "no-cost"\)/.test(view) && /у ингредиентов не\s+заполнены цены/.test(view), true, "техкарты нашлись, но без цен — это названо отдельно, а не «не совпало по названию»");
 }
 
 console.log("\n══════════════════════════════════════════════════");

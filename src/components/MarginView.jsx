@@ -5,7 +5,7 @@ import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEG
 import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
 import { useToast } from "../ui";
-import { categoryMargins, marginTotals, suggestRecipe, normalizeName } from "../menuMatrix.js";
+import { categoryMargins, marginTotals, suggestRecipe, normalizeName, costQuality } from "../menuMatrix.js";
 
 const TABS = [
   { id: "builder", label: "Создать напиток", icon: "ti-glass" },
@@ -713,6 +713,13 @@ function DashboardTab({ ingredients, recipes, aliases = {}, onAliases }) {
   const totals = useMemo(() => marginTotals(categoryStats), [categoryStats]);
   const coveragePct = Math.round(totals.coverage * 100);
   const nothingCounted = !(totals.covered > 0);
+  // Что занижает себестоимость — ингредиенты без цены, странные единицы,
+  // удалённые ингредиенты, нет упаковки. Молча это давало 90 % маржи
+  const quality = useMemo(
+    () => costQuality({ sales: salesData?.rows || [], recipes, ingredients, aliases }),
+    [salesData, recipes, ingredients, aliases]
+  );
+  const showQuality = !nothingCounted && (quality.any || quality.noPackaging);
   // Все позиции без техкарты по сети — отсортированы по выручке
   const allMissing = useMemo(
     () => categoryStats.flatMap((c) => c.missing || []).sort((a, b) => b.revenue - a.revenue),
@@ -844,6 +851,14 @@ function DashboardTab({ ingredients, recipes, aliases = {}, onAliases }) {
                   Техкарт пока нет — маржу считать не из чего. Заведите их на вкладке «Рецепты»,
                   начиная с позиций ниже: они дают больше всего выручки.
                 </>
+              ) : allMissing.length > 0 && allMissing.every((m) => m.reason === "no-cost") ? (
+                // Техкарты нашлись, но себестоимость у всех нулевая — дело
+                // не в названиях, а в ценах ингредиентов
+                <>
+                  <i className="ti ti-info-circle" aria-hidden="true" />{" "}
+                  Техкарты к проданному нашлись, но себестоимость у них нулевая: у ингредиентов не
+                  заполнены цены. Заполните их на вкладке «Ингредиенты».
+                </>
               ) : (
                 <>
                   <i className="ti ti-info-circle" aria-hidden="true" />{" "}
@@ -860,6 +875,47 @@ function DashboardTab({ ingredients, recipes, aliases = {}, onAliases }) {
               </>
             )}
           </div>
+
+          {showQuality && (
+            <div className="margin-quality">
+              <div className="margin-quality-title">
+                <i className="ti ti-alert-triangle" aria-hidden="true" />{" "}
+                {totals.marginPct > 85
+                  ? `Маржа ${totals.marginPct.toFixed(1)}% — выше, чем обычно бывает у напитков. Скорее всего, в себестоимость вошло не всё:`
+                  : "В себестоимость вошло не всё:"}
+              </div>
+              {quality.unpriced.length > 0 && (
+                <div className="margin-quality-row">
+                  <b>Без цены</b> — в себестоимость не вошли:{" "}
+                  {quality.unpriced.slice(0, 6).map((u, i) => (
+                    <span key={u.name}>
+                      {i > 0 && ", "}
+                      {u.name} <span className="margin-quality-dim">({u.recipes} {u.recipes === 1 ? "техкарта" : u.recipes < 5 ? "техкарты" : "техкарт"}, {fmt(Math.round(u.revenue))})</span>
+                    </span>
+                  ))}
+                  {quality.unpriced.length > 6 && ` и ещё ${quality.unpriced.length - 6}`}.
+                  {" "}Цены — на вкладке «Ингредиенты».
+                </div>
+              )}
+              {quality.suspect.map((x) => (
+                <div key={x.name} className="margin-quality-row">
+                  <b>Проверьте единицу:</b> {x.name} — {x.price.toLocaleString("ru-RU")} ₸ за {x.unit}, {x.hint}.
+                </div>
+              ))}
+              {quality.missing.length > 0 && (
+                <div className="margin-quality-row">
+                  <b>Удалённые ингредиенты</b> в техкартах:{" "}
+                  {quality.missing.slice(0, 6).map((m) => `${m.name} (${m.count})`).join(", ")}
+                  {quality.missing.length > 6 && ` и ещё ${quality.missing.length - 6}`}. Их стоимость не считается.
+                </div>
+              )}
+              {quality.noPackaging && (
+                <div className="margin-quality-row">
+                  <b>Нет упаковки:</b> в техкартах нет стаканов и крышек — их стоимость в маржу не входит.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Что именно не посчитано — топ позиций по выручке. Раньше была
               одна сумма «без техкарты», и какие карты заводить, приходилось

@@ -6251,3 +6251,21 @@ button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
 .margin-linked summary { cursor: pointer; color: var(--text-secondary); padding: 2px 0; }
 .margin-linked .margin-missing-row { align-items: center; }
 .margin-linked-arrow { color: var(--text-muted); font-weight: 400; }
+
+/* Маржа: что занижает себестоимость — предупреждение, а не ошибка */
+.margin-quality {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-warn, var(--border));
+  background: var(--bg-warning, var(--surface-1));
+  color: var(--text);
+  font-size: var(--fs-cap, 12px);
+  line-height: 1.5;
+  display: grid;
+  gap: 6px;
+}
+.margin-quality-title { color: var(--text-warning, var(--text)); font-weight: 600; }
+.margin-quality-row { color: var(--text-secondary); }
+.margin-quality-row b { color: var(--text); font-weight: 600; }
+.margin-quality-dim { color: var(--text-muted); }
