@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { fmt, downloadCsv } from "../utils";
-import { fetchCashBySpot, fetchCashPerDay } from "../poster";
+import { fetchCashBySpot, fetchCashPerDay, fetchHoursByDay } from "../poster";
 import { isAdmin, getUserBranch } from "../auth.jsx";
 import { BRANCHES } from "../auth.jsx";
 import { LoadError } from "./Fallbacks.jsx";
@@ -64,6 +64,8 @@ export default function CrossLocationDashboard({ agg }) {
   const [sortCol, setSortCol] = useState("total");
   const [sortDir, setSortDir] = useState("desc");
   const [prevCashData, setPrevCashData] = useState([]);
+  // Сегодняшний день ещё идёт: прошлый период сравнивается «к тому же часу»
+  const [sameTime, setSameTime] = useState(false);
 
   const p = PERIODS.find((x) => x.id === period);
   const dateFrom = p.from();
@@ -96,7 +98,30 @@ export default function CrossLocationDashboard({ agg }) {
       const prevToStr = `${prevTo.getFullYear()}-${String(prevTo.getMonth() + 1).padStart(2, "0")}-${String(prevTo.getDate()).padStart(2, "0")}`;
       const prevCash = await fetchCashBySpot(prevFromStr, prevToStr);
       if (ref.cancelled) return;
-      setPrevCashData(prevCash);
+      // Период кончается сегодня — сегодня ещё идёт. Полный прошлый день
+      // против половины сегодняшнего давал «−40 %» у всех точек к обеду.
+      // Последний день прошлого периода режем до того же часа — по
+      // почасовым ночным итогам, как на главной «со вчера в это же время»
+      let prevAdj = prevCash;
+      let cut = false;
+      if (dateTo === todayStr()) {
+        const hrs = await fetchHoursByDay(prevToStr, prevToStr).catch(() => null);
+        const day = hrs?.days?.[0]?.hours;
+        if (day) {
+          const [hh, mm] = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).split(":").map(Number);
+          prevAdj = prevCash.map((c) => {
+            const hs = day[String(c.spotId)];
+            if (!hs?.cash) return c;
+            const full = hs.cash.reduce((a, b) => a + b, 0);
+            const part = hs.cash.slice(0, hh).reduce((a, b) => a + b, 0) + (hs.cash[hh] || 0) * (mm / 60);
+            return { ...c, total: Math.round(c.total - full + part) };
+          });
+          cut = true;
+        }
+      }
+      if (ref.cancelled) return;
+      setSameTime(cut);
+      setPrevCashData(prevAdj);
 
       // Тренд: последние 7 дней по каждой точке (один запрос на все точки сразу)
       const today = new Date();
@@ -216,7 +241,9 @@ export default function CrossLocationDashboard({ agg }) {
       <div className="page-header">
         <div>
           <h1 className="page-title">Кросс-локационный дашборд</h1>
-          <div className="page-sub">Сравнение всех точек в одном месте</div>
+          <div className="page-sub">
+            Сравнение всех точек в одном месте{sameTime ? " · изменение — к тому же часу прошлого периода" : ""}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button className="btn btn-out btn-sm" onClick={exportCsv}>
