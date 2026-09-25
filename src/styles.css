@@ -2826,6 +2826,13 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   .chat-answer-row { flex-wrap: wrap; }
   .chat-answer-value { white-space: normal; text-align: left; flex-basis: 100%; padding-left: calc(1.2em + 6px); font-weight: 500; }
 }
+/* Длинное значение — под подписью, с переносом, на любой ширине: одной
+   строкой оно уходило за край и давало ленте чата горизонтальную прокрутку */
+.chat-answer-row--long { flex-wrap: wrap; }
+.chat-answer-row--long .chat-answer-value { white-space: normal; margin-left: auto; }
+.chat-answer-value { max-width: 100%; overflow-wrap: anywhere; }
+.chat-answer-sub { font-weight: 600; margin-top: 6px; }
+.chat-answer-gap + .chat-answer-sub { margin-top: 0; }
 
 .chat-debug {
   margin-top: 6px;

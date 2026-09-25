@@ -1042,23 +1042,28 @@ async function handleStaff(spot, period, ipGroup, parsed) {
 
   if (roster) {
     // По точкам: кто и с какого по какой час пробивал чеки. За один день —
-    // часы смены; за несколько — сколько дней человек выходил
+    // часы смены; за несколько — сколько дней человек выходил. Каждый
+    // человек — своей строкой: одной строкой на точку она уходила за
+    // край экрана (у Гагарины — 1 400 px на телефоне)
     const oneDay = from === to;
+    const nChecks = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "чек" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "чека" : "чеков"}`;
+    const nDays = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дня" : "дней"}`;
     const bySpot = {};
     for (const p of people) {
       const b = (bySpot[p.spotId] ||= { name: spotOf(p), people: [] });
       b.people.push(p);
     }
     const spotsList = Object.values(bySpot).sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    const lines = spotsList.map((b) => {
-      const list = b.people.sort((x, y) => y.checks - x.checks).map((p) => {
+    const lines = [];
+    for (const b of spotsList) {
+      if (spotsList.length > 1) lines.push("", b.name);
+      for (const p of b.people.sort((x, y) => y.checks - x.checks)) {
         const sh = p.shifts || [];
-        const when = oneDay && sh[0] ? `${sh[0].from}–${sh[0].to}, ` : !oneDay && p.daysWorked ? `${p.daysWorked} ${p.daysWorked === 1 ? "день" : p.daysWorked < 5 ? "дня" : "дней"}, ` : "";
-        return `${p.name} (${when}${p.checks} чек., ${fmt(p.total)})`;
-      });
-      return `• ${b.name}: ${list.join(", ")}`;
-    });
-    return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n")}${note}`, data: { spots: spotsList } };
+        const when = oneDay && sh[0] ? `${sh[0].from}–${sh[0].to}` : !oneDay && p.daysWorked ? nDays(p.daysWorked) : "";
+        lines.push(`• ${p.name}: ${[when, nChecks(p.checks), fmt(p.total)].filter(Boolean).join(" · ")}`);
+      }
+    }
+    return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n").replace(/^\n/, "")}${note}`, data: { spots: spotsList } };
   }
 
   const key = measure === "avgCheck" ? "avg" : measure === "checks" ? "checks" : "cash";
@@ -1669,6 +1674,43 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   }
 
   const weekdayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+
+  // «Касса по дням за 2 недели» — список по датам, а не разрез по дням
+  // недели: раньше «по дням» всегда значило «Пн–Вс», и на такой вопрос
+  // приходили средние по понедельникам вместо самих дней
+  const listByDate = /по дням(?!\s+недел)/.test(q) && !/будн|выходн|какой день|какие дни|лучш|худш|сильн|слаб|прибыльн|самый день/.test(q);
+  if (listByDate) {
+    const keys = Object.keys(byDate).sort();
+    if (!keys.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
+    const shown = keys.slice(-62);
+    const todayKey = fmtDateJS(new Date()).replace(/-/g, "");
+    const useTx = metric === "checks";
+    const rows = shown.map((k) => {
+      const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
+      return { key: k, dow: new Date(iso + "T00:00:00").getDay(), dm: `${iso.slice(8, 10)}.${iso.slice(5, 7)}`, ...byDate[k] };
+    });
+    const lines = rows.map((r) => `• ${weekdayNames[r.dow]} ${r.dm}: ${useTx ? `${r.tx} чеков (${fmt(r.total)})` : `${fmt(r.total)} (${r.tx} чеков)`}${r.key === todayKey ? " — день ещё идёт" : ""}`);
+    // Среднее, лучший и худший — по закончившимся дням: сегодняшний
+    // неполный всегда выходил бы «худшим»
+    const done = rows.filter((r) => r.key !== todayKey);
+    const total = rows.reduce((n, r) => n + r.total, 0);
+    const tail = [`Итого: ${fmt(total)} за ${rows.length} дн.`];
+    if (done.length > 1) {
+      const val = (r) => (useTx ? r.tx : r.total);
+      const best = done.reduce((a, b) => (val(b) > val(a) ? b : a));
+      const worst = done.reduce((a, b) => (val(b) < val(a) ? b : a));
+      const avg = Math.round(done.reduce((n, r) => n + val(r), 0) / done.length);
+      tail.push(`В среднем: ${useTx ? `${avg} чеков` : fmt(avg)} в день`);
+      tail.push(`🏆 Лучший: ${weekdayNames[best.dow]} ${best.dm} — ${useTx ? `${best.tx} чеков` : fmt(best.total)}`);
+      tail.push(`📉 Худший: ${weekdayNames[worst.dow]} ${worst.dm} — ${useTx ? `${worst.tx} чеков` : fmt(worst.total)}`);
+    }
+    const cut = keys.length > shown.length ? `\n\nПоказаны последние ${shown.length} дн. из ${keys.length}.` : "";
+    return {
+      text: `${useTx ? "Чеки" : "Касса"} по дням ${sl}${ipLabel} за ${pl}:\n${lines.join("\n")}\n\n${tail.join("\n")}${cut}`,
+      data: { days: rows },
+    };
+  }
+
   const acc = weekdayNames.map((name) => ({ name, total: 0, tx: 0, days: 0 }));
   for (const [k, v] of Object.entries(byDate)) {
     const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;

@@ -113,8 +113,11 @@ function AnswerText({ text }) {
         if (!line.trim()) return <div key={i} className="chat-answer-gap" />;
         const m = line.match(ROW_RE);
         if (m) {
+          // Длинное значение («07:24–14:12 · 101 чек · 176 678 ₸», список
+          // людей) — под подписью с переносом, а не одной строкой за край
+          const long = m[3].length > 28;
           return (
-            <div key={i} className="chat-answer-row">
+            <div key={i} className={long ? "chat-answer-row chat-answer-row--long" : "chat-answer-row"}>
               <span className="chat-answer-mark">{m[1]}</span>
               <span className="chat-answer-label">{m[2]}</span>
               <span className="chat-answer-value">{m[3]}</span>
@@ -123,6 +126,9 @@ function AnswerText({ text }) {
         }
         // Первая строка с двоеточием на конце — заголовок ответа
         if (i === 0 && /:$/.test(line.trim()) && lines.length > 1) return <div key={i} className="chat-answer-title">{line.replace(/:$/, "")}</div>;
+        // Короткая строка над строками с «•» — подзаголовок группы (точка
+        // в «Кто работал»)
+        if (line.length <= 32 && !/[:.!?]$/.test(line.trim()) && ROW_RE.test(lines[i + 1] || "")) return <div key={i} className="chat-answer-sub">{line}</div>;
         if (/^(Итого|Всего|Среднее|Средний)/.test(line)) return <div key={i} className="chat-answer-total">{line}</div>;
         return <div key={i}>{line}</div>;
       })}
