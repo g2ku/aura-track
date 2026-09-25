@@ -157,6 +157,19 @@ section("Фото с подписью");
   const ok2 = await run(store, "09.09 Атакент сиропы 21 600", { asPhoto: true });
   ok(ok2 && /принято/.test(ok2.text), "с суммой — принято");
 
+  // Бот советует «допишите сумму в подпись» — правка подписи того же
+  // фото должна дойти до учёта, иначе совет ведёт в тупик
+  {
+    const st = makeStore({ ackMode: "reply" });
+    const first = await run(st, "Атакент сиропы", { asPhoto: true, messageId: 9001 });
+    ok(/Приход не записан/.test(first?.text || ""), "фото без суммы — не записано");
+    const edited = await run(st, "Атакент сиропы 21600", { asPhoto: true, editOf: 9001 });
+    ok(edited && /принято/.test(edited.text), "подпись дописали — принято");
+    eq((await st.getDoc(TODAY))?.totals, { "Атакент": 21600 }, "сумма из правки записана в точку");
+    await run(st, "Атакент сиропы 21700", { asPhoto: true, editOf: 9001 });
+    eq((await st.getDoc(TODAY))?.totals, { "Атакент": 21700 }, "повторная правка заменяет, а не складывает");
+  }
+
   // Фото с подписью без точки и без суммы — тоже не молчим
   const bare = await run(makeStore({ ackMode: "reply" }), "сиропы", { asPhoto: true });
   ok(bare && /Напишите подписью точку и сумму/.test(bare.text), "без точки — подсказка с точкой и суммой");
