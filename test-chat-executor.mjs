@@ -672,6 +672,24 @@ section("Остатки: минусы, «скоро закончится», ра
   ok(!/\d{4}-\d{2}-\d{2}/.test(spent), "даты — словами, не 2026-09-19");
 }
 
+section("Прогноз на сегодня — по обычной форме дня");
+{
+  const { todayForecast } = await import("./src/chat/forecast.js");
+  // Обычный день: 100 к 12:00 из 400 — четверть дня
+  const day = Array(24).fill(0); day[9] = 50; day[11] = 50; day[15] = 150; day[19] = 150;
+  const f = todayForecast({ cash: 120, nowMin: 12 * 60, days: [day, day] });
+  ok(Math.round(f.share * 100) === 25 && Math.round(f.forecast) === 480, `к полудню — четверть дня, 120 → 480: ${JSON.stringify(f)}`);
+  const early = todayForecast({ cash: 0, nowMin: 7 * 60, days: [day] });
+  ok(early.forecast === null, "до первых продаж — прогноза нет, а не деление на ноль");
+
+  const t = plain(await ask("сколько сделаем сегодня"));
+  has(t, "Прогноз все филиалы на сегодня: ~", "прогноз к закрытию");
+  has(t, "обычно к 12:00 это", "и откуда он: доля дня к этому часу");
+  has(t, "по 4 прошлым воскресеньям", "по тем же дням недели");
+  const a = plain(await ask("что будет к закрытию на абае"));
+  has(a, "Прогноз Абая на сегодня", "и по одной точке");
+}
+
 section("«Почему» — разбор причин: люди или покупки, часы, товары");
 {
   const t = plain(await ask("почему просела касса абая вчера"));

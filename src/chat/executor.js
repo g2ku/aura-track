@@ -316,6 +316,8 @@ async function executeInner(parsed, userBranch) {
 
     // Operations that work across metrics
     if (operation === "trend") return await handleTrend(metric, effectiveSpot, period, ipGroup);
+    // Прогноз на сегодня — по форме дня; на месяц — по истории месяцев
+    if (operation === "forecast" && period.from === period.to && period.to === fmtDateJS(new Date())) return await handleTodayForecast(effectiveSpot, ipGroup);
     if (operation === "forecast") return await handleForecast(metric, effectiveSpot, period, ipGroup);
     if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
     if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
@@ -347,6 +349,52 @@ async function executeInner(parsed, userBranch) {
     if (isStaleChunkError(e)) return { text: "Сайт обновился — перезагружаю страницу и спрошу ещё раз…", data: { staleBuild: true } };
     return { text: `Ошибка: ${e.message || "не удалось загрузить данные"}`, data: null };
   }
+}
+
+// ─── Прогноз на сегодня ──────────────────────────────────────────
+//
+// «Сколько сделаем сегодня» — касса сейчас против обычной доли дня к этому
+// часу (те же дни недели четыре прошлые недели). См. forecast.js.
+const WEEKDAY_ACC_PL = ["воскресеньям", "понедельникам", "вторникам", "средам", "четвергам", "пятницам", "субботам"];
+
+async function handleTodayForecast(spot, ipGroup) {
+  const { todayForecast } = await import("./forecast.js");
+  const todayIso = fmtDateJS(new Date());
+  const sl = label(spot);
+  let rows = (await fetchCashBySpot(todayIso, todayIso)).filter((d) => matchesSpot(d, spot));
+  rows = await filterByIPGroup(rows, ipGroup);
+  const ids = new Set(rows.map((d) => String(d.spotId)));
+  const cash = rows.reduce((a, d) => a + (d.total || 0), 0);
+  const shift = (n) => { const x = new Date(todayIso + "T00:00:00"); x.setDate(x.getDate() - n); return fmtDateJS(x); };
+  const past = [7, 14, 21, 28].map(shift);
+  const hrs = await Promise.all(past.map((d) => fetchHoursByDay(d, d).catch(() => null)));
+  const days = [];
+  for (const h of hrs) {
+    const day = h?.days?.[0]?.hours;
+    if (!day) continue;
+    const sum = Array(24).fill(0);
+    for (const [id, hs] of Object.entries(day)) {
+      if (ids.size && !ids.has(String(id))) continue;
+      if (!ids.size && !matchesSpot({ spotId: String(id), spotName: "" }, spot)) continue;
+      (hs.cash || []).forEach((v, i) => { sum[i] += v || 0; });
+    }
+    days.push(sum);
+  }
+  const [hh, mm] = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).split(":").map(Number);
+  const f = todayForecast({ cash, nowMin: hh * 60 + mm, days });
+  const wd = new Date(todayIso + "T00:00:00").getDay();
+  if (!f) return { text: `Прогноза ${sl} на сегодня нет: не с чем сравнить форму дня — прошлых ${WEEKDAY_ACC_PL[wd].replace(/ам$/, "")} в итогах нет.`, data: null };
+  const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  if (!f.forecast) return { text: `Прогноз ${sl} на сегодня: ещё рано — к ${time} продаж обычно ещё нет. Обычный день — ${fmt(Math.round(f.usual))}.`, data: f };
+  const round = (v) => Math.round(v / 1000) * 1000;
+  const vsUsual = Math.round(((f.forecast - f.usual) / f.usual) * 100);
+  const lines = [
+    `Прогноз ${sl} на сегодня: ~${fmt(round(f.forecast))} к закрытию` + (f.low && f.high && f.high - f.low > f.forecast * 0.03 ? ` (от ${fmt(round(f.low))} до ${fmt(round(f.high))})` : ""),
+    `Сейчас ${fmt(Math.round(cash))} — обычно к ${time} это ${Math.round(f.share * 100)} % дня (по ${f.days} прошлым ${WEEKDAY_ACC_PL[wd]}).`,
+    `Обычный такой день — ${fmt(Math.round(f.usual))}: ${vsUsual === 0 ? "идём вровень" : vsUsual > 0 ? `идём на ${vsUsual} % выше` : `идём на ${Math.abs(vsUsual)} % ниже`}.`,
+  ];
+  if (f.share < 0.2) lines.push("Рано: утром доля дня скачет — прогноз точнее после обеда.");
+  return { text: lines.join("\n"), data: f };
 }
 
 // ─── Почему: разбор причин ───────────────────────────────────────

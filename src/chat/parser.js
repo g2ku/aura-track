@@ -1192,6 +1192,19 @@ export async function parseQuestion(text) {
   if (byBranchAsked && ["cash", "checks", "avgCheck"].includes(metric)) { metric = "compareBranches"; spot = null; }
   // «Сколько принёс Дубай» — одна точка названа, сравнивать не с кем: это её касса
   if (metric === "compareBranches" && spotNamed && countSpots(lower) < 2 && !/по\s+(?:филиал|точк)|кто |какая|какой|какие|рейтинг|лучш|худш/.test(lower)) metric = "cash";
+  // «Сколько сделаем сегодня», «какая будет касса», «что будет к закрытию»
+  // — прогноз на сегодня по обычной форме дня, а не товары и не «сейчас»
+  const willAsk = /(?:сколько|какая|какой)\s+(?:сделаем|сделает|будет|выйдет|набер[её]м|заработаем)|к\s+(?:закрытию|концу\s+дня)|до\s+конца\s+дня/.test(lower);
+  // «Сделаем», «наберём» разбор принимал за название товара
+  if (willAsk && product && /^(?:сделаем|сделает|будет|выйдет|набер[её]м|заработаем|закрыти)/.test(product)) product = null;
+  if (willAsk && !product && !category) {
+    const td = fmtDate(new Date());
+    if (!explicitPeriod || (explicitPeriod.from === td && explicitPeriod.to === td)) {
+      operation = "forecast";
+      metric = "cash";
+      period.from = period.to = td;
+    }
+  }
   // «Почему просел Жароково вчера», «что случилось с Абаей», «из-за чего
   // упала касса» — разбор причин, а не голое сравнение двух чисел: чеки или
   // средний чек, в какие часы, какие товары. Без срока — вчера, последний

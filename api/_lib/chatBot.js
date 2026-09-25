@@ -23,6 +23,7 @@ import { escapeHtml } from "./dailyDoc.js";
 import { categoryMargins, marginTotals, purchaseCosts, costQuality } from "../../src/menuMatrix.js";
 import { calcRecipeCost } from "../../src/recipeCost.js";
 import { explainChange, WEEKDAY_GEN } from "../../src/chat/why.js";
+import { todayForecast } from "../../src/chat/forecast.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
 const int = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0));
@@ -511,6 +512,8 @@ export async function answerQuestion(text, deps) {
   process.env.TZ = "Asia/Almaty";
   const parsed = await looksLikeQuestion(text, { recall: deps.recall });
   if (!parsed) return null;
+  // «Прогноз на сегодня» разбор метит метрикой forecast — это касса
+  if (parsed.operation === "forecast" && parsed.metric === "forecast") parsed.metric = "cash";
   if (!SUPPORTED.has(parsed.metric)) {
     return { text: `Это умеет только сайт — ${deps.siteUrl ? `${deps.siteUrl}/#/chat` : "раздел «Ассистент»"}.`, parsed };
   }
@@ -523,6 +526,38 @@ export async function answerQuestion(text, deps) {
     parsed.period = { from: start.toISOString().slice(0, 10), to: today, label: "по месяцам" };
   }
   let todayMissing = false;
+  // «Сколько сделаем сегодня» — касса сейчас против обычной доли дня к этому
+  // часу (те же дни недели 4 недели) — тот же расчёт, что у сайта
+  if (parsed.operation === "forecast" && parsed.period?.from === today && parsed.period?.to === today && deps.getToday) {
+    const spots = spotsFor(parsed);
+    const t = await deps.getToday(false).catch(() => null);
+    const cash = Object.entries(t?.cashBySpot || {}).filter(([id]) => !spots || spots.has(String(id))).reduce((a, [, v]) => a + (v || 0), 0);
+    const past = await Promise.all([7, 14, 21, 28].map((k) => deps.getDays(shiftYmd(today, -k), shiftYmd(today, -k)).catch(() => [])));
+    const days = [];
+    for (const list of past) for (const d of list || []) {
+      if (!d?.hours) continue;
+      const sum = Array(24).fill(0);
+      for (const [id, hs] of Object.entries(d.hours)) {
+        if (spots && !spots.has(String(id))) continue;
+        (hs.cash || []).forEach((v, i) => { sum[i] += v || 0; });
+      }
+      days.push(sum);
+    }
+    const [hh, mm] = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Almaty", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).split(":").map(Number);
+    const f = todayForecast({ cash, nowMin: hh * 60 + mm, days });
+    const where = spots && spots.size === 1 ? ` ${spotNameByPosterId([...spots][0])}` : "";
+    if (!f) return { text: `Прогноза${escapeHtml(where)} на сегодня нет: прошлых таких дней недели в итогах нет.`, parsed };
+    if (!f.forecast) return { text: `Прогноз${escapeHtml(where)} на сегодня: ещё рано — продаж к этому часу обычно нет.`, parsed };
+    const r = (v) => Math.round(v / 1000) * 1000;
+    const vs = Math.round(((f.forecast - f.usual) / f.usual) * 100);
+    const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    return { text: [
+      `<b>Прогноз${escapeHtml(where)} на сегодня: ~${fmt(r(f.forecast))}</b>${f.low && f.high && f.high - f.low > f.forecast * 0.03 ? ` (от ${fmt(r(f.low))} до ${fmt(r(f.high))})` : ""}`,
+      `Сейчас ${fmt(cash)} — обычно к ${time} это ${Math.round(f.share * 100)} % дня.`,
+      `Обычный такой день — ${fmt(f.usual)}: ${vs === 0 ? "идём вровень" : vs > 0 ? `идём на ${vs} % выше` : `идём на ${Math.abs(vs)} % ниже`}.`,
+      f.share < 0.2 ? "<i>Рано: утром доля дня скачет — точнее после обеда.</i>" : "",
+    ].filter(Boolean).join("\n"), parsed };
+  }
   // Сравнение периодов, кончающихся сегодня: сегодня ещё идёт, и неполный
   // день против полного тянул любое «кто просел» вниз. Сравниваем полные
   // дни — первый по вчера, второй той же длины (те же дни недели), как на сайте
