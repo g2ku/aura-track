@@ -363,7 +363,6 @@ async function handleTodayForecast(spot, ipGroup) {
   const sl = label(spot);
   let rows = (await fetchCashBySpot(todayIso, todayIso)).filter((d) => matchesSpot(d, spot));
   rows = await filterByIPGroup(rows, ipGroup);
-  const ids = new Set(rows.map((d) => String(d.spotId)));
   const cash = rows.reduce((a, d) => a + (d.total || 0), 0);
   const shift = (n) => { const x = new Date(todayIso + "T00:00:00"); x.setDate(x.getDate() - n); return fmtDateJS(x); };
   const past = [7, 14, 21, 28].map(shift);
@@ -373,10 +372,13 @@ async function handleTodayForecast(spot, ipGroup) {
     const day = h?.days?.[0]?.hours;
     if (!day) continue;
     const sum = Array(24).fill(0);
-    for (const [id, hs] of Object.entries(day)) {
-      if (ids.size && !ids.has(String(id))) continue;
-      if (!ids.size && !matchesSpot({ spotId: String(id), spotName: "" }, spot)) continue;
-      (hs.cash || []).forEach((v, i) => { sum[i] += v || 0; });
+    // Точки — по вопросу, а не по тем, у кого сейчас есть продажи: ночью
+    // торговала одна точка, и «обычный день» выходил 226 тыс. вместо 2 млн
+    // (живой ответ 26.09.2026)
+    let scoped = Object.keys(day).map((id) => ({ spotId: String(id), spotName: spotNameByPosterId(id, "") }));
+    scoped = (await filterByIPGroup(scoped.filter((d) => matchesSpot(d, spot)), ipGroup)).map((d) => d.spotId);
+    for (const id of scoped) {
+      (day[id]?.cash || []).forEach((v, i) => { sum[i] += v || 0; });
     }
     days.push(sum);
   }
@@ -385,7 +387,9 @@ async function handleTodayForecast(spot, ipGroup) {
   const wd = new Date(todayIso + "T00:00:00").getDay();
   if (!f) return { text: `Прогноза ${sl} на сегодня нет: не с чем сравнить форму дня — прошлых ${WEEKDAY_ACC_PL[wd].replace(/ам$/, "")} в итогах нет.`, data: null };
   const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-  if (!f.forecast) return { text: `Прогноз ${sl} на сегодня: ещё рано — к ${time} продаж обычно ещё нет. Обычный день — ${fmt(Math.round(f.usual))}.`, data: f };
+  // Пока день толком не начался, «4 % дня» дают прогноз вида «880 тыс.» —
+  // случайное число. Цифру называем с 10 % обычного дня
+  if (!f.forecast || f.share < 0.1) return { text: `Прогноз ${sl} на сегодня: ещё рано — к ${time} обычно набирается ${Math.round(f.share * 100)} % дня. Обычный такой день — ${fmt(Math.round(f.usual))}. Спросите после открытия.`, data: f };
   const round = (v) => Math.round(v / 1000) * 1000;
   const vsUsual = Math.round(((f.forecast - f.usual) / f.usual) * 100);
   const lines = [
@@ -393,7 +397,7 @@ async function handleTodayForecast(spot, ipGroup) {
     `Сейчас ${fmt(Math.round(cash))} — обычно к ${time} это ${Math.round(f.share * 100)} % дня (по ${f.days} прошлым ${WEEKDAY_ACC_PL[wd]}).`,
     `Обычный такой день — ${fmt(Math.round(f.usual))}: ${vsUsual === 0 ? "идём вровень" : vsUsual > 0 ? `идём на ${vsUsual} % выше` : `идём на ${Math.abs(vsUsual)} % ниже`}.`,
   ];
-  if (f.share < 0.2) lines.push("Рано: утром доля дня скачет — прогноз точнее после обеда.");
+  if (f.share < 0.25) lines.push("Рано: утром доля дня скачет — прогноз точнее после обеда.");
   return { text: lines.join("\n"), data: f };
 }
 
@@ -405,7 +409,7 @@ async function handleTodayForecast(spot, ipGroup) {
 // день недели (среднее за четыре прошлые недели) или такой же отрезок
 // перед периодом. Только закончившиеся дни: сегодняшний ещё идёт.
 async function handleWhy(spot, period, ipGroup) {
-  const { explainChange, WEEKDAY_GEN } = await import("./why.js");
+  const { explainChange, usualWeekday } = await import("./why.js");
   const todayIso = fmtDateJS(new Date());
   const sl = label(spot);
   const shift = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return fmtDateJS(x); };
@@ -459,7 +463,7 @@ async function handleWhy(spot, period, ipGroup) {
   const baseX = (await Promise.all(baseData.map((d, i) => collect(d, bases[i])))).filter(Boolean);
   if (!baseX.length) return { text: `Не с чем сравнить: прошлых таких дней в данных нет.`, data: null };
   if (!curX || (!curX.cash && !baseX.some((x) => x.cash))) return { text: `Продаж ${sl} за ${formatPeriodLabel(period)} нет — сравнивать нечего.`, data: null };
-  const baseWord = oneDay ? `обычного ${WEEKDAY_GEN[new Date(period.from + "T00:00:00").getDay()]}` : `предыдущих ${days} дн.`;
+  const baseWord = oneDay ? usualWeekday(new Date(period.from + "T00:00:00").getDay()) : `предыдущих ${days} дн.`;
   const head = `${isAll(spot) ? "Вся сеть" : sl}, ${formatPeriodLabel(period)}`;
   const r = explainChange({ head, baseWord, cur: curX, bases: baseX, fmt });
   const lines = [...r.lines];
@@ -2260,12 +2264,12 @@ async function handleStock(spot, period, product, raw = "") {
   const runway = /законч|кончает|хватит/.test(q);
   let from = period.from;
   const to = period.to > todayIso ? todayIso : period.to;
-  // Запас — по свежему расходу: не дальше двух недель назад
+  // Запас — по свежему расходу за две недели: и не дальше (месяц назад
+  // расход был другим), и не меньше (за «сегодня» с утра он случаен)
   if (runway) {
     const d = new Date(to + "T00:00:00");
     d.setDate(d.getDate() - 13);
-    const floor = fmtDateJS(d);
-    if (from < floor) from = floor;
+    from = fmtDateJS(d);
   }
   period = { ...period, from, to };
   const r = await fetchIngredientMovement(period.from, period.to);

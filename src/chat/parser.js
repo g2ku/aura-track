@@ -1341,7 +1341,12 @@ export async function mergeFollowUp(prev, text) {
 
   if (spot) { next.spot = spot; changed.push("spot"); }
   if (period) { next.period = period; changed.push("period"); }
-  if (metric) { next.metric = metric; changed.push("metric"); }
+  if (metric) {
+    next.metric = metric;
+    // Сменилась тема — операция прошлой («прогноз», «почему») ей чужая
+    if (metric !== prev.metric && !opWord) next.operation = parseOperation(lower);
+    changed.push("metric");
+  }
   if (category) { next.category = category; next.product = null; next.metric = "products"; changed.push("category"); }
   else if (product) { next.product = product; next.category = null; next.metric = "products"; changed.push("product"); }
   if (ipGroup) { next.ipGroup = ipGroup; changed.push("ipGroup"); }

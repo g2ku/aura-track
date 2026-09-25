@@ -22,7 +22,7 @@ import { spotNameByPosterId, DEFAULT_IP_GROUPS, BRANCHES } from "./branches.js";
 import { escapeHtml } from "./dailyDoc.js";
 import { categoryMargins, marginTotals, purchaseCosts, costQuality } from "../../src/menuMatrix.js";
 import { calcRecipeCost } from "../../src/recipeCost.js";
-import { explainChange, WEEKDAY_GEN } from "../../src/chat/why.js";
+import { explainChange, usualWeekday } from "../../src/chat/why.js";
 import { todayForecast } from "../../src/chat/forecast.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
@@ -128,7 +128,7 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
     const bases = (oneDay ? (baseDays.lastFour || []) : [baseDays.prev || []]).map(pack).filter(Boolean);
     if (!cur || !bases.length) return `Не с чем сравнить ${escapeHtml(when)}: прошлых таких дней в итогах нет.`;
     const nDays = Math.round((Date.parse(`${parsed.period.to}T00:00:00Z`) - Date.parse(`${parsed.period.from}T00:00:00Z`)) / 86400000) + 1;
-    const baseWord = oneDay ? `обычного ${WEEKDAY_GEN[new Date(`${parsed.period.from}T00:00:00Z`).getUTCDay()]}` : `предыдущих ${nDays} дн.`;
+    const baseWord = oneDay ? usualWeekday(new Date(`${parsed.period.from}T00:00:00Z`).getUTCDay()) : `предыдущих ${nDays} дн.`;
     const r = explainChange({ head: `${where.trim() || "Вся сеть"}, ${when.replace(/^за\s+/, "")}`, baseWord, cur, bases, fmt });
     return r ? r.lines.map((l, i) => (i === 0 ? `<b>${escapeHtml(l)}</b>` : escapeHtml(l))).join("\n") : null;
   }
@@ -547,7 +547,8 @@ export async function answerQuestion(text, deps) {
     const f = todayForecast({ cash, nowMin: hh * 60 + mm, days });
     const where = spots && spots.size === 1 ? ` ${spotNameByPosterId([...spots][0])}` : "";
     if (!f) return { text: `Прогноза${escapeHtml(where)} на сегодня нет: прошлых таких дней недели в итогах нет.`, parsed };
-    if (!f.forecast) return { text: `Прогноз${escapeHtml(where)} на сегодня: ещё рано — продаж к этому часу обычно нет.`, parsed };
+    // С 10 % обычного дня — раньше прогноз случаен (живой ответ 26.09.2026)
+    if (!f.forecast || f.share < 0.1) return { text: `Прогноз${escapeHtml(where)} на сегодня: ещё рано — к этому часу обычно набирается ${Math.round(f.share * 100)} % дня. Обычный такой день — ${fmt(f.usual)}.`, parsed };
     const r = (v) => Math.round(v / 1000) * 1000;
     const vs = Math.round(((f.forecast - f.usual) / f.usual) * 100);
     const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
@@ -555,7 +556,7 @@ export async function answerQuestion(text, deps) {
       `<b>Прогноз${escapeHtml(where)} на сегодня: ~${fmt(r(f.forecast))}</b>${f.low && f.high && f.high - f.low > f.forecast * 0.03 ? ` (от ${fmt(r(f.low))} до ${fmt(r(f.high))})` : ""}`,
       `Сейчас ${fmt(cash)} — обычно к ${time} это ${Math.round(f.share * 100)} % дня.`,
       `Обычный такой день — ${fmt(f.usual)}: ${vs === 0 ? "идём вровень" : vs > 0 ? `идём на ${vs} % выше` : `идём на ${Math.abs(vs)} % ниже`}.`,
-      f.share < 0.2 ? "<i>Рано: утром доля дня скачет — точнее после обеда.</i>" : "",
+      f.share < 0.25 ? "<i>Рано: утром доля дня скачет — точнее после обеда.</i>" : "",
     ].filter(Boolean).join("\n"), parsed };
   }
   // Сравнение периодов, кончающихся сегодня: сегодня ещё идёт, и неполный

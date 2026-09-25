@@ -73,3 +73,10 @@ export function explainChange({ head, baseWord, cur, bases, fmt }) {
 }
 
 export const WEEKDAY_GEN = ["воскресенья", "понедельника", "вторника", "среды", "четверга", "пятницы", "субботы"];
+
+// «обычного четверга», но «обычной пятницы»: среда, пятница, суббота —
+// женского рода (живой ответ 26.09.2026: «в пределах обычного пятницы»)
+export function usualWeekday(dayIndex) {
+  const fem = dayIndex === 3 || dayIndex === 5 || dayIndex === 6;
+  return `${fem ? "обычной" : "обычного"} ${WEEKDAY_GEN[dayIndex]}`;
+}
