@@ -336,7 +336,7 @@ async function executeInner(parsed, userBranch) {
       case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
       case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup);
 
-      case "stock": return await handleStock(effectiveSpot, period, product);
+      case "stock": return await handleStock(effectiveSpot, period, product, parsed.raw);
       default: return await handleCash(operation, effectiveSpot, period, ipGroup);
     }
   } catch (e) {
@@ -2085,34 +2085,98 @@ async function handleAlerts() {
 // Молоко и зерно не продают стаканами — их списывают по техкартам.
 // Вопрос «сколько молока ушло» раньше искал такой товар в продажах и
 // не находил ничего.
-async function handleStock(spot, period, product) {
+// Poster хранит единицы по-английски, а читают это по-русски
+const STOCK_UNIT = { l: "л", kg: "кг", pcs: "шт", p: "шт" };
+const unitRu = (u) => STOCK_UNIT[u] ?? u ?? "";
+const qtyRu = (v) => Number(v).toLocaleString("ru-RU", { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 2 });
+
+async function handleStock(spot, period, product, raw = "") {
   const { fetchIngredientMovement } = await import("../poster.js");
+  const { periodDays, runningLow, runwayDays, runwayLabel } = await import("../runway.js");
+  const q = String(raw).toLowerCase();
+  // Остатки — на сегодня, а не на конец месяца: «сентябрь» по умолчанию
+  // шёл до 30-го, и расход в день делился на ещё не прошедшие дни
+  const todayIso = fmtDateJS(new Date());
+  const runway = /законч|кончает|хватит/.test(q);
+  let from = period.from;
+  const to = period.to > todayIso ? todayIso : period.to;
+  // Запас — по свежему расходу: не дальше двух недель назад
+  if (runway) {
+    const d = new Date(to + "T00:00:00");
+    d.setDate(d.getDate() - 13);
+    const floor = fmtDateJS(d);
+    if (from < floor) from = floor;
+  }
+  period = { ...period, from, to };
   const r = await fetchIngredientMovement(period.from, period.to);
   const branch = spot && spot.spotId !== "all" ? (SPOT_NAME[String(spot.spotId)] || null) : null;
+  const pl = formatPeriodLabel(period);
+  const where = branch ? ` · ${branch}` : "";
+
+  // «Остатки в минусе» — про минусы, а не про расход: раньше ответ
+  // начинался со списка расхода, а минусы стояли последней строкой
+  if (/минус|отрицат|ниже нуля/.test(q)) {
+    const neg = Object.entries(r?.negative || {}).filter(([b]) => !branch || b === branch)
+      .map(([b, items]) => ({ b, items, money: items.reduce((s, i) => s + (i.money || 0), 0) }))
+      .sort((a, b) => a.money - b.money);
+    if (!neg.length) return { text: `Минусовых остатков${where} нет — приход проводят.`, data: { negative: 0 } };
+    const lines = neg.map(({ b, items, money }) => {
+      const top = items.slice(0, 3).map((i) => `${i.name} ${qtyRu(i.end)} ${unitRu(i.unit)}`).join(", ");
+      return `• ${b}: ${items.length} поз. на ${fmt(Math.abs(money))} — ${top}${items.length > 3 ? "…" : ""}`;
+    });
+    return {
+      text: `Остатки в минусе${where}:\n${lines.join("\n")}\n\nСписывают по продажам, а приход в Poster не проводят — товар на точке есть, в Poster его нет.`,
+      data: { negative: neg.reduce((s, x) => s + x.items.length, 0) },
+    };
+  }
+
+  // «Что скоро закончится» — по настоящему остатку и расходу за период
+  if (runway) {
+    const ymd = (d) => d.replace(/-/g, "");
+    const days = periodDays(ymd(period.from), ymd(period.to));
+    // «На сколько хватит молока» — про один товар: по каждой точке
+    if (product) {
+      const pq = String(product).toLowerCase();
+      const hits = (r?.items || []).filter((i) => i.name.toLowerCase().includes(pq));
+      if (!hits.length) return { text: `«${product}» в остатках не нашёл.`, data: null };
+      const lines = [];
+      for (const i of hits.slice(0, 3)) {
+        for (const [b, v] of Object.entries(i.byBranch || {})) {
+          if (branch && b !== branch) continue;
+          const left = runwayDays(v.end, v.spent, days);
+          lines.push(`• ${b}: ${i.name} — ${qtyRu(v.end)} ${unitRu(i.unit)}${v.end < 0 ? " (в минусе — приход не провели)" : left != null ? `, ${runwayLabel(left)}` : ", не расходуется"}`);
+        }
+      }
+      return { text: `На сколько хватит (при расходе за ${pl}):\n${lines.join("\n")}`, data: { rows: lines.length } };
+    }
+    const low = Object.entries(runningLow(r?.items || [], days, 3)).filter(([b]) => !branch || b === branch);
+    if (!low.length) return { text: `По расходу за ${pl}${where} ничего не кончится в ближайшие 3 дня (минусовые остатки не в счёт — там приход не провели).`, data: { low: 0 } };
+    const lines = low.map(([b, items]) => `• ${b}: ${items.slice(0, 4).map((i) => `${i.name} — ${qtyRu(i.end)} ${unitRu(i.unit)}, ${runwayLabel(i.days)}`).join("; ")}${items.length > 4 ? "…" : ""}`);
+    return { text: `Скоро закончится${where} (при расходе за ${pl}):\n${lines.join("\n")}`, data: { low: low.length } };
+  }
 
   let rows = r?.items || [];
   if (product) {
-    const q = String(product).toLowerCase();
-    rows = rows.filter((i) => i.name.toLowerCase().includes(q));
+    const pq = String(product).toLowerCase();
+    rows = rows.filter((i) => i.name.toLowerCase().includes(pq));
   }
   if (branch) rows = rows.filter((i) => i.byBranch && i.byBranch[branch]);
 
-  if (!rows.length) return { text: "За этот период списаний не нашёл.", data: null };
+  if (!rows.length) return { text: `За ${pl} списаний не нашёл.`, data: null };
 
   const val = (i) => (branch ? (i.byBranch[branch]?.spent ?? 0) : i.spent);
   rows = rows.filter((i) => val(i) > 0).sort((a, b) => val(b) * b.price - val(a) * a.price);
 
-  const where = branch ? ` · ${branch}` : "";
-  const lines = [`Расход за ${period.from} — ${period.to}${where}:`, ""];
+  const lines = [`Расход за ${pl}${where}:`, ""];
   for (const i of rows.slice(0, 10)) {
-    const q = val(i);
-    lines.push(`• ${i.name} — ${q.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${i.unit || ""} · ${fmt(Math.round(q * i.price))}`);
+    const v = val(i);
+    lines.push(`• ${i.name} — ${qtyRu(v)} ${unitRu(i.unit)} · ${fmt(Math.round(v * i.price))}`);
   }
 
   const neg = Object.entries(r?.negative || {}).filter(([b]) => !branch || b === branch);
   if (neg.length) {
     lines.push("");
-    lines.push(`⚠️ Остаток в минусе: ${neg.map(([b, items]) => `${b} (${items.length})`).join(", ")}`);
+    lines.push(`⚠️ Остаток в минусе: ${neg.map(([b, items]) => `${b} (${items.length} поз.)`).join(", ")} — спросите «остатки в минусе»`);
   }
   return { text: lines.join("\n"), data: null };
 }

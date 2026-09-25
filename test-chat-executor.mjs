@@ -86,6 +86,17 @@ globalThis.__poster = {
     if (opts.includeOpen === false) for (const x of r.receipts) x.waiter = "";
     return r;
   },
+  // Отчёт о движении ингредиентов — как его собирает сервер
+  // (api/_lib/movement.js): единицы Poster по-английски, минусы отдельно
+  async fetchIngredientMovement(from, to) {
+    const items = [
+      { id: "milk", name: "Молоко Обычное 2,5%", unit: "l", price: 663, spent: 90, money: 59670, negativeAt: ["OBI"],
+        byBranch: { "Абая": { spent: 60, income: 0, end: 20 }, "OBI": { spent: 30, income: 0, end: -12 } } },
+      { id: "cup", name: "Стакан фирменный 350", unit: "pcs", price: 90, spent: 900, money: 81000, negativeAt: [],
+        byBranch: { "Абая": { spent: 900, income: 0, end: 5000 } } },
+    ];
+    return { from, to, branches: ["Абая", "OBI"], items, negative: { OBI: [{ id: "milk", name: "Молоко Обычное 2,5%", unit: "l", end: -12, money: -7956 }] } };
+  },
   // Сводка сервера /api/baristas — настоящим summarizeBaristas из строк
   // dash, в которых имя и user_id есть всегда (общий аккаунт — тоже имя)
   async fetchBaristas(from, to) {
@@ -170,6 +181,7 @@ writeFileSync(posterStub, `
   export const fetchCashPerDay = (...a) => P.fetchCashPerDay(...a);
   export const fetchReceipts = (...a) => P.fetchReceipts(...a);
   export const fetchBaristas = (...a) => P.fetchBaristas(...a);
+  export const fetchIngredientMovement = (...a) => P.fetchIngredientMovement(...a);
   export const getMenuCategories = (...a) => P.getMenuCategories(...a);
   export const fetchPaymentBreakdown = (...a) => P.fetchPaymentBreakdown(...a);
   export const getPaymentMethodName = (...a) => P.getPaymentMethodName(...a);
@@ -630,6 +642,30 @@ section("Маржа: без цены у ингредиента — сказан�
   has(t, "Без цены 1 ингредиент из проданных техкарт (Молоко)", "названо, у чего нет цены");
   has(t, "процент завышен", "и что из этого следует");
   globalThis.__margin = null;
+}
+
+section("Остатки: минусы, «скоро закончится», расход по-русски");
+{
+  // 25.09.2026: «остатки в минусе» → список расхода, минусы последней
+  // строкой; «130,85 kg», «2 877 p», даты «2026-09-19 — 2026-09-25»
+  const neg = plain(await ask("остатки в минусе"));
+  ok(/^Остатки в минусе/.test(neg), `про минусы — первой строкой: ${neg.split("\n")[0]}`);
+  has(neg, "• OBI: 1 поз. на 7 956 ₸ — Молоко Обычное 2,5% -12 л", "точка, сколько позиций, на сколько денег, что именно");
+  has(neg, "приход в Poster не проводят", "и почему так бывает");
+
+  const low = plain(await ask("что скоро закончится за неделю"));
+  has(low, "Скоро закончится", "новый вопрос — по настоящим остаткам");
+  has(low, "• Абая: Молоко Обычное 2,5% — 20 л", "молока на Абае мало");
+  ok(!/Стакан/.test(low), "стаканов с запасом — не в списке");
+
+  const milk = plain(await ask("на сколько хватит молока"));
+  has(milk, "• Абая: Молоко Обычное 2,5% — 20 л, ~", "по товару — по каждой точке, с днями");
+  has(milk, "• OBI: Молоко Обычное 2,5% — -12 л (в минусе", "минус назван минусом, а не «хватит на −N дней»");
+  ok(!/30 сент/.test(milk), "период — не дальше сегодня");
+
+  const spent = plain(await ask("расход за неделю"));
+  ok(!/\d kg|\d l\b|\d p\b|\d pcs/.test(spent), `единицы по-русски: ${spent.split("\n").slice(2, 4).join(" / ")}`);
+  ok(!/\d{4}-\d{2}-\d{2}/.test(spent), "даты — словами, не 2026-09-19");
 }
 
 section("Средние — по закончившимся дням");
