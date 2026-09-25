@@ -65,7 +65,7 @@ const OPERATIONS = [
   { keys: ["сумм", "итого", "общая", "общий", "полная", "полный"], value: "sum" },
   { keys: ["сколько", "количеств", "число", "кол-во"], value: "count" },
   { keys: ["максимум", "максимальн", "больше всего", "больше всех", "самый большой", "самые больш", "самый больш", "самый крупн", "самые крупн", "крупнейш", "самый дорог", "самые дорог", "топ", "лучш"], value: "max" },
-  { keys: ["минимум", "минимальн", "меньше всего", "самый маленьк", "самый дешев", "худш", "хуже всего", "меньше всех", "аутсайдер", "слабые", "слабых"], value: "min" },
+  { keys: ["минимум", "минимальн", "меньше всего", "самый маленьк", "самый дешев", "худш", "хуже всего", "меньше всех", "аутсайдер", "слабые", "слабых", "слабая", "слабый", "слабее"], value: "min" },
 ];
 
 // ─── Нечёткое узнавание ───────────────────────────────────────────
@@ -323,9 +323,14 @@ const PRODUCT_ALIASES = {
 
 const MONTH_NAMES = {
   "январ": 1, "феврал": 2, "март": 3, "апрел": 4,
-  "мая": 5, "май": 5, "июн": 6, "июл": 7, "август": 8,
+  "мая": 5, "май": 5, "мае": 5, "маю": 5, "июн": 6, "июл": 7, "август": 8,
   "сентябр": 9, "октябр": 10, "ноябр": 11, "декабр": 12,
 };
+
+// Месяц — только с начала слова. Подстрокой «мая» находилась в «сАМАЯ»:
+// «самая слабая точка за месяц» отвечало кассой за май (26.09.2026)
+const MONTH_RE = Object.fromEntries(Object.keys(MONTH_NAMES).map((p) => [p, new RegExp(`(?:^|[^а-яё])${p}`)]));
+const hasMonth = (text, prefix) => MONTH_RE[prefix].test(text);
 
 // ─── Парсинг периода ──────────────────────────────────────────────
 
@@ -350,7 +355,8 @@ export function hasExplicitPeriod(text) {
 function parsePeriodExplicit(rawText) {
   // «По дням недели за месяц» — «недели» здесь часть разреза, а не срок:
   // без этого период съезжал на неделю
-  const text = String(rawText).replace(/дн[а-яё]*\s+недел[а-яё]*/g, " ");
+  // «Лучший день недели» — тоже разрез, не срок
+  const text = String(rawText).replace(/(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ");
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -653,7 +659,7 @@ function parsePeriodExplicit(rawText) {
 
   // "за июнь 2026" / "в июне" / "за июнь"
   for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
-    if (text.includes(prefix)) {
+    if (hasMonth(text, prefix)) {
       const yearMatch = text.match(/(\d{4})/);
       const year = yearMatch ? parseInt(yearMatch[1]) : currentYear;
       const lastDay = new Date(year, monthNum, 0).getDate();
@@ -670,7 +676,7 @@ function parsePeriodExplicit(rawText) {
 
 function findMonth(text) {
   for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
-    if (text.includes(prefix)) return monthNum;
+    if (hasMonth(text, prefix)) return monthNum;
   }
   return null;
 }
@@ -690,7 +696,7 @@ function monthToPeriod(monthName, year) {
   const now = new Date();
   const currentYear = year || now.getFullYear();
   for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
-    if (monthName.includes(prefix)) {
+    if (hasMonth(monthName, prefix)) {
       const lastDay = new Date(currentYear, monthNum, 0).getDate();
       return {
         from: `${currentYear}-${String(monthNum).padStart(2, "0")}-01`,
@@ -1184,6 +1190,14 @@ export async function parseQuestion(text) {
   // «Как дела», «как торгуем», «что по деньгам» — это про сегодня, а не про месяц
   const askingNow = /как\s+(?:дела|день|идут|идет|идёт)|торгуем|что\s+по\s+деньгам/.test(lower);
   const period = explicitPeriod || (askingNow ? { from: fmtDate(new Date()), to: fmtDate(new Date()) } : currentMonthPeriod());
+  // «Лучший день недели», «по дням недели» без срока — четыре полные
+  // недели: за текущую неделю каждого дня по одному, сравнивать нечего
+  const periodWords = lower.replace(/(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ");
+  if (!explicitPeriod && operation === "byWeekday" && !/месяц|недел|год|квартал|\d/.test(periodWords)) {
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    const f = new Date(y); f.setDate(f.getDate() - 27);
+    period.from = fmtDate(f); period.to = fmtDate(y);
+  }
   // «Что было в этот день год назад», «как прошлый вторник» — назван
   // конкретный день, а не разрез: слова «день»/«час» здесь не метрика
   if (["weekday", "hourly"].includes(metric) && explicitPeriod && period.from === period.to) metric = "cash";
@@ -1290,6 +1304,8 @@ export async function parseQuestion(text) {
     ...(person ? { person } : {}),
     ...(limit ? { limit } : {}),
     ...(spot2 ? { spot2 } : {}),
+    // «Как дела», «как торгуем» — сводка «как идём», а не касса одной цифрой
+    ...(askingNow && !explicitPeriod ? { status: true } : {}),
     product,
     category,
     ipGroup,
@@ -1297,7 +1313,8 @@ export async function parseQuestion(text) {
     // Что мы додумали сами, а не услышали. «Абая за вчера» — это касса,
     // но человек кассу не называл; ассистент ответит и предложит другое.
     assumed: {
-      metric: !hasMetricKeyword && !hasProduct && !category && !hasMoney && metric === "cash",
+      // «Почему» и прогноз — про кассу по смыслу, не догадка
+      metric: !hasMetricKeyword && !hasProduct && !category && !hasMoney && metric === "cash" && !["why", "forecast"].includes(operation),
       period: !explicitPeriod,
       // Товар — догадка по незнакомому слову, а не найденное название:
       // память исправлений и модель имеют право её перебить

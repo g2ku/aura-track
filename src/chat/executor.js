@@ -275,6 +275,21 @@ async function executeInner(parsed, userBranch) {
     }
 
     if (operation === "why") return await handleWhy(effectiveSpot, period, ipGroup);
+    // «Как дела у Жароково»: если сегодня уже торгуем — касса и темп против
+    // обычного к этому часу; если продаж ещё нет (ночь, утро) — как прошёл
+    // вчерашний день, с причинами. Раньше ночью было «0 ₸» (26.09.2026)
+    if (parsed.status && ["cash", "checks", "avgCheck"].includes(metric)) {
+      const todayIso = fmtDateJS(new Date());
+      let rows = (await fetchCashBySpot(todayIso, todayIso)).filter((d) => matchesSpot(d, effectiveSpot));
+      rows = await filterByIPGroup(rows, ipGroup);
+      const cashNow = rows.reduce((a, d) => a + (d.total || 0), 0);
+      const f = cashNow > 0 ? await handleTodayForecast(effectiveSpot, ipGroup) : null;
+      if (f && f.data?.forecast && f.data.share >= 0.1) return f;
+      const y = new Date(todayIso + "T00:00:00"); y.setDate(y.getDate() - 1);
+      const r = await handleWhy(effectiveSpot, { from: fmtDateJS(y), to: fmtDateJS(y) }, ipGroup);
+      const head = cashNow > 0 ? `Сегодня пока ${fmt(Math.round(cashNow))} — рано судить. Вчера:` : "Сегодня продаж ещё нет. Вчера:";
+      return r?.text ? { ...r, text: `${head}\n${r.text}` } : r;
+    }
 
     if (operation === "percentChange" && period2) {
       const { p1: period, p2: period2Full, cutNote } = fullDaysOnly(parsed.period, period2);
@@ -704,6 +719,18 @@ async function handleCash(operation, spot, period, ipGroup) {
     const sorted = [...filtered].sort((a, b) => b.total - a.total);
     const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(d.avgCheck)})`).join("\n");
     return { text: `Сравнение филиалов${ipLabel} за ${pl}:\n${lines}`, data: sorted };
+  }
+
+  // «Самая слабая точка» — сначала ответ, потом список
+  if (operation === "min" && filtered.length > 1) {
+    const sorted = [...filtered].sort((a, b) => a.total - b.total);
+    const w = sorted[0], top = sorted[sorted.length - 1];
+    const share = totalCash ? Math.round((w.total / totalCash) * 100) : 0;
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
+    return {
+      text: `Слабее всех${ipLabel} за ${pl} — ${sn(w)}: ${fmt(w.total)}, ${share} % кассы сети, в ${top.total && w.total ? (top.total / w.total).toFixed(1).replace(".", ",") : "—"} раза меньше лидера (${sn(top)}).\n\nОт слабой к сильной:\n${lines}`,
+      data: { sorted, totalCash },
+    };
   }
 
   if (operation === "max" && filtered.length > 0) {
