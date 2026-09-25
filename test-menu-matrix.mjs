@@ -383,6 +383,20 @@ console.log("\n📋 Тест 17: покупное — себестоимость
   eq(m17.find((x) => x.name === "Пончик").marginPct !== null, true, "с известной маржой");
 }
 
+console.log("\n📋 Тест 18: «Ингредиенты» — цены вписываются в строке");
+{
+  const view = readFileSync("src/components/MarginView.jsx", "utf8");
+  const tab = view.slice(view.indexOf("function IngredientsTab"), view.indexOf("function RecipesTab"));
+  eq(tab.length > 500, true, "вкладка найдена");
+  // Раньше: «Изм.» → форма наверху → сохранить → обратно вниз
+  eq(/className=\{`input margin-price-input/.test(tab) && /onBlur=\{\(\) => savePrice\(ing\)\}/.test(tab), true, "цена — поле прямо в строке, сохраняется при уходе из поля");
+  eq(/inputMode="decimal"/.test(tab), true, "на телефоне — цифровая клавиатура");
+  eq(/if \(ok !== false\) setDrafts/.test(tab), true, "не сохранилось — вписанная цена остаётся в поле");
+  eq(/Без цены, но в техкартах/.test(tab) && /Проверить единицу/.test(tab), true, "фильтры: без цены и подозрительная единица");
+  eq(/usedIn\.get\(ing\.id\)\) setAskRemove/.test(tab) && /<ConfirmModal/.test(tab), true, "удаление используемого ингредиента — через подтверждение");
+  eq(/function pricePerBaseUnit/.test(view), false, "старый вывод цены текстом убран");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 console.log(`✅ Пройдено: ${passed}`);
 console.log(`❌ Провалено: ${failed}`);

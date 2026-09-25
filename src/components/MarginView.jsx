@@ -5,6 +5,7 @@ import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEG
 import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
 import { useToast } from "../ui";
+import ConfirmModal from "./ConfirmModal";
 import { categoryMargins, marginTotals, suggestRecipe, normalizeName, costQuality, purchaseCosts } from "../menuMatrix.js";
 import { useAppStore } from "../store/useAppStore";
 
@@ -293,9 +294,51 @@ function DrinkBuilder({ ingredients, recipes, onSaveRecipe }) {
 
 // ─── Ингредиенты ──────────────────────────────────────────────────
 
-function IngredientsTab({ ingredients, onChange }) {
+function IngredientsTab({ ingredients, recipes = [], onChange }) {
   const [form, setForm] = useState({ name: "", unit: "кг", pricePerUnit: "" });
   const [editingId, setEditingId] = useState(null);
+  // Цены вписываются прямо в строке. Раньше — «Изм.» → форма наверху →
+  // сохранить → обратно вниз; для тридцати цен с телефона это вечер
+  const [drafts, setDrafts] = useState({});
+  const [savingId, setSavingId] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [askRemove, setAskRemove] = useState(null);
+
+  // Где ингредиент стоит: удаление такого молча выбрасывает его из
+  // себестоимости всех этих техкарт
+  const usedIn = useMemo(() => {
+    const m = new Map();
+    for (const r of recipes || []) for (const it of r.items || []) {
+      m.set(it.ingredientId, (m.get(it.ingredientId) || 0) + 1);
+    }
+    return m;
+  }, [recipes]);
+
+  const suspectUnit = (ing) => {
+    const p = Number(ing.pricePerUnit) || 0;
+    if (!p) return null;
+    if ((ing.unit === "л" || ing.unit === "кг") && p < 20) return `похоже на цену за ${ing.unit === "л" ? "мл" : "г"}`;
+    if ((ing.unit === "мл" || ing.unit === "г") && p > 200) return `похоже на цену за ${ing.unit === "мл" ? "литр" : "кг"}`;
+    return null;
+  };
+  const unpricedUsed = ingredients.filter((i) => !(Number(i.pricePerUnit) > 0) && usedIn.has(i.id));
+  const suspects = ingredients.filter((i) => suspectUnit(i));
+  const shown = filter === "unpriced" ? unpricedUsed : filter === "suspect" ? suspects : ingredients;
+
+  async function savePrice(ing) {
+    const raw = drafts[ing.id];
+    if (raw == null) return;
+    const v = Number(String(raw).replace(",", "."));
+    if (!Number.isFinite(v) || v < 0 || v === (Number(ing.pricePerUnit) || 0)) {
+      setDrafts((d) => { const n = { ...d }; delete n[ing.id]; return n; });
+      return;
+    }
+    setSavingId(ing.id);
+    const ok = await onChange(ingredients.map((i) => (i.id === ing.id ? { ...i, pricePerUnit: v } : i)));
+    setSavingId(null);
+    // Не сохранилось — черновик остаётся в поле, можно повторить
+    if (ok !== false) setDrafts((d) => { const n = { ...d }; delete n[ing.id]; return n; });
+  }
 
   function add() {
     if (!form.name.trim() || !form.pricePerUnit) return;
@@ -324,11 +367,9 @@ function IngredientsTab({ ingredients, onChange }) {
   function remove(id) {
     onChange(ingredients.filter((i) => i.id !== id));
   }
-
-  function pricePerBaseUnit(ing) {
-    const ppu = ing.pricePerUnit || 0;
-    if (ppu === 0) return "—";
-    return `${fmtNum(ppu)} ₸/${ing.unit}`;
+  function askToRemove(ing) {
+    if (usedIn.get(ing.id)) setAskRemove(ing);
+    else remove(ing.id);
   }
 
   return (
@@ -396,6 +437,18 @@ function IngredientsTab({ ingredients, onChange }) {
           <div className="empty-state-sub">Добавьте ингредиенты для расчёта себестоимости</div>
         </div>
       ) : (
+        <>
+        <div className="margin-ing-filters" role="group" aria-label="Какие ингредиенты показать">
+          <button type="button" className={`chip${filter === "all" ? " on" : ""}`} onClick={() => setFilter("all")}>
+            Все · {ingredients.length}
+          </button>
+          <button type="button" className={`chip${filter === "unpriced" ? " on" : ""}`} onClick={() => setFilter("unpriced")} disabled={!unpricedUsed.length}>
+            Без цены, но в техкартах · {unpricedUsed.length}
+          </button>
+          <button type="button" className={`chip${filter === "suspect" ? " on" : ""}`} onClick={() => setFilter("suspect")} disabled={!suspects.length}>
+            Проверить единицу · {suspects.length}
+          </button>
+        </div>
         <div className="table-card margin-ingredients">
           <table className="data-table">
             <thead>
@@ -407,28 +460,65 @@ function IngredientsTab({ ingredients, onChange }) {
               </tr>
             </thead>
             <tbody>
-              {ingredients.map((ing) => (
-                <tr key={ing.id}>
-                  <td style={{ fontWeight: 500 }}>{ing.name}</td>
-                  <td>
-                    <span className="margin-unit-badge">{ing.unit}</span>
-                  </td>
-                  <td>{pricePerBaseUnit(ing)}</td>
-                  <td>
-                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button className="btn btn-sm btn-out" onClick={() => edit(ing)} title="Изменить" aria-label="Изменить">
-                        <i className="ti ti-pencil" /> <span className="btn-label">Изм.</span>
-                      </button>
-                      <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => remove(ing.id)} title="Удалить" aria-label="Удалить">
-                        <i className="ti ti-trash" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {shown.map((ing) => {
+                const used = usedIn.get(ing.id) || 0;
+                const warn = suspectUnit(ing);
+                const draft = drafts[ing.id];
+                return (
+                  <tr key={ing.id}>
+                    <td style={{ fontWeight: 500 }}>
+                      {ing.name}
+                      <span className="margin-ing-meta">
+                        {used ? `в ${used} ${used === 1 ? "техкарте" : "техкартах"}` : "не используется"}
+                        {warn ? ` · ${warn}` : ""}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="margin-unit-badge">{ing.unit}</span>
+                    </td>
+                    <td>
+                      <label className="margin-price-inline">
+                        <input
+                          className={`input margin-price-input${!(Number(ing.pricePerUnit) > 0) ? " empty" : ""}${warn ? " warn" : ""}`}
+                          type="text"
+                          inputMode="decimal"
+                          aria-label={`Цена за ${ing.unit}: ${ing.name}`}
+                          value={draft ?? (Number(ing.pricePerUnit) > 0 ? String(ing.pricePerUnit) : "")}
+                          placeholder="цена"
+                          disabled={savingId === ing.id}
+                          onChange={(e) => setDrafts((d) => ({ ...d, [ing.id]: e.target.value }))}
+                          onBlur={() => savePrice(ing)}
+                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setDrafts((d) => { const n = { ...d }; delete n[ing.id]; return n; }); }}
+                        />
+                        <span className="margin-price-unit">₸/{ing.unit}</span>
+                      </label>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button className="btn btn-sm btn-out" onClick={() => edit(ing)} title="Изменить название и единицу" aria-label="Изменить">
+                          <i className="ti ti-pencil" /> <span className="btn-label">Изм.</span>
+                        </button>
+                        <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => askToRemove(ing)} title="Удалить" aria-label="Удалить">
+                          <i className="ti ti-trash" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+        <ConfirmModal
+          open={!!askRemove}
+          title="Удалить ингредиент?"
+          message={askRemove ? `«${askRemove.name}» стоит в ${usedIn.get(askRemove.id)} ${usedIn.get(askRemove.id) === 1 ? "техкарте" : "техкартах"}. После удаления его стоимость перестанет входить в их себестоимость, и маржа по ним станет выше, чем на деле.` : ""}
+          confirmText="Удалить"
+          danger
+          onConfirm={() => { remove(askRemove.id); setAskRemove(null); }}
+          onCancel={() => setAskRemove(null)}
+        />
+        </>
       )}
     </div>
   );
@@ -1198,6 +1288,7 @@ export default function MarginView() {
         {tab === "ingredients" && (
           <IngredientsTab
             ingredients={data.ingredients || []}
+            recipes={data.recipes || []}
             onChange={(ings) => update({ ingredients: ings })}
           />
         )}

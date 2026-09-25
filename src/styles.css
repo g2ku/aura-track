@@ -5171,6 +5171,11 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   /* Ингредиенты: четыре узкие колонки влезают — общий минимум 500 px
      заставлял листать вбок */
   .design-v2 .margin-ingredients .data-table { min-width: 0; }
+  /* Единица стоит у поля цены («₸/л») — отдельная колонка на телефоне
+     только отнимает ширину у ввода */
+  .design-v2 .margin-ingredients .data-table > thead > tr > th:nth-child(2),
+  .design-v2 .margin-ingredients .data-table > tbody > tr > td:nth-child(2) { display: none; }
+  .design-v2 .margin-price-input { width: 76px; }
   /* Длинное название переносится, у «Изм.» остаётся значок — иначе они
      вдвоём держали таблицу шире экрана */
   .design-v2 .margin-ingredients .data-table > tbody > tr > td:nth-child(1) { white-space: normal; }
@@ -6272,3 +6277,19 @@ button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
 
 /* Покупное: себестоимость — закупочная цена из накладных */
 .margin-bought { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+
+/* Ингредиенты: фильтр и цена прямо в строке */
+.margin-ing-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.margin-ing-filters .chip {
+  font: inherit; font-size: 12.5px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
+  cursor: pointer; min-height: 32px;
+}
+.margin-ing-filters .chip.on { border-color: var(--text-accent); color: var(--text-accent); font-weight: 600; }
+.margin-ing-filters .chip:disabled { opacity: .45; cursor: default; }
+.margin-ing-meta { display: block; font-size: 11.5px; font-weight: 400; color: var(--text-muted); margin-top: 1px; }
+.margin-price-inline { display: inline-flex; align-items: center; gap: 6px; }
+.margin-price-input { width: 96px; padding: 6px 8px; font-variant-numeric: tabular-nums; }
+.margin-price-input.empty { border-style: dashed; }
+.margin-price-input.warn { border-color: var(--text-warning, #b7791f); }
+.margin-price-unit { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
