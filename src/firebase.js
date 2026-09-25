@@ -570,6 +570,10 @@ export async function loginUser(email, password) {
 export async function getIdToken() {
   try {
     const a = getFirebaseAuth();
+    // Сессия восстанавливается из браузера не мгновенно (~0,4 с по замеру
+    // 26.09.2026). Главная рисуется по сохранённой роли раньше — её первые
+    // запросы ждут сессию, а не уходят без токена за «сессия истекла»
+    if (!a.currentUser && typeof a.authStateReady === "function") await a.authStateReady();
     const u = a.currentUser;
     if (!u) return "";
     return await u.getIdToken();

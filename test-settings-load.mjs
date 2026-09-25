@@ -42,7 +42,7 @@ writeFileSync(fsStub, `
   export const onSnapshot = (ref, a, b) => { fb().push = typeof a === "function" ? a : b; fb().opts = typeof a === "function" ? null : a; return () => {}; };
   export const query = fn(); export const orderBy = fn(); export const getDocs = fn(); export const runTransaction = fn(); export const arrayUnion = fn();
   export const initializeApp = () => ({}); export const getApps = () => [];
-  export const getAuth = () => ({}); export const signOut = async () => { fb().calls.push("signOut"); };
+  export const getAuth = () => globalThis.__fbAuth || ({}); export const signOut = async () => { fb().calls.push("signOut"); };
   export const createUserWithEmailAndPassword = fn(); export const signInWithEmailAndPassword = fn(); export const onAuthStateChanged = fn();
 `);
 // Для margin/ipGroups база — просто объект; сама firebase.js проверяется отдельно
@@ -213,6 +213,29 @@ section("Локальный кэш базы: включён, а при выхо�
   reset(offline); globalThis.__fb.initThrows = true;
   const F = await import(new URL(`./${fbOut}?hmr`, import.meta.url).href);
   eq(F.getDb().kind, "memory", "initializeFirestore не прошёл — откат на getFirestore");
+}
+
+section("Токен ждёт восстановления сессии — ранний экран не получает «сессия истекла»");
+{
+  // 26.09.2026: главная рисуется по сохранённой роли до того, как Firebase
+  // поднимет сессию (~0,4 с). Раньше getIdToken в это время отдавал ""
+  let ready;
+  globalThis.__fbAuth = { currentUser: null, authStateReady: () => new Promise((r) => { ready = r; }) };
+  const fbOut = await bundle("fb4", `export { getIdToken } from "../../../src/firebase.js";`, false);
+  reset(offline);
+  const F = await import(new URL(`./${fbOut}?tok`, import.meta.url).href);
+  const pending = F.getIdToken();
+  globalThis.__fbAuth.currentUser = { getIdToken: async () => "tok-123" };
+  ready();
+  eq(await pending, "tok-123", "дождался сессии и отдал токен");
+  globalThis.__fbAuth = null;
+
+  const auth = readFileSync("src/auth.jsx", "utf8");
+  ok(/if \(loading && !isRegisterPage && !auth\)/.test(auth), "крутилка — только если роли в браузере нет");
+  const app = readFileSync("src/App.jsx", "utf8");
+  ok(/^if \(typeof window !== "undefined"\) prefetchRoutes\(getLastRoute\(\)\);/m.test(app), "код главной качается с самого старта, а не после входа");
+  const routes = readFileSync("src/hooks/useRouteContent.jsx", "utf8");
+  ok(/"\/": \(\) => import\("\.\.\/components\/CashLedger"\)/.test(routes), "греется настоящая главная, а не старый Dashboard");
 }
 
 rmSync(dir, { recursive: true, force: true });

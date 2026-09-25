@@ -332,7 +332,12 @@ export function LoginGate({ children }) {
   // Firebase не настроен (локальная разработка) — пускаем без входа
   if (!configured) return children;
 
-  if (loading && !isRegisterPage) {
+  // Крутилка — только тем, кого ещё не знаем. Кто уже входил, видит
+  // главную сразу по сохранённой роли: Firebase проверяет сессию по сети
+  // (~0,4 с) и ещё ~0,6 с поднимает базу, а код и разметка главной за это
+  // время успевают загрузиться. Сессия не подтвердилась — onAuthChange(null)
+  // сбросит auth, и здесь окажется экран входа
+  if (loading && !isRegisterPage && !auth) {
     return (
       <div className="login-wrap">
         <div className="login-card" style={{ textAlign: "center" }}>

@@ -74,6 +74,9 @@ function WaitingForRole({ auth }) {
   );
 }
 
+// Код главной — с самого старта, параллельно с проверкой входа
+if (typeof window !== "undefined") prefetchRoutes(getLastRoute());
+
 export default function App() {
   return (
     <LoginGate>
@@ -144,7 +147,8 @@ function MainApp() {
   useEffect(() => { initStore(); }, [initStore]);
   // Чанк дашборда — сразу, пока Firebase проверяет вход; прошлый экран и
   // ассистент — в первый простой. Один круг до сервера долой.
-  useEffect(() => { prefetchRoutes(getLastRoute()); }, []);
+  // Предзагрузка — с самого старта модуля (ниже, вне компонента), а не
+  // после входа: код главной качается, пока Firebase проверяет сессию
 
   // ─── Дизайн v2: гейт по роли + ручной override ────────────────────
   // sessionStorage "aura-design-v2": "1" — принудительно вкл, "0" — выкл.
