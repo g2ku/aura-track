@@ -242,10 +242,13 @@ export default function CashLedger({
 
   // Касса «вчера на этот же час» — для честного сравнения с сегодняшней
   // (ещё не закончившейся) кассой, а не с итогом всего вчерашнего дня.
+  // Текущий час — долей: целиком вчерашний час против только начавшегося
+  // сегодняшнего занижал сегодня
   const yesterdaySameTimeTotal = useMemo(() => {
     if (!yesterdayHourly?.buckets) return null;
-    const nowHour = new Date().getHours();
-    return yesterdayHourly.buckets.slice(0, nowHour + 1).reduce((s, v) => s + v, 0);
+    const now = new Date();
+    const h = now.getHours();
+    return yesterdayHourly.buckets.slice(0, h).reduce((s, v) => s + v, 0) + (yesterdayHourly.buckets[h] || 0) * (now.getMinutes() / 60);
   }, [yesterdayHourly]);
 
   // График кассы по дням — из локального кэша дней (без лишних запросов)
@@ -468,21 +471,26 @@ export default function CashLedger({
             {loading && displayCash.length === 0 ? "…" : fmt(totalCash)}
           </span>
         </div>
+        {/* Две строки, а не одна: процент считался к вчерашнему дню на
+            этот же час, а рядом стоял итог всего вчерашнего дня — «33 тыс.
+            … 2,1 млн +7 %» читалось как «сегодня больше вчерашнего» */}
+        {isToday && totalCash > 0 && yesterdaySameTimeTotal > 0 && (
+          <div className="cl-line">
+            <span className="cl-line-label">Вчера к этому часу</span>
+            <span className="cl-line-dots" />
+            <span className="cl-line-value">
+              {fmt(Math.round(yesterdaySameTimeTotal))}
+              <span className={totalCash >= yesterdaySameTimeTotal ? "delta up" : "delta down"}>
+                {fmtPct(((totalCash - yesterdaySameTimeTotal) / yesterdaySameTimeTotal) * 100)}
+              </span>
+            </span>
+          </div>
+        )}
         {isToday && yesterdayTotal != null && (
           <div className="cl-line">
             <span className="cl-line-label">Вчера за день</span>
             <span className="cl-line-dots" />
-            <span className="cl-line-value">
-              {fmt(yesterdayTotal)}
-              {totalCash > 0 && yesterdaySameTimeTotal > 0 && (
-                <span
-                  className={totalCash >= yesterdaySameTimeTotal ? "delta up" : "delta down"}
-                  title="Сравнение с вчерашней кассой на этот же час — не с итогом всего дня"
-                >
-                  {fmtPct(((totalCash - yesterdaySameTimeTotal) / yesterdaySameTimeTotal) * 100)}
-                </span>
-              )}
-            </span>
+            <span className="cl-line-value">{fmt(yesterdayTotal)}</span>
           </div>
         )}
         {openChecks && (
