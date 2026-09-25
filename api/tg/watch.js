@@ -18,7 +18,7 @@ import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
-import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, usualShares, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
 import { CHAT_LOG_KEEP_DAYS } from "../_lib/chatLog.js";
 import { sendMessage, siteUrl, questionKeyboard, getWebhookInfo, webhookNeedsFix, setWebhook } from "../_lib/telegram.js";
@@ -197,6 +197,20 @@ export default async function handler(req, res) {
         console.error("[tg] метка сводки не сохранилась:", e?.message);
       }
       out.briefing = yesterday;
+
+      // Обычная доля каждой точки в сегодняшний день недели — для ленты
+      // «что не так сейчас»: отстаёт тот, кто ниже своей доли, а не
+      // «поровну на восьмерых»
+      try {
+        const docs = await getSalesDays(shiftYmd(today, -28), shiftYmd(today, -7));
+        const shares = usualShares(today, docs);
+        if (shares) {
+          patch.spotShares = { date: today, shares };
+          await setConfig({ spotShares: patch.spotShares });
+        }
+      } catch (e) {
+        console.warn("[briefing] обычные доли не посчитались:", e?.message);
+      }
     }
 
     // ─── Стаканы: ежедневное, своим расписанием ──────────────────────

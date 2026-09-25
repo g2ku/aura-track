@@ -190,13 +190,35 @@ section("В ленте — только то, чего нет на экране"
 }
 
 {
-  const a = { kind: "lag", spot: "OBI", spotId: "3", share: 4, fair: 13, total: 86588, checks: 43 };
+  const a = { kind: "lag", spot: "OBI", spotId: "3", share: 1, usual: 3, total: 21588, checks: 13 };
   const d = describe(a);
-  eq(d.title, "OBI — 4% дневной кассы сети", "видно, насколько мало");
-  ok(/Поровну вышло бы 13%/.test(d.hint), "и с чем сравнивать");
-  ok(/43 чека/.test(d.hint), "склонение по числу чеков");
+  eq(d.title, "OBI — 1% дневной кассы сети", "видно, насколько мало");
+  ok(/Обычно в этот день 3%/.test(d.hint), "и с чем сравнивать — со своей обычной долей");
+  ok(/13 чеков/.test(d.hint), "склонение по числу чеков");
   eq(alertLink(a), "/branches", "ведёт в филиалы, а не в чеки");
   eq(severity(a), "medium", "повод разобраться, но не бежать сию секунду");
+}
+
+{
+  // 25.09.2026: «что не так сейчас» — OBI (обычно ~3 % кассы сети) и
+  // Коктем «ниже доли поровну». Маленькая точка мала всегда — это не беда
+  const { buildLagAlerts, usualShares, formatBriefing } = await import("./api/_lib/briefing.js");
+  const at = (h) => new Date(`2026-09-25T${h}:00+05:00`).getTime();
+  const row = (spot, rub) => ({ spot_id: spot, status: "2", payed_sum: rub * 100, date_close: at("11:00") });
+  const rows = [row(1, 250000), row(2, 300000), row(3, 30000), row(4, 200000), row(7, 30000)];
+  const usual = { 1: 29, 2: 33, 3: 3.4, 4: 24, 7: 10 };
+  const lag = buildLagAlerts(rows, { nowHHMM: "15:00", usualShare: usual });
+  eq(lag.map((x) => x.spot), ["Коктем"], "OBI на своих 3–4 % — не тревога; Коктем с 4 % при обычных 10 % — да");
+  eq(buildLagAlerts(rows, { nowHHMM: "15:00" }), [], "обычной доли не знаем — молчим, «поровну» не мерило");
+  const docs = ["2026-09-18", "2026-09-11"].map((date) => ({ date, cashBySpot: { 1: 300, 3: 30, 7: 70 } }));
+  eq(usualShares("2026-09-25", docs), { 1: 75, 3: 7.5, 7: 17.5 }, "обычные доли — по тем же дням недели");
+
+  // Утренняя сводка: «всего 4 %» — только если точка ниже своего обычного
+  const day = { total: 1000000, checks: 500, spots: [{ spotId: "1", name: "Гагарина", total: 600000, checks: 300 }, { spotId: "2", name: "Жароково", total: 360000, checks: 180 }, { spotId: "3", name: "OBI", total: 40000, checks: 20 }] };
+  const usualDay = formatBriefing({ day, dateLabel: "24 сентября", spotBase: { 3: 42000 } });
+  ok(!/всего \d+% дневной кассы/.test(usualDay), "OBI в свой обычный день — без «всего 4 %»");
+  const badDay = formatBriefing({ day, dateLabel: "24 сентября", spotBase: { 3: 80000 } });
+  ok(/OBI — всего 4% дневной кассы сети/.test(badDay), "а вдвое ниже обычного — названа");
 }
 
 console.log("\n══════════════════════════════════════════════════");

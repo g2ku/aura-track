@@ -133,12 +133,16 @@ export function formatBriefing({ day, prev, dateLabel, supplies = null, baseline
     for (const id of silent) lines.push(`• ${spotNameByPosterId(id)} — без продаж, обычно ${fmtSum(spotBase[id])}`);
   }
 
-  // Отстающая точка заметнее, когда названа отдельно
+  // Отстающая точка заметнее, когда названа отдельно. Но маленькая точка
+  // мала всегда: «OBI — всего 4 %» приходило каждое утро. Называем, только
+  // если она ниже СВОЕГО обычного дня (или обычного ещё не знаем)
   if (day.spots.length > 2) {
     const worst = day.spots[day.spots.length - 1];
     // Не меньше процента: «всего 0%» звучит как ошибка, а не как факт
     const share = Math.max(1, Math.round((worst.total / day.total) * 100));
-    if (share <= 5) {
+    const base = spotBase?.[worst.spotId];
+    const usualForSpot = base && worst.total >= base * (1 - SPOT_DEVIATION_PCT / 100);
+    if (share <= 5 && !usualForSpot) {
       lines.push("", `⚠️ ${worst.name} — всего ${share}% дневной кассы сети`);
     }
   }
@@ -168,14 +172,31 @@ export function formatDayLabel(ymd) {
 export const LAG_SHARE_PCT = 6;      // доля в дневной кассе ниже — вопрос
 export const LAG_NOT_BEFORE = "12:00";
 
+// Обычная доля точки в кассе сети в этот день недели — по четырём прошлым
+// таким же дням из суточных итогов. { spotId: процент }
+export function usualShares(ymd, docs) {
+  const base = spotBaselines(ymd, docs);
+  const sum = Object.values(base).reduce((a, b) => a + b, 0);
+  if (!sum) return null;
+  const out = {};
+  for (const [spot, v] of Object.entries(base)) out[spot] = Math.round((v / sum) * 1000) / 10;
+  return out;
+}
+
+// Отстаёт — это ниже СВОЕЙ обычной доли, а не «поровну на восьмерых».
+// Раньше мерилом была равная доля, и OBI (обычно ~3 % кассы сети) каждый
+// день после полудня попадал в «что не так сейчас» — 25.09.2026 вместе с
+// Коктемом. Без обычной доли — молчим: сравнивать не с чем
+export const LAG_BELOW_USUAL = 0.6;
+
 export function buildLagAlerts(rows, opts = {}) {
-  const { nowHHMM, seen = {}, now = Date.now(), openSpots = null } = opts;
+  const { nowHHMM, seen = {}, now = Date.now(), openSpots = null, usualShare = null } = opts;
   if (!nowHHMM || nowHHMM < LAG_NOT_BEFORE) return [];
+  if (!usualShare) return [];
 
   const day = summarizeDay(rows);
   if (!day.total || day.spots.length < 3) return [];
 
-  const fair = 100 / day.spots.length;   // сколько было бы поровну
   const alerts = [];
 
   for (const s of day.spots) {
@@ -183,7 +204,8 @@ export function buildLagAlerts(rows, opts = {}) {
     if (openSpots && !openSpots.has(String(s.spotId))) continue;
 
     const share = Math.round((s.total / day.total) * 100);
-    if (share > LAG_SHARE_PCT) continue;
+    const usual = usualShare[String(s.spotId)];
+    if (!usual || share >= usual * LAG_BELOW_USUAL || usual - share < 2) continue;
 
     const key = `lag:${s.spotId}:${nowHHMM.slice(0, 2)}`;
     if (seen[key]) continue;
@@ -194,7 +216,7 @@ export function buildLagAlerts(rows, opts = {}) {
       spot: s.name,
       spotId: s.spotId,
       share,
-      fair: Math.round(fair),
+      usual: Math.round(usual),
       total: Math.round(s.total),
       checks: s.checks,
     });

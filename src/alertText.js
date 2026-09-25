@@ -121,7 +121,7 @@ export function describe(a) {
       return {
         icon: "ti-trending-down",
         title: `${a.spot} — ${a.share}% дневной кассы сети`,
-        hint: `Поровну вышло бы ${a.fair}%. Сегодня ${money(a.total)} за ${a.checks} ${plural(a.checks, "чек", "чека", "чеков")}.`,
+        hint: `Обычно в этот день ${a.usual}%. Сегодня ${money(a.total)} за ${a.checks} ${plural(a.checks, "чек", "чека", "чеков")}.`,
       };
     case "closing":
       return {

@@ -125,6 +125,8 @@ export default async function handler(req, res) {
     alerts.push(...buildLagAlerts(rowsR.value, {
       ...opts,
       openSpots: shifts.length ? openSpots(shifts) : null,
+      // Обычная доля точки в этот день недели — считает сторож утром
+      usualShare: config.spotShares?.date === `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}` ? config.spotShares.shares : null,
     }));
     if (shifts.length) {
       // Продавала сегодня — значит открылась, что бы ни говорили смены
