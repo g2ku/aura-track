@@ -336,7 +336,7 @@ export default async function handler(req, res) {
     // пробуждение продолжит. Сбой одного дня не мешает остальным.
     if (config.salesRollupTime && config.lastSalesRollupDate !== today && nowHM >= config.salesRollupTime) {
       try {
-        const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, rollupMismatch, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
+        const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, rollupMismatch, closedOnDay, addEarlyChecks, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
         const have = await listSalesDayDates(shiftYmd(today, -ROLLUP_BACK_DAYS), today);
         const pending = pendingDays(have, { today });
         // Пересборка старой версией — не новость: расхождения по ней уже
@@ -351,9 +351,15 @@ export default async function handler(req, res) {
           await saveMenuIndex(menu).catch((e) => console.warn("[menu] индекс не сохранился:", e?.message));
           for (const day of batch) {
             try {
-              // Чеки с товарами и строки dash (способы оплаты) — за один день
-              const [txs, dash] = await Promise.all([dayTransactions(day), dashTransactions(day.replace(/-/g, ""))]);
-              const doc = { ...rollupDay(day, txs, menu), pay: payDayFrom(dash) };
+              // Чеки с товарами — за сутки Poster; строки dash — за двое
+              // (вчера и сегодня): сутки Poster по Москве, и чеки, закрытые
+              // у нас после полуночи, лежат во вчерашних. Всё сводится к
+              // дню закрытия по Алматы — и касса, и оплаты
+              const compact = day.replace(/-/g, "");
+              const [txs, dash] = await Promise.all([dayTransactions(day), dashTransactions(shiftYmd(day, -1).replace(/-/g, ""), compact)]);
+              const closed = closedOnDay(dash, day);
+              const doc = addEarlyChecks(rollupDay(day, txs, menu), closed, new Set(txs.map((t) => String(t.transaction_id))));
+              doc.pay = payDayFrom(closed);
               // Два метода Poster должны сойтись; не сошлись — итог всё
               // равно сохраняем, но владелец узнает, что цифре нельзя верить
               const bad = rollupMismatch(doc, doc.pay);

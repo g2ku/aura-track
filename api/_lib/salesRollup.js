@@ -16,6 +16,7 @@
 // проверять их в node.
 
 import { enumerateDates } from "./dailyDoc.js";
+import { localDateStr, localMinutesOfDay } from "./time.js";
 
 // Полгода назад: столько смотрят налоги по ИП и прогноз. Заполняется
 // постепенно — по ROLLUP_PER_RUN дней за пробуждение сторожа, свежие первыми.
@@ -132,13 +133,48 @@ export function payDayFrom(rows) {
   return { total, bySpot, lastOrder };
 }
 
+// Строки dash, закрытые в этот день по Алматы. Запрашивать dash надо за
+// двое суток Poster (вчера и сегодня): сутки Poster — по Москве, и чеки,
+// закрытые у нас после полуночи, лежат во вчерашних. ymd — «ГГГГ-ММ-ДД»
+export function closedOnDay(dashRows, ymd) {
+  return (dashRows || []).filter((t) => String(t.status) === "2" && Number(t.date_close) > 0 && localDateStr(Number(t.date_close)) === ymd);
+}
+
+// Досчитать в итог дня ночные чеки, которых нет в transactions за этот
+// день: касса, чеки и часы — из dash (суммы там в копейках). Товаров у
+// таких чеков в итоге нет — dash их не отдаёт; сколько их было, видно в
+// doc.early
+export function addEarlyChecks(doc, closed, txIds) {
+  let n = 0, sum = 0;
+  for (const t of closed || []) {
+    if (txIds.has(String(t.transaction_id))) continue;
+    const v = Number(t.payed_sum || 0) / 100;
+    if (!(v > 0)) continue;
+    const spot = String(t.spot_id || "");
+    doc.cashBySpot[spot] = (doc.cashBySpot[spot] || 0) + v;
+    doc.txBySpot[spot] = (doc.txBySpot[spot] || 0) + 1;
+    doc.transactionsCount = (doc.transactionsCount || 0) + 1;
+    const h = Math.floor(localMinutesOfDay(Number(t.date_close)) / 60);
+    const hs = ((doc.hours ||= {})[spot] ||= { cash: Array(24).fill(0), tx: Array(24).fill(0) });
+    hs.cash[h] += v; hs.tx[h] += 1;
+    n++; sum += v;
+  }
+  if (n) doc.early = { n, sum: Math.round(sum) };
+  return doc;
+}
+
 // Каких дней ещё нет: от вчера назад на ROLLUP_BACK_DAYS, свежие первыми.
 // Сегодня не трогаем — день не кончился.
 // Версия итога. Дни, собранные старой версией (без разбивки по часам),
 // пересобираются заново — по несколько за ночь, как и пропуски.
-// 3 — оплаты только по закрытым чекам (25.09.2026): дни с оплатами,
-// посчитанными вместе с открытыми и удалёнными, пересобираются
-export const ROLLUP_VERSION = 3;
+// 3 — оплаты только по закрытым чекам (25.09.2026).
+// 4 — ночные чеки (25.09.2026): закрытые с 00:00 до ~02:00 по Алматы Poster
+// числит во вчерашних сутках (сутки у него по Москве), и transactions за
+// день их не отдаёт — касса теряла их каждую ночь (24.09: 17 чеков,
+// 38 400 ₸), а оплаты, наоборот, брали чеки следующей ночи, и сверка
+// каждый день кричала «два метода разошлись». Теперь всё — по дню
+// закрытия по Алматы
+export const ROLLUP_VERSION = 4;
 
 // existing — даты собранных дней или { date, v } с версией
 export function pendingDays(existing, { today, back = ROLLUP_BACK_DAYS, version = ROLLUP_VERSION } = {}) {
@@ -155,8 +191,8 @@ export function shiftYmd(ymd, days) {
   return d.toISOString().slice(0, 10);
 }
 
-// Оплатам и сверке в итоге можно верить с версии 3 (25.09.2026)
-export const PAY_TRUSTED_SINCE_VERSION = 3;
+// Оплатам и сверке в итоге можно верить с версии 4 (25.09.2026)
+export const PAY_TRUSTED_SINCE_VERSION = 4;
 export function payTrusted(d) {
   return (d?.v || 1) >= PAY_TRUSTED_SINCE_VERSION;
 }

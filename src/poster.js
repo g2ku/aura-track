@@ -295,9 +295,10 @@ function todayYmd() {
 // Отказаться от тяжёлого метода нельзя: payment_method_id есть только в
 // нём, а именно по нему различаются Kaspi и прочие способы оплаты —
 // в transactions.getTransactions этого поля нет вовсе.
-// v2 (25.09.2026): оплаты — только закрытых чеков. Старый кэш держал
-// оплаты вместе с открытыми и удалёнными (+2 % к кассе) до 30 дней
-const PAY_DAY_KEY = "supply-track.poster.payByDay.v2";
+// v3 (25.09.2026): оплаты — только закрытых чеков и по дню закрытия по
+// Алматы. Старый кэш держал оплаты с чеками следующей ночи (+2 % к
+// кассе) до 30 дней
+const PAY_DAY_KEY = "supply-track.poster.payByDay.v3";
 const PAY_DAY_TTL = 30 * 24 * 60 * 60 * 1000;
 
 function readPayDays() {
@@ -320,12 +321,13 @@ function writePayDays(cache) {
 
 // Местная дата строки dash: у закрытых берём время закрытия, у открытых —
 // открытия. Часовой пояс браузерный, он же алматинский.
+// День строки — по Алматы явно, а не по часам телефона: у телефона в
+// другом поясе ночные чеки уезжали бы в соседний день
+const ALMATY_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit" });
 export function dayOfRow(tx) {
   const ms = Number(tx.date_close) || Number(tx.date_start) || Number(tx.date_start_new) || 0;
   if (!ms) return null;
-  const d = new Date(ms);
-  const p = (v) => String(v).padStart(2, "0");
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+  return ALMATY_DAY.format(new Date(ms)).replace(/-/g, "");
 }
 
 // Свод одного дня: суммы по способам оплаты и сырые открытые чеки.
@@ -442,7 +444,10 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
     // Один запрос на весь недостающий отрезок — так же, как грузятся продажи
     const data = await call(
       "dash.getTransactions",
-      dashDates(need[0], need[need.length - 1]),
+      // С суток раньше: сутки Poster — по Москве, и чеки, закрытые у нас
+      // после полуночи первого дня, лежат во вчерашних. Лишнее отрежет
+      // группировка по дню закрытия ниже
+      dashDates(shiftYmd(need[0], -1), need[need.length - 1]),
       opts,
     );
     const byDay = new Map(need.map((d) => [d, []]));
@@ -708,7 +713,7 @@ async function seedDaysFromServer(fromYmd, toYmd, opts = {}, { products = true }
           });
           // Оплаты — только из итогов, где они посчитаны по закрытым чекам
           // (сервер старые и не отдаёт; здесь — на случай старого сервера)
-          if (e.pay && (e.v || 1) >= 3) pay[day] = { ts: Date.now(), total: e.pay.total || {}, bySpot: e.pay.bySpot || {}, lastOrder: e.pay.lastOrder || {}, openRows: [] };
+          if (e.pay && (e.v || 1) >= 4) pay[day] = { ts: Date.now(), total: e.pay.total || {}, bySpot: e.pay.bySpot || {}, lastOrder: e.pay.lastOrder || {}, openRows: [] };
           n++;
         }
         if (n) writePayDays(pay);

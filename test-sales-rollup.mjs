@@ -140,11 +140,43 @@ section("Оплаты — только закрытых чеков, как ка�
   eq(aggregatePayDay(rows).total, { 11: 1500 }, "на сайте — то же правило");
 }
 
+section("Ночные чеки: день — по закрытию по Алматы");
+
+{
+  // На боевых данных 25.09.2026: сутки Poster — по Москве. Чеки, закрытые
+  // 24.09 с 00:00 до ~02:00 по Алматы (17 шт., 38 400 ₸), лежали во
+  // «вчерашних» сутках и не попадали ни в 23-е (чужой день), ни в 24-е.
+  // А dash за 24-е отдавал 24 чека, закрытых 25.09 ночью, — оплаты
+  // выходили на 2 % больше кассы, и сверка ругалась каждый день
+  const { closedOnDay, addEarlyChecks, payDayFrom, rollupMismatch, rollupDay } = await import("./api/_lib/salesRollup.js");
+  const at = (s) => new Date(s + "+05:00").getTime();
+  const dash = [
+    { transaction_id: 1, status: "2", spot_id: 2, payed_sum: 250000, payment_method_id: 11, date_close: at("2026-09-24T00:40:00") }, // ночь на 24-е — наш
+    { transaction_id: 2, status: "2", spot_id: 2, payed_sum: 100000, payment_method_id: 11, date_close: at("2026-09-24T12:00:00") }, // день — наш, есть и в transactions
+    { transaction_id: 3, status: "2", spot_id: 2, payed_sum: 180000, payment_method_id: 0, date_close: at("2026-09-25T00:30:00") },  // ночь на 25-е — не наш
+    { transaction_id: 4, status: "2", spot_id: 2, payed_sum: 90000, payment_method_id: 11, date_close: at("2026-09-23T23:10:00") },  // 23-е — не наш
+    { transaction_id: 5, status: "1", spot_id: 2, payed_sum: 50000, date_start: at("2026-09-24T20:00:00"), date_close: "0" },          // открытый — не деньги
+  ];
+  const closed = closedOnDay(dash, "2026-09-24");
+  eq(closed.map((t) => t.transaction_id), [1, 2], "в 24-е — только чеки, закрытые 24-го по Алматы");
+
+  // transactions за сутки Poster 24-го: дневной чек есть, ночного на 24-е нет
+  const txs = [{ transaction_id: 2, spot_id: 2, payed_sum: "1000", date_close: "2026-09-24 12:00:00", products: [] }];
+  const doc = addEarlyChecks(rollupDay("2026-09-24", txs, {}), closed, new Set(txs.map((t) => String(t.transaction_id))));
+  eq(doc.cashBySpot["2"], 3500, "касса дня — с ночным чеком (1 000 + 2 500)");
+  eq(doc.txBySpot["2"], 2, "и чеков два");
+  eq(doc.early, { n: 1, sum: 2500 }, "ночные посчитаны и помечены");
+  eq(doc.hours["2"].cash[0], 2500, "в часах — в 00:00");
+  const pay = payDayFrom(closed);
+  eq(Object.values(pay.total).reduce((a, b) => a + b, 0), 3500, "оплаты — по тем же чекам");
+  eq(rollupMismatch(doc, pay), null, "касса и оплаты сходятся — ложной тревоги нет");
+}
+
 section("Ответ клиенту");
 
 {
   const docs = [
-    { date: "2026-09-17", transactionsCount: 3, txBySpot: { "4": 3 }, cashBySpot: { "4": 4500 }, rowsBySpot: { "4": { "Латте": { qty: 1, sum: 4500 } } }, hasProducts: true, pay: { total: { 0: 4500 }, bySpot: {}, lastOrder: {} }, ts: 1, v: 3 },
+    { date: "2026-09-17", transactionsCount: 3, txBySpot: { "4": 3 }, cashBySpot: { "4": 4500 }, rowsBySpot: { "4": { "Латте": { qty: 1, sum: 4500 } } }, hasProducts: true, pay: { total: { 0: 4500 }, bySpot: {}, lastOrder: {} }, ts: 1, v: 4 },
     { date: "2026-09-16", transactionsCount: 0, txBySpot: {}, cashBySpot: {}, rowsBySpot: {}, hasProducts: true },
     { notADay: true },
   ];
@@ -158,13 +190,14 @@ section("Ответ клиенту");
   eq(light["20260917"].rowsBySpot, {}, "без товаров — пусто");
   eq(light["20260917"].hasProducts, false, "и честно помечено");
 
-  // Итоги до версии 3 считали оплаты вместе с открытыми и удалёнными
-  // чеками: их оплаты и метку «разошлись» не отдаём — клиент досчитает
-  const old = toClientDays([{ date: "2026-09-15", cashBySpot: { "4": 100 }, pay: { total: { 0: 102 } }, mismatch: { pct: 2 }, v: 2 }]);
+  // Итоги до версии 4 считали оплаты не по дню закрытия по Алматы (и до
+  // версии 3 — вместе с открытыми): их оплаты и метку «разошлись» не
+  // отдаём — клиент досчитает
+  const old = toClientDays([{ date: "2026-09-15", cashBySpot: { "4": 100 }, pay: { total: { 0: 102 } }, mismatch: { pct: 2 }, v: 3 }]);
   eq(old["20260915"].pay, null, "оплаты старой версии не отдаются");
   eq(old["20260915"].mismatch, null, "и ложная метка «разошлись» тоже");
   eq(old["20260915"].cashBySpot, { "4": 100 }, "касса старой версии верна — отдаётся");
-  eq(old["20260915"].v, 2, "версия едет клиенту");
+  eq(old["20260915"].v, 3, "версия едет клиенту");
 }
 
 section("Клиент: серверные дни — в кэш, в Poster только за остатком");
@@ -172,7 +205,7 @@ section("Клиент: серверные дни — в кэш, в Poster тол
 {
   // Poster-прокси и наша ручка — оба через fetch; подделываем оба
   const calls = [];
-  const dayDoc = (ymd) => ({ transactionsCount: 2, txBySpot: { "4": 2 }, cashBySpot: { "4": 1000 }, rowsBySpot: { "4": { "Латте": { qty: 2, sum: 1000 } } }, hasProducts: true, pay: { total: { 0: 1000 }, bySpot: { "4": { 0: 1000 } }, lastOrder: { "4": 1 } }, v: 3 });
+  const dayDoc = (ymd) => ({ transactionsCount: 2, txBySpot: { "4": 2 }, cashBySpot: { "4": 1000 }, rowsBySpot: { "4": { "Латте": { qty: 2, sum: 1000 } } }, hasProducts: true, pay: { total: { 0: 1000 }, bySpot: { "4": { 0: 1000 } }, lastOrder: { "4": 1 } }, v: 4 });
   globalThis.fetch = async (url) => {
     const u = String(url);
     calls.push(u);
@@ -276,7 +309,8 @@ section("Ручка и сторож собраны правильно");
   const body = watch.slice(watch.indexOf("export default async function handler"));
   ok(/config\.salesRollupTime && config\.lastSalesRollupDate !== today && nowHM >= config\.salesRollupTime/.test(body), "ночью, раз в день, выключается пустым временем");
   ok(/pending\.length - done <= 0 \|\| \(batch\.length && !done\)/.test(body), "метка ставится, когда всё собрано — или когда Poster лежит, чтобы не долбить его весь день");
-  ok(body.includes("payDayFrom(dash)") && body.includes("rollupDay(day, txs, menu)"), "в документ идут и чеки с товарами, и способы оплаты");
+  ok(body.includes("payDayFrom(closed)") && body.includes("rollupDay(day, txs, menu)") && body.includes("closedOnDay(dash, day)"), "в документ идут и чеки с товарами, и способы оплаты — по дню закрытия по Алматы");
+  ok(/dashTransactions\(shiftYmd\(day, -1\)/.test(body), "dash — за двое суток Poster: ночные чеки лежат во вчерашних");
   const rollupAt = body.indexOf("config.salesRollupTime &&");
   const warmAt = body.indexOf("warmFunctions(siteUrl())");
   ok(rollupAt > 0 && warmAt > rollupAt, "итоги — до прогрева: у сторожа на них есть время");

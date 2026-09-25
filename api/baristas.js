@@ -41,7 +41,10 @@ export default async function handler(req, res) {
 
   try {
     // Один запрос на весь период: Poster сам отдаёт диапазон.
-    const all = await dashTransactions(from, to);
+    // С предыдущих суток Poster: они по Москве, и чеки, закрытые у нас
+    // после полуночи первого дня, лежат в них. rowsInPeriod отрежет лишнее
+    const prev = (() => { const d = new Date(`${iso(from)}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10).replace(/-/g, ""); })();
+    const all = await dashTransactions(prev, to);
     const { rows, dropped } = rowsInPeriod(all, from, to);
     if (dropped) console.warn(`[baristas] Poster отдал ${dropped} чеков не за ${from}–${to}`);
     // Всё мимо срока — это не «чеков нет», а Poster ответил не про то
