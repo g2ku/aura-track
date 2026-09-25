@@ -12,15 +12,18 @@ const STAFF_DOC = "settings/payrollStaff";
 
 // ─── Прайс: цена продажи по позициям инвентаризации ──────────────────
 
+// Не прочитался — ошибка, а не пустой прайс. Раньше сбой отдавал [], и
+// первая же вписанная цена сохраняла прайс из одной позиции поверх всего.
+// «Нет» от локального кэша без сети — тоже не «пусто»: кэш мог его не видеть
+async function readList(path, field) {
+  const snap = await getDoc(doc(getDb(), path));
+  if (!snap.exists() && snap.metadata?.fromCache) throw new Error("Нет связи с базой");
+  const list = snap.exists() ? snap.data()?.[field] : null;
+  return Array.isArray(list) ? list : [];
+}
+
 export async function loadPrices() {
-  try {
-    const snap = await getDoc(doc(getDb(), PRICES_DOC));
-    const items = snap.exists() ? snap.data()?.items : null;
-    return Array.isArray(items) ? items : [];
-  } catch (e) {
-    console.warn("[payroll] прайс не прочитался:", e);
-    return [];
-  }
+  return readList(PRICES_DOC, "items");
 }
 
 export async function savePrices(items) {
@@ -31,14 +34,7 @@ export async function savePrices(items) {
 // ─── Сотрудники: имя, филиал, ставка ─────────────────────────────────
 
 export async function loadStaff() {
-  try {
-    const snap = await getDoc(doc(getDb(), STAFF_DOC));
-    const staff = snap.exists() ? snap.data()?.staff : null;
-    return Array.isArray(staff) ? staff : [];
-  } catch (e) {
-    console.warn("[payroll] сотрудники не прочитались:", e);
-    return [];
-  }
+  return readList(STAFF_DOC, "staff");
 }
 
 export async function saveStaff(staff) {

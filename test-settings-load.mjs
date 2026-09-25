@@ -9,7 +9,7 @@
 // кэш без сети и как упавшая сеть.
 
 import { build } from "esbuild";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 let passed = 0, failed = 0;
@@ -38,7 +38,8 @@ writeFileSync(fsStub, `
   export const terminate = async (db) => { fb().calls.push("terminate:" + db.kind); };
   export const clearIndexedDbPersistence = async (db) => { fb().calls.push("clear:" + db.kind); if (fb().clearThrows) throw new Error("failed-precondition"); };
   const fn = () => () => {};
-  export const collection = fn(); export const deleteDoc = fn(); export const updateDoc = fn(); export const onSnapshot = fn();
+  export const collection = fn(); export const deleteDoc = fn(); export const updateDoc = fn();
+  export const onSnapshot = (ref, next) => { fb().push = next; return () => {}; };
   export const query = fn(); export const orderBy = fn(); export const getDocs = fn(); export const runTransaction = fn(); export const arrayUnion = fn();
   export const initializeApp = () => ({}); export const getApps = () => [];
   export const getAuth = () => ({}); export const signOut = async () => { fb().calls.push("signOut"); };
@@ -79,6 +80,7 @@ console.warn = () => {};
 const settingsOut = await bundle("settings", `
   export { loadMargin, clearMarginCache } from "../../../src/margin.js";
   export { loadIPGroups, clearIPGroupsCache } from "../../../src/ipGroups.js";
+  export { loadPrices, loadStaff } from "../../../src/payrollStore.js";
 `, true);
 const S = await import(new URL(`./${settingsOut}`, import.meta.url).href);
 
@@ -128,11 +130,49 @@ section("Группы ИП: то же правило");
   eq(globalThis.__fb.writes.length, 1, "сохранены один раз");
 }
 
+section("Зарплата: прайс и ставки при сбое — ошибка, а не пустой список");
+{
+  // Пустой прайс после сбоя — это ловушка: первая вписанная цена
+  // сохраняла прайс из одной позиции поверх всех остальных
+  for (const [load, what] of [[S.loadPrices, "прайс"], [S.loadStaff, "ставки"]]) {
+    reset(offline);
+    ok(!!(await attempt(load)).error, `${what}: сеть упала — ошибка`);
+    reset(cacheMiss);
+    ok(!!(await attempt(load)).error, `${what}: кэш без сети — ошибка`);
+    reset(server(null));
+    eq((await attempt(load)).value, [], `${what}: сервер сказал «нет» — пустой список, это честно`);
+  }
+  reset(server({ items: [{ name: "Круассан", price: 900 }] }));
+  eq((await attempt(S.loadPrices)).value, [{ name: "Круассан", price: 900 }], "прайс с сервера читается как есть");
+  reset(server({ staff: [{ name: "Аружан", rate: 1500, branch: "atakent" }] }));
+  eq((await attempt(S.loadStaff)).value?.[0]?.rate, 1500, "ставки с сервера читаются как есть");
+
+  // Экран: пока прайс не загрузился, цену, ставку и лист не сохранить
+  const view = readFileSync("src/components/PayrollView.jsx", "utf8");
+  for (const fn of ["addPrice", "setRate", "save"]) {
+    const body = view.slice(view.indexOf(`async function ${fn}(`), view.indexOf(`async function ${fn}(`) + 400);
+    ok(/if \(blockedByLoad\(\)\) return;/.test(body), `${fn} не пишет, пока прайс не загрузился`);
+  }
+  ok(/\.catch\(\(e\) => \{[\s\S]{0,80}setLoadError/.test(view), "сбой загрузки виден на экране, а не вечное «Загружаю…»");
+  ok(/onClick=\{loadBooks\}/.test(view), "есть «Повторить»");
+}
+
 section("Локальный кэш базы: включён, а при выходе стирается");
 {
   reset(offline);
-  const fbOut = await bundle("fb1", `export { getDb, logoutUser } from "../../../src/firebase.js";`, false);
+  const fbOut = await bundle("fb1", `export { getDb, logoutUser, subscribeRecipes } from "../../../src/firebase.js";`, false);
   const F = await import(new URL(`./${fbOut}`, import.meta.url).href);
+
+  // Рецепты инвентаризации сохраняются целиком — «пусто» из кэша без сети
+  // не должно доходить до экрана
+  const got = [];
+  F.subscribeRecipes((d) => got.push(d));
+  globalThis.__fb.push({ exists: () => false, data: () => null, metadata: { fromCache: true } });
+  eq(got.length, 0, "рецепты: «нет» от кэша без сети пропущено — экран ждёт сервер");
+  globalThis.__fb.push({ exists: () => true, data: () => ({ ingredients: [{ id: "m" }], products: {}, modifiers: [] }), metadata: { fromCache: true } });
+  eq(got[0]?.ingredients?.length, 1, "рецепты из кэша (сохранённые раньше) показываются сразу");
+  globalThis.__fb.push({ exists: () => false, data: () => null, metadata: { fromCache: false } });
+  eq(got[1], { ingredients: [], products: {}, modifiers: [] }, "сервер сказал «нет» — пустые рецепты, это честно");
   eq(globalThis.__fb.init.length, 1, "база открыта через initializeFirestore");
   eq(globalThis.__fb.init[0]?.localCache, { cache: "persistent", tabManager: { tabs: "multi" } }, "с кэшем в IndexedDB на несколько вкладок");
   eq(F.getDb().kind, "persistent", "getDb отдаёт экземпляр с кэшем");

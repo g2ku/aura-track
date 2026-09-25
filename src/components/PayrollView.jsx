@@ -78,6 +78,9 @@ export default function PayrollView() {
   const [prices, setPrices] = useState([]);
   const [staffBook, setStaffBook] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Прайс и ставки не прочитались. Пока так — цены, ставки и лист не
+  // сохраняются: запись из пустого списка затёрла бы весь прайс
+  const [loadError, setLoadError] = useState(null);
   const [draftPrice, setDraftPrice] = useState({});
   // Подсказки из Poster: { название: { price, source, unit } }
   const [hints, setHints] = useState(null);
@@ -96,18 +99,33 @@ export default function PayrollView() {
   const pricesRef = useRef([]);
   const staffRef = useRef([]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const alive = useRef(true);
+  // StrictMode монтирует дважды — флаг поднимаем при каждом монтировании
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+
+  function loadBooks() {
+    setLoading(true);
+    setLoadError(null);
     Promise.all([loadPrices(), loadStaff()]).then(([p, s]) => {
-      if (cancelled) return;
+      if (!alive.current) return;
       pricesRef.current = p;
       staffRef.current = s;
       setPrices(p);
       setStaffBook(s);
       setLoading(false);
+    }).catch((e) => {
+      if (!alive.current) return;
+      setLoadError(e?.message || "база не ответила");
+      setLoading(false);
     });
-    return () => { cancelled = true; };
-  }, []);
+  }
+  useEffect(loadBooks, []);
+
+  function blockedByLoad() {
+    if (!loadError) return false;
+    toast({ tone: "error", title: "Прайс и ставки не загрузились", message: "Нажмите «Повторить» — без них запись затрёт сохранённое" });
+    return true;
+  }
 
   useEffect(() => {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(entries)); } catch (_) {}
@@ -288,6 +306,7 @@ export default function PayrollView() {
   }
 
   async function addPrice(name) {
+    if (blockedByLoad()) return;
     const v = parseFloat(String(draftPrice[name] || "").replace(",", "."));
     if (!Number.isFinite(v) || v <= 0) {
       toast({ tone: "error", title: "Нужна цена больше нуля" });
@@ -303,6 +322,7 @@ export default function PayrollView() {
   }
 
   async function setRate(branch, name, value) {
+    if (blockedByLoad()) return;
     const v = parseFloat(String(value).replace(",", "."));
     if (!Number.isFinite(v) || v <= 0) return;
     const next = [
@@ -318,6 +338,8 @@ export default function PayrollView() {
 
   async function save() {
     if (!blocks.length) return;
+    // Без прайса суммы в листе — нули и «нет цены», сохранять такое нельзя
+    if (blockedByLoad()) return;
     setSaving(true);
     try {
       const id = periodId(period);
@@ -422,6 +444,15 @@ export default function PayrollView() {
       </div>
 
       {loading && <div className="pr-note">Загружаю прайс и ставки…</div>}
+      {loadError && (
+        <div className="pr-note" role="alert">
+          <span className="pr-bad">Прайс и ставки не загрузились</span> ({loadError}).
+          {" "}Пока они не загрузятся, цены, ставки и лист не сохраняются — иначе запись затёрла бы сохранённый прайс.
+          {" "}<button type="button" className="btn btn-out btn-sm" onClick={loadBooks}>
+            <i className="ti ti-refresh" aria-hidden="true" /> Повторить
+          </button>
+        </div>
+      )}
 
       {blocks.length === 0 && !loading && (
         <div className="pr-note">

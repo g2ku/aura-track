@@ -406,10 +406,17 @@ export async function saveRecipes({ ingredients, products, modifiers, by }) {
   });
 }
 
+// Рецепты сохраняются целиком (saveRecipes), поэтому «пусто» здесь должно
+// быть словом сервера. Без сети кэш говорит «документа нет» и про то, чего
+// ни разу не видел, — такой ответ пропускаем: иначе экран покажет пустые
+// рецепты, и «Сохранить» затрёт настоящие
 export function subscribeRecipes(onChange, onError) {
   return onSnapshot(
     doc(getDb(), "meta", "recipes"),
-    (snap) => onChange(snap.exists() ? snap.data() : { ingredients: [], products: {}, modifiers: [] }),
+    (snap) => {
+      if (!snap.exists() && snap.metadata.fromCache) return;
+      onChange(snap.exists() ? snap.data() : { ingredients: [], products: {}, modifiers: [] });
+    },
     (err) => onError && onError(err)
   );
 }
@@ -613,48 +620,4 @@ export async function deleteUserMeta(uid) {
 export async function listUsers() {
   const snap = await getDocs(collection(getDb(), "users"));
   return snap.docs.map(d => d.data());
-}
-
-// ─── Cash Reconciliation ─────────────────────────────────────────
-const CASH_RECON_DOC = "meta/cash-reconciliation";
-
-export async function loadCashRecon() {
-  try {
-    const snap = await getDoc(doc(getDb(), CASH_RECON_DOC));
-    if (!snap.exists()) return [];
-    return snap.data().history || [];
-  } catch {
-    return [];
-  }
-}
-
-export async function saveCashRecon(history) {
-  try {
-    await setDoc(doc(getDb(), CASH_RECON_DOC), { history }, { merge: true });
-  } catch (e) {
-    console.error("[firebase] saveCashRecon error:", e);
-    throw e;
-  }
-}
-
-// ─── Waste Tracker ───────────────────────────────────────────────
-const WASTE_DOC = "meta/waste";
-
-export async function loadWaste() {
-  try {
-    const snap = await getDoc(doc(getDb(), WASTE_DOC));
-    if (!snap.exists()) return [];
-    return snap.data().entries || [];
-  } catch {
-    return [];
-  }
-}
-
-export async function saveWaste(entries) {
-  try {
-    await setDoc(doc(getDb(), WASTE_DOC), { entries }, { merge: true });
-  } catch (e) {
-    console.error("[firebase] saveWaste error:", e);
-    throw e;
-  }
 }
