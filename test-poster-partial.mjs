@@ -161,6 +161,31 @@ section("Метка ночной сверки доезжает от сервер
   globalThis.fetch = prevFetch;
 }
 
+section("Касса сегодня — с ночными чеками из вчерашних суток Poster");
+
+{
+  // 25.09.2026: сутки Poster — по Москве. Чек, закрытый у нас в 00:40,
+  // лежит во вчерашних сутках, и «касса сегодня» его не видела
+  mem.clear();
+  mem.set("supply-track.poster.spots.v1", JSON.stringify({ ts: Date.now(), data: { 4: { name: "Aura02_Abaya" } } }));
+  const at = (h, m) => { const d = new Date(now); d.setHours(h, m, 0, 0); return d.getTime(); };
+  const str = (h, m) => { const d = new Date(at(h, m)); const p = (v) => String(v).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(h)}:${p(m)}:00`; };
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (u.includes("/api/sales-days")) return json({ days: {} });
+    if (u.includes("transactions.getTransactions")) return json({ response: { count: 1, data: [{ transaction_id: 11, spot_id: 4, payed_sum: "2000", date_close: str(10, 0), products: [] }] } });
+    if (u.includes("dash.getTransactions")) return json({ response: [
+      { transaction_id: 10, status: "2", spot_id: 4, payed_sum: 150000, date_close: at(0, 40) },  // сегодня 00:40 — наш
+      { transaction_id: 11, status: "2", spot_id: 4, payed_sum: 200000, date_close: at(10, 0) },  // уже есть в transactions
+    ] });
+    return json({ response: [] });
+  };
+  const r = await fetchPosterSales(dash(today), dash(today), { withProducts: false });
+  eq(r.cashBySpot, { 4: 3500 }, "касса сегодня — с ночным чеком (2 000 + 1 500)");
+  eq(r.txBySpot, { 4: 2 }, "и чеков два");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

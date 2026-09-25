@@ -441,15 +441,17 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
   }
 
   if (need.length) {
-    // Один запрос на весь недостающий отрезок — так же, как грузятся продажи
-    const data = await call(
-      "dash.getTransactions",
-      // С суток раньше: сутки Poster — по Москве, и чеки, закрытые у нас
-      // после полуночи первого дня, лежат во вчерашних. Лишнее отрежет
-      // группировка по дню закрытия ниже
-      dashDates(shiftYmd(need[0], -1), need[need.length - 1]),
-      opts,
-    );
+    // Один запрос на весь недостающий отрезок — так же, как грузятся
+    // продажи. И отдельно — сутки Poster перед ним: они по Москве, и чеки,
+    // закрытые у нас после полуночи первого дня, лежат там. Отдельно, а не
+    // одним отрезком: прошедшие сутки прокси кэширует на день, а отрезок до
+    // сегодня — на 15 секунд, и главная при каждом обновлении качала бы
+    // вчерашний день заново. Лишнее отрежет группировка по дню закрытия
+    const [main, prevDay] = await Promise.all([
+      call("dash.getTransactions", dashDates(need[0], need[need.length - 1]), opts),
+      call("dash.getTransactions", dashDates(shiftYmd(need[0], -1), shiftYmd(need[0], -1)), opts).catch(() => null),
+    ]);
+    const data = { response: [...(main?.response || []), ...(prevDay?.response || []).filter((t) => dayOfRow(t) === need[0] && !isOpenCheck(t))] };
     const byDay = new Map(need.map((d) => [d, []]));
     const lastDay = need[need.length - 1];
     for (const tx of data?.response || []) {
@@ -1287,6 +1289,13 @@ export async function fetchOpenReceipts(dateFrom, dateTo, opts = {}, rows = null
 
 // Экран чеков ждёт «ГГГГ-ММ-ДД ЧЧ:ММ:СС» (так отдаёт transactions.getTransactions),
 // а dash приходит в миллисекундах. Экспортируем ради теста.
+// «ГГГГ-ММ-ДД ЧЧ:ММ:СС» по Алматы — как пишет время transactions.getTransactions
+const ALMATY_TIME = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+export function almatyTimeString(ms) {
+  const n = Number(ms);
+  return n ? ALMATY_TIME.format(new Date(n)) : "";
+}
+
 export function msToPosterTime(ms) {
   const n = Number(ms);
   if (!n) return "";
@@ -1554,6 +1563,27 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
         return data?.response?.data || [];
       });
       for (const arr of results) allData.push(...arr);
+    }
+    // Ночные чеки первого дня: закрыты у нас после полуночи, а в сутках
+    // Poster (по Москве) числятся вчерашними — transactions за этот день
+    // их не отдаёт, и «касса сегодня» теряла их (25.09.2026: ~1,8 % дня).
+    // Берём из dash за вчерашние сутки — прокси кэширует их на день
+    try {
+      const prev = shiftYmd(uncachedFrom, -1);
+      const d = await call("dash.getTransactions", dashDates(prev, prev), opts);
+      const have = new Set(allData.map((t) => String(t.transaction_id)));
+      for (const t of d?.response || []) {
+        if (String(t.status) !== "2" || have.has(String(t.transaction_id))) continue;
+        if (dayOfRow(t) !== uncachedFrom) continue;
+        allData.push({
+          transaction_id: t.transaction_id, spot_id: t.spot_id,
+          payed_sum: Number(t.payed_sum || 0) / 100,
+          date_close: almatyTimeString(t.date_close), products: [],
+        });
+      }
+    } catch (e) {
+      if (e?.name === "AbortError") throw e;
+      /* без ночных чеков — как раньше */
     }
   } catch (e) {
     if (uncachedDays.length >= days.length) throw e;
