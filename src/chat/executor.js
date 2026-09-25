@@ -1439,7 +1439,7 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
       : [];
     const missText = miss.length
       ? `Больше всего выручки без техкарты:\n${miss.map((m) => `• ${m.name} — ${fmt(Math.round(m.revenue))}`).join("\n")}\n`
-        + "Название техкарты должно быть как в Poster: «Латте 0,4», а не «Латте».\n\n"
+        + "Быстрее всего — «Маржа» → «Маржа по продажам» → «Привязать все подсказки»: товар свяжется с похожей техкартой («Латте 0,4» → «Латте»).\n\n"
       : "";
     return {
       text: `Маржа ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\n`
