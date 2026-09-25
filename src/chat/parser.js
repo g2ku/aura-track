@@ -1192,6 +1192,22 @@ export async function parseQuestion(text) {
   if (byBranchAsked && ["cash", "checks", "avgCheck"].includes(metric)) { metric = "compareBranches"; spot = null; }
   // «Сколько принёс Дубай» — одна точка названа, сравнивать не с кем: это её касса
   if (metric === "compareBranches" && spotNamed && countSpots(lower) < 2 && !/по\s+(?:филиал|точк)|кто |какая|какой|какие|рейтинг|лучш|худш/.test(lower)) metric = "cash";
+  // «Почему просел Жароково вчера», «что случилось с Абаей», «из-за чего
+  // упала касса» — разбор причин, а не голое сравнение двух чисел: чеки или
+  // средний чек, в какие часы, какие товары. Без срока — вчера, последний
+  // полный день
+  const why = /почему|из-за чего|отчего|что случил|в ч[её]м причин|причин[аыу](?![а-яё])/.test(lower);
+  // «Что случилось» про прошедший день — тоже разбор, а не лента «сейчас»
+  const pastDay = explicitPeriod && explicitPeriod.to < fmtDate(new Date());
+  if (why && !product && !category && (!metric || ["cash", "checks", "avgCheck", "compareBranches"].includes(metric) || (metric === "alerts" && pastDay))) {
+    operation = "why";
+    metric = "cash";
+    if (!explicitPeriod) {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      period.from = period.to = fmtDate(y);
+    }
+  }
   // «Рост кассы за полгода» — без второго периода сравнивать не с чем.
   // Длинный срок показываем по месяцам, короткий — против такого же
   // отрезка перед ним: «выросла ли касса за неделю» — эта неделя к прошлой
