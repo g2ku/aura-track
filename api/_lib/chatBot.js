@@ -22,6 +22,7 @@ import { spotNameByPosterId, DEFAULT_IP_GROUPS, BRANCHES } from "./branches.js";
 import { escapeHtml } from "./dailyDoc.js";
 import { categoryMargins, marginTotals, purchaseCosts, costQuality } from "../../src/menuMatrix.js";
 import { calcRecipeCost } from "../../src/recipeCost.js";
+import { explainChange, WEEKDAY_GEN } from "../../src/chat/why.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
 const int = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0));
@@ -104,6 +105,32 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
   const s = sumDays(days, spots);
 
   if (!SUPPORTED.has(parsed.metric)) return null;
+
+  // «Почему просела касса» — тот же разбор, что у ассистента сайта
+  // (src/chat/why.js), по ночным итогам: касса, чеки, товары, часы
+  if (parsed.operation === "why") {
+    const pack = (list) => {
+      if (!list?.length) return null;
+      const x = sumDays(list, spots);
+      const products = {};
+      for (const p of x.products) products[p.name] = { qty: p.qty, sum: p.sum };
+      let hours = null;
+      for (const d of list) for (const [spot, hs] of Object.entries(d.hours || {})) {
+        if (spots && !spots.has(String(spot))) continue;
+        hours ||= Array(24).fill(0);
+        (hs.cash || []).forEach((v, i) => { hours[i] += v || 0; });
+      }
+      return { cash: x.total, tx: x.checks, products, hours };
+    };
+    const cur = pack(days);
+    const oneDay = parsed.period.from === parsed.period.to;
+    const bases = (oneDay ? (baseDays.lastFour || []) : [baseDays.prev || []]).map(pack).filter(Boolean);
+    if (!cur || !bases.length) return `Не с чем сравнить ${escapeHtml(when)}: прошлых таких дней в итогах нет.`;
+    const nDays = Math.round((Date.parse(`${parsed.period.to}T00:00:00Z`) - Date.parse(`${parsed.period.from}T00:00:00Z`)) / 86400000) + 1;
+    const baseWord = oneDay ? `обычного ${WEEKDAY_GEN[new Date(`${parsed.period.from}T00:00:00Z`).getUTCDay()]}` : `предыдущих ${nDays} дн.`;
+    const r = explainChange({ head: `${where.trim() || "Вся сеть"}, ${when.replace(/^за\s+/, "")}`, baseWord, cur, bases, fmt });
+    return r ? r.lines.map((l, i) => (i === 0 ? `<b>${escapeHtml(l)}</b>` : escapeHtml(l))).join("\n") : null;
+  }
 
   // Способы оплаты — из поля pay суточных итогов (сегодня его нет:
   // сегодняшний день считается из чеков без разбивки, и в ответ не входит)
@@ -500,6 +527,12 @@ export async function answerQuestion(text, deps) {
   // день против полного тянул любое «кто просел» вниз. Сравниваем полные
   // дни — первый по вчера, второй той же длины (те же дни недели), как на сайте
   let cutToday = false;
+  // «Почему» — только по закончившимся дням: без срока разбор идёт за
+  // вчера, «за неделю» — по вчера
+  if (parsed.operation === "why" && parsed.period?.to >= today) {
+    if (parsed.period.from >= today) return { text: "Сегодня день ещё идёт — причины видно по закончившемуся дню. Спросите: «почему просела касса вчера»." };
+    parsed.period = { ...parsed.period, to: shiftYmd(today, -1) };
+  }
   if (parsed.period2 && parsed.operation === "percentChange" && parsed.period?.to >= today && parsed.period.from < today) {
     const yest = shiftYmd(today, -1);
     const len = Math.round((Date.parse(`${yest}T00:00:00Z`) - Date.parse(`${parsed.period.from}T00:00:00Z`)) / 86400000) + 1;

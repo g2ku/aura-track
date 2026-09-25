@@ -263,6 +263,28 @@ section("В боте: команда и личка");
   ok(help.includes("/спроси касса вчера — ассистент"), "команда — в справке");
 }
 
+section("«Почему» в боте — тот же разбор, что на сайте");
+
+{
+  // Вчера на Абае вдвое меньше обычного, провал — в 14:00
+  const low = (from, to) => [];
+  const depsWhy = {
+    ...deps,
+    getDays: async (from, to) => range(from, to, 1).map((d) => (d.date === Y
+      ? { ...d, cashBySpot: { ...d.cashBySpot, "4": 50000 }, txBySpot: { ...d.txBySpot, "4": 20 },
+          hours: { ...d.hours, "4": (() => { const h = hoursFor(1); h.cash[14] = 0; h.tx[14] = 0; return h; })() },
+          rowsBySpot: { ...d.rowsBySpot, "4": { "Латте 0,4": { qty: 3, sum: 4500 }, "Капучино L": { qty: 5, sum: 9000 } } } }
+      : d)),
+  };
+  const r = (await answerQuestion("почему просела касса абая вчера", depsWhy)).text.replace(/[\u00a0\u202f]/g, " ");
+  ok(/касса 50 000 ₸ — ниже обычного/.test(r), `против обычного такого же дня: ${r.split("\n")[0]}`);
+  ok(/Главное — чеков меньше: 20 против обычных 40/.test(r), "что двигало — люди");
+  ok(/Провал — с 1[234]:00 до 1[567]:00/.test(r), "в какие часы");
+  ok(/Недобрали: Латте 0,4 −7 шт/.test(r), "какие товары");
+  const today = (await answerQuestion("почему просела касса сегодня", deps)).text;
+  ok(/Сегодня день ещё идёт/.test(today), "про сегодня — честно");
+}
+
 section("Маржа в боте — из ночных итогов и техкарт");
 
 {

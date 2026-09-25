@@ -356,9 +356,8 @@ async function executeInner(parsed, userBranch) {
 // какие часы провал, какие товары недобрали. Мерило — обычный такой же
 // день недели (среднее за четыре прошлые недели) или такой же отрезок
 // перед периодом. Только закончившиеся дни: сегодняшний ещё идёт.
-const WEEKDAY_GEN = ["воскресенья", "понедельника", "вторника", "среды", "четверга", "пятницы", "субботы"];
-
 async function handleWhy(spot, period, ipGroup) {
+  const { explainChange, WEEKDAY_GEN } = await import("./why.js");
   const todayIso = fmtDateJS(new Date());
   const sl = label(spot);
   const shift = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return fmtDateJS(x); };
@@ -376,101 +375,48 @@ async function handleWhy(spot, period, ipGroup) {
     fetchPosterSales(period.from, period.to),
     ...bases.map((b) => fetchPosterSales(b.from, b.to).catch(() => null)),
   ]);
-  const got = baseData.filter((b) => b && Object.keys(b.cashBySpot || {}).length);
-  if (!got.length) return { text: `Не с чем сравнить: прошлых таких дней в данных нет.`, data: null };
   const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
-
-  // Касса и чеки точек, попадающих в вопрос
-  const totals = async (d) => {
-    let rows = Object.keys(d.cashBySpot || {}).map((id) => ({ spotId: String(id), spotName: d.spotNames?.[id] || id, total: d.cashBySpot[id] || 0, tx: d.txBySpot?.[id] || 0 }));
-    rows = rows.filter((r) => matchesSpot(r, spot));
-    rows = await filterByIPGroup(rows, ipGroup);
-    return { cash: rows.reduce((a, r) => a + r.total, 0), tx: rows.reduce((a, r) => a + r.tx, 0), ids: new Set(rows.map((r) => r.spotId)) };
-  };
-  const c = await totals(cur);
-  const bt = await Promise.all(got.map(totals));
-  const b = { cash: bt.reduce((a, x) => a + x.cash, 0) / bt.length, tx: bt.reduce((a, x) => a + x.tx, 0) / bt.length };
-  if (!c.cash && !b.cash) return { text: `Продаж ${sl} за ${formatPeriodLabel(period)} нет — сравнивать нечего.`, data: null };
-
-  const pct = (x, y) => (y ? ((x - y) / y) * 100 : 0);
-  const sgn = (p) => `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p).toFixed(1).replace(".", ",")} %`;
-  const dCash = pct(c.cash, b.cash);
-  const avgC = c.tx ? c.cash / c.tx : 0, avgB = b.tx ? b.cash / b.tx : 0;
-  const dTx = pct(c.tx, b.tx), dAvg = pct(avgC, avgB);
-  const baseWord = oneDay ? `обычного ${WEEKDAY_GEN[new Date(period.from + "T00:00:00").getDay()]}` : `предыдущих ${days} дн.`;
-  const down = dCash < 0;
-  const lines = [];
-  const head = `${isAll(spot) ? "Вся сеть" : sl}, ${formatPeriodLabel(period)}`;
-  if (Math.abs(dCash) < 5) {
-    lines.push(`${head}: касса ${fmt(Math.round(c.cash))} — в пределах ${baseWord} (${fmt(Math.round(b.cash))}, ${sgn(dCash)}). Заметного провала нет.`);
-  } else {
-    lines.push(`${head}: касса ${fmt(Math.round(c.cash))} — ${down ? "ниже" : "выше"} ${baseWord} (${fmt(Math.round(b.cash))}) на ${Math.abs(Math.round(dCash))} %.`);
-    // Что двигало: люди или покупки
-    if (Math.abs(dTx) >= Math.abs(dAvg)) {
-      lines.push(`• Главное — чеков ${dTx < 0 ? "меньше" : "больше"}: ${Math.round(c.tx)} против обычных ${Math.round(b.tx)} (${sgn(dTx)}) — ${dTx < 0 ? "пришло меньше людей" : "пришло больше людей"}. Средний чек ${fmt(Math.round(avgC))} (${sgn(dAvg)}).`);
-    } else {
-      lines.push(`• Главное — средний чек: ${fmt(Math.round(avgC))} против ${fmt(Math.round(avgB))} (${sgn(dAvg)}) — ${dAvg < 0 ? "брали меньше или дешевле" : "брали больше или дороже"}. Чеков почти столько же: ${Math.round(c.tx)} (${sgn(dTx)}).`);
+  // Точки, попадающие в вопрос
+  const inScope = (id, name) => matchesSpot({ spotId: String(id), spotName: name }, spot) && (!groupBranches || matchesIPGroup(name, groupBranches) || matchesIPGroup(`Aura02_${name}`, groupBranches));
+  const collect = async (d, p) => {
+    if (!d || !Object.keys(d.cashBySpot || {}).length) return null;
+    let cash = 0, tx = 0;
+    const ids = new Set();
+    for (const [id, v] of Object.entries(d.cashBySpot)) {
+      const name = d.spotNames?.[id] || id;
+      if (!inScope(id, name)) continue;
+      ids.add(String(id)); cash += v || 0; tx += d.txBySpot?.[id] || 0;
     }
-  }
-
-  // Часы: где разница больше всего — окно в три часа
-  try {
-    const hoursOf = async (p) => {
-      const h = await fetchHoursByDay(p.from, p.to);
-      const sum = Array(24).fill(0);
-      for (const day of h.days || []) for (const [id, hs] of Object.entries(day.hours || {})) {
-        if (!c.ids.has(String(id))) continue;
-        (hs.cash || []).forEach((v, i) => { sum[i] += v || 0; });
-      }
-      return { sum, n: (h.days || []).length };
-    };
-    const hc = await hoursOf(period);
-    const hb = await Promise.all(bases.map(hoursOf));
-    const nb = hb.filter((x) => x.n);
-    if (hc.n && nb.length) {
-      const avg = Array(24).fill(0).map((_, i) => nb.reduce((a, x) => a + x.sum[i], 0) / nb.length);
-      let best = null;
-      for (let i = 0; i <= 21; i++) {
-        const diff = hc.sum[i] + hc.sum[i + 1] + hc.sum[i + 2] - (avg[i] + avg[i + 1] + avg[i + 2]);
-        if (!best || (down ? diff < best.diff : diff > best.diff)) best = { i, diff };
-      }
-      const total = c.cash - b.cash;
-      if (best && Math.abs(dCash) >= 5 && Math.sign(best.diff) === Math.sign(total) && Math.abs(best.diff) >= Math.abs(total) * 0.3) {
-        const hh = (n) => `${String(n).padStart(2, "0")}:00`;
-        lines.push(`• ${down ? "Провал" : "Прибавка"} — с ${hh(best.i)} до ${hh(best.i + 3)}: ${best.diff < 0 ? "−" : "+"}${fmt(Math.round(Math.abs(best.diff)))} к обычному${Math.abs(best.diff) >= Math.abs(total) * 0.7 ? " — почти вся разница" : ""}.`);
-      }
-    }
-  } catch { /* без часов — без этой строки */ }
-
-  // Товары: кого недобрали и кого прибавили — по выручке
-  const prod = (d) => {
-    const m = {};
+    const products = {};
     for (const r of d.rows || []) {
       if (!matchesRowSpot(r, spot)) continue;
       if (groupBranches && !matchesIPGroup(r.spotName, groupBranches)) continue;
-      const k = r.productName;
-      (m[k] ||= { qty: 0, sum: 0 });
-      m[k].qty += r.qty || 0; m[k].sum += r.sum || 0;
+      const x = (products[r.productName] ||= { qty: 0, sum: 0 });
+      x.qty += r.qty || 0; x.sum += r.sum || 0;
     }
-    return m;
+    let hours = null;
+    try {
+      const h = await fetchHoursByDay(p.from, p.to);
+      if ((h.days || []).length) {
+        hours = Array(24).fill(0);
+        for (const day of h.days) for (const [id, hs] of Object.entries(day.hours || {})) {
+          if (!ids.has(String(id))) continue;
+          (hs.cash || []).forEach((v, i) => { hours[i] += v || 0; });
+        }
+      }
+    } catch { /* без часов — без этой строки */ }
+    return { cash, tx, products, hours };
   };
-  const pc = prod(cur);
-  const pbs = got.map(prod);
-  const names = new Set([...Object.keys(pc), ...pbs.flatMap((m) => Object.keys(m))]);
-  const moves = [...names].map((n) => {
-    const bq = pbs.reduce((a, m) => a + (m[n]?.qty || 0), 0) / pbs.length;
-    const bs = pbs.reduce((a, m) => a + (m[n]?.sum || 0), 0) / pbs.length;
-    return { n, dq: (pc[n]?.qty || 0) - bq, ds: (pc[n]?.sum || 0) - bs, bq };
-  }).filter((x) => Math.abs(x.dq) >= 2 && (x.bq >= 3 || x.dq > 0));
-  const lost = moves.filter((x) => x.ds < 0).sort((a, b) => a.ds - b.ds).slice(0, 3);
-  const plus = moves.filter((x) => x.ds > 0).sort((a, b) => b.ds - a.ds).slice(0, 2);
-  const mv = (x) => `${x.n} ${x.dq > 0 ? "+" : "−"}${Math.round(Math.abs(x.dq))} шт (${x.ds > 0 ? "+" : "−"}${fmt(Math.round(Math.abs(x.ds)))})`;
-  if (Math.abs(dCash) >= 5) {
-    if (down && lost.length) lines.push(`• Недобрали: ${lost.map(mv).join(", ")}${plus.length ? `; прибавили: ${plus.map(mv).join(", ")}` : ""}.`);
-    if (!down && plus.length) lines.push(`• Добрали: ${plus.map(mv).join(", ")}${lost.length ? `; меньше: ${lost.map(mv).join(", ")}` : ""}.`);
-  }
-  if (oneDay && got.length < 4) lines.push(`\n(Обычный день — по ${got.length} ${got.length === 1 ? "прошлому" : "прошлым"} таким же дням недели.)`);
-  return { text: lines.join("\n"), data: { dCash, dTx, dAvg } };
+  const curX = await collect(cur, period);
+  const baseX = (await Promise.all(baseData.map((d, i) => collect(d, bases[i])))).filter(Boolean);
+  if (!baseX.length) return { text: `Не с чем сравнить: прошлых таких дней в данных нет.`, data: null };
+  if (!curX || (!curX.cash && !baseX.some((x) => x.cash))) return { text: `Продаж ${sl} за ${formatPeriodLabel(period)} нет — сравнивать нечего.`, data: null };
+  const baseWord = oneDay ? `обычного ${WEEKDAY_GEN[new Date(period.from + "T00:00:00").getDay()]}` : `предыдущих ${days} дн.`;
+  const head = `${isAll(spot) ? "Вся сеть" : sl}, ${formatPeriodLabel(period)}`;
+  const r = explainChange({ head, baseWord, cur: curX, bases: baseX, fmt });
+  const lines = [...r.lines];
+  if (oneDay && baseX.length < 4) lines.push(`\n(Обычный день — по ${baseX.length} ${baseX.length === 1 ? "прошлому" : "прошлым"} таким же дням недели.)`);
+  return { text: lines.join("\n"), data: { dCash: r.dCash, dTx: r.dTx, dAvg: r.dAvg } };
 }
 
 // ─── Сравнение двух периодов (процентное изменение) ────────────────
