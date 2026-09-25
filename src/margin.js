@@ -761,24 +761,27 @@ let cached = null;
 
 export async function loadMargin() {
   if (cached) return cached;
-  try {
-    const snap = await getDoc(doc(getDb(), SETTINGS_DOC));
-    if (snap.exists()) {
-      const d = snap.data();
-      // If document exists but has empty arrays, re-populate with defaults
-      if ((!d.ingredients || d.ingredients.length === 0) && (!d.recipes || d.recipes.length === 0)) {
-        const data = { ingredients: DEFAULT_INGREDIENTS, recipes: DEFAULT_RECIPES, updatedAt: Date.now() };
-        try { await setDoc(doc(getDb(), SETTINGS_DOC), data); } catch {}
-        cached = data;
-        return data;
-      }
-      cached = d;
-      return d;
+  // Сбой чтения — это ошибка, а не «документа нет». Раньше они шли одной
+  // дорогой, и моргнувшая сеть записывала базовые техкарты поверх
+  // настоящих: цены, рецепты, привязки к Poster пропадали. Ошибку ловят
+  // экраны — «Маржа» показывает её с кнопкой «Повторить»
+  const snap = await getDoc(doc(getDb(), SETTINGS_DOC));
+  if (snap.exists()) {
+    const d = snap.data();
+    // If document exists but has empty arrays, re-populate with defaults
+    if ((!d.ingredients || d.ingredients.length === 0) && (!d.recipes || d.recipes.length === 0)) {
+      const data = { ingredients: DEFAULT_INGREDIENTS, recipes: DEFAULT_RECIPES, updatedAt: Date.now() };
+      try { await setDoc(doc(getDb(), SETTINGS_DOC), data); } catch {}
+      cached = data;
+      return data;
     }
-  } catch (e) {
-    console.warn("[Margin] load error:", e);
+    cached = d;
+    return d;
   }
-  // First load or error — populate with defaults
+  // Без сети ответ «нет» даёт локальный кэш — он говорит так и про то,
+  // чего просто ни разу не видел. Сеять базовые можно только по слову сервера
+  if (snap.metadata?.fromCache) throw new Error("Нет связи с базой — настройки маржи не загрузились");
+  // Первый запуск: документа действительно нет
   const data = { ingredients: DEFAULT_INGREDIENTS, recipes: DEFAULT_RECIPES, updatedAt: Date.now() };
   try {
     await setDoc(doc(getDb(), SETTINGS_DOC), data);

@@ -33,6 +33,8 @@ writeFileSync(stub, `
   export const collection = fn(); export const doc = fn(); export const setDoc = fn(); export const deleteDoc = fn();
   export const updateDoc = fn(); export const onSnapshot = () => noop; export const query = fn(); export const orderBy = fn();
   export const getDoc = fn(); export const getDocs = fn(); export const runTransaction = fn(); export const arrayUnion = fn();
+  export const initializeFirestore = fn(); export const persistentLocalCache = fn(); export const persistentMultipleTabManager = fn();
+  export const terminate = fn(); export const clearIndexedDbPersistence = fn();
   export const getAuth = fn(); export const createUserWithEmailAndPassword = fn(); export const signInWithEmailAndPassword = fn();
   export const signOut = fn(); export const onAuthStateChanged = () => noop;
   export const Chart = class { static register() {} }; export const registerables = [];

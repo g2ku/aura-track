@@ -18,16 +18,15 @@ let cached = null;
 
 export async function loadIPGroups() {
   if (cached) return cached;
-  try {
-    const snap = await getDoc(doc(getDb(), SETTINGS_DOC));
-    if (snap.exists()) {
-      cached = snap.data();
-      return cached;
-    }
-  } catch (e) {
-    console.warn("[IPGroups] load error:", e);
+  // Сбой чтения — ошибка, а не «групп нет»: иначе моргнувшая сеть
+  // записывала группы по умолчанию поверх настроенных владельцем
+  const snap = await getDoc(doc(getDb(), SETTINGS_DOC));
+  if (snap.exists()) {
+    cached = snap.data();
+    return cached;
   }
-  // Fallback defaults — save them
+  if (snap.metadata?.fromCache) throw new Error("Нет связи с базой — группы ИП не загрузились");
+  // Первый запуск: документа действительно нет — кладём группы по умолчанию
   const data = { groups: DEFAULT_GROUPS, updatedAt: Date.now() };
   try {
     await setDoc(doc(getDb(), SETTINGS_DOC), data);

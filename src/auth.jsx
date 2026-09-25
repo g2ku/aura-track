@@ -299,10 +299,14 @@ export async function login(email, password) {
 }
 
 export async function logout() {
-  await logoutUser();
+  const cacheDropped = await logoutUser();
   setLiveMeta(null);
   cacheUserMeta(null);
   window.dispatchEvent(new Event("auth-change"));
+  // Локальный кэш базы стёрт вместе с её экземпляром — без перезагрузки
+  // следующий вход упрётся в закрытую базу. Заодно чистятся сторы
+  // в памяти: следующий человек начинает с пустого листа
+  if (cacheDropped) window.location.reload();
 }
 
 // ─── Экран логина ─────────────────────────────────────────────────────

@@ -6,6 +6,11 @@
 import { initializeApp, getApps } from "firebase/app";
 import {
   getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  terminate,
+  clearIndexedDbPersistence,
   collection,
   doc,
   setDoc,
@@ -46,11 +51,45 @@ let initError = null;
 if (isFirebaseConfigured()) {
   try {
     const app = getApps().length ? getApps()[0] : initializeApp(cfg);
-    db = getFirestore(app);
+    db = openDb(app);
     auth = getAuth(app);
   } catch (e) {
     initError = e.message;
   }
+}
+
+// Локальный кэш Firestore в IndexedDB (владелец согласился 25.09.2026).
+// Без него каждое открытие сайта заново тянуло всю коллекцию накладных;
+// с ним экран сразу рисуется из кэша, а с сервера приходят только
+// изменения — быстрее и меньше чтений. Вкладок может быть несколько —
+// им нужен общий менеджер. Если IndexedDB нет (приватный режим, старый
+// WebView) — работаем как раньше, без кэша.
+function openDb(app) {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch (e) {
+    // Горячая перезагрузка в разработке: экземпляр уже создан
+    console.warn("[firebase] локальный кэш не включился:", e?.message || e);
+    return getFirestore(app);
+  }
+}
+
+// Кэш лежит в браузере и после выхода. На общем компьютере филиала
+// следующий человек не должен находить в нём накладные прошлого —
+// при выходе стираем. После terminate экземпляр мёртв, поэтому
+// страницу нужно перезагрузить — это делает logout в auth.jsx
+async function dropLocalCache() {
+  if (!db) return false;
+  try {
+    await terminate(db);
+    await clearIndexedDbPersistence(db);
+  } catch (e) {
+    // Открыт во второй вкладке — сотрётся при выходе там
+    console.warn("[firebase] кэш не стёрся:", e?.message || e);
+  }
+  return true;
 }
 
 export function getDb() {
@@ -527,6 +566,7 @@ export async function getIdToken() {
 export async function logoutUser() {
   const a = getFirebaseAuth();
   await signOut(a);
+  return dropLocalCache();
 }
 
 // Подписка на изменения Auth-состояния

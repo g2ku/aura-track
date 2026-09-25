@@ -16,6 +16,9 @@ export default function IPGroupsAdmin() {
   const toast = useToast();
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Не загрузилось — не даём править: сохранение пустого списка
+  // затёрло бы настоящие группы
+  const [loadError, setLoadError] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [newName, setNewName] = useState("");
 
@@ -25,11 +28,12 @@ export default function IPGroupsAdmin() {
 
   async function load() {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await loadIPGroups();
       setGroups(data.groups || []);
     } catch (e) {
-      toast({ tone: "error", message: "Ошибка загрузки: " + e.message });
+      setLoadError(e.message || "Группы не загрузились");
     } finally {
       setLoading(false);
     }
@@ -89,6 +93,21 @@ export default function IPGroupsAdmin() {
         <div className="card empty-state">
           <i className="ti ti-loader-2" style={{ fontSize: 24, animation: "spin 1s linear infinite" }} />
           <div className="empty-state-sub">Загрузка…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="view-wrap">
+        <div className="card empty-state" role="alert">
+          <i className="ti ti-alert-circle" style={{ fontSize: 24 }} aria-hidden="true" />
+          <div className="empty-state-title">Группы ИП не загрузились</div>
+          <div className="empty-state-sub">{loadError}. Править нельзя, пока не загрузятся — иначе сохранение затрёт настоящие группы.</div>
+          <button type="button" className="btn btn-out" onClick={() => { clearIPGroupsCache(); load(); }}>
+            <i className="ti ti-refresh" aria-hidden="true" /> Повторить
+          </button>
         </div>
       </div>
     );
