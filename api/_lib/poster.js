@@ -26,10 +26,19 @@ export async function posterCall(method, params = {}) {
   return data;
 }
 
+// Даты для dash.getTransactions — в ОБОИХ написаниях. Методы Poster
+// расходятся: storage.getReportMovement понимает только dateFrom/dateTo, а
+// чужое молча игнорирует и отдаёт другой срок (см. movement.js). Какое
+// написание понимает dash, из кода не проверить, а ошибка тихая: «вчера»
+// превращается в «сегодня». Лишний параметр Poster игнорирует — шлём оба
+export function dashDateParams(from, to = from) {
+  return { dateFrom: String(from), dateTo: String(to), date_from: String(from), date_to: String(to) };
+}
+
 // Строки чеков за день. Именно этот метод отдаёт и открытые чеки, и
 // payment_method_id — в transactions.getTransactions ни того, ни другого нет.
 export async function dashTransactions(ymd, to = ymd) {
-  const d = await posterCall("dash.getTransactions", { date_from: ymd, date_to: to });
+  const d = await posterCall("dash.getTransactions", dashDateParams(ymd, to));
   return d?.response || [];
 }
 

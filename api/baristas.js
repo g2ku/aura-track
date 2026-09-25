@@ -6,7 +6,7 @@
 
 import { dashTransactions } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
-import { summarizeBaristas } from "./_lib/baristas.js";
+import { summarizeBaristas, rowsInPeriod } from "./_lib/baristas.js";
 import { summarizeLog } from "./_lib/alertLog.js";
 import { getConfig } from "./_lib/store.js";
 import { spotNameByPosterId } from "./_lib/branches.js";
@@ -41,7 +41,11 @@ export default async function handler(req, res) {
 
   try {
     // Один запрос на весь период: Poster сам отдаёт диапазон.
-    const rows = await dashTransactions(from, to);
+    const all = await dashTransactions(from, to);
+    const { rows, dropped } = rowsInPeriod(all, from, to);
+    if (dropped) console.warn(`[baristas] Poster отдал ${dropped} чеков не за ${from}–${to}`);
+    // Всё мимо срока — это не «чеков нет», а Poster ответил не про то
+    if (all.length && !rows.length) throw new Error(`Poster отдал чеки не за ${iso(from)} — ${iso(to)}`);
     const { people, spots } = summarizeBaristas(rows);
 
     // История тревог — из накопленного сторожем журнала

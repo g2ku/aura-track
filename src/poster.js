@@ -397,6 +397,13 @@ export function mergePayDays(days) {
   return { total, bySpot, lastOrder, openRows };
 }
 
+// Даты dash.getTransactions — в обоих написаниях, как на сервере
+// (api/_lib/poster.js, dashDateParams): какое понимает метод, из кода не
+// проверить, а ошибка тихая — «вчера» становится «сегодня»
+export function dashDates(from, to = from) {
+  return { dateFrom: String(from), dateTo: String(to), date_from: String(from), date_to: String(to) };
+}
+
 export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
@@ -428,7 +435,7 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
     // Один запрос на весь недостающий отрезок — так же, как грузятся продажи
     const data = await call(
       "dash.getTransactions",
-      { dateFrom: need[0], dateTo: need[need.length - 1] },
+      dashDates(need[0], need[need.length - 1]),
       opts,
     );
     const byDay = new Map(need.map((d) => [d, []]));
@@ -786,7 +793,7 @@ export async function fetchHourlyCurve(date, opts = {}) {
       return curve;
     }
   }
-  const data = await call("dash.getTransactions", { date_from: ymd, date_to: ymd }, opts);
+  const data = await call("dash.getTransactions", dashDates(ymd, ymd), opts);
   const txs = data?.response || [];
   const buckets = new Array(24).fill(0);
   let total = 0;
@@ -1211,7 +1218,7 @@ export async function fetchDashTransactions(dateFrom, dateTo, opts = {}) {
   const fromP = toPosterDate(dateFrom);
   const toP = toPosterDate(dateTo);
   if (!fromP || !toP) return [];
-  const data = await call("dash.getTransactions", { date_from: fromP, date_to: toP }, opts);
+  const data = await call("dash.getTransactions", dashDates(fromP, toP), opts);
   return data?.response || [];
 }
 

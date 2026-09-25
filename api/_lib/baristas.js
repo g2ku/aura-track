@@ -18,6 +18,20 @@ const num = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// Только чеки спрошенных дней (по Алматы). Если Poster отдал другой срок —
+// не выдаём сегодняшнюю смену за вчерашнюю. from/to — ГГГГММДД
+export function rowsInPeriod(rows, from, to) {
+  const kept = [];
+  let dropped = 0;
+  for (const tx of rows || []) {
+    const at = Number(tx.date_close) || Number(tx.date_start) || 0;
+    const day = at ? localDateStr(at).replace(/-/g, "") : null;
+    if (day && (day < from || day > to)) { dropped++; continue; }
+    kept.push(tx);
+  }
+  return { rows: kept, dropped };
+}
+
 export function summarizeBaristas(rows) {
   const byPerson = {};
   const spotTotals = {};

@@ -6,7 +6,8 @@
 //
 // Запуск: node test-people.mjs
 
-import { summarizeBaristas } from "./api/_lib/baristas.js";
+import { summarizeBaristas, rowsInPeriod } from "./api/_lib/baristas.js";
+import { dashDateParams } from "./api/_lib/poster.js";
 import { countAlerts, mergeLog, purgeLog, summarizeLog } from "./api/_lib/alertLog.js";
 import { usualByHour, todayByHour, buildBehindAlerts, MIN_SAMPLE_DAYS } from "./api/_lib/usualDay.js";
 
@@ -61,6 +62,18 @@ section("Бариста: считаются только продажи");
     { day: "2026-09-23", from: "09:00", to: "09:00", checks: 1 },
     { day: "2026-09-24", from: "08:12", to: "15:40", checks: 2 },
   ], "смены по дням, по порядку, время по Алматы");
+
+  // Спросили про 23-е — чеки 24-го не выдаются за 23-е
+  const only23 = rowsInPeriod(rows, "20260923", "20260923");
+  eq(only23.rows.length, 1, "в сводку за 23-е — только чек 23-го");
+  eq(only23.dropped, 2, "остальные отброшены и посчитаны");
+  eq(rowsInPeriod([{ status: "1", date_close: "0", date_start: 0 }], "20260923", "20260923").rows.length, 1, "строка без времени не теряется");
+}
+
+{
+  // dash.getTransactions: даты в обоих написаниях — какое понимает метод,
+  // из кода не проверить, а ошибка тихая
+  eq(dashDateParams("20260924"), { dateFrom: "20260924", dateTo: "20260924", date_from: "20260924", date_to: "20260924" }, "оба написания дат");
 }
 
 {
