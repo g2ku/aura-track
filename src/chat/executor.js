@@ -589,6 +589,15 @@ async function handleCash(operation, spot, period, ipGroup) {
   }
 
   if (operation === "average" && filtered.length > 0) {
+    // Среднее в день — по закончившимся дням: неполный сегодняшний день
+    // тянул его вниз (половина дня делилась как целый)
+    const todayIso = fmtDateJS(new Date());
+    if (period.to >= todayIso && period.from < todayIso) {
+      const y = new Date(todayIso + "T00:00:00");
+      y.setDate(y.getDate() - 1);
+      const r = await handleCash("average", spot, { ...period, to: fmtDateJS(y) }, ipGroup);
+      return r?.text ? { ...r, text: `${r.text}\n\nСегодня не считал — день ещё идёт.` } : r;
+    }
     const days = filtered[0].daysCount || 1;
     const avgPerDay = Math.round(totalCash / days);
     return {
@@ -1786,7 +1795,10 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   }
 
   const acc = weekdayNames.map((name) => ({ name, total: 0, tx: 0, days: 0 }));
+  // Сегодняшний неполный день в среднее своего дня недели не идёт
+  const todayKeyW = fmtDateJS(new Date()).replace(/-/g, "");
   for (const [k, v] of Object.entries(byDate)) {
+    if (k.replace(/-/g, "") === todayKeyW) continue;
     const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
     const dow = new Date(iso + "T00:00:00").getDay();
     if (only === "weekdays" && WEEKEND.has(dow)) continue;
