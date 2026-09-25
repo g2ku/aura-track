@@ -12,6 +12,7 @@
 import { build } from "esbuild";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { summarizeBaristas } from "./api/_lib/baristas.js";
 
 process.env.TZ = "Asia/Almaty";
 
@@ -74,7 +75,28 @@ globalThis.__poster = {
     for (const d of eachDay(from, to).filter((x) => x <= TODAY)) for (const sid of Object.keys(SPOTS)) out.push({ date: d.replace(/-/g, ""), spotId: sid, spotName: SPOTS[sid], total: Math.round(BASE[sid][0] * dayFactor(d)), txCount: Math.round(BASE[sid][1] * dayFactor(d)) });
     return out;
   },
-  async fetchReceipts(from, to) {
+  // Как настоящий Poster: transactions.getTransactions имени бариста не
+  // отдаёт, оно приходит только из dash — и только когда открытые чеки не
+  // отключены. Раньше заглушка отдавала имена всегда, и тесты не видели,
+  // что в бою ассистент получал чеки без имён и врал «Poster не отдал»
+  async fetchReceipts(from, to, opts = {}) {
+    const r = this._receipts(from, to);
+    if (opts.includeOpen === false) for (const x of r.receipts) x.waiter = "";
+    return r;
+  },
+  // Сводка сервера /api/baristas — настоящим summarizeBaristas из строк
+  // dash, в которых имя и user_id есть всегда (общий аккаунт — тоже имя)
+  async fetchBaristas(from, to) {
+    this.calls.push(["baristas", from, to]);
+    if (this.baristasError) return { people: [], spots: {}, error: this.baristasError };
+    const rows = this._receipts(from, to).receipts.map((x) => ({
+      status: "2", payed_sum: x.sum * 100, spot_id: x.spotId,
+      user_id: x.waiter ? `u-${x.waiter}` : "u-shared", name: x.waiter || "Касса Абая",
+      date_close: new RealDate(x.dateClose.replace(" ", "T") + "+05:00").getTime(), total_profit: 0,
+    }));
+    return summarizeBaristas(rows);
+  },
+  _receipts(from, to) {
     this.calls.push(["receipts", from, to]);
     const receipts = [];
     let id = 1;
@@ -145,6 +167,7 @@ writeFileSync(posterStub, `
   export const fetchCashBySpot = (...a) => P.fetchCashBySpot(...a);
   export const fetchCashPerDay = (...a) => P.fetchCashPerDay(...a);
   export const fetchReceipts = (...a) => P.fetchReceipts(...a);
+  export const fetchBaristas = (...a) => P.fetchBaristas(...a);
   export const getMenuCategories = (...a) => P.getMenuCategories(...a);
   export const fetchPaymentBreakdown = (...a) => P.fetchPaymentBreakdown(...a);
   export const getPaymentMethodName = (...a) => P.getPaymentMethodName(...a);
@@ -565,21 +588,34 @@ section("Цифра всегда говорит, от чего посчитан�
   ok(!/не найден/.test(big), "и никакого «товар не найден»");
 }
 
-section("Чек без имени кассира не теряется молча");
+section("Бариста: имена из сводки сервера, а не из чеков без имён");
 {
-  // Смену пробили с общего аккаунта — Poster отдаёт чек без бариста.
-  // В расклад по людям он не входит, и состав смены выглядит полным,
-  // хотя часть кассы в нём не учтена.
-  const roster = await ask("кто работал вчера на абае");
-  has(roster, "Без имени", "в составе смены сказано про чеки без бариста");
-  has(roster, "в расклад они не вошли", "и что они не учтены");
+  // В бою 25.09.2026: «Кто работал вчера» → «нет имён бариста — Poster их
+  // не отдал», а экран чеков в ту же минуту показывал официантов. Имена
+  // есть только в dash — ассистент обязан брать их оттуда
+  const roster = await ask("кто работал вчера");
+  ok(!/не отдал/.test(roster), "никакого «Poster не отдал»");
+  has(roster, "Кто работал все филиалы за 19 сентября", "состав смены по всем точкам");
+  has(roster, "• Абая:", "по точкам");
+  has(roster, "Касса Абая (12:05–12:05, 1 чек.", "чек с общего аккаунта — под его именем, а не потерян");
 
   const rating = await ask("касса по бариста за вчера");
-  has(rating, "Без имени", "в рейтинге тоже");
-  has(rating, "Poster не отдал бариста", "с названной причиной");
+  ok(!/не отдал|Без имени/.test(rating), "рейтинг без выдуманных «чеков без имени»");
+  has(rating, "🏆 Данияр:", "лидер на месте");
+
+  const week = await ask("кто работал за неделю на абае");
+  has(week, "Айгерим (7 дней,", "за несколько дней — сколько дней выходил, а не часы одной смены");
 
   const person = await ask("чеки у Данияра за вчера");
-  ok(/Данияр/.test(person), "по человеку ответ на месте");
+  ok(/Данияр: /.test(person), "по человеку ответ на месте");
+
+  // Poster упал — сервер отвечает 200 с error. «Чеков нет» было бы враньём
+  const P = globalThis.__poster;
+  P.baristasError = "timeout";
+  const fail = await ask("кто работал вчера");
+  ok(!/Чеков .* нет/.test(fail), `сбой Poster — не «чеков нет»: ${fail.split("\n")[0]}`);
+  ok(/Poster не ответил|не получилось|ошибк/i.test(fail), "а честная ошибка");
+  P.baristasError = null;
 }
 
 section("Сомнительный день помечен и на сайте");

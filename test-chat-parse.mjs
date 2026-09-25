@@ -15,6 +15,7 @@ import { smartParse } from "./src/chat/smart.js";
 import { mergeFollowUp, preferFollowUp, fuzzyMetric, hasExplicitPeriod } from "./src/chat/parser.js";
 import { normalize, stem, distance, matchWord, matchPhrase, productMatches, closestNames } from "./src/chat/normalize.js";
 import { alternatives, understoodLine, periodPhrase } from "./src/chat/clarify.js";
+import { followUpsFor, FOLLOW_UP } from "./src/chat/followUps.js";
 import { remember, recall, loadLearned, LINK_WINDOW_MS } from "./src/chat/memory.js";
 import { baselinePeriods, formatContext, averageOf } from "./src/chat/context.js";
 import { listPins, addPin, removePin, isPinned, titleOf, tileLines, MAX_PINS } from "./src/chat/pins.js";
@@ -127,7 +128,7 @@ section("Каждый пример из приложения обязан пон
   // Пример в списке — это обещание. Если он там висит, он должен
   // работать: именно так и прожил сломанный «за последние 14 дней».
   const src = readFileSync("src/components/DataChat.jsx", "utf8");
-  const block = src.slice(src.indexOf("const EXAMPLES_ALL"), src.indexOf("const FOLLOW_UP"));
+  const block = src.slice(src.indexOf("const EXAMPLES_ALL"), src.indexOf("// Подсказки «что спросить дальше»"));
   const raw = [...block.matchAll(/"([^"]{6,})"|`([^`]{6,})`/g)].map((m) => m[1] || m[2]);
 
   // Шаблоны с месяцами подставляем настоящими названиями
@@ -148,10 +149,45 @@ section("Каждый пример из приложения обязан пон
   // Месяцы в примерах не должны быть зашиты: «Прогноз на август» к концу
   // августа теряет смысл, а «за июнь» через год станет позапрошлым.
   const src = readFileSync("src/components/DataChat.jsx", "utf8");
-  const block = src.slice(src.indexOf("const EXAMPLES_ALL"), src.indexOf("const FOLLOW_UP"));
+  const block = src.slice(src.indexOf("const EXAMPLES_ALL"), src.indexOf("// Подсказки «что спросить дальше»"));
   const hardcoded = ["января","февраля","марта","апреля","мая","июня","июля","августа",
                      "июнь","июль","август","сентябрь"].filter((m) => new RegExp(`["\`][^"\`]*${m}`, "i").test(block));
   eq(hardcoded, [], "названий месяцев в примерах не осталось");
+}
+
+section("Подсказки под ответом: без двойного периода, и каждая разбирается");
+
+{
+  // В бою 25.09.2026: «Кто работал вчера» → подсказки «Кто работал вчера
+  // за сентябрь», «Средний чек по бариста за неделю за сентябрь»
+  const p = await ask("кто работал вчера");
+  const ups = followUpsFor(p);
+  ok(ups.length >= 2, `подсказки есть: ${ups.join(" | ")}`);
+  const MONTH = /за (январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)/;
+  const dup = ups.filter((q) => /вчера|сегодня|недел|месяц|дней/.test(q) && MONTH.test(q));
+  eq(dup, [], "к подсказке со своим сроком месяц не дописан");
+  ok(!ups.some((q) => q.toLowerCase() === "кто работал вчера"), "только что спрошенное не предлагается");
+
+  // Для всех разделов и трёх видов периода: подсказка разбирается и не
+  // несёт двух сроков сразу
+  const questions = ["касса вчера", "касса за неделю", "касса за сентябрь", "чеки вчера на абае", "топ товаров вчера",
+    "маржа за месяц", "доля каспи вчера", "средний чек по бариста вчера", "скидки вчера", "во сколько открылись вчера", "сравни филиалы вчера"];
+  const broken = [], doubled = [];
+  for (const q of questions) {
+    const parsed = await ask(q);
+    if (!parsed) { broken.push(`вопрос «${q}»`); continue; }
+    for (const f of followUpsFor(parsed)) {
+      if (await ask(f) === null) broken.push(f);
+      if (/(вчера|сегодня|недел|месяц|дней).*за (январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)/.test(f)) doubled.push(f);
+    }
+  }
+  eq(broken, [], "каждая подсказка разбирается");
+  eq(doubled, [], "ни одной с двумя сроками");
+  ok(Object.keys(FOLLOW_UP).includes("staff"), "у бариста свои подсказки");
+
+  // Точка сохраняется, сравнение — «сентябрь с августом»
+  const d = followUpsFor(await ask("касса дубай вчера"));
+  ok(d.some((q) => /^Сравнить \S+ с \S+ Дубай$/.test(q)), `сравнение месяцев с точкой: ${d.join(" | ")}`);
 }
 
 section("«Спешл» — категория меню, а не товар");

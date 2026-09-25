@@ -11,7 +11,7 @@
 // Поэтому доля считается от своей точки, а не от сети.
 
 import { spotNameByPosterId } from "./branches.js";
-import { localDateStr } from "./time.js";
+import { localDateStr, localMinutesOfDay } from "./time.js";
 
 const num = (v) => {
   const n = Number(v);
@@ -70,11 +70,18 @@ export function summarizeBaristas(rows) {
     // чеку скорость не узнать. Раньше здесь стоял минимум в полчаса, и
     // из единственного чека Адията получалось «2 чека в час».
     const dayList = Object.values(p.days);
+    // Смены по дням — для «кто работал вчера»: с какого по какое время
+    // человек пробивал чеки. Время по Алматы, как видит его точка
+    const hm = (ms) => { const m = localMinutesOfDay(ms); return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
+    const shifts = Object.entries(p.days)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([day, d]) => ({ day, from: hm(d.first), to: hm(d.last), checks: d.checks }));
     const hours = dayList.reduce((sum, d) => sum + (d.last - d.first) / 3600000, 0);
     const spotTotal = spotTotals[p.spotId] || 0;
     return {
       ...p,
       days: undefined,
+      shifts,
       total: Math.round(p.total),
       profit: Math.round(p.profit),
       avgCheck: p.checks ? Math.round(p.total / p.checks) : 0,

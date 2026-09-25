@@ -49,6 +49,21 @@ section("Бариста: считаются только продажи");
 }
 
 {
+  // Смены по дням — для «кто работал вчера»: часы по Алматы, по дням
+  const at = (s) => new Date(s + "+05:00").getTime();
+  const rows = [
+    { status: "2", payed_sum: 100000, spot_id: 4, user_id: 7, name: "Сабина", date_close: at("2026-09-24T08:12:00") },
+    { status: "2", payed_sum: 100000, spot_id: 4, user_id: 7, name: "Сабина", date_close: at("2026-09-24T15:40:00") },
+    { status: "2", payed_sum: 100000, spot_id: 4, user_id: 7, name: "Сабина", date_close: at("2026-09-23T09:00:00") },
+  ];
+  const s = summarizeBaristas(rows).people[0];
+  eq(s.shifts, [
+    { day: "2026-09-23", from: "09:00", to: "09:00", checks: 1 },
+    { day: "2026-09-24", from: "08:12", to: "15:40", checks: 2 },
+  ], "смены по дням, по порядку, время по Алматы");
+}
+
+{
   // Доля считается от СВОЕЙ точки, а не от сети: поток разный
   const now = Date.now();
   const rows = [

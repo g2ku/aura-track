@@ -1,6 +1,6 @@
 // chat/executor.js — выполняет распознанный запрос к данным Poster.
 
-import { fetchCashBySpot as fetchCashBySpotRaw, fetchPosterSales as fetchPosterSalesRaw, fetchReceipts, fetchCashPerDay, getMenuCategories, fetchHoursByDay } from "../poster.js";
+import { fetchCashBySpot as fetchCashBySpotRaw, fetchPosterSales as fetchPosterSalesRaw, fetchReceipts, fetchCashPerDay, getMenuCategories, fetchHoursByDay, fetchBaristas } from "../poster.js";
 
 // Poster не ответил за часть дней — poster.js отдаёт остальные и называет
 // недостающие. Ответ ассистента должен это сказать: «касса за неделю»
@@ -979,7 +979,12 @@ async function handleTax(operation, spot, period, ipGroup) {
 // ─── Бариста ─────────────────────────────────────────────────────
 //
 // «Кто из бариста продал больше», «чеки у Айгерим», «средний чек по
-// сотрудникам» — по чекам, где Poster отдал имя. Не дальше месяца.
+// сотрудникам», «кто работал вчера». Не дальше месяца.
+//
+// Имя бариста Poster отдаёт только в dash.getTransactions — его разбирает
+// сервер (/api/baristas), тот же, что у экрана «Бариста». Раньше здесь
+// брались чеки transactions.getTransactions без открытых: имён в них нет,
+// и ассистент отвечал «Poster их не отдал», хотя экран чеков их показывал.
 async function handleStaff(spot, period, ipGroup, parsed) {
   const todayIso = fmtDateJS(new Date());
   const to = period.to > todayIso ? todayIso : period.to;
@@ -991,72 +996,69 @@ async function handleStaff(spot, period, ipGroup, parsed) {
     from = fmtDateJS(d);
     note = "\n\nСмотрел последний месяц периода — дальше чеков слишком много.";
   }
-  const r = await fetchReceipts(from, to, { includeOpen: false });
-  let items = (r?.receipts || []).filter((x) => x.status !== "open");
-  items = items.filter((x) => matchesSpot({ spotId: x.spotId, spotName: x.spotName }, spot));
+  const r = await fetchBaristas(from, to);
+  // Сервер при сбое Poster отвечает 200 с пустыми людьми и error. Сказать
+  // «чеков нет» здесь было бы неправдой
+  if (r?.error) throw new Error(`Poster не ответил: ${r.error}`);
+  let people = (r?.people || []).filter((p) => matchesSpot({ spotId: String(p.spotId), spotName: p.spot }, spot));
   if (ipGroup) {
-    const keep = await filterByIPGroup(items.map((x) => ({ spotId: x.spotId, spotName: x.spotName })), ipGroup);
+    const keep = await filterByIPGroup(people.map((p) => ({ spotId: String(p.spotId), spotName: p.spot })), ipGroup);
     const ids = new Set(keep.map((x) => String(x.spotId)));
-    items = items.filter((x) => ids.has(String(x.spotId)));
+    people = people.filter((p) => ids.has(String(p.spotId)));
   }
   const pl = formatPeriodLabel({ from, to });
   const sl = label(spot);
-  if (!items.length) return { text: `Чеков ${sl} за ${pl} нет.`, data: null };
+  if (!people.length) return { text: `Чеков ${sl} за ${pl} нет.`, data: null };
 
   const q = String(parsed.raw || "").toLowerCase();
   // «Кто работал вчера» — состав смены, а не рейтинг по кассе
   const roster = /кто работал|кто стоял|кто был на смене|чья смена|кто сегодня работает/.test(q);
   const measure = /средн/.test(q) ? "avgCheck" : /чек/.test(q) ? "checks" : "cash";
-  const by = {};
-  let unnamed = 0;
-  for (const x of items) {
-    const name = String(x.waiter || "").trim();
-    if (!name) { unnamed++; continue; }
-    const b = (by[name] ||= { name, cash: 0, checks: 0, spots: new Set() });
-    b.cash += Number(x.sum) || 0; b.checks++; b.spots.add(sn(x));
+  const spotOf = (p) => p.spot || sn({ spotId: p.spotId });
+
+  // Один человек на двух точках — две строки у сервера (доля считается от
+  // своей точки). В рейтинге сети он один: складываем
+  const merged = {};
+  for (const p of people) {
+    const b = (merged[p.name] ||= { name: p.name, cash: 0, checks: 0, spots: [] });
+    b.cash += Number(p.total) || 0;
+    b.checks += Number(p.checks) || 0;
+    if (!b.spots.includes(spotOf(p))) b.spots.push(spotOf(p));
   }
-  const rows = Object.values(by).map((b) => ({ ...b, avg: b.checks ? Math.round(b.cash / b.checks) : 0, spots: [...b.spots] }));
-  // Чек без имени кассира не попадает ни в чью смену. Молчать об этом
-  // нельзя: состав смены выглядит полным, а часть кассы в нём не учтена.
-  const unnamedNote = unnamed
-    ? `\nБез имени — ${unnamed} ${unnamed === 1 ? "чек" : "чеков"} из ${items.length}: Poster не отдал бариста, в расклад они не вошли.`
-    : "";
-  if (!rows.length) return { text: `В чеках ${sl} за ${pl} нет имён бариста — Poster их не отдал.`, data: null };
+  const rows = Object.values(merged).map((b) => ({ ...b, avg: b.checks ? Math.round(b.cash / b.checks) : 0 }));
 
   // Конкретный человек: «чеки у Айгерим»
   if (parsed.person) {
     const hit = rows.filter((b) => productMatches(b.name, parsed.person));
     if (!hit.length) {
-      const names = rows.map((b) => b.name);
+      const names = rows.map((b) => b.name).sort((a, b) => a.localeCompare(b, "ru"));
       const close = closestNames(parsed.person, names, 3);
       const hint = close.length ? `Похожие: ${close.join(", ")}` : names.length <= 8 ? `Есть: ${names.join(", ")}` : "";
       return { text: `Бариста «${parsed.person}» в чеках ${sl} за ${pl} не нашёл.${hint ? `\n${hint}` : ""}`, data: { suggestions: close } };
     }
     const lines = hit.map((b) => `${b.name}: ${fmt(b.cash)} · ${b.checks} чеков · средний чек ${fmt(b.avg)}${b.spots.length ? ` · ${b.spots.join(", ")}` : ""}`);
-    return { text: `${lines.join("\n")}\nЗа ${pl}${unnamedNote}${note}`, data: { rows: hit } };
+    return { text: `${lines.join("\n")}\nЗа ${pl}${note}`, data: { rows: hit } };
   }
 
   if (roster) {
-    // По точкам: кто и с какого по какой час пробивал чеки
+    // По точкам: кто и с какого по какой час пробивал чеки. За один день —
+    // часы смены; за несколько — сколько дней человек выходил
+    const oneDay = from === to;
     const bySpot = {};
-    for (const x of items) {
-      const name = String(x.waiter || "").trim();
-      if (!name) continue;
-      const b = (bySpot[x.spotId] ||= { name: sn(x), people: {} });
-      const p = (b.people[name] ||= { name, checks: 0, cash: 0, from: "", to: "" });
-      p.checks++; p.cash += Number(x.sum) || 0;
-      const t = hhmm(x.dateClose || x.dateOpen);
-      if (t && (!p.from || t < p.from)) p.from = t;
-      if (t && (!p.to || t > p.to)) p.to = t;
+    for (const p of people) {
+      const b = (bySpot[p.spotId] ||= { name: spotOf(p), people: [] });
+      b.people.push(p);
     }
     const spotsList = Object.values(bySpot).sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    if (!spotsList.length) return { text: `В чеках ${sl} за ${pl} нет имён бариста — Poster их не отдал.`, data: null };
     const lines = spotsList.map((b) => {
-      const people = Object.values(b.people).sort((x, y) => y.checks - x.checks)
-        .map((p) => `${p.name} (${p.from}–${p.to}, ${p.checks} чек., ${fmt(p.cash)})`);
-      return `• ${b.name}: ${people.join(", ")}`;
+      const list = b.people.sort((x, y) => y.checks - x.checks).map((p) => {
+        const sh = p.shifts || [];
+        const when = oneDay && sh[0] ? `${sh[0].from}–${sh[0].to}, ` : !oneDay && p.daysWorked ? `${p.daysWorked} ${p.daysWorked === 1 ? "день" : p.daysWorked < 5 ? "дня" : "дней"}, ` : "";
+        return `${p.name} (${when}${p.checks} чек., ${fmt(p.total)})`;
+      });
+      return `• ${b.name}: ${list.join(", ")}`;
     });
-    return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n")}${unnamedNote}${note}`, data: { spots: spotsList } };
+    return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n")}${note}`, data: { spots: spotsList } };
   }
 
   const key = measure === "avgCheck" ? "avg" : measure === "checks" ? "checks" : "cash";
@@ -1071,7 +1073,8 @@ async function handleStaff(spot, period, ipGroup, parsed) {
   });
   const tail = [];
   if (rows.length > top.length) tail.push(`…и ещё ${rows.length - top.length}`);
-  if (unnamed) tail.push(`Без имени — ${unnamed} ${unnamed === 1 ? "чек" : "чеков"} из ${items.length}: Poster не отдал бариста.`);
+  // Средний чек по одному-двум чекам — не показатель, а случайность
+  if (measure === "avgCheck" && top.some((b) => b.checks < 5)) tail.push("У кого меньше 5 чеков — средний чек случайный, сравнивать рано.");
   return { text: `${title} ${sl} за ${pl}:\n${lines.join("\n")}${tail.length ? `\n\n${tail.join("\n")}` : ""}${note}`, data: { rows, measure } };
 }
 

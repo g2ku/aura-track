@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { describeParsed } from "../chat/parser.js";
+import { followUpsFor } from "../chat/followUps.js";
 import { understand } from "../chat/understand.js";
 import { executeQuery } from "../chat/executor.js";
 import { smartParse, shareToTelegram } from "../chat/smart.js";
@@ -97,21 +98,8 @@ const STARTER = [
   { title: "Разрезы", items: ["Сравни выходные с буднями за месяц", "В какое время пик продаж?", "Кто из бариста продал больше всех за неделю", "Рост кассы за полгода"] },
 ];
 
-const FOLLOW_UP = {
-  openChecks: ["Что не так сейчас", "Касса сегодня", "Расход молока за неделю"],
-  alerts: ["Открытые чеки", "Остатки в минусе", "Касса сегодня"],
-  stock: ["Остатки в минусе", "Расход за последние 14 дней", "Маржа за месяц"],
-  cash: ["Сравнить с прошлым месяцем", "Тренд за 3 месяца", "Прогноз на следующий месяц"],
-  checks: ["По дням недели", "По часам", "Сравнить филиалы"],
-  products: ["По филиалам", "Топ-10 товаров", "Сравнить с прошлым периодом"],
-  margin: ["Топ по марже", "Сравнить филиалы", "Прогноз маржи"],
-  compareBranches: ["Сравнить кассу за период", "Топ по чекам", "Средний чек по филиалам"],
-  payments: ["Доля Kaspi за месяц", "Сколько наличных за неделю", "Касса за неделю"],
-  staff: ["Средний чек по бариста за неделю", "Кто работал вчера", "Касса вчера"],
-  discounts: ["Касса за неделю", "Сколько скидок дали за месяц", "Средний чек за неделю"],
-  opening: ["Какая точка открылась позже всех", "Что не так сейчас", "Касса сегодня"],
-  default: ["Сравнить с прошлым месяцем", "Рейтинг филиалов", "Аномалии за период"],
-};
+// Подсказки «что спросить дальше» — src/chat/followUps.js (там и тесты)
+
 
 // Ответ — текст со строками «• Абая: 610 000 ₸ (205 чеков)». Рисуем его
 // строками: подпись слева, число справа, заголовок жирным. Текст тот же
@@ -399,60 +387,9 @@ export default function DataChat() {
     el.scrollBy({ left: dir * 200, behavior: "smooth" });
   }
 
-  function generateFollowUps(parsed, result) {
+  function generateFollowUps(parsed) {
     if (!parsed) return initialExamples.slice(0, 5);
-    const metric = parsed.metric;
-    const spot = parsed.spot;
-    const period = parsed.period;
-    const ups = FOLLOW_UP[metric] || FOLLOW_UP.default;
-
-    // Build period label for context
-    let periodLabel = "";
-    if (period) {
-      const d1 = new Date(period.from + "T00:00:00");
-      const d2 = new Date(period.to + "T00:00:00");
-      if (period.from === period.to) {
-        // Single day → use month name
-        periodLabel = d1.toLocaleDateString("ru-RU", { month: "long" });
-      } else if (d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear()) {
-        // Same month
-        periodLabel = d1.toLocaleDateString("ru-RU", { month: "long" });
-      } else {
-        // Different months → "июнь июль"
-        const m1 = d1.toLocaleDateString("ru-RU", { month: "short" });
-        const m2 = d2.toLocaleDateString("ru-RU", { month: "short" });
-        periodLabel = `${m1} ${m2}`;
-      }
-    }
-
-    const followUps = [];
-    // По-русски, как на всём сайте: «Тренд за 3 месяца Абая», не «Abaya»
-    const spotName = spot && spot.branchId !== "all"
-      ? (spotNameByPosterId(spot.spotId, "") || spot.posterName || spot.branchId.replace("Aura02_", ""))
-      : "";
-    for (const up of ups) {
-      let q = spotName ? `${up} ${spotName}` : up;
-      // "Сравнить с прошлым месяцем" → "Сравнить июнь с май" when period is June
-      if (/сравн/i.test(up) && period && period.from) {
-        const d1 = new Date(period.from + "T00:00:00");
-        const curMonth = d1.toLocaleDateString("ru-RU", { month: "long" });
-        // Previous month
-        const prev = new Date(d1.getFullYear(), d1.getMonth() - 1, 1);
-        // Творительный падеж: «с июлем», а не «с июль»; точка остаётся —
-        // спросили про Дубай, сравниваем Дубай
-        q = `Сравнить ${curMonth} с ${MONTHS_INS[prev.getMonth()]}${spotName ? ` ${spotName}` : ""}`;
-      } else if (/за период/i.test(up) && periodLabel) {
-        q = `${up.replace("за период", `за ${periodLabel}`)}`;
-      } else if (period && period.from === period.to && !/тренд|прогноз|по дням|по часам|филиал/i.test(up)) {
-        // «Касса за 19 сентября» → «… за сентябрь»; к тренду и прогнозу
-        // месяц не приписываем — «Тренд за 3 месяца за сентябрь» не читается
-        const d = new Date(period.from);
-        const month = d.toLocaleDateString("ru-RU", { month: "long" });
-        q = `${q} за ${month}`;
-      }
-      followUps.push(q);
-    }
-    return followUps;
+    return followUpsFor(parsed);
   }
 
   async function handleSend(text) {
