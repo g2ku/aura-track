@@ -528,7 +528,9 @@ export async function answerQuestion(text, deps) {
   // чем на процент, помечает день. Тревога уходит один раз в 03:30 — а
   // спрашивают про этот день неделю спустя, и цифра приходит как ни в
   // чём не бывало. Метка обязана ехать вместе с ответом.
-  const shaky = (days || []).filter((d) => d?.mismatch).map((d) => d.date).sort();
+  // Метки старых итогов (до версии 3) ложные: оплаты там считались вместе
+  // с открытыми и удалёнными чеками
+  const shaky = (days || []).filter((d) => d?.mismatch && (d.v || 1) >= 3).map((d) => d.date).sort();
   if (shaky.length) {
     lines.push(shaky.length === 1
       ? `<i>⚠️ За ${escapeHtml(shaky[0])} два метода Poster разошлись — цифре за этот день верить нельзя без проверки.</i>`

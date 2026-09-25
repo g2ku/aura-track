@@ -99,6 +99,12 @@ export function payDayFrom(rows) {
     if (String(tx.status) === "2") bump(spot, Number(tx.date_close) || Number(tx.date_start) || 0);
     else if (String(tx.status) === "1") { if (Number(tx.sum || 0) > 0) bump(spot, Number(tx.date_start || tx.date_start_new || 0)); }
 
+    // Деньги — только закрытых чеков, как касса. Открытые (status 1) и
+    // удалённые (3) с payed_sum раньше шли в оплаты: разбивка выходила на
+    // ~2 % больше кассы, и ночная сверка каждый день кричала «два метода
+    // Poster разошлись» (на боевых данных 25.09.2026: 2 132 942 против
+    // 2 090 916; сумма тех же строк со status 2 — ровно 2 090 916)
+    if (tx.status != null && String(tx.status) !== "2") continue;
     const sum = Number(tx.payed_sum || 0) / 100;
     if (sum === 0) continue;
     const methodId = Number(tx.payment_method_id || 0);
@@ -130,7 +136,9 @@ export function payDayFrom(rows) {
 // Сегодня не трогаем — день не кончился.
 // Версия итога. Дни, собранные старой версией (без разбивки по часам),
 // пересобираются заново — по несколько за ночь, как и пропуски.
-export const ROLLUP_VERSION = 2;
+// 3 — оплаты только по закрытым чекам (25.09.2026): дни с оплатами,
+// посчитанными вместе с открытыми и удалёнными, пересобираются
+export const ROLLUP_VERSION = 3;
 
 // existing — даты собранных дней или { date, v } с версией
 export function pendingDays(existing, { today, back = ROLLUP_BACK_DAYS, version = ROLLUP_VERSION } = {}) {
@@ -147,6 +155,12 @@ export function shiftYmd(ymd, days) {
   return d.toISOString().slice(0, 10);
 }
 
+// Оплатам и сверке в итоге можно верить с версии 3 (25.09.2026)
+export const PAY_TRUSTED_SINCE_VERSION = 3;
+export function payTrusted(d) {
+  return (d?.v || 1) >= PAY_TRUSTED_SINCE_VERSION;
+}
+
 // Ответ клиенту: ключи в его формате (YYYYMMDD), без товаров — если он
 // просил только деньги: строк по товарам в дне может быть на 50 КБ.
 export function toClientDays(docs, { products = true } = {}) {
@@ -160,11 +174,15 @@ export function toClientDays(docs, { products = true } = {}) {
       cashBySpot: d.cashBySpot || {},
       rowsBySpot: products ? (d.rowsBySpot || {}) : {},
       hasProducts: products ? d.hasProducts !== false : false,
-      pay: d.pay || null,
+      // Оплаты и метка сверки — только из итогов версии 3+: раньше оплаты
+      // считались вместе с открытыми и удалёнными чеками (+2 % к кассе), и
+      // метка «два метода разошлись» из-за этого стояла почти на каждом дне
+      pay: payTrusted(d) ? d.pay || null : null,
       hours: d.hours || null,
       // Метка «два метода Poster разошлись» едет вместе с днём: без неё
       // сайт показывает подозрительную цифру как обычную
-      mismatch: d.mismatch || null,
+      mismatch: payTrusted(d) ? d.mismatch || null : null,
+      v: d.v || 1,
       source: "rollup",
     };
   }

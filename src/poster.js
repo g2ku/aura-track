@@ -293,7 +293,9 @@ function todayYmd() {
 // Отказаться от тяжёлого метода нельзя: payment_method_id есть только в
 // нём, а именно по нему различаются Kaspi и прочие способы оплаты —
 // в transactions.getTransactions этого поля нет вовсе.
-const PAY_DAY_KEY = "supply-track.poster.payByDay.v1";
+// v2 (25.09.2026): оплаты — только закрытых чеков. Старый кэш держал
+// оплаты вместе с открытыми и удалёнными (+2 % к кассе) до 30 дней
+const PAY_DAY_KEY = "supply-track.poster.payByDay.v2";
 const PAY_DAY_TTL = 30 * 24 * 60 * 60 * 1000;
 
 function readPayDays() {
@@ -332,6 +334,9 @@ export function aggregatePayDay(rows) {
   const bySpot = {};
 
   for (const tx of rows) {
+    // Деньги — только закрытых чеков, как касса (см. payDayFrom на сервере):
+    // открытые и удалённые с payed_sum раздували оплаты на ~2 %
+    if (tx.status != null && String(tx.status) !== "2") continue;
     // dash отдаёт суммы в копейках, в отличие от transactions.getTransactions
     const sum = Number(tx.payed_sum || 0) / 100;
     if (sum === 0) continue;
@@ -699,7 +704,9 @@ async function seedDaysFromServer(fromYmd, toYmd, opts = {}, { products = true }
             // метку ровно здесь, при переносе дня в кэш
             ...(e.mismatch ? { mismatch: e.mismatch } : {}),
           });
-          if (e.pay) pay[day] = { ts: Date.now(), total: e.pay.total || {}, bySpot: e.pay.bySpot || {}, lastOrder: e.pay.lastOrder || {}, openRows: [] };
+          // Оплаты — только из итогов, где они посчитаны по закрытым чекам
+          // (сервер старые и не отдаёт; здесь — на случай старого сервера)
+          if (e.pay && (e.v || 1) >= 3) pay[day] = { ts: Date.now(), total: e.pay.total || {}, bySpot: e.pay.bySpot || {}, lastOrder: e.pay.lastOrder || {}, openRows: [] };
           n++;
         }
         if (n) writePayDays(pay);

@@ -384,7 +384,7 @@ section("Подозрительный день не приходит как об
   // Ночью сторож сверяет два метода Poster и помечает день, если они
   // разошлись. Тревога уходит один раз в 03:30 — а спрашивают про этот
   // день неделю спустя, и цифра приходила как ни в чём не бывало.
-  const flag = (d) => ({ ...d, mismatch: { date: d.date, byTx: 170000, byDash: 150000, pct: 12 } });
+  const flag = (d) => ({ ...d, v: 3, mismatch: { date: d.date, byTx: 170000, byDash: 150000, pct: 12 } });
   const depsBad = {
     ...deps,
     getDays: async (from, to) => (await deps.getDays(from, to)).map(flag),

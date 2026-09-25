@@ -121,11 +121,30 @@ section("Какие дни собирать");
   eq(clampRange("вчера", "2026-09-17", { today }), null, "не дата — нет");
 }
 
+section("Оплаты — только закрытых чеков, как касса");
+
+{
+  // На боевых данных 25.09.2026: оплаты за 24.09 — 2 132 942, касса —
+  // 2 090 916; те же строки dash со status 2 — ровно 2 090 916
+  const { payDayFrom, rollupMismatch } = await import("./api/_lib/salesRollup.js");
+  const rows = [
+    { spot_id: 4, status: "2", payed_sum: 150000, payment_method_id: 11, date_close: 1789600000000 },
+    { spot_id: 4, status: "1", payed_sum: 50000, payment_method_id: 11, date_start: 1789600000000, sum: 50000 }, // открытый, с предоплатой
+    { spot_id: 4, status: "3", payed_sum: 70000, payment_method_id: 0, payed_cash: 70000 },                   // удалённый
+  ];
+  const pay = payDayFrom(rows);
+  eq(pay.total, { 11: 1500 }, "в оплатах только закрытый чек");
+  eq(pay.lastOrder["4"] > 0, true, "а время последнего заказа по-прежнему видно");
+  eq(rollupMismatch({ cashBySpot: { "4": 1500 } }, pay), null, "касса и оплаты сходятся — ложной тревоги нет");
+  const { aggregatePayDay } = await import("./src/poster.js");
+  eq(aggregatePayDay(rows).total, { 11: 1500 }, "на сайте — то же правило");
+}
+
 section("Ответ клиенту");
 
 {
   const docs = [
-    { date: "2026-09-17", transactionsCount: 3, txBySpot: { "4": 3 }, cashBySpot: { "4": 4500 }, rowsBySpot: { "4": { "Латте": { qty: 1, sum: 4500 } } }, hasProducts: true, pay: { total: { 0: 4500 }, bySpot: {}, lastOrder: {} }, ts: 1 },
+    { date: "2026-09-17", transactionsCount: 3, txBySpot: { "4": 3 }, cashBySpot: { "4": 4500 }, rowsBySpot: { "4": { "Латте": { qty: 1, sum: 4500 } } }, hasProducts: true, pay: { total: { 0: 4500 }, bySpot: {}, lastOrder: {} }, ts: 1, v: 3 },
     { date: "2026-09-16", transactionsCount: 0, txBySpot: {}, cashBySpot: {}, rowsBySpot: {}, hasProducts: true },
     { notADay: true },
   ];
@@ -138,6 +157,14 @@ section("Ответ клиенту");
   const light = toClientDays(docs, { products: false });
   eq(light["20260917"].rowsBySpot, {}, "без товаров — пусто");
   eq(light["20260917"].hasProducts, false, "и честно помечено");
+
+  // Итоги до версии 3 считали оплаты вместе с открытыми и удалёнными
+  // чеками: их оплаты и метку «разошлись» не отдаём — клиент досчитает
+  const old = toClientDays([{ date: "2026-09-15", cashBySpot: { "4": 100 }, pay: { total: { 0: 102 } }, mismatch: { pct: 2 }, v: 2 }]);
+  eq(old["20260915"].pay, null, "оплаты старой версии не отдаются");
+  eq(old["20260915"].mismatch, null, "и ложная метка «разошлись» тоже");
+  eq(old["20260915"].cashBySpot, { "4": 100 }, "касса старой версии верна — отдаётся");
+  eq(old["20260915"].v, 2, "версия едет клиенту");
 }
 
 section("Клиент: серверные дни — в кэш, в Poster только за остатком");
@@ -145,7 +172,7 @@ section("Клиент: серверные дни — в кэш, в Poster тол
 {
   // Poster-прокси и наша ручка — оба через fetch; подделываем оба
   const calls = [];
-  const dayDoc = (ymd) => ({ transactionsCount: 2, txBySpot: { "4": 2 }, cashBySpot: { "4": 1000 }, rowsBySpot: { "4": { "Латте": { qty: 2, sum: 1000 } } }, hasProducts: true, pay: { total: { 0: 1000 }, bySpot: { "4": { 0: 1000 } }, lastOrder: { "4": 1 } } });
+  const dayDoc = (ymd) => ({ transactionsCount: 2, txBySpot: { "4": 2 }, cashBySpot: { "4": 1000 }, rowsBySpot: { "4": { "Латте": { qty: 2, sum: 1000 } } }, hasProducts: true, pay: { total: { 0: 1000 }, bySpot: { "4": { 0: 1000 } }, lastOrder: { "4": 1 } }, v: 3 });
   globalThis.fetch = async (url) => {
     const u = String(url);
     calls.push(u);
