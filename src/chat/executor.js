@@ -770,39 +770,79 @@ async function handleProductsVsSpot(spotA, spotB, period, limit) {
 // «Какие товары не продавались за неделю» — меню против продаж:
 // позиции, у которых за период ни одной продажи. По категориям, чтобы
 // список из сорока названий читался, и с общим счётом.
+// «Какие товары не продавались» — полезно, только если отделить сигнал от
+// шума. В бою 25.09.2026 ответ был «121 из 282 позиций» вперемешку с
+// «Зимним меню (11 из 11)» не в сезоне. Теперь три группы, по прошлым
+// четырём неделям: перестали продаваться (раньше брали — закончились?
+// убрали с витрины?), давно без продаж (кандидаты убрать из меню) и целые
+// категории без продаж (похоже, не сезон) — одной строкой
 async function handleNotSold(spot, period, ipGroup) {
-  const [menu, data] = await Promise.all([getMenuCategories(), fetchPosterSales(period.from, period.to)]);
+  const shift = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return fmtDateJS(x); };
+  const prevFrom = shift(period.from, -28), prevTo = shift(period.from, -1);
+  const [menu, data, prev] = await Promise.all([
+    getMenuCategories(),
+    fetchPosterSales(period.from, period.to),
+    fetchPosterSales(prevFrom, prevTo).catch(() => null),
+  ]);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
+  const days = daysInPeriod(period.from, period.to > fmtDateJS(new Date()) ? fmtDateJS(new Date()) : period.to) || 1;
   const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
+  const ok = (row) => matchesRowSpot(row, spot) && (!groupBranches || matchesIPGroup(row.spotName, groupBranches));
   const sold = new Set();
-  for (const row of data.rows || []) {
-    if (!matchesRowSpot(row, spot)) continue;
-    if (groupBranches && !matchesIPGroup(row.spotName, groupBranches)) continue;
-    if ((row.qty || 0) > 0) sold.add(String(row.productName).toLowerCase());
+  for (const row of data.rows || []) if (ok(row) && (row.qty || 0) > 0) sold.add(String(row.productName).toLowerCase());
+  const before = new Map();
+  for (const row of prev?.rows || []) {
+    if (!ok(row) || !((row.qty || 0) > 0)) continue;
+    const k = String(row.productName).toLowerCase();
+    before.set(k, (before.get(k) || 0) + row.qty);
   }
+
   const cats = (menu?.categories || []);
   const byCat = menu?.productsByCategory || {};
-  const groups = [];
+  const stopped = [], longDead = [], season = [];
   let total = 0, dead = 0;
   for (const c of cats) {
     const items = byCat[c.id] || [];
     if (!items.length) continue;
+    total += items.length;
     const missing = items.map((p) => p.name).filter((n) => !sold.has(String(n).toLowerCase()));
-    total += items.length; dead += missing.length;
-    if (missing.length) groups.push({ name: c.name, missing, all: items.length });
+    dead += missing.length;
+    if (!missing.length) continue;
+    const quiet = [];
+    for (const n of missing) {
+      const was = before.get(String(n).toLowerCase()) || 0;
+      // Ждали бы за такой срок хотя бы 3 штуки — значит, перестали брать
+      if (prev && was * days / 28 >= 3) stopped.push({ name: n, cat: c.name, perWeek: Math.round(was * 7 / 28) });
+      else quiet.push(n);
+    }
+    if (!quiet.length) continue;
+    // Целая категория без единой продажи за пять недель — не сезон
+    if (prev && quiet.length === items.length) season.push({ name: c.name, n: items.length });
+    else longDead.push({ name: c.name, items: quiet, all: items.length });
   }
   if (!total) return { text: "Меню не загрузилось — не с чем сравнивать.", data: null };
   if (!dead) return { text: `Все ${total} позиций меню продавались ${sl} за ${pl}.`, data: { total, dead: 0 } };
-  groups.sort((a, b) => b.missing.length - a.missing.length);
-  const lines = groups.slice(0, 12).map((g) => {
-    const shown = g.missing.slice(0, 6).join(", ");
-    const more = g.missing.length > 6 ? ` и ещё ${g.missing.length - 6}` : "";
-    return `• ${g.name} (${g.missing.length} из ${g.all}): ${shown}${more}`;
-  });
+
+  const out = [`Не продавались ${sl} за ${pl} — ${dead} из ${total} позиций.`];
+  if (stopped.length) {
+    stopped.sort((a, b) => b.perWeek - a.perWeek);
+    out.push("", "Перестали продаваться — раньше брали:");
+    for (const x of stopped.slice(0, 8)) out.push(`• ${x.name} (${x.cat}): обычно ~${x.perWeek} шт в неделю`);
+    if (stopped.length > 8) out.push(`…и ещё ${stopped.length - 8}`);
+  }
+  if (longDead.length) {
+    longDead.sort((a, b) => b.items.length - a.items.length);
+    out.push("", prev ? "Давно без продаж (5 недель) — кандидаты убрать из меню:" : "Без продаж:");
+    for (const g of longDead.slice(0, 8)) {
+      out.push(`• ${g.name} (${g.items.length} из ${g.all}): ${g.items.slice(0, 5).join(", ")}${g.items.length > 5 ? ` и ещё ${g.items.length - 5}` : ""}`);
+    }
+    if (longDead.length > 8) out.push(`…и ещё ${longDead.length - 8} категорий`);
+  }
+  if (season.length) out.push("", `Целиком без продаж 5 недель — похоже, не в сезоне: ${season.map((x) => `${x.name} (${x.n})`).join(", ")}`);
   return {
-    text: `Не продавались ${sl} за ${pl} — ${dead} из ${total} позиций:\n${lines.join("\n")}${groups.length > 12 ? `\n…и ещё ${groups.length - 12} категорий` : ""}`,
-    data: { total, dead, rows: groups.map((g) => ({ name: g.name, count: g.missing.length, all: g.all, items: g.missing.join(", ") })) },
+    text: out.join("\n"),
+    data: { total, dead, stopped: stopped.length, rows: longDead.map((g) => ({ name: g.name, count: g.items.length, all: g.all, items: g.items.join(", ") })) },
   };
 }
 

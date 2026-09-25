@@ -58,6 +58,9 @@ function salesFor(from, to) {
     // фикстуры: «какие не продавались» считает по меню, и эти его не трогают
     if (sid === "4") rows.push({ spotId: sid, spotName: SPOTS[sid], productName: "Флэт уайт", qty: 30, sum: 90000 });
     if (sid === "9") rows.push({ spotId: sid, spotName: SPOTS[sid], productName: "Матча", qty: 12, sum: 24000 });
+    // Раф продавался до 10 сентября, потом перестал — для «не продавались»
+    const early = days.filter((d) => d < "2026-09-10").length;
+    if (early) rows.push({ spotId: sid, spotName: SPOTS[sid], productName: "Раф", qty: early * 5, sum: early * 5 * 1800 });
   }
   return { rows, spotNames: SPOTS, transactionsCount: Object.values(txBySpot).reduce((a, b) => a + b, 0), txBySpot, cashBySpot, daysCount: days.length };
 }
@@ -127,8 +130,8 @@ globalThis.__poster = {
   },
   async getMenuCategories() {
     return {
-      categories: [{ id: "1", name: "Кофе", parentId: null }, { id: "2", name: "Выпечка", parentId: null }],
-      productsByCategory: { "1": [{ id: "10", name: "Латте 0,4" }, { id: "11", name: "Раф" }], "2": [{ id: "20", name: "Круассан" }, { id: "21", name: "Синнабон" }, { id: "22", name: "Эклер" }] },
+      categories: [{ id: "1", name: "Кофе", parentId: null }, { id: "2", name: "Выпечка", parentId: null }, { id: "3", name: "Зимнее меню", parentId: null }],
+      productsByCategory: { "1": [{ id: "10", name: "Латте 0,4" }, { id: "11", name: "Раф" }], "2": [{ id: "20", name: "Круассан" }, { id: "21", name: "Синнабон" }, { id: "22", name: "Эклер" }], "3": [{ id: "30", name: "Глинтвейн" }] },
     };
   },
   async fetchPaymentBreakdown(from, to) {
@@ -508,9 +511,10 @@ section("Какие товары не продавались");
 {
   const t = await ask("какие товары не продавались за неделю");
   has(t, "Не продавались все филиалы за", "заголовок");
-  has(t, "— 3 из 5 позиций", "счёт: продавались латте и круассан, остальные три нет");
-  has(t, "• Выпечка (2 из 3): Синнабон, Эклер", "по категориям");
-  has(t, "• Кофе (1 из 2): Раф", "с названиями");
+  has(t, "— 4 из 6 позиций", "счёт: продавались латте и круассан, остальные четыре нет");
+  has(t, "Перестали продаваться — раньше брали:\n• Раф (Кофе): обычно ~", "первым — то, что раньше брали, а теперь нет");
+  has(t, "• Выпечка (2 из 3): Синнабон, Эклер", "давно без продаж — по категориям");
+  has(t, "похоже, не в сезоне: Зимнее меню (1)", "целая категория без продаж — одной строкой");
 }
 
 section("Стаканы — из учёта снабженца");
