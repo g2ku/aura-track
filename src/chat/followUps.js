@@ -28,6 +28,7 @@ export const FOLLOW_UP = {
   default: ["Сравнить с прошлым месяцем", "Рейтинг филиалов", "Аномалии за период"],
 };
 
+const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 const MONTHS = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
 // «с июлем» — творительный
 const MONTHS_INS = ["январём","февралём","мартом","апрелем","маем","июнем","июлем","августом","сентябрём","октябрём","ноябрём","декабрём"];
@@ -38,9 +39,29 @@ const hasOwnPeriod = (q) => hasExplicitPeriod(q) || /вчера|сегодня|�
 
 const monthOf = (ymd) => MONTHS[Number(String(ymd).slice(5, 7)) - 1] || "";
 
+// После «почему» и прогноза — не «тренд за 3 месяца», а что за днём:
+// кто стоял, что брали, как шёл день по часам
+const FOLLOW_UP_OP = {
+  why: ["Кто работал", "Что продавалось лучше всего", "Касса по часам"],
+  forecast: ["Что не так сейчас", "Открытые чеки", "Касса сегодня по точкам"],
+};
+
 export function followUpsFor(parsed) {
   if (!parsed) return [];
   const { metric, spot, period } = parsed;
+  const byOp = FOLLOW_UP_OP[parsed.operation];
+  if (byOp) {
+    const spotName = spot && spot.branchId !== "all"
+      ? (spotNameByPosterId(spot.spotId, "") || spot.posterName || String(spot.branchId).replace("Aura02_", ""))
+      : "";
+    // Тот же день, что в вопросе: «вчера», «25 сентября»
+    const td = new Date(); const y = new Date(td); y.setDate(y.getDate() - 1);
+    const iso = (d) => d.toLocaleDateString("sv-SE");
+    const when = parsed.operation === "forecast" ? "" : period?.from === period?.to
+      ? (period.from === iso(y) ? " вчера" : period.from === iso(td) ? " сегодня" : ` ${Number(period.from.slice(8, 10))} ${MONTHS_GEN[Number(period.from.slice(5, 7)) - 1]}`)
+      : " за неделю";
+    return byOp.map((q) => `${q}${/сегодня|сейчас/.test(q) ? "" : when}${spotName && !/сейчас|по точкам/.test(q) ? ` ${spotName}` : ""}`.trim());
+  }
   const ups = FOLLOW_UP[metric] || FOLLOW_UP.default;
 
   // «июнь» или «июнь июль» — для «Аномалии за период»

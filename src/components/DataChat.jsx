@@ -118,8 +118,12 @@ function AnswerText({ text }) {
           // Длинное значение («07:24–14:12 · 101 чек · 176 678 ₸», список
           // людей) — под подписью с переносом, а не одной строкой за край
           const long = m[3].length > 28;
+          // Пояснение словами («… — брали меньше или дешевле») — под
+          // подписью, слева и обычным шрифтом: жирный текст справа в
+          // несколько строк не читается (разбор «почему», 26.09.2026)
+          const prose = m[3].length > 48;
           return (
-            <div key={i} className={long ? "chat-answer-row chat-answer-row--long" : "chat-answer-row"}>
+            <div key={i} className={prose ? "chat-answer-row chat-answer-row--prose" : long ? "chat-answer-row chat-answer-row--long" : "chat-answer-row"}>
               <span className="chat-answer-mark">{m[1]}</span>
               <span className="chat-answer-label">{m[2]}</span>
               <span className="chat-answer-value">{m[3]}</span>

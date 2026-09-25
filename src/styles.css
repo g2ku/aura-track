@@ -6326,3 +6326,14 @@ button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
   .design-v2 .cl-line { flex-wrap: wrap; }
   .design-v2 .cl-line-value { max-width: 100%; white-space: normal; margin-left: auto; text-align: right; }
 }
+
+/* Пояснение словами в строке ответа — под подписью, слева, обычным
+   шрифтом (разбор «почему»: «… — брали меньше или дешевле»). Цифры
+   остаются справа и жирными */
+.chat-answer-row--prose { flex-wrap: wrap; }
+.chat-answer-row--prose .chat-answer-label { font-weight: 600; }
+.chat-answer-row--prose .chat-answer-value {
+  flex-basis: 100%; max-width: 100%; margin-left: 0;
+  white-space: normal; text-align: left; font-weight: 400;
+  padding-left: calc(1.2em + 6px); color: var(--text-secondary, var(--text));
+}
