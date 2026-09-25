@@ -279,7 +279,22 @@ export function parseInvoiceMessage(text, today = null) {
   const lines = src.split(/[\n\r]+/).map((l) => l.trim()).filter(Boolean);
   const itemLines = [];
 
-  for (const line of lines) {
+  for (let line of lines) {
+    // Дата перед филиалом: «09.09 Атакент сиропы 21 600». Кураторы
+    // подписывают фото накладных именно так, а филиал ищется с начала
+    // строки — дата его прятала, и «Атакент» уезжал в название товара.
+    // Отрезаем дату, только если сразу за ней стоит филиал.
+    if (result.branch === null) {
+      const lead = line.match(/^(\S+)\s+(.+)$/);
+      if (lead && !matchBranchPrefix(line)) {
+        const asDate = today ? (parseDateToken(lead[1], today) || parseDayWord(lead[1], today)) : (looksLikeDate(lead[1]) ? lead[1] : null);
+        if (asDate && matchBranchPrefix(lead[2])) {
+          if (today && result.date === null) result.date = asDate;
+          line = lead[2];
+        }
+      }
+    }
+
     // Дата отдельной строкой: «Жар \n 21.08 \n Кукис ...»
     // Отдельная строка-дата однозначна, поэтому читаем её и до строки
     // филиала: в закреплённой за точкой теме его в сообщении вообще нет.
