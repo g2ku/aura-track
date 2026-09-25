@@ -68,6 +68,8 @@ export const useAppStore = create((set, get) => ({
   docs: [],
   globalPayments: [],
   fbError: null,
+  // Накладные пока из кэша браузера: сервер ещё не ответил или нет связи
+  docsFromCache: false,
   loading: true,
 
   // ─── UI: тема, период, модалки ─────────────────────────────────────
@@ -101,7 +103,8 @@ export const useAppStore = create((set, get) => ({
       (list) => set({ docs: list, loading: false }),
       // Фикс: используем setFbError вместо прямого set() — теперь баннер
       // можно сбросить, и подписка не залипнет на старом сообщении.
-      (e) => get().setFbError("Firebase: " + e.message)
+      (e) => get().setFbError("Firebase: " + e.message),
+      (fromCache) => { if (get().docsFromCache !== fromCache) set({ docsFromCache: fromCache }); }
     );
     const unsub2 = subscribeGlobalPayments(
       (list) => set({ globalPayments: list }),

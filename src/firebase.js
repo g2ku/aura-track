@@ -191,13 +191,22 @@ export async function deleteReport(fileName, sheetName) {
 }
 
 // Подписаться на список всех документов. Возвращает функцию отписки.
-export function subscribeReports(onChange, onError) {
+// onSync(fromCache) — откуда список: из кэша браузера или уже с сервера.
+// С локальным кэшем первый ответ приходит из памяти браузера, а без сети
+// так и остаётся — экран должен об этом сказать. Метаданные меняются и без
+// новых данных, поэтому список пересобираем только при настоящих изменениях
+export function subscribeReports(onChange, onError, onSync) {
   const q = query(collection(getDb(), "documents"), orderBy("uploadedAt", "desc"));
+  let first = true;
   return onSnapshot(
     q,
+    { includeMetadataChanges: true },
     snap => {
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      onChange(docs);
+      if (first || snap.docChanges().length) {
+        first = false;
+        onChange(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }
+      onSync && onSync(snap.metadata.fromCache);
     },
     err => onError && onError(err)
   );

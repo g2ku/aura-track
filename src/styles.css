@@ -6293,3 +6293,13 @@ button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
 .margin-price-input.empty { border-style: dashed; }
 .margin-price-input.warn { border-color: var(--text-warning, #b7791f); }
 .margin-price-unit { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+
+/* Плашка «нет связи — данные из кэша браузера». Не ошибка, а
+   предупреждение: тон жёлтый, текст — обычный, чтобы читался на обеих темах */
+.err-box.stale-banner,
+.design-v2 .err-box.err-banner.stale-banner {
+  background: var(--bg-warning);
+  border: 1px dashed var(--text-warning);
+  color: var(--text-primary);
+}
+.err-box.stale-banner i { color: var(--text-warning); }

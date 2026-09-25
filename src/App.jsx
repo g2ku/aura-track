@@ -109,6 +109,15 @@ function MainApp() {
   const docs = useAppStore((s) => s.docs);
   const globalPayments = useAppStore((s) => s.globalPayments);
   const fbError = useAppStore((s) => s.fbError);
+  const docsFromCache = useAppStore((s) => s.docsFromCache);
+  // Обычный вход: из кэша, через секунду — с сервера. Плашку показываем,
+  // только если сервер молчит дольше — значит, связи нет
+  const [staleShown, setStaleShown] = useState(false);
+  useEffect(() => {
+    if (!docsFromCache) { setStaleShown(false); return; }
+    const t = setTimeout(() => setStaleShown(true), 6000);
+    return () => clearTimeout(t);
+  }, [docsFromCache]);
   const theme = useAppStore((s) => s.theme);
   const period = useAppStore((s) => s.period);
   const modal = useAppStore((s) => s.modal);
@@ -206,6 +215,12 @@ function MainApp() {
         {fbError && (
           <div className="err-box err-banner">
             <i className="ti ti-alert-circle" aria-hidden="true" /> {fbError}
+          </div>
+        )}
+        {!fbError && staleShown && (
+          <div className="err-box err-banner stale-banner" role="status">
+            <i className="ti ti-history" aria-hidden="true" />
+            Нет связи с базой — показаны накладные, сохранённые в этом браузере. Новые появятся сами, когда связь вернётся.
           </div>
         )}
         <div className="content">{content}</div>

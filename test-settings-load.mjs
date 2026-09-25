@@ -39,7 +39,7 @@ writeFileSync(fsStub, `
   export const clearIndexedDbPersistence = async (db) => { fb().calls.push("clear:" + db.kind); if (fb().clearThrows) throw new Error("failed-precondition"); };
   const fn = () => () => {};
   export const collection = fn(); export const deleteDoc = fn(); export const updateDoc = fn();
-  export const onSnapshot = (ref, next) => { fb().push = next; return () => {}; };
+  export const onSnapshot = (ref, a, b) => { fb().push = typeof a === "function" ? a : b; fb().opts = typeof a === "function" ? null : a; return () => {}; };
   export const query = fn(); export const orderBy = fn(); export const getDocs = fn(); export const runTransaction = fn(); export const arrayUnion = fn();
   export const initializeApp = () => ({}); export const getApps = () => [];
   export const getAuth = () => ({}); export const signOut = async () => { fb().calls.push("signOut"); };
@@ -160,7 +160,7 @@ section("Зарплата: прайс и ставки при сбое — оши
 section("Локальный кэш базы: включён, а при выходе стирается");
 {
   reset(offline);
-  const fbOut = await bundle("fb1", `export { getDb, logoutUser, subscribeRecipes } from "../../../src/firebase.js";`, false);
+  const fbOut = await bundle("fb1", `export { getDb, logoutUser, subscribeRecipes, subscribeReports } from "../../../src/firebase.js";`, false);
   const F = await import(new URL(`./${fbOut}`, import.meta.url).href);
 
   // Рецепты инвентаризации сохраняются целиком — «пусто» из кэша без сети
@@ -173,6 +173,25 @@ section("Локальный кэш базы: включён, а при выхо�
   eq(got[0]?.ingredients?.length, 1, "рецепты из кэша (сохранённые раньше) показываются сразу");
   globalThis.__fb.push({ exists: () => false, data: () => null, metadata: { fromCache: false } });
   eq(got[1], { ingredients: [], products: {}, modifiers: [] }, "сервер сказал «нет» — пустые рецепты, это честно");
+
+  // Накладные: откуда список — видно; лишних пересборок из-за метаданных нет
+  const lists = [], sync = [];
+  F.subscribeReports((l) => lists.push(l), null, (c) => sync.push(c));
+  eq(globalThis.__fb.opts, { includeMetadataChanges: true }, "подписка слышит переход «кэш → сервер»");
+  const snapOf = (ids, fromCache, changes) => ({ docs: ids.map((id) => ({ id, data: () => ({ id }) })), docChanges: () => changes, metadata: { fromCache } });
+  globalThis.__fb.push(snapOf(["a", "b"], true, [{}, {}]));
+  globalThis.__fb.push(snapOf(["a", "b"], false, []));
+  eq(lists.length, 1, "сервер подтвердил тот же список — без пересборки");
+  eq(sync.join(","), "true,false", "а «из кэша» сменилось на «с сервера»");
+  globalThis.__fb.push(snapOf(["c", "a", "b"], false, [{}]));
+  eq(lists.length, 2, "новая накладная — список обновился");
+  const empty = [];
+  F.subscribeReports((l) => empty.push(l), null, () => {});
+  globalThis.__fb.push(snapOf([], false, []));
+  eq(empty.length, 1, "пустая база — первый ответ всё равно доходит, иначе вечная загрузка");
+
+  const app = readFileSync("src/App.jsx", "utf8");
+  ok(/docsFromCache/.test(app) && /setTimeout\(\(\) => setStaleShown\(true\), \d{4}\)/.test(app), "плашка «нет связи» — только если сервер молчит несколько секунд");
   eq(globalThis.__fb.init.length, 1, "база открыта через initializeFirestore");
   eq(globalThis.__fb.init[0]?.localCache, { cache: "persistent", tabManager: { tabs: "multi" } }, "с кэшем в IndexedDB на несколько вкладок");
   eq(F.getDb().kind, "persistent", "getDb отдаёт экземпляр с кэшем");
