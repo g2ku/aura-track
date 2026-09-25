@@ -41,6 +41,7 @@ import { fmt, describeDayList } from "../utils.js";
 import { BRANCHES, spotNameByPosterId } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
+import { isStaleChunkError } from "../staleBuild.js";
 
 // ─── Утилиты ──────────────────────────────────────────────────────
 
@@ -165,6 +166,28 @@ function pctChange(a, b) {
   return ((a - b) / Math.abs(b)) * 100;
 }
 
+// Период сравнения кончается сегодня — сегодняшний день ещё идёт, и
+// неполный день против полного тянул любое сравнение в «просели» (в бою
+// 25.09.2026 к пятнице 16:00 — на ~4 % недели). Сравниваем полные дни:
+// первый период — по вчера, второй — той же длины от своего начала, то
+// есть с теми же днями недели
+function fullDaysOnly(p1, p2) {
+  const todayIso = fmtDateJS(new Date());
+  if (!p1 || !p2 || p1.to < todayIso || p1.from >= todayIso) return { p1, p2, cutNote: "" };
+  const y = new Date(todayIso + "T00:00:00");
+  y.setDate(y.getDate() - 1);
+  const yest = fmtDateJS(y);
+  const len = daysInPeriod(p1.from, yest);
+  const end2 = new Date(p2.from + "T00:00:00");
+  end2.setDate(end2.getDate() + len - 1);
+  const to2 = fmtDateJS(end2) < p2.to ? fmtDateJS(end2) : p2.to;
+  return {
+    p1: { ...p1, to: yest },
+    p2: { ...p2, to: to2 },
+    cutNote: "\n\nСегодня не считал — день ещё идёт; сравнил полные дни.",
+  };
+}
+
 function changeEmoji(pct) {
   if (pct > 0) return `📈 +${pct.toFixed(1)}%`;
   if (pct < 0) return `📉 ${pct.toFixed(1)}%`;
@@ -242,24 +265,26 @@ async function executeInner(parsed, userBranch) {
     }
 
     if (operation === "percentChange" && period2) {
+      const { p1: period, p2: period2Full, cutNote } = fullDaysOnly(parsed.period, period2);
       // Сезонное меню сравнивается своими итогами: общий обработчик
       // сравнения про категории не знает
       if (category) {
         const [a, b] = await Promise.all([
           handleCategory("sum", effectiveSpot, period, category, ipGroup),
-          handleCategory("sum", effectiveSpot, period2, category, ipGroup),
+          handleCategory("sum", effectiveSpot, period2Full, category, ipGroup),
         ]);
         const sa = a.data?.totalSum || 0, sb = b.data?.totalSum || 0;
         const pct = pctChange(sa, sb);
         const title = a.data?.category?.title || "Сезонное меню";
         return {
           text: `${title}: ${formatPeriodLabel(period)} — ${fmt(sa)} (${a.data?.totalQty || 0} шт.), `
-            + `${formatPeriodLabel(period2)} — ${fmt(sb)} (${b.data?.totalQty || 0} шт.). `
-            + changeEmoji(pct),
+            + `${formatPeriodLabel(period2Full)} — ${fmt(sb)} (${b.data?.totalQty || 0} шт.). `
+            + changeEmoji(pct) + cutNote,
           data: { a: a.data, b: b.data, pct },
         };
       }
-      return await handlePercentChange(metric, effectiveSpot, period, period2, product, ipGroup, parsed.raw);
+      const r = await handlePercentChange(metric, effectiveSpot, period, period2Full, product, ipGroup, parsed.raw);
+      return cutNote && r?.text ? { ...r, text: r.text + cutNote } : r;
     }
 
     // Метрики «про сейчас» — раньше разрезов: «во сколько открылась»
@@ -305,6 +330,9 @@ async function executeInner(parsed, userBranch) {
       default: return await handleCash(operation, effectiveSpot, period, ipGroup);
     }
   } catch (e) {
+    // Сайт обновился, пока вкладка была открыта: куска старой сборки нет.
+    // Не «ошибка», а перезагрузка — чат после неё задаст вопрос сам
+    if (isStaleChunkError(e)) return { text: "Сайт обновился — перезагружаю страницу и спрошу ещё раз…", data: { staleBuild: true } };
     return { text: `Ошибка: ${e.message || "не удалось загрузить данные"}`, data: null };
   }
 }
@@ -342,8 +370,10 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
     const sum1 = prods1.reduce((s, p) => s + p.sum, 0);
     const sum2 = prods2.reduce((s, p) => s + p.sum, 0);
 
-    const qtyPct = pctChange(total2, total1);
-    const sumPct = pctChange(sum2, sum1);
+    // Изменение первого периода к второму: «эта неделя к прошлой». Раньше
+    // считалось наоборот, и падение показывалось ростом
+    const qtyPct = pctChange(total1, total2);
+    const sumPct = pctChange(sum1, sum2);
     const pl1 = formatPeriodLabel(period1);
     const pl2 = formatPeriodLabel(period2);
 
@@ -374,8 +404,11 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
   const tx1 = f1.reduce((s, d) => s + (d.txCount || 0), 0);
   const tx2 = f2.reduce((s, d) => s + (d.txCount || 0), 0);
 
-  const cashPct = pctChange(cash2, cash1);
-  const txPct = pctChange(tx2, tx1);
+  // Изменение первого периода ко второму: «эта неделя к прошлой», «август к
+  // июлю». До 25.09.2026 здесь стояло наоборот — pctChange(прошлое,
+  // текущее), и «кто просел за неделю» показывал все знаки перевёрнутыми
+  const cashPct = pctChange(cash1, cash2);
+  const txPct = pctChange(tx1, tx2);
   const pl1 = formatPeriodLabel(period1);
   const pl2 = formatPeriodLabel(period2);
   const sl = label(spot);
@@ -384,10 +417,10 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
   // Normalize by day count when comparing different-length periods
   const avgCash1 = days1 > 0 ? Math.round(cash1 / days1) : cash1;
   const avgCash2 = days2 > 0 ? Math.round(cash2 / days2) : cash2;
-  const avgPct = pctChange(avgCash2, avgCash1);
+  const avgPct = pctChange(avgCash1, avgCash2);
   const avgCheck1 = tx1 > 0 ? Math.round(cash1 / tx1) : 0;
   const avgCheck2 = tx2 > 0 ? Math.round(cash2 / tx2) : 0;
-  const avgCheckPct = pctChange(avgCheck2, avgCheck1);
+  const avgCheckPct = pctChange(avgCheck1, avgCheck2);
 
   // If comparing all spots, show per-spot or per-IP-group breakdown
   if (isAll(spot) && f1.length > 1) {
@@ -429,12 +462,12 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
           for (const g of groups) {
             const gc = groupCash[g.id];
             if (!gc || (gc.cash1 === 0 && gc.cash2 === 0)) continue;
-            const p = pctChange(gc.cash2, gc.cash1);
-            lines.push(`• ${gc.name}: ${fmt(gc.cash1)} → ${fmt(gc.cash2)}  ${changeEmoji(p)}`);
+            const p = pctChange(gc.cash1, gc.cash2);
+            lines.push(`• ${gc.name}: ${fmt(gc.cash2)} → ${fmt(gc.cash1)}  ${changeEmoji(p)}`);
           }
 
           return {
-            text: `Сравнение кассы по группам ИП:\n${pl1} vs ${pl2}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}`,
+            text: `Сравнение кассы по группам ИП (было → стало):\n${pl2} → ${pl1}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash2)} → ${fmt(cash1)}  ${changeEmoji(cashPct)}`,
             data: { period1, period2, cash1, cash2, cashPct, txPct },
           };
         }
@@ -450,26 +483,35 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
     for (const d of f2) spotMap2[d.spotId] = d;
 
     const allSpotIds = new Set([...Object.keys(spotMap1), ...Object.keys(spotMap2)]);
-    const lines = [];
+    const rows = [];
     for (const sid of allSpotIds) {
       const a = spotMap1[sid];
       const b = spotMap2[sid];
       const c1 = a?.total || 0;
       const c2 = b?.total || 0;
-      const p = pctChange(c2, c1);
-      const name = sn(a || b || { spotId: sid, spotName: sid });
-      lines.push(`• ${name}: ${fmt(c1)} → ${fmt(c2)}  ${changeEmoji(p)}`);
+      rows.push({ name: sn(a || b || { spotId: sid, spotName: sid }), c1, c2, p: pctChange(c1, c2) });
     }
+    // Сначала те, кто просел сильнее, — ради них и спрашивают
+    rows.sort((x, y) => x.p - y.p);
+    const lines = rows.map((r) => `• ${r.name}: ${fmt(r.c2)} → ${fmt(r.c1)}  ${changeEmoji(r.p)}`);
+    const down = rows.filter((r) => r.p < -0.05);
+    const verdict = down.length
+      ? `Просели ${down.length} из ${rows.length}: ${down.map((r) => `${r.name} ${r.p.toFixed(1).replace(".", ",")} %`).join(", ")}`
+      : `Не просел никто из ${rows.length}`;
 
     return {
-      text: `Сравнение кассы филиалов${ipLabel}:\n${withDays(pl1, days1)} vs ${withDays(pl2, days2)}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash1)} → ${fmt(cash2)}  ${changeEmoji(cashPct)}\nСреднее/день: ${fmt(avgCash1)} → ${fmt(avgCash2)}  ${changeEmoji(avgPct)}`,
+      text: `Сравнение кассы филиалов${ipLabel} (было → стало):\n${withDays(pl2, days2)} → ${withDays(pl1, days1)}\n${verdict}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash2)} → ${fmt(cash1)}  ${changeEmoji(cashPct)}\nСреднее/день: ${fmt(avgCash2)} → ${fmt(avgCash1)}  ${changeEmoji(avgPct)}`,
       data: { period1, period2, cash1, cash2, cashPct, txPct, avgPct, days1, days2 },
     };
   }
 
   // Single spot or all combined
   return {
-    text: `Сравнение ${sl}${ipLabel}:\n${withDays(pl1, days1)}: ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${withDays(pl2, days2)}: ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} среднее/день\n${changeEmoji(avgCheckPct)} средний чек`,
+    text: `Сравнение ${sl}${ipLabel} (было → стало):\n${withDays(pl2, days2)} → ${withDays(pl1, days1)}\n\n`
+      + `• Касса: ${fmt(cash2)} → ${fmt(cash1)}  ${changeEmoji(cashPct)}\n`
+      + `• Чеки: ${tx2.toLocaleString("ru-RU")} → ${tx1.toLocaleString("ru-RU")}  ${changeEmoji(txPct)}\n`
+      + `• Средний чек: ${fmt(avgCheck2)} → ${fmt(avgCheck1)}  ${changeEmoji(avgCheckPct)}\n`
+      + `• Среднее/день: ${fmt(avgCash2)} → ${fmt(avgCash1)}  ${changeEmoji(avgPct)}`,
     data: { period1, period2, cash1, cash2, tx1, tx2, cashPct, txPct, avgPct, avgCheckPct, days1, days2 },
   };
 }

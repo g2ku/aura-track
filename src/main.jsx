@@ -12,6 +12,10 @@ import "./styles.css";
 // <html data-theme="emerald"> или data-theme="emerald-light".
 // По умолчанию — старая dark-тема, чтобы не ломать привычный UI.
 import "./tokens-emerald.css";
+import { installStaleBuildReload } from "./staleBuild.js";
+
+// Вкладка, открытая до выкладки, просит куски старой сборки — перезагружаем
+installStaleBuildReload();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

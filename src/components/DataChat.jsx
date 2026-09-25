@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { describeParsed } from "../chat/parser.js";
 import { followUpsFor } from "../chat/followUps.js";
+import { reloadForNewBuild } from "../staleBuild.js";
 import { understand } from "../chat/understand.js";
 import { executeQuery } from "../chat/executor.js";
 import { smartParse, shareToTelegram } from "../chat/smart.js";
@@ -455,6 +456,12 @@ export default function DataChat() {
     if (!parsed.assumed?.product) lastFailRef.current = null;
 
     const result = await executeQuery(parsed, userBranchObj);
+    // Вкладка открыта до выкладки: вопрос — в ASK_KEY, страница — на новую
+    // версию; после перезагрузки чат задаст его сам
+    if (result?.data?.staleBuild) {
+      try { sessionStorage.setItem(ASK_KEY, q); } catch (_) {}
+      reloadForNewBuild();
+    }
     // Незнакомое слово искали как товар и не нашли — это тоже «не понял»:
     // следующий понятный вопрос станет исправлением и запомнится
     if (parsed.assumed?.product && !result.data) lastFailRef.current = { q, at: Date.now() };

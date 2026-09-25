@@ -3,6 +3,7 @@ import { UnknownBranchFallback, UnknownRouteFallback } from "../components/Fallb
 import { SkeletonDashboard } from "../components/Skeleton";
 import { isAdmin, isAdminOrManager } from "../auth.jsx";
 import { useAppStore } from "../store/useAppStore";
+import { isStaleChunkError, reloadForNewBuild } from "../staleBuild.js";
 
 // ─── Route-level ErrorBoundary ───────────────────────────────────
 // Ловит ошибки lazy-загрузки и рендера конкретного маршрута,
@@ -24,8 +25,22 @@ class RouteErrorBoundary extends Component {
   }
   componentDidCatch(error, info) {
     console.error("Route error:", error, info);
+    // Раздел не загрузился, потому что сайт обновился, — сразу на новую версию
+    if (isStaleChunkError(error)) reloadForNewBuild();
   }
   render() {
+    if (this.state.error && isStaleChunkError(this.state.error)) {
+      return (
+        <div className="card empty-state" style={{ padding: 48 }} role="status">
+          <i className="ti ti-refresh" style={{ fontSize: 36, marginBottom: 12 }} aria-hidden="true" />
+          <div className="empty-state-title">Сайт обновился</div>
+          <div className="empty-state-sub" style={{ marginBottom: 16 }}>Перезагружаю страницу на новую версию…</div>
+          <button type="button" className="btn btn-out" onClick={() => window.location.reload()}>
+            <i className="ti ti-refresh" aria-hidden="true" /> Перезагрузить
+          </button>
+        </div>
+      );
+    }
     if (this.state.error) {
       return (
         <div className="card empty-state" style={{ padding: 48 }}>
