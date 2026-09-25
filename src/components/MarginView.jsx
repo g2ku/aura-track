@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, Fragment } from "react";
 import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEGORIES, UNITS } from "../margin.js";
 import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
+import { useToast } from "../ui";
 import { categoryMargins, marginTotals, suggestRecipe, normalizeName } from "../menuMatrix.js";
 
 const TABS = [
@@ -1019,7 +1020,9 @@ export default function MarginView() {
   const [tab, setTab] = useState("ingredients");
   const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
+  // Только ошибка ЗАГРУЗКИ: без данных показывать нечего
   const [error, setError] = useState(null);
+  const toast = useToast();
 
   useEffect(() => {
     loadMargin()
@@ -1038,17 +1041,30 @@ export default function MarginView() {
     }
   }
 
+  // Сбой СОХРАНЕНИЯ — не сбой раздела. Раньше он ставил error, и весь
+  // экран заменялся на «Ошибка · Повторить»; «Повторить» перечитывал
+  // данные — несохранённая правка, открытая вкладка и редактор терялись.
+  // Теперь экран остаётся как был, правка не применяется (чтобы не
+  // показывать несохранённое как сохранённое), и об этом говорит тост.
   async function update(newPartial) {
-    if (!data) return;
+    if (!data) return false;
     setSaving(true);
     try {
       const next = { ...data, ...newPartial };
       await saveMargin(next);
       setData(next);
+      return true;
     } catch (e) {
-      setError(e.message);
+      toast({
+        tone: "error",
+        icon: "ti-alert-circle",
+        title: "Не сохранилось",
+        message: `${String(e?.message || "нет связи с базой").replace(/[.\s]+$/, "")}. Изменение не применено — попробуйте ещё раз.`,
+      });
+      return false;
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   if (error) {

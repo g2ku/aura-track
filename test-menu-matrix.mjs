@@ -261,6 +261,19 @@ console.log("\n📋 Тест 13: привязки доходят до всех, 
   eq(/aliases: d\?\.aliases/.test(store), true, "сервер отдаёт привязки боту");
 }
 
+console.log("\n📋 Тест 14: сбой сохранения в «Марже» не выбрасывает из раздела");
+{
+  const view = readFileSync("src/components/MarginView.jsx", "utf8");
+  const upd = view.slice(view.indexOf("async function update(newPartial)"), view.indexOf("async function update(newPartial)") + 900);
+  eq(upd.length > 100, true, "update найден");
+  // Раньше setError заменял весь раздел на «Ошибка · Повторить», а
+  // «Повторить» перечитывал данные — несохранённая правка терялась
+  eq(/setError\(/.test(upd), false, "сбой сохранения не ставит ошибку всего раздела");
+  eq(/toast\(\{[\s\S]*?tone: "error"/.test(upd), true, "а показывает уведомление");
+  eq(/setData\(next\);[\s\S]*?return true;/.test(upd), true, "данные меняются только после успешной записи");
+  eq(/return false;/.test(upd), true, "вызывающий узнаёт о неудаче");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 console.log(`✅ Пройдено: ${passed}`);
 console.log(`❌ Провалено: ${failed}`);
