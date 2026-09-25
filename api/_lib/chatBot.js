@@ -526,6 +526,23 @@ export async function answerQuestion(text, deps) {
     parsed.period = { from: start.toISOString().slice(0, 10), to: today, label: "по месяцам" };
   }
   let todayMissing = false;
+  // «Как дела у Жароково»: торгуем — темп против обычного к этому часу
+  // (прогноз); продаж ещё нет (ночь, утро) — как прошёл вчерашний день,
+  // с причинами. Как на сайте
+  let statusHead = "";
+  if (parsed.status && deps.getToday) {
+    const sp = spotsFor(parsed);
+    const t = await deps.getToday(false).catch(() => null);
+    const now = Object.entries(t?.cashBySpot || {}).filter(([id]) => !sp || sp.has(String(id))).reduce((a, [, v]) => a + (v || 0), 0);
+    const [hh] = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Almaty", hour: "2-digit", hour12: false }).format(new Date()).split(":").map(Number);
+    if (now > 0 && hh >= 11) parsed.operation = "forecast";
+    else {
+      parsed.operation = "why";
+      const y = shiftYmd(today, -1);
+      parsed.period = { from: y, to: y };
+      statusHead = now > 0 ? `Сегодня пока ${fmt(now)} — рано судить. Вчера:` : "Сегодня продаж ещё нет. Вчера:";
+    }
+  }
   // «Сколько сделаем сегодня» — касса сейчас против обычной доли дня к этому
   // часу (те же дни недели 4 недели) — тот же расчёт, что у сайта
   if (parsed.operation === "forecast" && parsed.period?.from === today && parsed.period?.to === today && deps.getToday) {
@@ -615,6 +632,7 @@ export async function answerQuestion(text, deps) {
   const answer = answerFrom(parsed, days, { today, baseDays, margin });
   if (!answer) return null;
   const lines = [];
+  if (statusHead) lines.push(escapeHtml(statusHead));
   // Вопрос понят через память исправлений — говорим, как поняли
   if (parsed.note) lines.push(`<i>${escapeHtml(parsed.note)}</i>`);
   lines.push(answer);
