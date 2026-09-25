@@ -270,7 +270,7 @@ export default function RecipesSettings({ open, onClose, initialRecipes, canEdit
                   <button style={editingMod === mod.id ? S.pillOn : S.pill} onClick={() => setEditingMod(editingMod === mod.id ? null : mod.id)}>
                     {mod.name || "Без назв."}{mod.items?.length > 0 && ` (${mod.items.length})`}
                   </button>
-                  {canEdit && <button className="icon-btn" style={{ fontSize: 11 }} onClick={() => delMod(mod.id)}><i className="ti ti-x" /></button>}
+                  {canEdit && <button className="icon-btn" style={{ fontSize: 11 }} onClick={() => delMod(mod.id)} aria-label={`Удалить модификатор ${mod.name || ""}`} title="Удалить"><i className="ti ti-x" /></button>}
                 </div>
               ))}
               {!modifiers.length && <div style={{ ...S.muted, width: "100%" }}>Создайте модификатор для быстрого заполнения рецептов</div>}

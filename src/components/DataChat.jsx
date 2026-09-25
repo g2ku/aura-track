@@ -669,7 +669,7 @@ export default function DataChat() {
           иначе те же три кнопки стояли дважды, под ответом и здесь */}
       {messages.length > 0 && !(messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.followUps?.length) && <div className="chat-suggestions-wrap">
         {canScrollLeft && (
-          <button className="chat-sug-arrow chat-sug-arrow-left" onClick={() => scrollSuggestions(-1)}>
+          <button className="chat-sug-arrow chat-sug-arrow-left" onClick={() => scrollSuggestions(-1)} aria-label="Подсказки левее" title="Подсказки левее">
             <i className="ti ti-chevron-left" />
           </button>
         )}
@@ -685,7 +685,7 @@ export default function DataChat() {
           ))}
         </div>
         {canScrollRight && (
-          <button className="chat-sug-arrow chat-sug-arrow-right" onClick={() => scrollSuggestions(1)}>
+          <button className="chat-sug-arrow chat-sug-arrow-right" onClick={() => scrollSuggestions(1)} aria-label="Подсказки правее" title="Подсказки правее">
             <i className="ti ti-chevron-right" />
           </button>
         )}
@@ -721,6 +721,8 @@ export default function DataChat() {
           className="btn chat-send-btn"
           onClick={() => handleSend()}
           disabled={loading || !input.trim()}
+          aria-label="Отправить вопрос"
+          title="Отправить"
         >
           <i className="ti ti-send" />
         </button>
