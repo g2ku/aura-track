@@ -1368,7 +1368,11 @@ function hhmm(str) {
 async function handleOpening(spot, period, raw = "") {
   const pl = formatPeriodLabel(period);
   const r = await fetchReceipts(period.from, period.to, { includeOpen: false });
-  const items = (r?.receipts || []).filter((x) => x.status !== "open" && x.dateOpen);
+  // Время открытия чека transactions.getTransactions не отдаёт вовсе —
+  // только date_close. Раньше здесь требовался dateOpen, и на живых данных
+  // «во сколько открылись» всегда отвечало «чеков нет» (25.09.2026).
+  // Открытие — по первой продаже дня, то есть по закрытию первого чека
+  const items = (r?.receipts || []).filter((x) => x.status !== "open" && (x.dateOpen || x.dateClose));
   const q = String(raw).toLowerCase();
   const latestFirst = /позж|опозд|поздн/.test(q);
   // «Во сколько закрылись» — тот же расчёт, но по последнему чеку дня
@@ -1379,7 +1383,7 @@ async function handleOpening(spot, period, raw = "") {
   const first = {}; // spotId → { day → "HH:MM" }
   for (const x of items) {
     if (!matchesSpot({ spotId: x.spotId, spotName: x.spotName }, spot)) continue;
-    const stamp = closing ? (x.dateClose || x.dateOpen) : x.dateOpen;
+    const stamp = closing ? (x.dateClose || x.dateOpen) : (x.dateOpen || x.dateClose);
     const day = String(stamp).slice(0, 10);
     const t = hhmm(stamp);
     if (!t) continue;
