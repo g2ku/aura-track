@@ -4623,6 +4623,7 @@ select.form-input { padding-right: 28px; cursor: pointer; appearance: none; back
   max-width: 50%;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
@@ -6313,3 +6314,15 @@ button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
   color: var(--text-primary);
 }
 .err-box.stale-banner i { color: var(--text-warning); }
+
+/* Строка «подпись …… значение»: подпись и значение по 50 % плюс отступы
+   и пунктир давали больше 100 % — «Меню-инжиниринг» на телефоне уезжал
+   за край на 10 px («347 шт · 623 630 ₸ · нет техкарты»). Теперь обе
+   части сжимаются, а на узком экране длинное значение переносится под
+   подпись целиком, не теряя «нет техкарты» */
+.design-v2 .cl-line-label,
+.design-v2 .cl-line-value { flex: 0 1 auto; min-width: 0; }
+@media (max-width: 480px) {
+  .design-v2 .cl-line { flex-wrap: wrap; }
+  .design-v2 .cl-line-value { max-width: 100%; white-space: normal; margin-left: auto; text-align: right; }
+}

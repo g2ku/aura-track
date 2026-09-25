@@ -57,7 +57,6 @@ export const GROUPS = [
       { id: "pnl", path: "/pnl", icon: "ti-report-money", label: "P&L" },
       { id: "taxes", path: "/taxes", icon: "ti-receipt-tax", label: "Налоги по ИП", adminOnly: true },
       { id: "payroll", path: "/payroll", icon: "ti-cash-banknote", label: "Зарплатный проект", ownerOnly: true },
-      { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки" },
       { id: "movement", path: "/movement", icon: "ti-flask", label: "Расход и остатки", ownerOnly: true },
       { id: "anomalies", path: "/anomalies", icon: "ti-bug", label: "Аномалии" },
     ],
@@ -155,7 +154,6 @@ export const GROUPS_V2 = [
     label: "Склад",
     items: [
       { id: "movement", path: "/movement", icon: "ti-flask", label: "Расход и остатки", ownerOnly: true },
-      { id: "replenish", path: "/replenish", icon: "ti-alert-circle", label: "Авто-остатки" },
       { id: "inventory", path: "/inventory", icon: "ti-clipboard-list", label: "Инвентаризация" },
       { id: "products", path: "/products", icon: "ti-packages", label: "Товары" },
       { id: "reports", path: "/reports", icon: "ti-file-description", label: "Накладные" },

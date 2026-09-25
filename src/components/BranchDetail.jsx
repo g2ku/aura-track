@@ -9,6 +9,7 @@ import {
 } from "../utils";
 import { Button } from "../ui";
 import { branchScope, useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
+import { BRANCHES } from "../branches.js";
 import { fetchCashPerDay } from "../poster";
 
 const BranchLine = lazy(() => import("./charts/BranchLine"));
@@ -42,6 +43,11 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
   const scopeBranch = branchScope(useUserBranch());
   const agg = useMemo(() => aggregateDocs(docs, scopeBranch), [docs, scopeBranch]);
   const spotName = getSpotNameForBranch(branch);
+  const spotIdOf = useMemo(() => {
+    const low = String(branch || "").toLowerCase();
+    const hit = Object.entries(BRANCHES).find(([id, cfg]) => id === branch || cfg.spotName.toLowerCase() === low || id.replace("Aura02_", "").toLowerCase() === low);
+    return hit ? String(hit[1].spotId) : null;
+  }, [branch]);
   const resolvedBranch = useMemo(() => {
     if (agg.byBranch[branch]) return branch;
     if (spotName && agg.byBranch[spotName]) return spotName;
@@ -77,6 +83,9 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
         const allDays = await fetchCashPerDay(daysAgoStr(29), todayStr());
         if (!cancelled) {
           setCashDays(allDays.filter(r => {
+            // По spotId — надёжно: карточку открывают и по «Aura02_Abaya»,
+            // и по «Абая» из накладных, а Poster пишет имя латиницей
+            if (spotIdOf && String(r.spotId) === spotIdOf) return true;
             if (!r.spotName) return false;
             const name = r.spotName.toLowerCase();
             if (spotName && name === spotName.toLowerCase()) return true;
@@ -92,7 +101,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [branch, resolvedBranch, spotName]);
+  }, [branch, resolvedBranch, spotName, spotIdOf]);
 
   // Filtered cash days — must be defined before KPI computations
   const filteredCash = useMemo(() => {

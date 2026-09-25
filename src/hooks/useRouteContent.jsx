@@ -89,7 +89,6 @@ const ProfitabilityMatrix = lazy(() => import("../components/ProfitabilityMatrix
 const TrafficHeatmap = lazy(() => import("../components/TrafficHeatmap"));
 const PnLView = lazy(() => import("../components/PnLView"));
 const PayrollView = lazy(() => import("../components/PayrollView.jsx"));
-const AutoReplenishmentAlerts = lazy(() => import("../components/AutoReplenishmentAlerts"));
 const AnomalyDetection = lazy(() => import("../components/AnomalyDetection"));
 const MorningBriefing = lazy(() => import("../components/MorningBriefing"));
 
@@ -287,8 +286,10 @@ export function useRouteContent({
   // коммите — компонент остался, ссылка на него нет. Возвращаем.
   } else if (p === "/taxes" && isAdminOrManager()) {
     content = <TaxesView />;
-  } else if (p === "/replenish") {
-    content = <AutoReplenishmentAlerts />;
+  // «Авто-остатки» выдумывали остаток (расход × порог × 2) — раздел убран;
+  // старая ссылка ведёт туда, где остатки настоящие
+  } else if (p === "/replenish" && isAdmin()) {
+    content = <IngredientMovement />;
   } else if (p === "/anomalies" && isAdminOrManager()) {
     content = <AnomalyDetection />;
   } else if (p === "/briefing") {

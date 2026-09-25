@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { aggregateDocs, fmt } from "../utils";
 import { fetchCashBySpot } from "../poster";
 import { branchScope, useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
+import { BRANCHES } from "../branches.js";
 
 function todayStr() {
   const d = new Date();
@@ -21,8 +22,8 @@ function daysAgoStr(n) {
 }
 
 const SORT_OPTIONS = [
-  { v: "total", label: "По поставке (убыв.)" },
   { v: "cash", label: "По кассе (убыв.)" },
+  { v: "total", label: "По поставке (убыв.)" },
   { v: "name", label: "По имени (А-Я)" },
   { v: "reports", label: "По отчётам (убыв.)" },
 ];
@@ -32,15 +33,17 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
   const scopeBranch = branchScope(userBranch);
   const agg = useMemo(() => aggregateDocs(docs, scopeBranch), [docs, scopeBranch]);
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState("total");
+  // По кассе: она есть у каждой точки, а поставки — только если грузили
+  // накладные
+  const [sort, setSort] = useState("cash");
   const [cashBySpot, setCashBySpot] = useState([]);
   // .catch(() => {}) молча оставлял карточки без кассы: человек видел
   // филиалы с прочерками и не знал, это простой или сбой
   const [cashError, setCashError] = useState("");
 
+  const period = userBranch ? 6 : 29;
   useEffect(() => {
     let abort = new AbortController();
-    const period = userBranch ? 6 : 29;
     fetchCashBySpot(daysAgoStr(period), todayStr(), { signal: abort.signal })
       .then((data) => { if (!abort.signal.aborted) { setCashBySpot(data); setCashError(""); } })
       .catch((e) => { if (!abort.signal.aborted && e?.name !== "AbortError") setCashError(e?.message || "Poster не ответил"); });
@@ -82,11 +85,22 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
   }, [userBranch, spotName]);
 
   const filtered = useMemo(() => {
-    let list = agg.branches.map((b) => {
-      const x = agg.byBranch[b];
-      const cash = findCash(b);
+    // Сеть — все точки справочника, даже без накладных. Раньше список
+    // строился только из накладных: без них вкладка «Филиалы» показывала
+    // «Нет филиалов · всего 0» у сети из восьми точек (25.09.2026). Касса —
+    // по spotId: имя Poster латиницей («Aura02_Abaya») с русским «Абая» из
+    // накладных по названию не сходилось никогда
+    const empty = { total: 0, paid: 0, debt: 0, reports: 0, dates: [] };
+    const cashFor = (spotId) => cashBySpot.find((c) => String(c.spotId) === String(spotId)) || null;
+    const used = new Set();
+    let list = Object.entries(BRANCHES).map(([id, cfg]) => {
+      const short = id.replace("Aura02_", "").toLowerCase();
+      const inv = agg.branches.find((b) => b === id || b.toLowerCase() === cfg.spotName.toLowerCase() || b.toLowerCase() === short);
+      if (inv) used.add(inv);
+      const x = inv ? agg.byBranch[inv] : empty;
+      const cash = cashFor(cfg.spotId);
       return {
-        name: b,
+        name: id,
         ...x,
         avgPerReport: x.reports > 0 ? Math.round(x.total / x.reports) : 0,
         cash: cash?.total || 0,
@@ -94,6 +108,20 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
         cashDays: cash?.daysCount || 0,
       };
     });
+    // Накладные на точки вне справочника — тоже на экране, как раньше
+    for (const b of agg.branches) {
+      if (used.has(b)) continue;
+      const x = agg.byBranch[b];
+      const cash = findCash(b);
+      list.push({
+        name: b,
+        ...x,
+        avgPerReport: x.reports > 0 ? Math.round(x.total / x.reports) : 0,
+        cash: cash?.total || 0,
+        avgCash: cash?.avgPerDay || 0,
+        cashDays: cash?.daysCount || 0,
+      });
+    }
     // Deduplicate: merge entries with similar names (case-insensitive)
     const seen = new Map();
     for (const item of list) {
@@ -133,7 +161,12 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
       return (b[sort] || 0) - (a[sort] || 0);
     });
     return list;
-  }, [agg, q, sort, findCash, branchMatch, userBranch]);
+  }, [agg, q, sort, findCash, branchMatch, userBranch, cashBySpot]);
+
+  const cashTotal = filtered.reduce((sum, b) => sum + (b.cash || 0), 0);
+  const supplyTotal = filtered.reduce((sum, b) => sum + (b.total || 0), 0);
+  const reportsTotal = filtered.reduce((sum, b) => sum + (b.reports || 0), 0);
+  const daysLabel = `${period + 1} дн.`;
 
   return (
     <div className="view-wrap branches-view-wrap">
@@ -151,8 +184,8 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
             {userBranch ? (
               <>{formatBranchName(userBranch)}</>
             ) : (
-              <>Всего: <b>{filtered.length}</b> ·
-              Поставка: <b className="text-accent">{fmt(agg.global.total)}</b></>
+              <>Точек: <b>{filtered.length}</b> ·
+              Касса за {daysLabel}: <b className="text-accent">{fmt(cashTotal)}</b></>
             )}
           </div>
         </div>
@@ -165,15 +198,19 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
           <span className="strip-val">{filtered.length}</span>
         </div>
         <div className="strip-item">
-          <i className="ti ti-package" aria-hidden="true" />
-          <span className="strip-label">Поставка</span>
-          <span className="strip-val">{filtered.reduce((s, b) => s + (b.total || 0), 0) ? fmt(filtered.reduce((s, b) => s + (b.total || 0), 0)) : fmt(0)}</span>
+          <i className="ti ti-cash" aria-hidden="true" />
+          <span className="strip-label">Касса · {daysLabel}</span>
+          <span className="strip-val">{fmt(cashTotal)}</span>
         </div>
-        <div className="strip-item">
-          <i className="ti ti-report" aria-hidden="true" />
-          <span className="strip-label">Отчётов</span>
-          <span className="strip-val">{filtered.reduce((s, b) => s + (b.reports || 0), 0)}</span>
-        </div>
+        {/* Поставки и накладные — только если их грузили: нули по всем
+            точкам читались как «ничего не привозили» */}
+        {reportsTotal > 0 && (
+          <div className="strip-item">
+            <i className="ti ti-package" aria-hidden="true" />
+            <span className="strip-label">Поставка</span>
+            <span className="strip-val">{fmt(supplyTotal)}</span>
+          </div>
+        )}
       </div>
 
       <div className="toolbar">
@@ -215,29 +252,29 @@ export default function BranchesView({ docs, canEdit, onOpen }) {
                   <i className="ti ti-building-store" aria-hidden="true" /> {formatBranchName(b.name)}
                 </div>
                 <div className="branch-meta">
-                  {b.reports} {b.reports === 1 ? "отчёт" : "отчётов"}
+                  {b.reports > 0 ? `${b.reports} ${b.reports === 1 ? "накладная" : "накладных"}` : `касса за ${daysLabel}`}
                 </div>
               </div>
             </div>
 
             <div className="branch-stats">
               <div>
-                <div className="branch-stat-label">Поставка</div>
-                <div className="branch-stat-val">{fmt(b.total)}</div>
+                <div className="branch-stat-label">Касса</div>
+                <div className="branch-stat-val text-success">{cashError ? "—" : fmt(b.cash)}</div>
               </div>
               <div>
-                <div className="branch-stat-label">Средняя</div>
-                <div className="branch-stat-val text-accent">{fmt(b.avgPerReport)}</div>
+                <div className="branch-stat-label">В день</div>
+                <div className="branch-stat-val text-success">{cashError ? "—" : fmt(b.avgCash)}</div>
               </div>
-              {b.cash > 0 && (
+              {b.reports > 0 && (
                 <>
                   <div>
-                    <div className="branch-stat-label">Касса</div>
-                    <div className="branch-stat-val text-success">{fmt(b.cash)}</div>
+                    <div className="branch-stat-label">Поставка</div>
+                    <div className="branch-stat-val">{fmt(b.total)}</div>
                   </div>
                   <div>
-                    <div className="branch-stat-label">Ср. касса</div>
-                    <div className="branch-stat-val text-success">{fmt(b.avgCash)}</div>
+                    <div className="branch-stat-label">Средняя</div>
+                    <div className="branch-stat-val text-accent">{fmt(b.avgPerReport)}</div>
                   </div>
                 </>
               )}

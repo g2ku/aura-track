@@ -10,6 +10,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { fmt } from "../utils";
 import { fetchIngredientMovement } from "../poster";
+import { periodDays, runwayDays, runningLow, runwayLabel } from "../runway.js";
 
 function ymd(d) {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
@@ -88,6 +89,17 @@ export default function IngredientMovement() {
       .sort((a, b) => a.money - b.money),
     [negative],
   );
+
+  // На сколько дней хватит: по расходу за период. За один сегодняшний
+  // день расход — случайность, считаем с двух дней
+  const days = periodDays(from, to);
+  const lowByBranch = useMemo(
+    () => (days >= 1.5 ? runningLow(data?.items || [], days, 3) : {}),
+    [data, days],
+  );
+  const lowBranches = Object.entries(lowByBranch)
+    .filter(([name]) => branch === "all" || name === branch)
+    .sort((a, b) => b[1].length - a[1].length);
 
   const rows = useMemo(() => {
     const all = data?.items || [];
@@ -211,6 +223,40 @@ export default function IngredientMovement() {
         </div>
       )}
 
+      {/* Скоро закончится — по настоящим остаткам и расходу за период */}
+      {lowBranches.length > 0 && (
+        <div className="cl-zone" style={{ marginBottom: 16 }}>
+          <div className="cl-zone-title">
+            <i className="ti ti-truck" aria-hidden="true" /> Скоро закончится
+          </div>
+          <div style={{ padding: "0 0 8px", color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.5 }}>
+            Остаток в Poster при нынешнем расходе — меньше чем на 3 дня. Пора везти.
+          </div>
+          {lowBranches.map(([name, items]) => (
+            <div key={name} className="cl-spot">
+              <div className="cl-spot-head">
+                <span className="cl-spot-name-text">{name}</span>
+                <div className="cl-spot-cash" style={{ color: "var(--text-warning)", fontWeight: 700 }}>{items.length} поз.</div>
+              </div>
+              {items.slice(0, 8).map((i) => (
+                <div className="cl-line" key={i.id}>
+                  <span className="cl-line-label">{i.name}</span>
+                  <span className="cl-line-dots" />
+                  <span className="cl-line-value" style={{ color: "var(--text-warning)", fontWeight: 700 }}>
+                    {qty(i.end)} {unitOf(i.unit)} · {runwayLabel(i.days)}
+                  </span>
+                </div>
+              ))}
+              {items.length > 8 && (
+                <div className="cl-line">
+                  <span className="cl-line-label" style={{ color: "var(--text-muted)" }}>и ещё {items.length - 8}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Итоги */}
       <div className="cross-loc-summary" style={{ marginBottom: 16 }}>
         <div className="cross-loc-summary-card">
@@ -253,7 +299,7 @@ export default function IngredientMovement() {
                 <th className="text-right">Сумма</th>
                 {branch === "all"
                   ? <th>Остаток в минусе</th>
-                  : <><th className="text-right">Приход</th><th className="text-right">Остаток</th></>}
+                  : <><th className="text-right">Приход</th><th className="text-right">Остаток</th><th className="text-right">Хватит на</th></>}
               </tr>
             </thead>
             <tbody>
@@ -289,6 +335,9 @@ export default function IngredientMovement() {
                         fontWeight: r.showEnd < 0 ? 700 : 400,
                       }}>
                         {qty(r.showEnd)}
+                      </td>
+                      <td className="text-right num" style={{ color: "var(--text-muted)" }}>
+                        {days >= 1.5 ? runwayLabel(runwayDays(r.showEnd, r.showSpent, days)) : "—"}
                       </td>
                     </>
                   )}
