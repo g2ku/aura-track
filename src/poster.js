@@ -687,6 +687,12 @@ function setCachedDay(yyyymmdd, payload) {
 const seedPromises = new Map();
 
 async function seedDaysFromServer(fromYmd, toYmd, opts = {}, { products = true } = {}) {
+  // Ночных итогов за сегодня не бывает — сервер отдаёт только по вчера.
+  // Раньше «касса сегодня» на главной сначала ждала пустой ответ сервера
+  // (~0,3 с) и лишь потом шла в Poster
+  const yesterday = shiftYmd(todayYmd(), -1);
+  if (toYmd > yesterday) toYmd = yesterday;
+  if (fromYmd > toYmd) return new Set();
   const dash = (d) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
   const key = `${fromYmd}-${toYmd}-${products ? "p" : "c"}`;
   if (!seedPromises.has(key)) {
@@ -1917,8 +1923,23 @@ async function mapWithProgress(items, limit, fn, onProgress) {
   return out;
 }
 
+// Одинаковые запросы, ушедшие одновременно, — один поход в сеть. На
+// главной вчерашние сутки dash просили три раза подряд: разбивка оплат,
+// ночные чеки кассы, открытые чеки (замер 26.09.2026). С отменой (signal)
+// не склеиваем: отмена одного не должна обрывать другим ответ
+const inflight = new Map();
+
 async function call(method, params = {}, opts = {}) {
   const url = buildUrl(method, params, opts);
+  if (opts.signal) return callOnce(url, opts);
+  const hit = inflight.get(url);
+  if (hit) return hit;
+  const p = callOnce(url, opts).finally(() => inflight.delete(url));
+  inflight.set(url, p);
+  return p;
+}
+
+async function callOnce(url, opts = {}) {
   let res;
   try {
     res = await fetch(url, {

@@ -103,7 +103,10 @@ const MorningBriefing = lazy(() => import("../components/MorningBriefing"));
 // Тот же import(), что и в lazy() выше, — Vite отдаёт тот же чанк, а
 // браузер второй раз в сеть не идёт.
 const ROUTE_LOADERS = {
-  "/": () => import("../components/Dashboard"),
+  // Главная — CashLedger (дизайн v2 у всех). Здесь стоял старый Dashboard:
+  // при каждом старте грелся тяжёлый чанк, который никто не открывает,
+  // и мешал грузиться настоящей главной (замер 26.09.2026)
+  "/": () => import("../components/CashLedger"),
   "/chat": () => import("../components/DataChat"),
   "/branches": () => import("../components/BranchesView"),
   "/reports": () => import("../components/ReportsView"),
@@ -121,11 +124,14 @@ export function prefetchRoutes(lastHash = "#/") {
   // «#/branches/Абая» → «/branches»: чанк общий для всех страниц раздела
   const section = "/" + (String(lastHash || "").replace(/^#\/?/, "").split("/")[0] || "");
   const last = ROUTE_LOADERS[section];
+  // Остальное — когда главная уже показала цифры. «Простой» наступал почти
+  // сразу — пока ждём сеть, — и ассистент (сотни КБ) грузился наперегонки
+  // с кодом и данными главной
   const idle = globalThis.requestIdleCallback || ((cb) => setTimeout(cb, 300));
-  idle(() => {
+  setTimeout(() => idle(() => {
     if (last && last !== ROUTE_LOADERS["/"]) warm(last);
     warm(ROUTE_LOADERS["/chat"]);
-  });
+  }), 5000);
 }
 
 function RouteFallback() {

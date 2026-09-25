@@ -130,6 +130,15 @@ function MainApp() {
   const setDesignV2 = useAppStore((s) => s.setDesignV2);
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [lateUi, setLateUi] = useState(false);
+  useEffect(() => {
+    if (lateUi) return;
+    const t = setTimeout(() => setLateUi(true), 4000);
+    // Нажали «История обновлений» раньше — монтируем окно и передаём нажатие
+    const early = () => { setLateUi(true); setTimeout(() => window.dispatchEvent(new Event("aura-changelog:open")), 60); };
+    window.addEventListener("aura-changelog:open", early, { once: true });
+    return () => { clearTimeout(t); window.removeEventListener("aura-changelog:open", early); };
+  }, [lateUi]);
 
   useRememberRoute();
   useEffect(() => { initStore(); }, [initStore]);
@@ -227,29 +236,32 @@ function MainApp() {
       </div>
 
       <Suspense fallback={null}>
-        <UploadModal
+        {/* Окна — только когда открыты: lazy-чанк грузится, как только
+            компонент отрисован, и восемь закрытых окон качались при каждом
+            старте наперегонки с главной (замер 26.09.2026) */}
+        {modal?.kind === "upload" && <UploadModal
           open={modal?.kind === "upload"}
           onParsed={handleParsed}
           onMultipleSheets={handleMultipleSheets}
           onClose={closeModal}
-        />
+        />}
 
-        <GlobalPaymentModal
+        {modal?.kind === "globalPay" && <GlobalPaymentModal
           open={modal?.kind === "globalPay"}
           agg={agg}
           onClose={closeModal}
           onConfirm={handleAddGlobalPayment}
-        />
+        />}
 
-        <BranchPaymentModal
+        {modal?.kind === "branchPay" && <BranchPaymentModal
           open={modal?.kind === "branchPay"}
           branch={modal?.payload?.branch}
           docs={docs}
           onClose={closeModal}
           onConfirm={handleAddBranchPayment}
-        />
+        />}
 
-        <ConfirmModal
+        {modal?.kind === "confirmDup" && <ConfirmModal
           open={modal?.kind === "confirmDup"}
           title="Такой отчёт уже загружен"
           message={
@@ -270,9 +282,9 @@ function MainApp() {
           danger
           onConfirm={() => replaceReport(modal.payload.payload)}
           onCancel={closeModal}
-        />
+        />}
 
-        <ConfirmModal
+        {modal?.kind === "confirmDupAll" && <ConfirmModal
           open={modal?.kind === "confirmDupAll"}
           title="Есть дубли среди листов"
           message={
@@ -290,9 +302,9 @@ function MainApp() {
           danger
           onConfirm={() => replaceAll(modal.payload.all)}
           onCancel={closeModal}
-        />
+        />}
 
-        <ConfirmModal
+        {modal?.kind === "error" && <ConfirmModal
           open={modal?.kind === "error"}
           title="Ошибка"
           message={modal?.payload?.message || ""}
@@ -300,18 +312,19 @@ function MainApp() {
           cancelText=""
           onConfirm={closeModal}
           onCancel={closeModal}
-        />
+        />}
 
-        <PostUploadModal
+        {!!pendingUpload && <PostUploadModal
           open={!!pendingUpload}
           parsed={pendingUpload?.parsed}
           fileName={pendingUpload?.fileName}
           onConfirm={confirmUpload}
           onCancel={cancelUpload}
-        />
+        />}
 
-        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-        <ChangelogModal />
+        {feedbackOpen && <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />}
+        {/* «Что нового» открывается само — но не в первые секунды */}
+        {lateUi && <ChangelogModal />}
       </Suspense>
 
       <ToastViewport />

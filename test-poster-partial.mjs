@@ -78,7 +78,9 @@ section("Касса по дням: из кэша без меню, пропавш
   eq(perDay[0].total, 100000, "касса дня — из cashBySpot");
   eq(perDay.failedDays, [dash(today)], "сегодняшний день не дошёл — назван");
   ok(!calls.some((u) => u.includes("menu.getProducts")), "меню не запрашивалось");
-  ok(calls.some((u) => u.includes("/api/sales-days")), "недостающие дни сначала спросили у своего сервера");
+  // Не хватает только сегодня — ночных итогов за сегодня не бывает, и
+  // ждать пустой ответ своего сервера перед Poster незачем (~0,3 с на главной)
+  ok(!calls.some((u) => u.includes("/api/sales-days")), "за сегодняшний день свой сервер не спрашиваем");
   const posterCalls = calls.filter((u) => u.includes("transactions.getTransactions"));
   eq(posterCalls.length, 1, "в Poster — только за один день, которого нет в кэше");
   let err = null;
@@ -207,6 +209,20 @@ section("Скидка у Poster — процент; в деньгах — раз
   const x = r.receipts[0];
   eq(x.discount, 129, "скидка в деньгах — 1 290 − 1 161 = 129 ₸, а не «10 ₸»");
   eq(x.discountPct, 10, "а процент — отдельно");
+}
+
+section("Одинаковые запросы в одно время — один поход в сеть");
+
+{
+  // 26.09.2026: главная просила вчерашние сутки dash три раза подряд
+  let n = 0;
+  globalThis.fetch = async () => { n++; await new Promise((r) => setTimeout(r, 20)); return new Response(JSON.stringify({ response: [{ transaction_id: 1 }] }), { status: 200, headers: { "Content-Type": "application/json" } }); };
+  const { fetchDashTransactions } = await import("./src/poster.js");
+  const [a, b, c] = await Promise.all([fetchDashTransactions("20260925", "20260925"), fetchDashTransactions("20260925", "20260925"), fetchDashTransactions("20260925", "20260925")]);
+  eq(n, 1, "три одинаковых запроса — один в сеть");
+  ok(a.length === 1 && b.length === 1 && c.length === 1, "ответ получили все трое");
+  await fetchDashTransactions("20260925", "20260925");
+  eq(n, 2, "следующий, уже после ответа, — снова в сеть (кэш тут не наш)");
 }
 
 console.log("\n══════════════════════════════════════════════════");
