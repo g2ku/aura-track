@@ -1823,12 +1823,16 @@ async function handleByHour(metric, spot, period, ipGroup) {
     return `${emoji} ${h.label}: ${fmt(h.total)} (${h.count} чеков)`;
   }).join("\n");
 
-  // Quiet hours (bottom 3)
-  const quietHours = indexed.slice(-3).reverse();
-  const quietLines = quietHours.map(h => `• ${h.label}: ${fmt(h.total)}`).join("\n");
+  // Тихие часы — среди тех, когда точки работали. Раньше брались три
+  // последних из всех 24, и ответ был «04:00, 05:00, 06:00 — 0 ₸»: ночь,
+  // точки закрыты, толку ноль
+  const working = indexed.filter((h) => h.count > 0);
+  if (!working.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
+  const quietHours = working.length > 3 ? working.slice(-3).reverse() : [];
+  const quietLines = quietHours.map(h => `• ${h.label}: ${fmt(h.total)} (${h.count} чеков)`).join("\n");
 
   return {
-    text: `Пиковые часы ${sl}${ipLabel} за ${pl}:\n\n🔥 Топ-3 часа:\n${lines}\n\n💤 Тихие часы:\n${quietLines}`,
+    text: `Пиковые часы ${sl}${ipLabel} за ${pl}:\n\n🔥 Топ-3 часа:\n${lines}${quietLines ? `\n\n💤 Тихие часы (когда точки работали):\n${quietLines}` : ""}`,
     data: { peakHours, quietHours, hourData: indexed },
   };
 }

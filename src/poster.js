@@ -40,7 +40,9 @@ export {
 const BASE = "/api/poster";
 const UA = "Poster (http://joinposter.com)";
 
-const CACHE_KEY = "supply-track.poster.salesByDay.v14";
+// v15 (25.09.2026): в кэше дней лежали ложные метки «два метода Poster
+// разошлись» — оплаты считались вместе с открытыми и удалёнными чеками
+const CACHE_KEY = "supply-track.poster.salesByDay.v15";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions

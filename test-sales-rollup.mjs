@@ -206,7 +206,7 @@ section("Клиент: серверные дни — в кэш, в Poster тол
   eq(calls.slice(before).filter((u) => u.startsWith("/api/sales-days") || u.includes("dash.getTransactions")).length, 0, "ни к серверу, ни в Poster — всё уже в кэше");
 
   // Сервер недоступен — работаем как раньше
-  globalThis.localStorage.removeItem("supply-track.poster.salesByDay.v14");
+  globalThis.localStorage.removeItem("supply-track.poster.salesByDay.v15");
   globalThis.fetch = async (url) => {
     const u = String(url);
     if (u.startsWith("/api/sales-days")) return new Response("<!doctype html>", { status: 200, headers: { "Content-Type": "text/html" } });
@@ -241,7 +241,7 @@ section("Полугодие — по месяцам, без товаров ле�
 
 {
   const calls = [];
-  globalThis.localStorage.removeItem("supply-track.poster.salesByDay.v14");
+  globalThis.localStorage.removeItem("supply-track.poster.salesByDay.v15");
   globalThis.fetch = async (url) => {
     const u = String(url); calls.push(u);
     if (u.startsWith("/api/sales-days")) {

@@ -186,7 +186,7 @@ section("Кэш продаж вытесняет старые дни");
   const mod = src.slice(a, b).replace(/^function (setCachedDay|readCache)/gm, "export function $1");
   const { setCachedDay } = await import("data:text/javascript," + encodeURIComponent(mod));
 
-  const KEY = "supply-track.poster.salesByDay.v14";
+  const KEY = "supply-track.poster.salesByDay.v15";
   const hours = (h) => Date.now() - h * 3600 * 1000;
 
   store.set(KEY, JSON.stringify({

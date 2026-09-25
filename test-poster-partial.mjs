@@ -38,7 +38,7 @@ const today = ymd(now);
 const back = (n) => { const d = new Date(now); d.setDate(d.getDate() - n); return ymd(d); };
 
 // Шесть прошлых дней — в кэше (так их кладут ночные итоги), сегодня — нет
-const CACHE_KEY = "supply-track.poster.salesByDay.v14";
+const CACHE_KEY = "supply-track.poster.salesByDay.v15";
 const cache = {};
 for (let i = 1; i <= 6; i++) cache[back(i)] = { ts: Date.now(), transactionsCount: 10, txBySpot: { 4: 10 }, cashBySpot: { 4: 100000 }, rowsBySpot: { 4: { "Латте": { qty: 10, sum: 100000 } } }, hasProducts: true };
 mem.set(CACHE_KEY, JSON.stringify(cache));
