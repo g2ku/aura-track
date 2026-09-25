@@ -433,7 +433,7 @@ function ReceiptRow({ r, expanded, onToggle }) {
           {fmt(r.sum)}
         </td>
         <td style={{ textAlign: "right", color: r.discount > 0 ? "var(--danger)" : "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
-          {r.discount > 0 ? fmt(r.discount) : "—"}
+          {r.discount > 0 ? `${fmt(r.discount)}${r.discountPct ? ` · ${r.discountPct} %` : ""}` : r.discountPct > 0 ? `${r.discountPct} %` : "—"}
         </td>
         <td style={{ textAlign: "right", fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
           {fmt(r.profit)}

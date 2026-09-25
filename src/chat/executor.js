@@ -1175,8 +1175,15 @@ async function handleDiscounts(spot, period, ipGroup) {
   const cash = items.reduce((s, x) => s + (Number(x.sum) || 0), 0);
   if (!total) return { text: `Скидок ${sl} за ${pl} не было — все ${items.length} чеков по полной цене.${note}`, data: { total: 0 } };
   const share = cash + total ? Math.round((total / (cash + total)) * 1000) / 10 : 0;
+  // Какие проценты давали: «10 % — 100 чеков». Процент — из discountPct,
+  // деньги — разница «до» и «после» (см. fetchReceipts)
+  const byPct = {};
+  for (const x of withDisc) { const k = Number(x.discountPct) || 0; if (k) byPct[k] = (byPct[k] || 0) + 1; }
+  const pctLine = Object.keys(byPct).length
+    ? `Скидка: ${Object.entries(byPct).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} % — ${n} чек.`).join(", ")}`
+    : "";
   const lines = [`Скидки ${sl} за ${pl}: ${fmt(total)} — ${String(share).replace(".", ",")} % от возможной выручки`,
-    `Чеков со скидкой: ${withDisc.length} из ${items.length}`];
+    `Чеков со скидкой: ${withDisc.length} из ${items.length}`, pctLine].filter(Boolean);
   if (isAll(spot)) {
     const bySpot = {};
     for (const x of items) {

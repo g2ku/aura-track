@@ -1277,7 +1277,10 @@ export async function fetchOpenReceipts(dateFrom, dateTo, opts = {}, rows = null
       dateOpen: msToPosterTime(tx.date_start || tx.date_start_new),
       dateClose: "",
       sum: Number(tx.sum || 0) / 100,
-      discount: Number(tx.discount || 0) / 100,
+      // Процент, а не копейки: делить на 100 было ошибкой. Открытый чек
+      // ещё не оплачен — скидку в деньгах знаем, только если уже платили
+      discount: Number(tx.payed_sum) > 0 ? Math.max(0, Math.round((Number(tx.sum || 0) - Number(tx.payed_sum || 0)) / 100)) : 0,
+      discountPct: Number(tx.discount || 0),
       profit: 0,
       status: "open",
       fiscalization: null,
@@ -1363,7 +1366,15 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
         sum: Number(it.payed_sum || it.product_sum || 0),
       };
     });
-    const discount = Number(tx.discount || 0);
+    // discount у Poster — ПРОЦЕНТ, а не тенге (проверено 26.09.2026: у 100
+    // чеков за неделю discount = 10, sum 1 290, payed_sum 1 161). Раньше
+    // процент шёл как деньги: «скидки за неделю — 1 000 ₸» = 100 чеков × 10.
+    // Скидка в деньгах — разница «до» и «после», за вычетом оплаты бонусами
+    // и сертификатом; процент бывает не на весь чек, а на часть позиций
+    const discountPct = Number(tx.discount || 0);
+    const discount = discountPct > 0
+      ? Math.max(0, Math.round(Number(tx.sum || 0) - payedSum - Number(tx.payed_bonus || 0) - Number(tx.payed_cert || 0)))
+      : 0;
     const profit = Math.round(Number(tx.total_profit || tx.profit || 0) / 100);
     const isOpen = !tx.date_close && (tx.status === 0 || tx.status === "0");
 
@@ -1376,6 +1387,7 @@ export async function fetchReceipts(dateFrom, dateTo, opts = {}) {
       dateClose: tx.date_close || "",
       sum: payedSum,
       discount,
+      discountPct,
       profit,
       status: isOpen ? "open" : "closed",
       fiscalization: tx.fiscalization || null,

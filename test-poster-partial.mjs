@@ -186,6 +186,29 @@ section("Касса сегодня — с ночными чеками из вч�
   eq(r.txBySpot, { 4: 2 }, "и чеков два");
 }
 
+section("Скидка у Poster — процент; в деньгах — разница «до» и «после»");
+
+{
+  // 26.09.2026: у 100 чеков за неделю discount = 10, и ассистент сказал
+  // «скидки за неделю — 1 000 ₸» — сложил проценты как тенге
+  mem.clear();
+  mem.set("supply-track.poster.spots.v1", JSON.stringify({ ts: Date.now(), data: { 2: { name: "Aura02_Zharokova" } } }));
+  mem.set("supply-track.poster.menuIndex.v1", JSON.stringify({ ts: Date.now(), data: { "1": "Латте" } }));
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (u.includes("transactions.getTransactions")) return json({ response: { count: 1, data: [
+      { transaction_id: 685832, spot_id: 2, sum: "1290.00", payed_sum: "1161.00", payed_bonus: "0.00", discount: 10, date_close: "2026-09-24 12:00:00", products: [{ product_id: 1, num: 1, product_sum: "1290.00", payed_sum: "1161.00" }] },
+    ] } });
+    return json({ response: [] });
+  };
+  const { fetchReceipts } = await import("./src/poster.js");
+  const r = await fetchReceipts("2026-09-24", "2026-09-24", { includeOpen: false });
+  const x = r.receipts[0];
+  eq(x.discount, 129, "скидка в деньгах — 1 290 − 1 161 = 129 ₸, а не «10 ₸»");
+  eq(x.discountPct, 10, "а процент — отдельно");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

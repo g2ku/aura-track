@@ -104,7 +104,7 @@ globalThis.__poster = {
     let id = 1;
     for (const d of eachDay(from, to).filter((x) => x <= TODAY)) for (const sid of Object.keys(SPOTS)) for (let h = sid === "9" ? 10 : 8; h < 22; h += 2) {
       const sum = sid === "4" && h === 14 ? 48000 : 2500 + h * 100;
-      receipts.push({ id: id++, spotId: sid, spotName: SPOTS[sid], waiter: h < 14 ? "Айгерим" : "Данияр", dateOpen: `${d} ${String(h).padStart(2, "0")}:05:00`, dateClose: `${d} ${String(h).padStart(2, "0")}:12:00`, sum, discount: h === 10 ? 500 : 0, profit: 0, status: "closed", products: [{ name: "Латте 0,4", qty: 1, sum: 2500 }, { name: "Круассан", qty: 2, sum: sum - 2500 }], paymentTypes: [] });
+      receipts.push({ id: id++, spotId: sid, spotName: SPOTS[sid], waiter: h < 14 ? "Айгерим" : "Данияр", dateOpen: `${d} ${String(h).padStart(2, "0")}:05:00`, dateClose: `${d} ${String(h).padStart(2, "0")}:12:00`, sum, discount: h === 10 ? 500 : 0, discountPct: h === 10 ? 10 : 0, profit: 0, status: "closed", products: [{ name: "Латте 0,4", qty: 1, sum: 2500 }, { name: "Круассан", qty: 2, sum: sum - 2500 }], paymentTypes: [] });
     }
     // Один чек в день без имени кассира — так Poster и отдаёт, когда
     // смену пробили с общего аккаунта. В расклад по людям он не войдёт,
@@ -418,6 +418,7 @@ section("Закрытие, состав смены, скидки");
   has(d, "Скидки все филиалы за 19 сентября", "скидки");
   has(d, "Чеков со скидкой: 3 из 21", "сколько чеков со скидкой");
   has(d, "% от возможной выручки", "и доля");
+  has(d, "Скидка: 10 % — 3 чек.", "какой процент давали — отдельно от денег");
   const d0 = await ask("сколько скидок дали на гагарина вчера");
   has(d0, "Скидки Гагарина за 19 сентября 2026 г.: 500 ₸", "по точке — своя сумма");
 }
