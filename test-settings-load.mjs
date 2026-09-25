@@ -236,6 +236,8 @@ section("Токен ждёт восстановления сессии — ра�
   ok(/^if \(typeof window !== "undefined"\) prefetchRoutes\(getLastRoute\(\)\);/m.test(app), "код главной качается с самого старта, а не после входа");
   const routes = readFileSync("src/hooks/useRouteContent.jsx", "utf8");
   ok(/"\/": \(\) => import\("\.\.\/components\/CashLedger"\)/.test(routes), "греется настоящая главная, а не старый Dashboard");
+  const store = readFileSync("src/store/useAppStore.js", "utf8");
+  ok(/designV2: \(\(\) => \{ try \{ return resolveDesignV2\(/.test(store), "первый кадр главной — уже CashLedger, а не старый Dashboard");
 }
 
 rmSync(dir, { recursive: true, force: true });

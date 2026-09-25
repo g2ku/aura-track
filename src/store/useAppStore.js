@@ -2,6 +2,7 @@
 // Вся подписочная логика — здесь. Компоненты читают через селекторы.
 
 import { create } from "zustand";
+import { resolveDesignV2 } from "../designV2.js";
 import {
   isFirebaseConfigured,
   subscribeReports,
@@ -81,7 +82,11 @@ export const useAppStore = create((set, get) => ({
   // Флаг включает новый дизайн. Решает App.jsx: по умолчанию — только
   // для admin, можно принудительно вкл/выкл через sessionStorage
   // (aura-design-v2 = 1 | 0). Когда дизайн одобрен — ставим true всем.
-  designV2: false,
+  // Сразу из того же правила, что решает App.jsx. Было false до первого
+  // эффекта — и первый кадр главной рисовал старый Dashboard: качался его
+  // чанк и запускались его запросы, а через миг всё менялось на CashLedger
+  // (замер 26.09.2026)
+  designV2: (() => { try { return resolveDesignV2(null, window.sessionStorage); } catch (_) { return true; } })(),
 
   // ─── Пять разделов вместо шести групп ───────────────────────────────
   // Обкатывает владелец, в сайдбаре есть кнопка вернуться к прежнему.
