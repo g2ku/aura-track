@@ -165,6 +165,8 @@ async function askBot(text, store, ctx = null) {
     // Техкарты — только когда спросили про маржу: лишний запрос в базу
     // на каждый «касса вчера» не нужен
     getMargin: store.getMarginSettings || null,
+    // Накладные за даты — для закупочной цены покупного (выпечка, еда)
+    getInvoices: store.getDocsRange ? (from, to) => store.getDocsRange(from, to) : null,
     // Сегодня — из чеков вживую. Poster не ответил — отвечаем без
     // сегодняшнего дня, а не ошибкой: прошлые дни-то на месте.
     getToday: store.getTodaySales || (async (needProducts) => {

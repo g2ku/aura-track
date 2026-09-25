@@ -80,7 +80,7 @@ export function suggestRecipe(productName, recipes = []) {
 // Строки продаж Poster → позиции с маржой.
 // costOf(recipe) отдаётся снаружи: считать себестоимость умеет margin.js,
 // а тесты подставляют свою.
-export function buildMatrix({ sales = [], recipes = [], costOf = () => 0, aliases = {} } = {}) {
+export function buildMatrix({ sales = [], recipes = [], costOf = () => 0, aliases = {}, purchases = null } = {}) {
   const byProduct = new Map();
   for (const row of sales) {
     const key = normalizeName(row.productName);
@@ -96,11 +96,14 @@ export function buildMatrix({ sales = [], recipes = [], costOf = () => 0, aliase
   return [...byProduct.values()].map((ps) => {
     const recipe = findRecipe(ps.name);
     const avgPrice = ps.qty > 0 ? ps.revenue / ps.qty : 0;
-    const costPerUnit = recipe ? costOf(recipe) : 0;
+    let costPerUnit = recipe ? costOf(recipe) : 0;
+    // Покупное — по закупочной цене из накладных, как в «Марже»
+    const bought = !(costPerUnit > 0) && purchases ? purchases.get(purchaseKey(ps.name)) : null;
+    if (bought) costPerUnit = bought.unitCost;
 
     // Маржа известна, только когда известны обе цифры. Нулевая
     // себестоимость — это «не заполнено», а не «бесплатно».
-    const known = !!recipe && costPerUnit > 0 && avgPrice > 0;
+    const known = (!!recipe || !!bought) && costPerUnit > 0 && avgPrice > 0;
 
     return {
       name: ps.name,
@@ -110,7 +113,7 @@ export function buildMatrix({ sales = [], recipes = [], costOf = () => 0, aliase
       costPerUnit: known ? costPerUnit : 0,
       totalCost: known ? costPerUnit * ps.qty : 0,
       marginPct: known ? ((avgPrice - costPerUnit) / avgPrice) * 100 : null,
-      category: recipe?.category || "Другое",
+      category: recipe?.category || (bought ? "Покупное" : "Другое"),
       // Почему маржи нет — это разные дела для владельца
       unknown: known ? null : !recipe ? "no-recipe" : "no-cost",
     };
@@ -168,16 +171,23 @@ export function periodDays(period) {
 // заметно выше правды. Поэтому выручка делится надвое: covered (есть
 // чем считать) и rest. Процент — только от covered, а доля покрытия
 // показывается рядом, чтобы было видно, насколько цифре верить.
-export function categoryMargins({ sales = [], recipes = [], costOf = () => 0, aliases = {} } = {}) {
+export function categoryMargins({ sales = [], recipes = [], costOf = () => 0, aliases = {}, purchases = null } = {}) {
   const findRecipe = recipeIndex(recipes, aliases);
 
   const cats = new Map();
   for (const row of sales) {
     const name = row.productName || "";
     const recipe = findRecipe(name);
-    const cost = recipe ? costOf(recipe) : 0;
-    const counted = !!recipe && cost > 0;
-    const cat = recipe?.category || "Другое";
+    let cost = recipe ? costOf(recipe) : 0;
+    // Техкарты нет или она пустая, а товар есть в накладных — это
+    // покупное, и его себестоимость — закупочная цена за штуку
+    let bought = null;
+    if (!(cost > 0) && purchases) {
+      bought = purchases.get(purchaseKey(name)) || null;
+      if (bought) cost = bought.unitCost;
+    }
+    const counted = cost > 0 && (!!recipe || !!bought);
+    const cat = recipe?.category || (bought ? "Покупное" : "Другое");
 
     if (!cats.has(cat)) {
       cats.set(cat, { name: cat, qty: 0, revenue: 0, covered: 0, cost: 0, products: new Map(), missing: new Map() });
@@ -203,7 +213,7 @@ export function categoryMargins({ sales = [], recipes = [], costOf = () => 0, al
     // Ключ — нормализованное имя: «Латте» и «латте» в выгрузке Poster
     // встречаются вперемешку и иначе разъезжаются на два товара
     const key = normalizeName(name);
-    const p = c.products.get(key) || { name, qty: 0, revenue: 0, cost: 0 };
+    const p = c.products.get(key) || { name, qty: 0, revenue: 0, cost: 0, ...(bought ? { bought: { name: bought.name, unitCost: bought.unitCost, qty: bought.qty } } : {}) };
     p.qty += qty;
     p.revenue += sum;
     p.cost += cost * qty;
@@ -304,4 +314,65 @@ export function costQuality({ sales = [], recipes = [], ingredients = [], aliase
     noPackaging: revByRecipe.size > 0 && !packagingSeen,
     any: unp.length + sus.length + missing.length > 0,
   };
+}
+
+// ─── Покупное: себестоимость по накладным ─────────────────────────
+//
+// Круассан, пончик, френч-дог — не варят на точке, а покупают готовыми.
+// Для них техкарта не нужна: себестоимость — закупочная цена за штуку,
+// и она уже есть в накладных, которые кураторы шлют боту («Пончики —
+// 48 шт — 40 000 ₸»). У Excel-накладных количества нет — они в счёт не
+// идут, делить не на что.
+
+// Дата накладной: у бота «2026-09-24», у старых Excel — «24.09.2026»
+function ymdOf(d) {
+  const s = String(d || "");
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return null;
+}
+
+// Слово без окончания множественного числа: «пончики» → «пончик»,
+// «круассаны» → «круассан». Отрезается одинаково с обеих сторон, так что
+// «панини» и «моти» тоже сходятся сами с собой
+function stemWord(w) {
+  const s = w.replace(/(ами|ями|ов|ев|ей|ы|и|а|я)$/, "");
+  return s.length >= 3 ? s : w;
+}
+export function purchaseKey(name) {
+  return words(name).map(stemWord).join(" ");
+}
+
+// Средняя закупочная цена за штуку по накладным за days дней до toYmd
+export function purchaseCosts(docs = [], { toYmd = null, days = 90 } = {}) {
+  const end = toYmd || new Date().toLocaleDateString("sv-SE");
+  const start = (() => {
+    const d = new Date(end + "T00:00:00");
+    d.setDate(d.getDate() - days);
+    return d.toLocaleDateString("sv-SE");
+  })();
+  const out = new Map();
+  for (const doc of docs || []) {
+    const ymd = ymdOf(doc?.date);
+    if (!ymd || ymd < start || ymd > end) continue;
+    for (const it of doc.items || []) {
+      const qty = Object.values(it.qty || {}).reduce((a, v) => a + (+v || 0), 0);
+      if (!(qty > 0)) continue;
+      // Сумма — только по тем филиалам, где есть и количество: иначе
+      // деньги точки без штук раздували бы цену за штуку
+      let sum = 0;
+      for (const [br, q] of Object.entries(it.qty || {})) if (+q > 0) sum += +(it.amounts?.[br]) || 0;
+      if (!(sum > 0)) continue;
+      const key = purchaseKey(it.name);
+      if (!key) continue;
+      const p = out.get(key) || { name: it.name, qty: 0, sum: 0 };
+      p.qty += qty;
+      p.sum += sum;
+      out.set(key, p);
+    }
+  }
+  for (const p of out.values()) p.unitCost = p.sum / p.qty;
+  return out;
 }

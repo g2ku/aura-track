@@ -5,7 +5,8 @@ import { loadMargin, saveMargin, clearMarginCache, calcRecipeCost, PRODUCT_CATEG
 import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
 import { useToast } from "../ui";
-import { categoryMargins, marginTotals, suggestRecipe, normalizeName, costQuality } from "../menuMatrix.js";
+import { categoryMargins, marginTotals, suggestRecipe, normalizeName, costQuality, purchaseCosts } from "../menuMatrix.js";
+import { useAppStore } from "../store/useAppStore";
 
 const TABS = [
   { id: "builder", label: "Создать напиток", icon: "ti-glass" },
@@ -700,14 +701,20 @@ function DashboardTab({ ingredients, recipes, aliases = {}, onAliases }) {
     setLoading(false);
   }
 
+  // Накладные — те же, что в «Поставках»: для покупного (выпечка, еда)
+  // себестоимость — закупочная цена за штуку за 90 дней до конца периода
+  const docs = useAppStore((st) => st.docs);
+  const purchases = useMemo(() => purchaseCosts(docs, { toYmd: period.to }), [docs, period.to]);
+
   const categoryStats = useMemo(
     () => categoryMargins({
       sales: salesData?.rows || [],
       recipes,
       costOf: (r) => calcRecipeCost(ingredients, r),
       aliases,
+      purchases,
     }),
-    [salesData, ingredients, recipes, aliases]
+    [salesData, ingredients, recipes, aliases, purchases]
   );
 
   const totals = useMemo(() => marginTotals(categoryStats), [categoryStats]);
@@ -1026,7 +1033,14 @@ function DashboardTab({ ingredients, recipes, aliases = {}, onAliases }) {
                         const pMarginPct = p.revenue > 0 ? ((pMargin / p.revenue) * 100).toFixed(1) : "0.0";
                         return (
                           <tr key={p.name} style={{ background: "var(--surface-2)" }}>
-                            <td style={{ paddingLeft: 32, fontSize: 13, color: "var(--text-secondary)" }}>{p.name}</td>
+                            <td style={{ paddingLeft: 32, fontSize: 13, color: "var(--text-secondary)" }}>
+                              {p.name}
+                              {p.bought && (
+                                <span className="margin-bought">
+                                  по накладным: {fmt(Math.round(p.bought.unitCost))}/шт
+                                </span>
+                              )}
+                            </td>
                             <td className="text-right" style={{ fontSize: 13 }}>{p.qty.toLocaleString("ru-RU")}</td>
                             <td className="text-right" style={{ fontSize: 13 }}>{fmt(p.revenue)}</td>
                             <td className="text-right" style={{ fontSize: 13 }}>{fmt(p.cost)}</td>

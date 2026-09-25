@@ -7,7 +7,8 @@ import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchPosterSales } from "../poster";
 import { loadMargin, calcRecipeCost } from "../margin";
-import { buildMatrix, matrixStats, periodDays } from "../menuMatrix.js";
+import { buildMatrix, matrixStats, periodDays, purchaseCosts } from "../menuMatrix.js";
+import { useAppStore } from "../store/useAppStore";
 
 function todayStr() {
   const d = new Date();
@@ -34,6 +35,8 @@ export default function ProfitabilityMatrix() {
   const [error, setError] = useState("");
 
   const days = periodDays(period);
+  // Покупное — по закупочной цене из накладных, как в «Марже»
+  const docs = useAppStore((st) => st.docs);
   const pFrom = daysAgoStr(days - 1);
   const pTo = todayStr();
 
@@ -62,14 +65,17 @@ export default function ProfitabilityMatrix() {
     return () => { alive = false; };
   }, [period, pFrom, pTo]);
 
+  const purchases = useMemo(() => purchaseCosts(docs, { toYmd: pTo }), [docs, pTo]);
+
   const matrix = useMemo(
     () => buildMatrix({
       sales: salesData,
       recipes,
       costOf: (r) => calcRecipeCost(ingredients, r),
       aliases,
+      purchases,
     }),
-    [salesData, recipes, ingredients, aliases]
+    [salesData, recipes, ingredients, aliases, purchases]
   );
 
   const stats = useMemo(() => matrixStats(matrix, days), [matrix, days]);

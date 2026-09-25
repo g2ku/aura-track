@@ -1,7 +1,7 @@
 // test-menu-matrix.mjs — счёт «Меню-инжиниринга».
 
 import { readFileSync } from "node:fs";
-import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals, suggestRecipe, recipeIndex, costQuality } from "./src/menuMatrix.js";
+import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals, suggestRecipe, recipeIndex, costQuality, purchaseCosts, purchaseKey } from "./src/menuMatrix.js";
 
 let passed = 0, failed = 0;
 function eq(a, b, label) {
@@ -330,6 +330,57 @@ console.log("\n📋 Тест 16: экран маржи называет прич
   eq(/выше, чем обычно бывает у напитков/.test(view), true, "маржа выше 85 % названа подозрительной");
   eq(/<b>Без цены<\/b>/.test(view) && /Проверьте единицу:/.test(view) && /Удалённые ингредиенты/.test(view) && /Нет упаковки:/.test(view), true, "все четыре причины выводятся");
   eq(/every\(\(m\) => m\.reason === "no-cost"\)/.test(view) && /у ингредиентов не\s+заполнены цены/.test(view), true, "техкарты нашлись, но без цен — это названо отдельно, а не «не совпало по названию»");
+}
+
+console.log("\n📋 Тест 17: покупное — себестоимость по накладным");
+{
+  // Круассан, пончик, френч-дог покупают готовыми: техкарта им не нужна,
+  // себестоимость — закупочная цена за штуку из накладных бота
+  eq(purchaseKey("Пончик"), purchaseKey("Пончики"), "«Пончик» из Poster = «Пончики» из накладной");
+  eq(purchaseKey("Френч дог"), purchaseKey("Френч доги"), "короткое слово тоже");
+  eq(purchaseKey("Круассан") === purchaseKey("Круассан миндальный"), false, "лишнее слово — другой товар");
+  eq(purchaseKey("Латте 0,4") === purchaseKey("Латте 0,3"), false, "объёмы не склеиваются");
+
+  const docs = [
+    { date: "2026-09-20", items: [
+      { name: "Пончики", amounts: { "Абая": 40000, "Дубай": 20000 }, qty: { "Абая": 48, "Дубай": 24 } },
+      // Excel-накладная: суммы есть, штук нет — делить не на что
+      { name: "Круассаны", amounts: { "Абая": 30000 }, qty: {} },
+      // Сумма филиала без штук не раздувает цену за штуку
+      { name: "Бейглы", amounts: { "Абая": 10000, "Дубай": 99999 }, qty: { "Абая": 10 } },
+    ] },
+    { date: "01.05.2026", items: [{ name: "Пончики", amounts: { "Абая": 1 }, qty: { "Абая": 1 } }] }, // старше 90 дней
+    { date: "2026-10-05", items: [{ name: "Пончики", amounts: { "Абая": 1 }, qty: { "Абая": 1 } }] }, // после периода
+  ];
+  const pc = purchaseCosts(docs, { toYmd: "2026-09-30" });
+  eq(Math.round(pc.get(purchaseKey("Пончик")).unitCost), 833, "пончик: 60 000 ₸ / 72 шт = 833 ₸/шт");
+  eq(pc.get(purchaseKey("Пончик")).qty, 72, "только накладные внутри окна");
+  eq(pc.has(purchaseKey("Круассан")), false, "без количества — не считаем");
+  eq(pc.get(purchaseKey("Бейгл")).unitCost, 1000, "сумма филиала без штук в цену не попала");
+
+  const sales17 = [
+    { productName: "Пончик", qty: 100, sum: 85000 },
+    { productName: "Круассан", qty: 10, sum: 15000 },
+    { productName: "Латте 0,4", qty: 10, sum: 15000 },
+  ];
+  const cats = categoryMargins({ sales: sales17, recipes: [], purchases: pc });
+  const bought = cats.find((c) => c.name === "Покупное");
+  eq(bought?.covered, 85000, "пончик посчитан по закупке");
+  eq(Math.round(bought?.cost), 83333, "себестоимость — 100 × 833");
+  eq(bought?.products[0]?.bought?.name, "Пончики", "видно, по какой накладной");
+  eq(cats.find((c) => c.name === "Другое")?.missing.map((m) => m.name).sort().join(","), "Круассан,Латте 0,4", "без накладной и техкарты — в списке непосчитанных");
+
+  // Техкарта с ценой важнее накладной; пустая техкарта — уступает накладной
+  const withRecipe = categoryMargins({ sales: [{ productName: "Пончик", qty: 1, sum: 900 }], recipes: [{ id: "p", name: "Пончик", category: "Выпечка" }], costOf: () => 300, purchases: pc });
+  eq(withRecipe[0].cost, 300, "техкарта с ценой считается по техкарте");
+  const emptyRecipe = categoryMargins({ sales: [{ productName: "Пончик", qty: 1, sum: 900 }], recipes: [{ id: "p", name: "Пончик", category: "Выпечка" }], costOf: () => 0, purchases: pc });
+  eq(Math.round(emptyRecipe[0].cost), 833, "пустая техкарта уступает закупочной цене");
+  eq(emptyRecipe[0].name, "Выпечка", "категория — из техкарты");
+
+  // Меню-инжиниринг — так же
+  const m17 = buildMatrix({ sales: sales17, recipes: [], purchases: pc });
+  eq(m17.find((x) => x.name === "Пончик").category, "Покупное", "в меню-инжиниринге пончик — покупное");
+  eq(m17.find((x) => x.name === "Пончик").marginPct !== null, true, "с известной маржой");
 }
 
 console.log("\n══════════════════════════════════════════════════");

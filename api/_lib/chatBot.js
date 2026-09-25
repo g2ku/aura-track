@@ -20,7 +20,7 @@ import { baselinePeriods, formatContext, averageOf } from "../../src/chat/contex
 import { productMatches } from "../../src/chat/normalize.js";
 import { spotNameByPosterId, DEFAULT_IP_GROUPS, BRANCHES } from "./branches.js";
 import { escapeHtml } from "./dailyDoc.js";
-import { categoryMargins, marginTotals } from "../../src/menuMatrix.js";
+import { categoryMargins, marginTotals, purchaseCosts } from "../../src/menuMatrix.js";
 import { calcRecipeCost } from "../../src/recipeCost.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
@@ -111,7 +111,9 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
   // в Poster. Считает тот же модуль, что и сайт (menuMatrix), поэтому
   // цифра в боте и на сайте не разъедется.
   if (parsed.metric === "margin") {
-    if (!margin || !margin.recipes?.length) {
+    // Нет ни техкарт, ни закупочных цен — считать нечем. Покупное (выпечка
+    // по накладным) считается и без единой техкарты
+    if (!margin || (!margin.recipes?.length && !(margin.purchases?.size > 0))) {
       return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nТехкарты не заведены — считать нечем. Раздел «Маржа» на сайте.`;
     }
     // «Себестоимость латте», «наценка на круассан» — про позицию, а не
@@ -137,6 +139,7 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
       recipes: margin.recipes,
       costOf: (r) => calcRecipeCost(margin.ingredients || [], r),
       aliases: margin.aliases || {},
+      purchases: margin.purchases || null,
     });
     const t = marginTotals(cats);
     if (!rows.length) return `<b>Маржа${escapeHtml(where)} ${escapeHtml(when)}</b>\nПродаж за период не нашёл.`;
@@ -506,6 +509,13 @@ export async function answerQuestion(text, deps) {
   const margin = parsed.metric === "margin" && deps.getMargin
     ? await deps.getMargin().catch(() => null)
     : null;
+  // Покупное считается по закупочной цене из накладных за 90 дней до
+  // конца периода — так же, как на сайте, иначе цифры разойдутся
+  if (margin && deps.getInvoices && parsed.period?.to) {
+    const to = parsed.period.to > today ? today : parsed.period.to;
+    const invoices = await deps.getInvoices(shiftYmd(to, -90), to).catch(() => []);
+    margin.purchases = purchaseCosts(invoices, { toYmd: to });
+  }
   const answer = answerFrom(parsed, days, { today, baseDays, margin });
   if (!answer) return null;
   const lines = [];

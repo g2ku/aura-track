@@ -6269,3 +6269,6 @@ button.pr-line-open .ti { color: var(--text-muted); margin-left: 6px; }
 .margin-quality-row { color: var(--text-secondary); }
 .margin-quality-row b { color: var(--text); font-weight: 600; }
 .margin-quality-dim { color: var(--text-muted); }
+
+/* Покупное: себестоимость — закупочная цена из накладных */
+.margin-bought { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }

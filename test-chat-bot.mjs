@@ -427,6 +427,25 @@ section("Маржа в боте учитывает привязки, подтв�
   ok(/Латте 0,4/.test(withIt), "по товару под его названием из Poster");
 }
 
+section("Маржа в боте: покупное по накладным, как на сайте");
+{
+  const generic = { ingredients: MARGIN.ingredients, recipes: [] };
+  const invoices = [{ date: Y, items: [{ name: "Латте 0,4", amounts: { "Абая": 3000 }, qty: { "Абая": 10 } }] }];
+  const r = (await answerQuestion("маржа за вчера", {
+    ...deps,
+    getMargin: async () => generic,
+    getInvoices: async () => invoices,
+  })).text;
+  // Техкарт нет вовсе — ответ про «техкарты не заведены»; покупное всё
+  // равно учитывается, если есть техкарты у чего-то ещё. Проверим второй
+  // случай: хотя бы одна техкарта есть
+  const withOne = { ingredients: MARGIN.ingredients, recipes: [MARGIN.recipes[1]] };
+  const r2 = (await answerQuestion("маржа за вчера", { ...deps, getMargin: async () => withOne, getInvoices: async () => invoices })).text;
+  ok(/Заработали/.test(r2), "покупное посчитано по закупке");
+  ok(/Латте 0,4/.test(r2), "товар по накладной — в списке");
+  ok(/Заработали/.test(r), "и без единой техкарты покупное считается по накладным");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

@@ -1359,7 +1359,10 @@ async function handleOpening(spot, period, raw = "") {
 
 async function handleMargin(operation, spot, period, ipGroup, productName = null) {
   const { loadMargin, calcRecipeCost } = await import("../margin.js");
-  const { categoryMargins, marginTotals } = await import("../menuMatrix.js");
+  const { categoryMargins, marginTotals, purchaseCosts } = await import("../menuMatrix.js");
+  // Накладные уже подписаны в сторе сайта — лениво, чтобы исполнитель не
+  // тянул стор в свой статический граф
+  const { useAppStore } = await import("../store/useAppStore.js");
 
   // Индекс меню здесь не нужен: он весит до мегабайта и тянулся зря
   const [cashData, marginData] = await Promise.all([
@@ -1374,7 +1377,9 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  if (!marginData?.recipes || marginData.recipes.length === 0) {
+  // Покупное — по закупочной цене из накладных; считается и без техкарт
+  const purchases = purchaseCosts(useAppStore.getState().docs || [], { toYmd: period.to });
+  if ((!marginData?.recipes || marginData.recipes.length === 0) && purchases.size === 0) {
     return {
       text: `Маржа ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\nРецепты не настроены. Настройте в разделе «Маржа».`,
       data: { totalCash },
@@ -1382,7 +1387,7 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
   }
 
   // Calculate average cost per recipe
-  const costs = marginData.recipes.map(r => ({
+  const costs = (marginData.recipes || []).map(r => ({
     name: r.name,
     cost: calcRecipeCost(marginData.ingredients || [], r),
     price: r.salePrice || 0,
@@ -1418,9 +1423,10 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
   const rows = (sales?.rows || []).filter((r) => matchesSpot({ spotId: r.spotId, spotName: r.spotName }, spot));
   const cats = categoryMargins({
     sales: rows,
-    recipes: marginData.recipes,
+    recipes: marginData.recipes || [],
     costOf: (r) => calcRecipeCost(marginData.ingredients || [], r),
     aliases: marginData.aliases || {},
+    purchases,
   });
   const t = marginTotals(cats);
 
@@ -1443,7 +1449,7 @@ async function handleMargin(operation, spot, period, ipGroup, productName = null
       : "";
     return {
       text: `Маржа ${sl}${ipLabel} за ${pl}:\nКасса: ${fmt(totalCash)}\n\n`
-        + `Посчитать по продажам не вышло — ${rows.length ? `ни одна из ${marginData.recipes.length} техкарт не совпала по названию с проданным` : "продаж за период не нашёл"}.\n`
+        + `Посчитать по продажам не вышло — ${rows.length ? `ни одна из ${(marginData.recipes || []).length} техкарт не совпала по названию с проданным` : "продаж за период не нашёл"}.\n`
         + missText
         + (lines ? `По техкартам, без учёта спроса:\n${lines}` : "Техкарты не заполнены."),
       data: { totalCash, byCard: listed.slice(0, 5) },
