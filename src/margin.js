@@ -219,8 +219,6 @@ const DEFAULT_RECIPES = [
       { ingredientId: "ing_icecream_vanilla", qty: 100, unit: "г" },
       { ingredientId: "ing_ice", qty: 110, unit: "г" },
       { ingredientId: "ing_milk", qty: 120, unit: "мл" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
-      { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
       // Сырная пенка
       { ingredientId: "ing_milk", qty: 20, unit: "мл" },
       { ingredientId: "ing_cream33", qty: 40, unit: "г" },

@@ -420,22 +420,28 @@ console.log("\n📋 Тест 19: добавки в основе техкарт �
     { id: "la", name: "Латте", items: [{ ingredientId: "ing_coffee", qty: 2, unit: "шт" }, { ingredientId: "ing_milk", qty: 315, unit: "мл" }, ...trio] },
     { id: "ca", name: "Капучино", items: [{ ingredientId: "ing_coffee", qty: 2, unit: "шт" }, { ingredientId: "ing_milk", qty: 275, unit: "мл" },
       { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" }, { ingredientId: "custom_honey", qty: 15, unit: "г" }, { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" }] },
-    // Фраппучино: мёд 15 и корица 0,5 есть, а сироп 10 — из сырной пенки. Не тройка
-    { id: "fr", name: "Фраппучино", items: [{ ingredientId: "ing_honey", qty: 15, unit: "г" }, { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" }, { ingredientId: "ing_syrup_vanilla", qty: 10, unit: "г" }] },
+    // Фраппучино: мёд 15 и корица 0,5 — добавки (владелец, 25.09.2026),
+    // а сироп 10 и мёд 0,3 — из сырной пенки, это рецепт
+    { id: "fr", name: "Фраппучино", items: [{ ingredientId: "ing_honey", qty: 15, unit: "г" }, { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
+      { ingredientId: "ing_syrup_vanilla", qty: 10, unit: "г" }, { ingredientId: "ing_honey", qty: 0.3, unit: "г" }] },
+    // Мёд с корицей вне «Фраппучино» не трогаем без слова владельца
+    { id: "rf", name: "Раф", items: [{ ingredientId: "ing_coffee", qty: 1.5, unit: "шт" }, { ingredientId: "ing_honey", qty: 15, unit: "г" }, { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" }] },
     // Мёд в чае — рецепт, не шаблон
     { id: "te", name: "Чай Имбирь-Цитрус", items: [{ ingredientId: "ing_honey", qty: 15, unit: "г" }, { ingredientId: "ing_mint", qty: 1, unit: "шт" }] },
     // Лёд в двадцати айс-напитках — основа, а не добавка
     { id: "ai", name: "Айс Американо", items: [{ ingredientId: "ing_coffee", qty: 2, unit: "шт" }, { ingredientId: "ing_ice", qty: 150, unit: "г" }, { ingredientId: "ing_milk", qty: 50, unit: "мл" }] },
   ];
   const found = findTemplateAddons(REC, ING);
-  eq(found.map((f) => f.name).join(","), "Американо,Латте,Капучино", "найдены ровно три техкарты");
+  eq(found.map((f) => f.name).join(","), "Американо,Латте,Капучино,Фраппучино", "найдены ровно четыре техкарты");
+  eq(found.find((f) => f.name === "Фраппучино")?.labels.join(", "), "мёд 15 г, корица 0,5 г", "во «Фраппучино» — мёд и корица");
   eq(found[0].labels.includes("молоко 85 мл"), true, "в «Американо» — и молоко");
   eq(found.find((f) => f.name === "Капучино")?.drop.length, 3, "мёд, заведённый заново под другим id, узнан по названию");
 
   const after = stripTemplateAddons(REC, ING);
   eq(after.find((r) => r.id === "am").items.length, 1, "в «Американо» остался только кофе");
   eq(after.find((r) => r.id === "la").items.map((i) => i.ingredientId).join(","), "ing_coffee,ing_milk", "в «Латте» — кофе и молоко");
-  eq(after.find((r) => r.id === "fr"), REC.find((r) => r.id === "fr"), "«Фраппучино» не тронут: сироп там из пенки");
+  eq(after.find((r) => r.id === "fr").items.map((i) => `${i.ingredientId} ${i.qty}`).join(", "), "ing_syrup_vanilla 10, ing_honey 0.3", "во «Фраппучино» пенка осталась: сироп 10 г и мёд 0,3 г");
+  eq(after.find((r) => r.id === "rf"), REC.find((r) => r.id === "rf"), "«Раф» с мёдом и корицей не тронут");
   eq(after.find((r) => r.id === "te"), REC.find((r) => r.id === "te"), "мёд в чае не тронут");
   eq(after.find((r) => r.id === "ai"), REC.find((r) => r.id === "ai"), "«Айс Американо» с молоком не тронут");
   eq(findTemplateAddons(after, ING).length, 0, "после чистки искать нечего — кнопка пропадёт");
