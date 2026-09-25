@@ -6,6 +6,7 @@ import { fetchPosterSales } from "../poster.js";
 import { fmt } from "../utils.js";
 import { useToast } from "../ui";
 import ConfirmModal from "./ConfirmModal";
+import { findTemplateAddons, stripTemplateAddons } from "../recipeAddons.js";
 import { categoryMargins, marginTotals, suggestRecipe, normalizeName, costQuality, purchaseCosts } from "../menuMatrix.js";
 import { useAppStore } from "../store/useAppStore";
 
@@ -528,6 +529,10 @@ function IngredientsTab({ ingredients, recipes = [], onChange }) {
 
 function RecipesTab({ ingredients, recipes, aliases = {}, onChange, onRemove }) {
   const [askRemove, setAskRemove] = useState(null);
+  // Добавки, записанные в основу базовых техкарт (сироп, мёд, корица;
+  // молоко в «Американо»). Владелец подтвердил: это продаётся отдельно
+  const addons = useMemo(() => findTemplateAddons(recipes, ingredients), [recipes, ingredients]);
+  const [askAddons, setAskAddons] = useState(false);
   // Сколько товаров Poster привязано к техкарте: удаление молча сделает
   // их непосчитанными
   const linkedCount = (id) => Object.values(aliases || {}).filter((rid) => String(rid) === String(id)).length;
@@ -600,6 +605,35 @@ function RecipesTab({ ingredients, recipes, aliases = {}, onChange, onRemove }) 
 
   return (
     <div>
+      {addons.length > 0 && (
+        <div className="margin-quality">
+          <div className="margin-quality-title">
+            <i className="ti ti-alert-triangle" aria-hidden="true" /> В основе техкарт стоят добавки — себестоимость завышена
+          </div>
+          {addons.map((a) => (
+            <div key={a.id} className="margin-quality-row">
+              <b>{a.name}</b> — {a.labels.join(", ")}
+            </div>
+          ))}
+          <div className="margin-quality-row">
+            Добавки продаются отдельно, в чашку основного напитка они не входят.
+          </div>
+          <div>
+            <button type="button" className="btn btn-sm btn-out" onClick={() => setAskAddons(true)}>
+              Убрать добавки из {addons.length} {addons.length === 1 ? "техкарты" : "техкарт"}
+            </button>
+          </div>
+        </div>
+      )}
+      <ConfirmModal
+        open={askAddons}
+        title="Убрать добавки из техкарт?"
+        message={`Из ${addons.map((a) => `«${a.name}»`).join(", ")} уйдут: ${[...new Set(addons.flatMap((a) => a.labels))].join(", ")}. Остальные техкарты не меняются.`}
+        confirmText="Убрать"
+        onConfirm={() => { onChange(stripTemplateAddons(recipes, ingredients)); setAskAddons(false); }}
+        onCancel={() => setAskAddons(false)}
+      />
+
       {/* ── Recipe form ── */}
       <div className="margin-section">
         <div className="margin-section-title">

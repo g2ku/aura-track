@@ -1,6 +1,7 @@
 // test-menu-matrix.mjs — счёт «Меню-инжиниринга».
 
 import { readFileSync } from "node:fs";
+import { findTemplateAddons, stripTemplateAddons } from "./src/recipeAddons.js";
 import { buildMatrix, matrixStats, periodDays, normalizeName, categoryMargins, marginTotals, suggestRecipe, recipeIndex, costQuality, purchaseCosts, purchaseKey } from "./src/menuMatrix.js";
 
 let passed = 0, failed = 0;
@@ -395,6 +396,57 @@ console.log("\n📋 Тест 18: «Ингредиенты» — цены впи�
   eq(/Без цены, но в техкартах/.test(tab) && /Проверить единицу/.test(tab), true, "фильтры: без цены и подозрительная единица");
   eq(/usedIn\.get\(ing\.id\)\) setAskRemove/.test(tab) && /<ConfirmModal/.test(tab), true, "удаление используемого ингредиента — через подтверждение");
   eq(/function pricePerBaseUnit/.test(view), false, "старый вывод цены текстом убран");
+}
+
+console.log("\n📋 Тест 19: добавки в основе техкарт — найти и убрать");
+{
+  // Так базовые техкарты лежат у владельца в базе: тройка сироп+мёд+
+  // корица в основе трёх кофейных, молоко в «Американо». Владелец
+  // подтвердил 25.09.2026 — это добавки
+  const ING = [
+    { id: "ing_coffee", name: "Кофе (шот)" }, { id: "ing_milk", name: "Молоко" },
+    { id: "ing_syrup_vanilla", name: "Сироп Ваниль" }, { id: "ing_honey", name: "Мёд" },
+    { id: "ing_cinnamon", name: "Корица" }, { id: "ing_ice", name: "Лёд" }, { id: "ing_mint", name: "Мята" },
+    // Ингредиент, заведённый заново — с другим id, но тем же названием
+    { id: "custom_honey", name: "мед" },
+  ];
+  const trio = [
+    { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" },
+    { ingredientId: "ing_honey", qty: 15, unit: "г" },
+    { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
+  ];
+  const REC = [
+    { id: "am", name: "Американо", items: [{ ingredientId: "ing_coffee", qty: 2, unit: "шт" }, { ingredientId: "ing_milk", qty: 85, unit: "мл" }, ...trio] },
+    { id: "la", name: "Латте", items: [{ ingredientId: "ing_coffee", qty: 2, unit: "шт" }, { ingredientId: "ing_milk", qty: 315, unit: "мл" }, ...trio] },
+    { id: "ca", name: "Капучино", items: [{ ingredientId: "ing_coffee", qty: 2, unit: "шт" }, { ingredientId: "ing_milk", qty: 275, unit: "мл" },
+      { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" }, { ingredientId: "custom_honey", qty: 15, unit: "г" }, { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" }] },
+    // Фраппучино: мёд 15 и корица 0,5 есть, а сироп 10 — из сырной пенки. Не тройка
+    { id: "fr", name: "Фраппучино", items: [{ ingredientId: "ing_honey", qty: 15, unit: "г" }, { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" }, { ingredientId: "ing_syrup_vanilla", qty: 10, unit: "г" }] },
+    // Мёд в чае — рецепт, не шаблон
+    { id: "te", name: "Чай Имбирь-Цитрус", items: [{ ingredientId: "ing_honey", qty: 15, unit: "г" }, { ingredientId: "ing_mint", qty: 1, unit: "шт" }] },
+    // Лёд в двадцати айс-напитках — основа, а не добавка
+    { id: "ai", name: "Айс Американо", items: [{ ingredientId: "ing_coffee", qty: 2, unit: "шт" }, { ingredientId: "ing_ice", qty: 150, unit: "г" }, { ingredientId: "ing_milk", qty: 50, unit: "мл" }] },
+  ];
+  const found = findTemplateAddons(REC, ING);
+  eq(found.map((f) => f.name).join(","), "Американо,Латте,Капучино", "найдены ровно три техкарты");
+  eq(found[0].labels.includes("молоко 85 мл"), true, "в «Американо» — и молоко");
+  eq(found.find((f) => f.name === "Капучино")?.drop.length, 3, "мёд, заведённый заново под другим id, узнан по названию");
+
+  const after = stripTemplateAddons(REC, ING);
+  eq(after.find((r) => r.id === "am").items.length, 1, "в «Американо» остался только кофе");
+  eq(after.find((r) => r.id === "la").items.map((i) => i.ingredientId).join(","), "ing_coffee,ing_milk", "в «Латте» — кофе и молоко");
+  eq(after.find((r) => r.id === "fr"), REC.find((r) => r.id === "fr"), "«Фраппучино» не тронут: сироп там из пенки");
+  eq(after.find((r) => r.id === "te"), REC.find((r) => r.id === "te"), "мёд в чае не тронут");
+  eq(after.find((r) => r.id === "ai"), REC.find((r) => r.id === "ai"), "«Айс Американо» с молоком не тронут");
+  eq(findTemplateAddons(after, ING).length, 0, "после чистки искать нечего — кнопка пропадёт");
+
+  // Базовые техкарты для новых установок уже без добавок
+  const src = readFileSync("src/margin.js", "utf8");
+  const grab = (name) => { const i = src.indexOf(`const ${name} = [`); const j = src.indexOf("\n];", i); return eval(src.slice(i + `const ${name} = `.length, j + 2)); };
+  eq(findTemplateAddons(grab("DEFAULT_RECIPES"), grab("DEFAULT_INGREDIENTS")).length, 0, "в базовых техкартах добавок больше нет");
+
+  const view = readFileSync("src/components/MarginView.jsx", "utf8");
+  eq(/stripTemplateAddons\(recipes, ingredients\)/.test(view) && /Убрать добавки из/.test(view), true, "в «Рецептах» есть кнопка с подтверждением");
 }
 
 console.log("\n══════════════════════════════════════════════════");

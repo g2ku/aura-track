@@ -103,6 +103,9 @@ const DEFAULT_INGREDIENTS = [
 
 // ─── Дефолтные рецепты ────────────────────────────────────────────
 
+// Сироп, мёд и корица в «Американо», «Латте», «Капучино» и молоко в
+// «Американо» — добавки, их продают отдельно (подтвердил владелец
+// 25.09.2026). Раньше они стояли в основе и завышали себестоимость.
 const DEFAULT_RECIPES = [
   // ═══════════════════════════════════════════════════════════════════
   // КОФЕЙНЫЕ НАПИТКИ (горячие)
@@ -112,10 +115,6 @@ const DEFAULT_RECIPES = [
     id: "rec_americano_hot", name: "Американо", category: "Кофе", salePrice: 0,
     items: [
       { ingredientId: "ing_coffee", qty: 2, unit: "шт" },
-      { ingredientId: "ing_milk", qty: 85, unit: "мл" },
-      { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
-      { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
     ],
   },
   {
@@ -123,9 +122,6 @@ const DEFAULT_RECIPES = [
     items: [
       { ingredientId: "ing_coffee", qty: 2, unit: "шт" },
       { ingredientId: "ing_milk", qty: 315, unit: "мл" },
-      { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
-      { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
     ],
   },
   {
@@ -133,9 +129,6 @@ const DEFAULT_RECIPES = [
     items: [
       { ingredientId: "ing_coffee", qty: 2, unit: "шт" },
       { ingredientId: "ing_milk", qty: 275, unit: "мл" },
-      { ingredientId: "ing_syrup_vanilla", qty: 15, unit: "г" },
-      { ingredientId: "ing_honey", qty: 15, unit: "г" },
-      { ingredientId: "ing_cinnamon", qty: 0.5, unit: "г" },
     ],
   },
   {
