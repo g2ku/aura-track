@@ -6,6 +6,7 @@
 // Логика чистая: на вход строки Poster и итог накладных, на выход текст.
 
 import { spotNameByPosterId } from "./branches.js";
+import { explainChange } from "../../src/chat/why.js";
 
 const fmtSum = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(n)) + " ₸";
 const fmtInt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(n));
@@ -88,6 +89,39 @@ export function spotBaselines(ymd, docs) {
   const out = {};
   for (const [spot, vs] of Object.entries(acc)) if (vs.length >= 2) out[spot] = vs.reduce((s, v) => s + v, 0) / vs.length;
   return out;
+}
+
+// «Почему» для сводки: точка, сильнее всех ушедшая вниз от своего
+// обычного дня, — и разбор, из чего это сложилось (тот же explainChange,
+// что у ассистента и бота). Утром владелец видит не только «−25 %», но и
+// «меньше людей, провал с 14 до 17, недобрали капучино» — не спрашивая.
+// dayDoc — суточный итог вчера; baseDocs — те же дни недели за 4 недели
+export function briefingWhy(ymd, dayDoc, baseDocs, { fmt = fmtSum, name = (id) => spotNameByPosterId(id), minDrop = SPOT_DEVIATION_PCT } = {}) {
+  if (!dayDoc?.cashBySpot) return null;
+  const base = spotBaselines(ymd, baseDocs);
+  let worst = null;
+  for (const [spot, v] of Object.entries(dayDoc.cashBySpot)) {
+    const b = base[spot];
+    if (!b) continue;
+    const drop = ((v - b) / b) * 100;
+    if (drop <= -minDrop && (!worst || drop < worst.drop)) worst = { spot, drop };
+  }
+  if (!worst) return null;
+  const back = (n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  const wanted = new Set([7, 14, 21, 28].map(back));
+  const pack = (d) => {
+    const sp = worst.spot;
+    const products = {};
+    for (const [n, r] of Object.entries(d.rowsBySpot?.[sp] || {})) products[n] = { qty: r.qty || 0, sum: r.sum || 0 };
+    return { cash: d.cashBySpot?.[sp] || 0, tx: d.txBySpot?.[sp] || 0, products, hours: d.hours?.[sp]?.cash || null };
+  };
+  const bases = (baseDocs || []).filter((d) => wanted.has(d?.date) && d.cashBySpot?.[worst.spot]).map(pack);
+  if (bases.length < 2) return null;
+  const r = explainChange({ head: name(worst.spot), baseWord: "обычного", cur: pack(dayDoc), bases, fmt });
+  if (!r) return null;
+  // Первая строка сводки уже говорит про кассу точки — берём разбор
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return [`🔎 <b>${esc(name(worst.spot))}</b> — почему ниже обычного:`, ...r.lines.slice(1).map(esc)].join("\n");
 }
 
 // Заметное отклонение точки от своего обычного дня. Меньше порога —

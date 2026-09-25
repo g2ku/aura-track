@@ -221,6 +221,26 @@ section("В ленте — только то, чего нет на экране"
   ok(/OBI — всего 4% дневной кассы сети/.test(badDay), "а вдвое ниже обычного — названа");
 }
 
+{
+  // Утренняя сводка сама объясняет главный провал (26.09.2026)
+  const { briefingWhy } = await import("./api/_lib/briefing.js");
+  const h = (k, dip) => { const a = Array(24).fill(0); a[9] = 30000 * k; a[14] = dip ? 0 : 50000 * k; a[19] = 20000 * k; return { cash: a }; };
+  const doc = (date, k, dip = false) => ({
+    date,
+    cashBySpot: { "2": (dip ? 50000 : 100000) * k, "4": 80000 },
+    txBySpot: { "2": (dip ? 25 : 50) * k, "4": 40 },
+    rowsBySpot: { "2": { "Капучино 450 мл": { qty: dip ? 10 : 30, sum: dip ? 13000 : 39000 }, "Круассан": { qty: 12, sum: 18000 } } },
+    hours: { "2": h(k, dip), "4": h(0.8, false) },
+  });
+  const base = ["2026-09-17", "2026-09-10", "2026-09-03", "2026-08-27"].map((d) => doc(d, 1));
+  const why = briefingWhy("2026-09-24", doc("2026-09-24", 1, true), base);
+  ok(why && /🔎 <b>Жароково<\/b> — почему ниже обычного/.test(why), `точка с провалом названа: ${why?.split("\n")[0]}`);
+  ok(/Главное — чеков меньше: 25 против обычных 50/.test(why.replace(/[\u00a0\u202f]/g, " ")), "люди или покупки");
+  ok(/Провал — с 1[234]:00 до 1[567]:00/.test(why), "часы провала");
+  ok(/Недобрали: Капучино 450 мл −20 шт/.test(why), "что недобрали");
+  eq(briefingWhy("2026-09-24", doc("2026-09-24", 1, false), base), null, "в пределах обычного — без разбора");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

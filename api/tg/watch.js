@@ -18,7 +18,7 @@ import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
-import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, usualShares, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, usualShares, briefingWhy, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
 import { CHAT_LOG_KEEP_DAYS } from "../_lib/chatLog.js";
 import { sendMessage, siteUrl, questionKeyboard, getWebhookInfo, webhookNeedsFix, setWebhook } from "../_lib/telegram.js";
@@ -158,10 +158,15 @@ export default async function handler(req, res) {
       const day = summarizeDay(yRows);
       let baseline = "";
       let spotBase = {};
+      let why = null;
       try {
         const docs = await getSalesDays(shiftYmd(yesterday, -28), shiftYmd(yesterday, -7));
         baseline = baselineLine(yesterday, day.total, docs);
         spotBase = spotBaselines(yesterday, docs);
+        // Точка, сильнее всех ушедшая вниз от своего обычного дня, — с
+        // разбором «почему», чтобы не спрашивать отдельно
+        const [yDoc] = await getSalesDays(yesterday, yesterday);
+        why = briefingWhy(yesterday, yDoc, docs);
       } catch (e) {
         console.warn("[briefing] опора не собралась:", e?.message);
       }
@@ -175,6 +180,7 @@ export default async function handler(req, res) {
           baseline,
           spotBase,
         }),
+        why,
         cupsTail,
       ].filter(Boolean).join("\n\n");
 
