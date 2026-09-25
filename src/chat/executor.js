@@ -1914,55 +1914,51 @@ async function handleByHour(metric, spot, period, ipGroup) {
 // ─── Аномалии ───────────────────────────────────────────────────
 
 async function handleAnomaly(metric, spot, period, ipGroup) {
-  const dailyData = await fetchCashPerDay(period.from, period.to);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
+  // Только закончившиеся дни: сегодняшний неполный всегда выходил бы
+  // «провалом» и сбивал среднее
+  const todayIso = fmtDateJS(new Date());
+  const y = new Date(todayIso + "T00:00:00");
+  y.setDate(y.getDate() - 1);
+  const to = period.to >= todayIso ? fmtDateJS(y) : period.to;
+  if (to < period.from) return { text: `За ${pl} закончившихся дней ещё нет — аномалии искать не в чем.`, data: null };
 
-  if (!dailyData || dailyData.length === 0) {
-    return { text: `Нет данных за ${pl} для анализа аномалий.`, data: null };
-  }
+  let dailyData = await fetchCashPerDay(period.from, to);
+  dailyData = (dailyData || []).filter((d) => matchesSpot({ spotId: d.spotId, spotName: d.spotName }, spot));
+  dailyData = await filterByIPGroup(dailyData, ipGroup);
+  if (!dailyData.length) return { text: `Нет данных за ${pl} для анализа аномалий.`, data: null };
 
-  // Filter by spot if needed
-  let filtered = isAll(spot) ? dailyData : dailyData.filter(d => matchesSpot(d, spot));
-
-  // Calculate stats
-  const values = filtered.map(d => d.total || 0);
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  const stdDev = Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / values.length);
-
-  // Find anomalies (>2 std dev from mean)
+  // По каждой точке — своё среднее. Раньше дни всех точек шли одним рядом,
+  // и «аномалиями» выходила разница между точками: Жароково всегда «пик»,
+  // OBI всегда «спад» (26.09.2026)
+  const bySpot = {};
+  for (const d of dailyData) (bySpot[String(d.spotId)] ||= []).push(d);
   const anomalies = [];
-  for (const d of filtered) {
-    const z = stdDev > 0 ? Math.abs((d.total - mean) / stdDev) : 0;
-    if (z > 2) {
-      anomalies.push({
-        date: d.date,
-        total: d.total,
-        z: z.toFixed(1),
-        type: d.total > mean ? "peak" : "drop",
-      });
+  for (const rows of Object.values(bySpot)) {
+    if (rows.length < 5) continue;
+    const values = rows.map((d) => d.total || 0);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const sd = Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / values.length);
+    if (!(sd > 0)) continue;
+    for (const d of rows) {
+      const z = (d.total - mean) / sd;
+      if (Math.abs(z) > 2) anomalies.push({ spot: sn(d), date: String(d.date), total: d.total, mean, z, type: z > 0 ? "peak" : "drop" });
     }
   }
+  anomalies.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
 
-  anomalies.sort((a, b) => b.z - a.z);
-
-  const avg = Math.round(mean);
-  const lines = anomalies.slice(0, 5).map(a => {
-    const emoji = a.type === "peak" ? "📈" : "📉";
-    return `${emoji} ${a.date}: ${fmt(a.total)} (${a.type === "peak" ? "пик" : "спад"}, z=${a.z})`;
-  }).join("\n");
-
-  if (anomalies.length === 0) {
-    return {
-      text: `Аномалии ${sl}${ipLabel} за ${pl}:\n\nАномалий не обнаружено.\nСредняя касса: ${fmt(avg)} (σ=${fmt(Math.round(stdDev))})`,
-      data: { mean, stdDev, anomalies: [] },
-    };
+  const dm = (d) => { const s = d.replace(/-/g, ""); return `${s.slice(6, 8)}.${s.slice(4, 6)}`; };
+  const toLabel = to !== period.to ? `\n(Сегодня не считал — день ещё идёт.)` : "";
+  if (!anomalies.length) {
+    return { text: `Аномалии ${sl}${ipLabel} за ${pl}:\nНичего необычного: каждая точка в пределах своего обычного разброса.${toLabel}`, data: { anomalies: [] } };
   }
-
+  const lines = anomalies.slice(0, 8).map((a) =>
+    `${a.type === "peak" ? "📈" : "📉"} ${a.spot} ${dm(a.date)}: ${fmt(Math.round(a.total))} — ${a.type === "peak" ? "выше" : "ниже"} обычного (${fmt(Math.round(a.mean))}) на ${Math.round(Math.abs(a.total - a.mean) / a.mean * 100)} %`);
   return {
-    text: `Аномалии ${sl}${ipLabel} за ${pl}:\n\nОбнаружено: ${anomalies.length}\nСредняя касса: ${fmt(avg)} (σ=${fmt(Math.round(stdDev))})\n\n${lines}`,
-    data: { mean, stdDev, anomalies },
+    text: `Аномалии ${sl}${ipLabel} за ${pl} — дни, сильно выбившиеся из обычного для своей точки:\n${lines.join("\n")}${anomalies.length > 8 ? `\n…и ещё ${anomalies.length - 8}` : ""}${toLabel}`,
+    data: { anomalies },
   };
 }
 

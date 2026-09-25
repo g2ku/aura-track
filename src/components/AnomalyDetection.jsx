@@ -7,11 +7,6 @@ import { fetchCashPerDay } from "../poster";
 import { BRANCHES } from "../auth.jsx";
 import { LoadError } from "./Fallbacks.jsx";
 
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function daysAgoStr(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
@@ -46,7 +41,9 @@ export default function AnomalyDetection() {
   const [sensitivity, setSensitivity] = useState(2); // standard deviations
 
   const pFrom = period === "7d" ? daysAgoStr(6) : period === "30d" ? daysAgoStr(29) : daysAgoStr(89);
-  const pTo = todayStr();
+  // По вчера: сегодняшний день ещё идёт — в ряду он всегда «провал» и
+  // первым в списке, да ещё сбивает среднее
+  const pTo = daysAgoStr(1);
 
   useEffect(() => {
     loadData();
