@@ -26,6 +26,8 @@ function section(t) { console.log(`\n📋 ${t}`); }
 // ─── Поддельное хранилище ─────────────────────────────────────────────
 function makeStore(initialConfig = {}) {
   const docs = new Map();
+  // Журнал переписки: день → сообщения, как chatLog/{день} в Firestore
+  const talk = new Map();
   let config = { ...DEFAULT_CONFIG, ...initialConfig };
   let products = initialConfig.products ? [...initialConfig.products] : [];
   return {
@@ -59,6 +61,15 @@ function makeStore(initialConfig = {}) {
     async getProducts() { return products; },
     async saveProducts(names) { products = names; return names; },
     async setConfig(patch) { config = { ...config, ...patch }; return config; },
+    _talk: talk,
+    async logChatMessage(day, entry) {
+      if (initialConfig.logFails) throw new Error("firestore down");
+      if (!talk.has(day)) talk.set(day, []);
+      talk.get(day).push(entry);
+    },
+    async getChatLog(from, to) {
+      return [...talk.entries()].filter(([d]) => d >= from && d <= to).map(([date, messages]) => ({ date, messages }));
+    },
   };
 }
 
@@ -1211,6 +1222,52 @@ section("/анализ: за период не записано ничего —
   await run(store, "Абая\nПончики 48шт 40000");
   const r2 = await run(store, "/анализ месяц сиропы", { userId: 999 });
   ok(r2 && /ничего похожего/.test(r2.text) && /Пончики/.test(r2.text), "есть другие накладные — список того, что приходило");
+}
+
+section("Поиск слова по переписке: фото с подписью «сиропы» находится");
+{
+  // Владелец 25.09.2026: «/анализ 3 месяца Сиропы» → «бот не записал ни
+  // одной накладной». Кураторы шлют фото без суммы, в учёт они не
+  // попадают — но в переписке они есть, и искать надо слово, а не шаблон
+  const store = makeStore({ admins: [999] });
+  await run(store, "09.09 Атакент сиропы", { asPhoto: true, messageId: 4101, username: "aigul" });
+  await run(store, "Сироп ваниль закончился на Абае", { messageId: 4102 });
+  await run(store, "Абая\nПончики 48шт 40000", { messageId: 4103 });
+  await run(store, "всем привет", { messageId: 4104 });
+  const logged = [...store._talk.values()].flat();
+  eq(logged.map((m) => m.id), [4101, 4102, 4103, 4104], "в журнал попадает каждое сообщение чата накладных");
+  eq(logged[0].branch, "Атакент", "точка из подписи — в журнале");
+  eq(logged[0].photo, true, "и что это было фото");
+
+  const r = await run(store, "/анализ 3 месяца Сиропы", { chatType: "private", chatId: 999, userId: 999 });
+  ok(/В переписке/.test(r.text), `нашлось в переписке: ${r.text.split("\n")[0]}`);
+  ok(/📷 «09\.09 Атакент сиропы»/.test(r.text), "фото с подписью — с пометкой 📷");
+  ok(/Сироп ваниль закончился/.test(r.text), "«сиропы» нашло и «сироп» — окончание не мешает");
+  ok(/href="https:\/\/t\.me\/c\/500\/4101"/.test(r.text), "со ссылкой на само сообщение — фото открыть одним нажатием");
+  const talkBlock = (r.text.split("В переписке")[1] || "").split("Что приходило")[0];
+  ok(!/привет|Пончики/.test(talkBlock), `лишнего не нашло, записанную накладную не повторило:\n${r.text}`);
+
+  const plain = await run(store, "/найди сиропы", { chatType: "private", chatId: 999, userId: 999 });
+  ok(/В переписке/.test(plain.text) && /Атакент/.test(plain.text), "/найди без периода — за три месяца");
+  const words = await run(store, "найди сиропы", { chatType: "private", chatId: 999, userId: 999 });
+  ok(words && /В переписке/.test(words.text), "и просто словами в личке — без слэша и шаблона");
+  const noPeriod = await run(store, "/анализ сиропы", { chatType: "private", chatId: 999, userId: 999 });
+  ok(noPeriod && !/Не понял период/.test(noPeriod.text) && /В переписке/.test(noPeriod.text), "/анализ без периода больше не отказывает");
+
+  // Правка подписи — ищется последняя версия
+  await run(store, "Атакент молоко", { asPhoto: true, editOf: 4101 });
+  const after = await run(store, "/найди сиропы", { chatType: "private", chatId: 999, userId: 999 });
+  ok(!/09\.09 Атакент сиропы/.test(after.text), "после правки подписи старый текст не находится");
+
+  // Чужим — нельзя: в ответе переписка всей сети
+  const stranger = await run(store, "/найди сиропы", { chatType: "private", chatId: 5, userId: 5 });
+  ok(/только владельцу/.test(stranger.text), "не владельцу поиск закрыт");
+  eq(await run(store, "найди сиропы", { chatType: "private", chatId: 5, userId: 5 }), null, "и словами тоже");
+
+  // Журнал упал — накладная всё равно принимается
+  const broken = makeStore({ ackMode: "reply", logFails: true });
+  const acc = await run(broken, "Абая\nПончики 48шт 40000");
+  ok(acc && /принято/.test(acc.text), "сбой журнала не мешает приёму накладной");
 }
 
 console.log("\n══════════════════════════════════════════════════");

@@ -12,7 +12,7 @@
 // Раз в 10–15 минут. Всё остальное — время сводки, пороги, тихие часы —
 // настраивается командами бота и лежит в его настройках.
 
-import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, listSalesDayDates, saveSalesDay, getSalesDays, saveMenuIndex } from "../_lib/store.js";
+import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, purgeChatLog, listSalesDayDates, saveSalesDay, getSalesDays, saveMenuIndex } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
 import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
@@ -20,6 +20,7 @@ import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildCl
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
 import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
+import { CHAT_LOG_KEEP_DAYS } from "../_lib/chatLog.js";
 import { sendMessage, siteUrl, questionKeyboard, getWebhookInfo, webhookNeedsFix, setWebhook } from "../_lib/telegram.js";
 
 function almatyHM(now = new Date()) {
@@ -223,6 +224,9 @@ export default async function handler(req, res) {
 
         const gone = await purgeCupDays(retentionCutoff(today, config.cupKeepDays));
         if (gone) out.cupsPurged = gone;
+        // Журнал переписки — тоже год
+        const talk = await purgeChatLog(retentionCutoff(today, CHAT_LOG_KEEP_DAYS));
+        if (talk) out.chatLogPurged = talk;
 
         patch.lastCupDailyDate = today;
         await setConfig({ lastCupDailyDate: today }).catch(() => {});

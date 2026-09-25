@@ -7,7 +7,7 @@
 // прилетают одновременно с нескольких точек, и обычный read-modify-write
 // терял бы записи.
 
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAdminApp } from "./firebaseAdmin.js";
 import { applyEntry, removeEntry, docIdFor, emptyDoc, enumerateDates } from "./dailyDoc.js";
 import { DEFAULT_IP_GROUPS } from "./branches.js";
@@ -388,7 +388,48 @@ export function botStore() {
     getIpGroups, getProducts, saveProducts, getSupplies, getWatchSnapshot, getSchedule,
     getCupState, applyCupMoves, undoCupMoves, getCupDays, getCupDay, purgeCupDays,
     getSalesDays, getMenuIndex, getChatLearned, getMarginSettings,
+    logChatMessage, getChatLog,
   };
+}
+
+// ─── Журнал переписки чатов накладных ──────────────────────────────
+//
+// chatLog/{ГГГГ-ММ-ДД}: { date, messages: [...] } — см. chatLog.js. По
+// документу на день, как накладные: поиск за три месяца — 90 чтений, а не
+// обход всей коллекции. arrayUnion — два сообщения в одну секунду не
+// затирают друг друга.
+export async function logChatMessage(day, entry) {
+  if (!day || !entry) return;
+  await getDb().collection("chatLog").doc(day).set(
+    { date: day, messages: FieldValue.arrayUnion(entry) },
+    { merge: true },
+  );
+}
+
+export async function getChatLog(from, to) {
+  const dates = enumerateDates(from, to);
+  if (!dates.length) return [];
+  const db = getDb();
+  const snaps = await db.getAll(...dates.map((d) => db.collection("chatLog").doc(d)));
+  return snaps.filter((s) => s.exists).map((s) => s.data());
+}
+
+// Старше года — удаляем, пачкой за заход (как журнал стаканов)
+export async function purgeChatLog(before, { limit = 100 } = {}) {
+  if (!before) return 0;
+  try {
+    const db = getDb();
+    const snap = await db.collection("chatLog")
+      .where("date", "<", before).orderBy("date").limit(limit).get();
+    if (snap.empty) return 0;
+    const batch = db.batch();
+    for (const d of snap.docs) batch.delete(d.ref);
+    await batch.commit();
+    return snap.size;
+  } catch (e) {
+    console.error("[chatLog] старые дни не удалились:", e?.message);
+    return 0;
+  }
 }
 
 // ─── Учёт стаканов ───────────────────────────────────────────────────

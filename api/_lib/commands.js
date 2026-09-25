@@ -60,6 +60,7 @@ const ADMIN_HELP = `
 /это абая — закрепить тему форума за филиалом
 /темы — какие темы за какими филиалами
 /анализ месяц мон — что приходило под этим названием и от кого
+/найди сиропы — слово по накладным и переписке за 3 месяца (в личке можно просто «найди сиропы»)
 /спроси касса вчера — ассистент: цифры словами (в личке можно и без команды)
 /касса, /вчера, /неделя — касса по точкам одним словом
 /итоги — неделя против прошлой, по точкам
@@ -863,6 +864,9 @@ async function handleCommand({ cmd, args }, ctx) {
     }
 
     case "анализ":
+    case "найди":
+    case "найти":
+    case "поиск":
     case "analyze": {
       // Только владелец: в ответе суммы по всей сети и кто что присылал.
       // В чате накладных это увидели бы полсотни бариста — а команда для
@@ -877,6 +881,7 @@ async function handleCommand({ cmd, args }, ctx) {
           "<b>Сверка прихода по чату</b>",
           "",
           "<code>/анализ 1 месяц мон</code> — что приходило под этим названием",
+          "<code>/найди сиропы</code> — то же за 3 месяца, и по всей переписке: фото с подписью «сиропы» тоже найдутся",
           "",
           "Период: <code>вчера</code>, <code>7 дней</code>, <code>неделя</code>, <code>2 недели</code>, <code>месяц</code>, <code>1 месяц</code>",
           "Дальше — название или его начало: <code>мон</code>, <code>пон</code>, <code>мол коко</code>",
@@ -906,10 +911,11 @@ async function handleCommand({ cmd, args }, ctx) {
         const p = parsePeriodArg(words.slice(0, n).join(" "), today);
         if (p) { period = p; take = n; break; }
       }
+      // Период необязателен: «/анализ сиропы», «/найди сиропы» — за три месяца
+      if (!period) { period = parsePeriodArg("3 месяца", today); take = 0; }
       const query = words.slice(take).join(" ").trim();
 
-      if (!period) return { text: "Не понял период. Например: <code>/анализ месяц мон</code>" };
-      if (!query) return { text: "Не понял, что искать. Например: <code>/анализ месяц мон</code>" };
+      if (!query) return { text: "Не понял, что искать. Например: <code>/найди сиропы</code>" };
       if (!store.getDocsRange) return { text: "Сверка за период недоступна." };
 
       // Спросили в чате — значит про этот чат. В личке — про всю сеть.
@@ -919,6 +925,30 @@ async function handleCommand({ cmd, args }, ctx) {
       const docs = await store.getDocsRange(period.from, period.to);
       const { analyzeProduct } = await import("./analyze.js");
       const res = analyzeProduct(docs, query, { chatId: onlyChat, branch: onlyBranch });
+
+      // Переписка: фото с подписью «сиропы», сообщения без суммы — всё, что
+      // в учёт не попало, но в чате было. Записанные накладные не повторяем
+      const recorded = new Set();
+      for (const d of docs) for (const e of d.entries || []) if (e.id) recorded.add(e.id);
+      const log = await import("./chatLog.js");
+      const talkDays = store.getChatLog ? await store.getChatLog(period.from, period.to).catch(() => []) : [];
+      const talk = log.searchChatLog(talkDays, query, { chatId: onlyChat, branch: onlyBranch }, recorded);
+      const talkLines = [];
+      if (talk.length) {
+        talkLines.push("", `<b>В переписке</b> — ${talk.length} ${plural(talk.length, "сообщение", "сообщения", "сообщений")}, в учёт не попали`);
+        const tail = talk.slice(-12);
+        if (talk.length > tail.length) talkLines.push(`<i>последние ${tail.length} из ${talk.length}</i>`);
+        for (const m of tail) {
+          const where = [m.branch, m.author].filter(Boolean).map(escapeHtml).join(" · ");
+          const cut = m.text.length > 70 ? `${m.text.slice(0, 70)}…` : m.text;
+          const link = log.messageLink(m);
+          talkLines.push(`• ${formatDateRu(m.date)}${where ? ` · ${where}` : ""} — ${m.photo ? "📷 " : ""}«${escapeHtml(cut)}»${link ? ` · <a href="${link}">открыть</a>` : ""}`);
+        }
+      }
+      // Раньше начала журнала бот переписку не видел — говорим, где искать
+      const beforeLog = period.from < log.CHAT_LOG_SINCE
+        ? `<i>Переписку бот хранит с ${formatDateRu(log.CHAT_LOG_SINCE)}. Что было раньше — поиском Telegram по слову в самом чате: подписи к фото он находит.</i>`
+        : null;
 
       const scope = [
         onlyBranch ? escapeHtml(onlyBranch) : null,
@@ -935,18 +965,25 @@ async function handleCommand({ cmd, args }, ctx) {
         // За период не записано вообще ничего — дело не в названии. Чаще
         // всего накладные шлют фото без суммы в подписи: читать фото бот
         // не умеет, и «ничего похожего» звучало как «не привозили»
+        const head = `${escapeHtml(periodTitle(period))}${scope ? ` · ${scope}` : ""}`;
         if (!seen.size) {
           return { text: [
-            `${escapeHtml(periodTitle(period))}${scope ? ` · ${scope}` : ""} — бот не записал ни одной накладной, поэтому и «${escapeHtml(query)}» найти негде.`,
+            talk.length
+              ? `<b>«${escapeHtml(query)}» · ${head}</b>\nНакладных с суммой бот за этот срок не записал.`
+              : `${head} — бот не записал ни одной накладной, и в переписке «${escapeHtml(query)}» не нашлось.`,
+            ...talkLines,
             "",
             "Фото накладных бот не читает. Чтобы приход попал в учёт, сумма должна быть текстом — в сообщении или подписью к фото:",
             "<code>09.09 Атакент сиропы 21600</code>",
-          ].join("\n") };
+            beforeLog ? `\n${beforeLog}` : "",
+          ].join("\n").trim() };
         }
         return { text: [
-          `${escapeHtml(periodTitle(period))}${scope ? ` · ${scope}` : ""} — ничего похожего на «${escapeHtml(query)}» не приходило.`,
+          `${head} — в накладных ничего похожего на «${escapeHtml(query)}» не приходило.`,
+          ...talkLines,
           top.length ? "\nЧто приходило: " + top.map((n) => escapeHtml(n)).join(", ") : "",
-        ].join("\n") };
+          beforeLog ? `\n${beforeLog}` : "",
+        ].join("\n").trim() };
       }
 
       const lines = [
@@ -991,6 +1028,7 @@ async function handleCommand({ cmd, args }, ctx) {
         const q = h.qty ? ` · ${h.qty} шт` : "";
         lines.push(`• ${formatDateRu(h.date)} · ${escapeHtml(h.branch)}${who} — ${fmtSum(h.sum)}${q}`);
       }
+      lines.push(...talkLines);
 
       return { text: lines.join("\n") };
     }
@@ -1379,7 +1417,13 @@ export async function handleMessage(msg, ctx) {
   if (!text.trim()) return null;
 
   const config = ctx.config;
-  const command = parseCommand(text);
+  let command = parseCommand(text);
+  // «найди сиропы» владельцем в личке — то же, что /найди: просто слово,
+  // без шаблона и без слэша
+  if (!command && msg.chat?.type === "private" && isAdmin(config, msg.from?.id)) {
+    const m = text.trim().match(/^(найди|найти|поищи|ищи|поиск)\s+(.+)$/is);
+    if (m) command = { cmd: "найди", args: m[2].trim() };
+  }
   if (command) {
     // Команды принимаем из любого чата: иначе /подключить нельзя было бы
     // выполнить в новом чате — он ведь ещё не подключён. Доступ к опасным
@@ -1403,6 +1447,17 @@ export async function handleMessage(msg, ctx) {
   const branch = parsed.branch || bound;
   const implicit = !parsed.branch;
   const hasItems = parsed.items.length > 0;
+
+  // Журнал переписки — чтобы потом искать слово, а не шаблон (chatLog.js).
+  // Только чаты накладных; сбой записи не должен ронять приём накладной
+  if (ctx.store.logChatMessage && !msg.fromButton && msg.chat?.type !== "private") {
+    try {
+      const { logDayOf, logEntryFor } = await import("./chatLog.js");
+      await ctx.store.logChatMessage(logDayOf(msg), logEntryFor(msg, { text, author: ctx.authorName, branch }));
+    } catch (e) {
+      console.error("[chatLog] сообщение не записалось:", e?.message);
+    }
+  }
 
   // «филиал не распознан» — забота этой функции, а не бариста: если филиал
   // берётся из темы, показывать такое предупреждение незачем.
