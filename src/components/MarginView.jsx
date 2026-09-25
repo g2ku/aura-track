@@ -197,7 +197,7 @@ function DrinkBuilder({ ingredients, recipes, onSaveRecipe }) {
                   <div key={item.ingredientId} className="builder-cup-item">
                     <div className="builder-cup-item-top">
                       <span className="builder-cup-item-name">{ing.name}</span>
-                      <button className="builder-cup-item-remove" onClick={() => removeFromCup(item.ingredientId)}>
+                      <button className="builder-cup-item-remove" onClick={() => removeFromCup(item.ingredientId)} aria-label="Убрать из напитка" title="Убрать">
                         <i className="ti ti-x" />
                       </button>
                     </div>
@@ -526,7 +526,11 @@ function IngredientsTab({ ingredients, recipes = [], onChange }) {
 
 // ─── Рецепты ──────────────────────────────────────────────────────
 
-function RecipesTab({ ingredients, recipes, onChange }) {
+function RecipesTab({ ingredients, recipes, aliases = {}, onChange, onRemove }) {
+  const [askRemove, setAskRemove] = useState(null);
+  // Сколько товаров Poster привязано к техкарте: удаление молча сделает
+  // их непосчитанными
+  const linkedCount = (id) => Object.values(aliases || {}).filter((rid) => String(rid) === String(id)).length;
   const [editingRecipe, setEditingRecipe] = useState(null);
   const [form, setForm] = useState({ name: "", category: "Кофе", salePrice: "" });
   const [items, setItems] = useState([]);
@@ -581,7 +585,12 @@ function RecipesTab({ ingredients, recipes, onChange }) {
   }
 
   function removeRecipe(id) {
-    onChange(recipes.filter((r) => r.id !== id));
+    if (onRemove) onRemove(id);
+    else onChange(recipes.filter((r) => r.id !== id));
+  }
+  function askToRemove(recipe) {
+    if (linkedCount(recipe.id)) setAskRemove(recipe);
+    else removeRecipe(recipe.id);
   }
 
   const recipeCost = calcRecipeCost(ingredients, { items });
@@ -678,7 +687,7 @@ function RecipesTab({ ingredients, recipes, onChange }) {
               </div>
               <div className="margin-ingredient-row--actions">
                 <span className="margin-ingredient-cost">{ing ? `${fmtNum(unitPrice)} ₸` : "—"}</span>
-                <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)", padding: "4px 8px" }} onClick={() => removeItem(idx)}>
+                <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)", padding: "4px 8px" }} onClick={() => removeItem(idx)} aria-label="Убрать ингредиент из техкарты" title="Убрать">
                   <i className="ti ti-x" />
                 </button>
               </div>
@@ -738,10 +747,10 @@ function RecipesTab({ ingredients, recipes, onChange }) {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                        <button className="btn btn-sm btn-out" onClick={() => startEdit(recipe)}>
-                          <i className="ti ti-pencil" /> Изм.
+                        <button className="btn btn-sm btn-out" onClick={() => startEdit(recipe)} title="Изменить" aria-label="Изменить">
+                          <i className="ti ti-pencil" /> <span className="btn-label">Изм.</span>
                         </button>
-                        <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => removeRecipe(recipe.id)}>
+                        <button className="btn btn-sm btn-out" style={{ color: "var(--text-danger)" }} onClick={() => askToRemove(recipe)} title="Удалить" aria-label="Удалить">
                           <i className="ti ti-trash" />
                         </button>
                       </div>
@@ -753,6 +762,15 @@ function RecipesTab({ ingredients, recipes, onChange }) {
           </table>
         </div>
       )}
+      <ConfirmModal
+        open={!!askRemove}
+        title="Удалить техкарту?"
+        message={askRemove ? `К «${askRemove.name}» привязано товаров из Poster: ${linkedCount(askRemove.id)}. После удаления они станут непосчитанными, и маржа по ним пропадёт.` : ""}
+        confirmText="Удалить"
+        danger
+        onConfirm={() => { removeRecipe(askRemove.id); setAskRemove(null); }}
+        onCancel={() => setAskRemove(null)}
+      />
     </div>
   );
 }
@@ -1296,7 +1314,14 @@ export default function MarginView() {
           <RecipesTab
             ingredients={data.ingredients || []}
             recipes={data.recipes || []}
+            aliases={data.aliases || {}}
             onChange={(recs) => update({ recipes: recs })}
+            onRemove={(id) => {
+              // Вместе с техкартой уходят привязки к ней: иначе в данных
+              // копятся ссылки в никуда
+              const aliases = Object.fromEntries(Object.entries(data.aliases || {}).filter(([, rid]) => String(rid) !== String(id)));
+              return update({ recipes: (data.recipes || []).filter((r) => r.id !== id), aliases });
+            }}
           />
         )}
         {tab === "dashboard" && (
