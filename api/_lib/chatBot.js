@@ -496,6 +496,18 @@ export async function answerQuestion(text, deps) {
     parsed.period = { from: start.toISOString().slice(0, 10), to: today, label: "по месяцам" };
   }
   let todayMissing = false;
+  // Сравнение периодов, кончающихся сегодня: сегодня ещё идёт, и неполный
+  // день против полного тянул любое «кто просел» вниз. Сравниваем полные
+  // дни — первый по вчера, второй той же длины (те же дни недели), как на сайте
+  let cutToday = false;
+  if (parsed.period2 && parsed.operation === "percentChange" && parsed.period?.to >= today && parsed.period.from < today) {
+    const yest = shiftYmd(today, -1);
+    const len = Math.round((Date.parse(`${yest}T00:00:00Z`) - Date.parse(`${parsed.period.from}T00:00:00Z`)) / 86400000) + 1;
+    const end2 = shiftYmd(parsed.period2.from, len - 1);
+    parsed.period = { ...parsed.period, to: yest };
+    parsed.period2 = { ...parsed.period2, to: end2 < parsed.period2.to ? end2 : parsed.period2.to };
+    cutToday = true;
+  }
   const load = async (period) => {
     if (!period?.from) return [];
     const to = period.to > today ? today : period.to;
@@ -538,6 +550,7 @@ export async function answerQuestion(text, deps) {
   if (parsed.note) lines.push(`<i>${escapeHtml(parsed.note)}</i>`);
   lines.push(answer);
   if (todayMissing) lines.push("<i>Сегодняшний день не вошёл: Poster не ответил.</i>");
+  if (cutToday) lines.push("<i>Сегодня не считал — день ещё идёт; сравнил полные дни.</i>");
 
   // Ночью сторож сверяет два метода Poster и, если они разошлись больше
   // чем на процент, помечает день. Тревога уходит один раз в 03:30 — а

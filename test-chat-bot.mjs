@@ -121,6 +121,8 @@ section("Ответы");
   ok(kt && kt.text.includes("ещё нет"), "сегодня без разбивки — честно");
   const who = await answerQuestion("кто просел за неделю", deps);
   ok(who && who.text.includes("• Абая — ") && who.text.includes("• Рамс — "), "«кто просел» — сравнение недель по точкам");
+  // Период кончается сегодня — сравниваются полные дни, и об этом сказано
+  ok(/Сегодня не считал — день ещё идёт/.test(who.text), "неполный сегодняшний день в сравнение не идёт");
   const g = await answerQuestion("кто хуже всех по кассе за неделю", deps);
   ok(g && g.text.startsWith("<b>Точки по кассе") && g.text.includes("1. Абая") && g.text.includes("3. Рамс"), "рейтинг точек");
 
