@@ -12,6 +12,7 @@
 
 import { z } from "zod";
 import { BRANCHES } from "./branches.js";
+import { businessToday } from "../../src/businessDay.js";
 
 export const METRICS = [
   "cash", "checks", "avgCheck", "products", "tax", "margin", "profit",
@@ -121,6 +122,17 @@ export function toExecutorQuery(out, { raw, today }) {
 
 // Что уходит модели как контекст диалога: не весь разговор, а последние
 // разобранные запросы в сжатом виде — «а вчера?» опирается на них.
+// Первая строка вопроса модели: какой сегодня день. Рабочий (до 05:00
+// ещё прошлый — src/businessDay.js), как у разбора без модели: иначе
+// ночью «вчера» у модели — сам день, что ещё идёт, и два разбора
+// расходились бы на сутки. День недели — чтобы «прошлая пятница» стала
+// датой, и тоже рабочего дня
+export function todayLine(now = Date.now()) {
+  const ymd = businessToday(now);
+  const wd = new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", weekday: "long" }).format(new Date(`${ymd}T12:00:00Z`));
+  return { today: ymd, line: `Сегодня ${ymd}, ${wd}.` };
+}
+
 export function historyLine(prev) {
   if (!prev) return "";
   const parts = [`метрика ${prev.metric}`];

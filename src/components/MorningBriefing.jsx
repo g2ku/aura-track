@@ -7,10 +7,12 @@ import { fetchCashBySpot, fetchPosterSales } from "../poster";
 import { businessToday } from "../businessDay.js";
 import { BRANCHES } from "../auth.jsx";
 
+// «Вчера» — от рабочего сегодня (до 05:00 это ещё прошлый день). В 01:44
+// календарное «вчера» было самим незакрытым днём: сводка показывала его
+// как вчерашний, а опору брала от дня недели раньше — субботу сравнивала
+// с обычной пятницей
 function yesterdayStr() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return daysAgoStr(1);
 }
 
 function daysAgoStr(n) {

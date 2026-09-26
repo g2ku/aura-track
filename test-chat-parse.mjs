@@ -10,7 +10,7 @@
 
 import { parseQuestion } from "./src/chat/parser.js";
 import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty, findCategory, resolveFoodCategories, resolveCategoryIntent } from "./src/chat/categories.js";
-import { QuerySchema, toExecutorQuery, historyLine, SYSTEM_PROMPT } from "./api/_lib/chatSchema.js";
+import { QuerySchema, toExecutorQuery, historyLine, SYSTEM_PROMPT, todayLine } from "./api/_lib/chatSchema.js";
 import { smartParse } from "./src/chat/smart.js";
 import { mergeFollowUp, preferFollowUp, fuzzyMetric, hasExplicitPeriod, weekendPeriod } from "./src/chat/parser.js";
 import { normalize, stem, distance, matchWord, matchPhrase, productMatches, closestNames } from "./src/chat/normalize.js";
@@ -1271,6 +1271,23 @@ section("«Сколько в среднем в день» — средняя к�
   eq([(await ask("сколько в день зарабатываем")).metric, (await ask("сколько в день зарабатываем")).operation], ["cash", "average"], "«в день» без дней недели — среднее");
   eq((await ask("какой день недели лучше")).operation, "byWeekday", "«день недели» — разрез, как было");
   eq((await ask("лучший день в сентябре")).operation, "bestDays", "«лучший день» — даты, как было");
+}
+
+section("Модель ночью: «сегодня» — рабочий день, как у правил");
+{
+  // 27.09.2026 01:44 по Алматы: рабочий день ещё 26-е, суббота. Раньше
+  // модель слышала «Сегодня 2026-09-27, воскресенье» — и её «вчера» было
+  // самим днём, что ещё идёт
+  const night = todayLine(new Date("2026-09-27T01:44:00+05:00").getTime());
+  eq(night.today, "2026-09-26", "ночью «сегодня» для модели — 26-е");
+  eq(night.line, "Сегодня 2026-09-26, суббота.", "и день недели того же дня");
+  const day = todayLine(new Date("2026-09-27T10:00:00+05:00").getTime());
+  eq(day.line, "Сегодня 2026-09-27, воскресенье.", "днём — календарный день");
+  const src = (await import("node:fs")).readFileSync("api/_lib/chatParseApi.js", "utf8");
+  ok(/todayLine\(\)/.test(src) && !/timeZone: "Asia\/Almaty", year/.test(src), "ручка модели берёт день из todayLine, своего календарного нет");
+  const brief = (await import("node:fs")).readFileSync("src/components/MorningBriefing.jsx", "utf8");
+  ok(/function yesterdayStr\(\) \{\s*return daysAgoStr\(1\);/.test(brief), "сводка: «вчера» — от рабочего сегодня");
+  ok(!/d\.setDate\(d\.getDate\(\) - 1\)/.test(brief), "календарного «вчера» в сводке больше нет");
 }
 
 console.log("\n══════════════════════════════════════════════════");

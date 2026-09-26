@@ -12,22 +12,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { requireUser, denyResponse } from "./requireUser.js";
-import { QuerySchema, SYSTEM_PROMPT, toExecutorQuery, historyLine } from "./chatSchema.js";
+import { QuerySchema, SYSTEM_PROMPT, toExecutorQuery, historyLine, todayLine } from "./chatSchema.js";
 
 // Opus 5 — по умолчанию: вопросы короткие, системная подсказка в кэше,
 // и один разбор обходится в доли тиына. Переопределить — CHAT_MODEL.
 const MODEL = process.env.CHAT_MODEL || "claude-opus-5";
-
-function todayAlmaty() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
-}
-
-// День недели — модели нужен, чтобы «прошлая пятница» стала датой
-function weekdayAlmaty() {
-  return new Intl.DateTimeFormat("ru-RU", { timeZone: "Asia/Almaty", weekday: "long" }).format(new Date());
-}
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
@@ -44,12 +33,13 @@ export default async function handler(req, res) {
   const question = String(req.body?.question || "").trim().slice(0, 500);
   if (!question) { res.status(400).json({ error: "Пустой вопрос" }); return; }
 
-  const today = todayAlmaty();
+  // Сегодня — рабочее: ночью ещё прошлый день (todayLine)
+  const { today, line } = todayLine();
   const prev = req.body?.context || null;
   const contextLine = historyLine(prev);
 
   const user = [
-    `Сегодня ${today}, ${weekdayAlmaty()}.`,
+    line,
     contextLine ? `Предыдущий вопрос был про: ${contextLine}. Короткие реплики вида «а вчера?», «а на Абая?» — это уточнение к нему.` : "",
     `Вопрос: «${question}»`,
   ].filter(Boolean).join("\n");
