@@ -6,7 +6,8 @@
 //
 // Запуск: node test-people.mjs
 
-import { summarizeBaristas, summarizeDeleted, rowsInPeriod, deletionOf, mergeDeleted, namesFromRows, workDay } from "./api/_lib/baristas.js";
+import { readFileSync } from "node:fs";
+import { summarizeBaristas, summarizeDeleted, rowsInPeriod, deletionOf, mergeDeleted, namesFromRows, workDay, periodQuery } from "./api/_lib/baristas.js";
 import { dashDateParams } from "./api/_lib/poster.js";
 import { countAlerts, mergeLog, purgeLog, summarizeLog } from "./api/_lib/alertLog.js";
 import { usualByHour, todayByHour, buildBehindAlerts, MIN_SAMPLE_DAYS } from "./api/_lib/usualDay.js";
@@ -279,6 +280,31 @@ section("Удалённые чеки: кто удалил — из истори�
   const r = summarizeDeleted(merged, 300, { 129: "Ислам", 58: "Жасмин" }).rows[0];
   eq([r.name, r.deletedBy, r.at, r.deletedAt], ["Ислам", "Жасмин", delAt, delAt], "кассир — Ислам, удалила — Жасмин, время — удаления");
   eq(summarizeDeleted(merged, 300, {}).rows[0].deletedBy, "id 58", "имени нет — хотя бы id, но не кассир");
+}
+
+section("Люди и точки ночью и рано утром: рабочий день, без ложной ошибки");
+{
+  // 27.09.2026 01:50: «Сегодня» просило календарное 27-е — 1110 строк
+  // Poster, ни одной в периоде, и страница писала «Poster отдал чеки не
+  // за 2026-09-27». А 26-е — 17 человек и 2 275 723 ₸
+  const night = { businessToday: "20260926", calendarToday: "20260927" };
+  eq(periodQuery(null, null, night), { from: "20260926", to: "20260926", prev: "20260925", next: "20260927" }, "без дат ночью — рабочий день 26-е, с его ночью");
+  eq(periodQuery("20260926", "20260926", night).next, "20260927", "ночь рабочего сегодня спрашиваем — она уже вчера по календарю");
+  const morning = { businessToday: "20260927", calendarToday: "20260927" };
+  eq(periodQuery("20260927", "20260927", morning).next, "20260927", "днём завтра у Poster не спрашиваем");
+  eq(periodQuery("20260920", "20260926", morning), { from: "20260920", to: "20260926", prev: "20260919", next: "20260927" }, "прошлая неделя — с ночью последнего дня");
+  eq(periodQuery("2026-09-20", "x", morning).from, "20260927", "мусор в датах — рабочее сегодня");
+
+  // В 06:30 рабочее 27-е уже идёт, но чеков в нём нет — это не ошибка
+  const at = (s) => new Date(s + "+05:00").getTime();
+  const yesterdayRow = { status: "2", date_close: String(at("2026-09-26T21:00:00")), payed_sum: "150000", user_id: "1", name: "Аня", spot_id: "1" };
+  eq(rowsInPeriod([yesterdayRow], "20260927", "20260927", { byWorkDay: true }).rows.length, 0, "в самом периоде пусто");
+  eq(rowsInPeriod([yesterdayRow], "20260926", "20260927").rows.length, 1, "но в запрошенных сутках строки есть — Poster ответил про то");
+  const src = readFileSync("api/baristas.js", "utf8");
+  ok(/rowsInPeriod\(all, prev, next\)\.rows\.length\) throw/.test(src), "ошибка — только если мимо запрошенных суток, не мимо периода");
+  ok(/businessToday: businessToday\(\)/.test(src), "сервер: по умолчанию — рабочее сегодня");
+  const page = readFileSync("src/components/BaristaStats.jsx", "utf8");
+  ok(/return businessToday\(\)\.replace/.test(page) && !/new Date\(\)\)/.test(page), "страница: «Сегодня» и «7 дней» — от рабочего дня");
 }
 
 console.log("\n══════════════════════════════════════════════════");

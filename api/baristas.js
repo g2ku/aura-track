@@ -6,17 +6,19 @@
 
 import { dashTransactions, posterCall, dashDateParams } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
-import { summarizeBaristas, summarizeDeleted, rowsInPeriod, mergeDeleted, namesFromRows, deletionOf } from "./_lib/baristas.js";
+import { summarizeBaristas, summarizeDeleted, rowsInPeriod, mergeDeleted, namesFromRows, deletionOf, periodQuery } from "./_lib/baristas.js";
 import { summarizeLog } from "./_lib/alertLog.js";
 import { getConfig } from "./_lib/store.js";
 import { spotNameByPosterId } from "./_lib/branches.js";
+import { businessToday } from "../src/businessDay.js";
 
 // Продажи за прошедший день уже не изменятся, за сегодня — меняются.
 const CACHE = "private, max-age=120, stale-while-revalidate=600";
 
-const YMD = /^\d{8}$/;
 const iso = (ymd) => `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
 
+// Календарная дата по Алматы — только чтобы не спрашивать у Poster
+// завтра. Период по умолчанию — рабочий день (до 05:00 ещё прошлый)
 function almatyToday() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit",
@@ -35,28 +37,25 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `https://${req.headers.host}`);
   res.setHeader("Cache-Control", url.searchParams.get("_fresh") ? "no-store" : CACHE);
 
-  const today = almatyToday();
-  const from = YMD.test(url.searchParams.get("from") || "") ? url.searchParams.get("from") : today;
-  const to = YMD.test(url.searchParams.get("to") || "") ? url.searchParams.get("to") : today;
+  const { from, to, prev, next } = periodQuery(url.searchParams.get("from"), url.searchParams.get("to"), {
+    businessToday: businessToday().replace(/-/g, ""),
+    calendarToday: almatyToday(),
+  });
 
   try {
-    // Один запрос на весь период: Poster сам отдаёт диапазон.
-    // С предыдущих суток Poster: они по Москве, и чеки, закрытые у нас
-    // после полуночи первого дня, лежат в них. rowsInPeriod отрежет лишнее
-    // по рабочим суткам — отброшенные строки здесь норма, а не сбой
-    const shift = (ymd, n) => { const d = new Date(`${iso(ymd)}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10).replace(/-/g, ""); };
-    const prev = shift(from, -1);
-    // И следующие сутки: смена считается по рабочим суткам (до 05:00), а
-    // Гагарина пробивает чеки до трёх ночи. Сегодня завтра не спрашиваем
-    const next = to < today ? shift(to, 1) : to;
+    // Один запрос на весь период: Poster сам отдаёт диапазон, с соседними
+    // сутками (periodQuery). rowsInPeriod отрежет лишнее по рабочим
+    // суткам — отброшенные строки здесь норма, а не сбой
     // Удалённые с историей — параллельно с основным запросом, не после
     const deletedP = posterCall("dash.getTransactions", { ...dashDateParams(prev, next), status: 3, include_history: "true" })
       .then((d) => d?.response || [])
       .catch((e) => { console.warn("[baristas] история удалённых не пришла:", e?.message); return null; });
     const all = await dashTransactions(prev, next);
     const { rows } = rowsInPeriod(all, from, to, { byWorkDay: true });
-    // Всё мимо срока — это не «чеков нет», а Poster ответил не про то
-    if (all.length && !rows.length) throw new Error(`Poster отдал чеки не за ${iso(from)} — ${iso(to)}`);
+    // Всё мимо запрошенных суток — это не «чеков нет», а Poster ответил
+    // не про то. А пусто только в самом периоде — норма: в 06:30 рабочий
+    // день уже начался, а чеков в нём ещё нет (соседние сутки не в счёт)
+    if (all.length && !rowsInPeriod(all, prev, next).rows.length) throw new Error(`Poster отдал чеки не за ${iso(from)} — ${iso(to)}`);
     const { people, spots } = summarizeBaristas(rows);
     const deleted = await deletedWithHistory(rows, await deletedP, from, to);
 

@@ -34,6 +34,24 @@ export function workDay(ms) {
 // Только чеки спрошенных дней (по Алматы). Если Poster отдал другой срок —
 // не выдаём сегодняшнюю смену за вчерашнюю. from/to — ГГГГММДД.
 // byWorkDay — день чека по рабочим суткам (для смен бариста)
+// Какие сутки Poster спросить за период [from, to] рабочих дней (ГГГГММДД).
+// С предыдущих: сутки dash — по Москве, и ночь первого дня лежит в них.
+// И следующие: смена считается по рабочим суткам (до 05:00), а Гагарина
+// пробивает чеки до трёх ночи. Завтра по календарю не спрашиваем — но
+// ночью рабочее «сегодня» уже вчера по календарю, и его ночь нужна.
+// Без дат — рабочее сегодня: в 01:50 календарное 27-е ещё пустое
+export function periodQuery(fromArg, toArg, { businessToday, calendarToday }) {
+  const YMD = /^\d{8}$/;
+  const from = YMD.test(fromArg || "") ? fromArg : businessToday;
+  const to = YMD.test(toArg || "") ? toArg : businessToday;
+  const shift = (ymd, n) => {
+    const d = new Date(`${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10).replace(/-/g, "");
+  };
+  return { from, to, prev: shift(from, -1), next: to < calendarToday ? shift(to, 1) : to };
+}
+
 export function rowsInPeriod(rows, from, to, { byWorkDay = false } = {}) {
   const kept = [];
   let dropped = 0;

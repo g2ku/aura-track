@@ -12,18 +12,22 @@ import { useEffect, useMemo, useState } from "react";
 import { fmt } from "../utils";
 import { fetchBaristas } from "../poster";
 import { getUserSpotId } from "../auth.jsx";
+import { businessToday } from "../businessDay.js";
 
-function ymd(d) {
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+// Дни — рабочие (до 05:00 ещё прошлый, src/businessDay.js). В 01:50
+// «Сегодня» просило календарное 27-е, в котором ещё нет ни одного чека,
+// и страница показывала «Poster отдал чеки не за 2026-09-27»
+function today() {
+  return businessToday().replace(/-/g, "");
 }
 function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return ymd(d);
+  const d = new Date(`${businessToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
 const PERIODS = [
-  { id: "today", label: "Сегодня", from: () => ymd(new Date()) },
+  { id: "today", label: "Сегодня", from: () => today() },
   { id: "7d", label: "7 дней", from: () => daysAgo(6) },
   { id: "30d", label: "30 дней", from: () => daysAgo(29) },
 ];
@@ -56,7 +60,7 @@ export default function BaristaStats() {
     setLoading(true);
     setError("");
     try {
-      const r = await fetchBaristas(cur.from(), ymd(new Date()), opts);
+      const r = await fetchBaristas(cur.from(), today(), opts);
       setData(r);
       if (r.error) setError(r.error);
     } catch (e) {
