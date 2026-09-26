@@ -1290,6 +1290,18 @@ section("Модель ночью: «сегодня» — рабочий день
   ok(!/d\.setDate\(d\.getDate\(\) - 1\)/.test(brief), "календарного «вчера» в сводке больше нет");
 }
 
+section("Бабл-ти — товар, а «бабло» — касса");
+{
+  // 27.09.2026: «бабл-ти за неделю» узнавалось как «бабло» с опечаткой и
+  // отвечало кассой сети
+  const bt = await parseQuestion("бабл-ти за неделю");
+  eq([bt.metric, bt.product], ["products", "бабл-ти"], "«бабл-ти за неделю» — продажи бабл-ти");
+  eq((await parseQuestion("бабл ти на атакенте вчера")).product, "бабл-ти", "«бабл ти» через пробел — тоже");
+  eq((await parseQuestion("самый дорогой бабл-ти")).priceRank, "desc", "«самый дорогой бабл-ти» — цены");
+  eq((await parseQuestion("сколько бабла сделали вчера")).metric, "cash", "«сколько бабла» — касса, как было");
+  eq((await parseQuestion("бабло за неделю")).metric, "cash", "«бабло» — касса");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

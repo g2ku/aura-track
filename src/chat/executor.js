@@ -44,6 +44,10 @@ import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
 import { isStaleChunkError } from "../staleBuild.js";
 
+// Точка в конце фразы — если период уже не кончается ею: «за 25 сентября
+// 2026 г.» давало «г..» в конце ответа
+const endDot = (t) => (/[.!?]$/.test(String(t)) ? String(t) : `${t}.`);
+
 // ─── Утилиты ──────────────────────────────────────────────────────
 
 function matchesSpot(d, spot) {
@@ -457,7 +461,7 @@ async function handleProductPair(spot, period, pair, ipGroup) {
   const [lead, other] = x.qty >= y.qty ? [x, y] : [y, x];
   const ratio = other.qty ? (lead.qty / other.qty).toFixed(1).replace(".", ",") : null;
   const lines = [
-    `${cap(lead.name)} берут ${ratio ? `в ${ratio} раза чаще` : "а второй не брали вовсе"}, чем ${other.name} — ${label(spot)}, ${pl}.`,
+    `${cap(lead.name)} берут ${ratio ? `в ${ratio} раза чаще` : "а второй не брали вовсе"}, чем ${other.name} — ${label(spot)}, ${endDot(pl)}`,
     `• ${cap(x.name)}: ${x.qty} шт / ${fmt(Math.round(x.sum))}`,
     `• ${cap(y.name)}: ${y.qty} шт / ${fmt(Math.round(y.sum))}`,
   ];
@@ -1055,7 +1059,7 @@ async function handleNotSold(spot, period, ipGroup) {
     else longDead.push({ name: c.name, items: quiet, all: items.length });
   }
   if (!total) return { text: "Меню не загрузилось — не с чем сравнивать.", data: null };
-  if (!dead) return { text: `Все ${total} позиций меню продавались ${sl} за ${pl}.`, data: { total, dead: 0 } };
+  if (!dead) return { text: `Все ${total} позиций меню продавались ${sl} за ${endDot(pl)}`, data: { total, dead: 0 } };
 
   const out = [`Не продавались ${sl} за ${pl} — ${dead} из ${total} позиций.`];
   if (stopped.length) {
@@ -1151,6 +1155,25 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
 
     // По словам, основам и с опечаткой: «капуч», «раф кокос», «круасан»
     const matches = products.filter((p) => productMatches(p.name, productName));
+    // На этой точке не продавали, а в сети — продавали: это не «товар не
+    // найден». «Бабл ти на Атакенте вчера» так и отвечало, хотя бабл-ти
+    // за неделю брали на OBI (живая проверка 27.09.2026)
+    if (matches.length === 0 && !isAll(spot)) {
+      const elsewhere = Object.values(spotProductMap)
+        .map((s) => {
+          const ps = Object.values(s.products).filter((p) => productMatches(p.name, productName));
+          return { spotName: s.spotName, qty: ps.reduce((n, p) => n + p.qty, 0), sum: ps.reduce((n, p) => n + p.sum, 0) };
+        })
+        .filter((s) => s.qty > 0)
+        .sort((a, b) => b.qty - a.qty);
+      if (elsewhere.length) {
+        const q = elsewhere.reduce((n, s) => n + s.qty, 0), sum = elsewhere.reduce((n, s) => n + s.sum, 0);
+        return {
+          text: `${label(spot)}${ipLabel} за ${pl} «${productName}» не продавали — ни одной штуки.\n\nВ сети за тот же срок: ${q} шт. / ${fmt(sum)} — ${elsewhere.map((s) => `${sn(s)} ${s.qty} шт.`).join(", ")}`,
+          data: { matches: [], elsewhere },
+        };
+      }
+    }
     if (matches.length === 0) {
       // Может, это не товар, а категория меню: «десерты», «выпечка», «кофе»
       try {
@@ -1164,7 +1187,7 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
       // чтобы человек нажал, а не гадал, как товар назван в Poster
       const close = closestNames(productName, products.map((p) => p.name));
       const hint = close.length ? `\n\nПохожие: ${close.map((n) => `«${n}»`).join(", ")}` : "";
-      return { text: `Товар «${productName}» не найден за ${pl}.${hint}`, data: { suggestions: close } };
+      return { text: `Товар «${productName}» не найден за ${endDot(pl)}${hint}`, data: { suggestions: close } };
     }
 
     // Per-branch breakdown
@@ -2676,7 +2699,7 @@ ${tail}`, data: { picked } };
   }
 
   if (filtered.length === 0) {
-    return { text: `Нет данных ${sl}${ipLabel} за ${pl}.`, data: null };
+    return { text: `Нет данных ${sl}${ipLabel} за ${endDot(pl)}`, data: null };
   }
 
   // Single branch: show that branch's data
