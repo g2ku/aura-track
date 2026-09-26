@@ -1243,6 +1243,13 @@ section("«Следующий месяц» — следующий, а не те�
   eq([q.operation, q.period.from.slice(0, 7)], ["forecast", "2026-09"], "на конец месяца — этот, сентябрь");
 }
 
+section("Две точки в вопросе — какие именно, помним");
+{
+  const p = await ask("сравни абая и дубай за неделю");
+  eq([p.metric, (p.spots || []).map((x) => x.posterName)], ["compareBranches", ["Abaya", "Dubai"]], "обе точки в порядке, как названы");
+  eq((await ask("касса за неделю по точкам")).spots, undefined, "«по точкам» — все, без списка");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

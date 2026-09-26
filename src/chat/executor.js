@@ -348,7 +348,7 @@ async function executeInner(parsed, userBranch) {
     if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
     if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
     if (operation === "anomaly") return await handleAnomaly(metric, effectiveSpot, period, ipGroup);
-    if (metric === "compareBranches") return await handleCompareBranches(operation, effectiveSpot, period, ipGroup);
+    if (metric === "compareBranches") return await handleCompareBranches(operation, effectiveSpot, period, ipGroup, parsed.spots);
     if (metric === "math") return handleMath(parsed);
 
     switch (metric) {
@@ -2522,7 +2522,7 @@ async function handleAnomaly(metric, spot, period, ipGroup) {
 
 // ─── Сравнение филиалов ─────────────────────────────────────────
 
-async function handleCompareBranches(operation, spot, period, ipGroup) {
+async function handleCompareBranches(operation, spot, period, ipGroup, only = null) {
   const data = await fetchCashBySpot(period.from, period.to);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
@@ -2530,6 +2530,32 @@ async function handleCompareBranches(operation, spot, period, ipGroup) {
 
   let filtered = data.filter(d => matchesSpot(d, spot));
   filtered = await filterByIPGroup(filtered, ipGroup);
+
+  // Названы точки — только они. Две — один на один: касса, чеки, средний
+  // чек и откуда разница (люди или покупки)
+  if (only?.length >= 2) {
+    const picked = only.map((o) => filtered.find((d) => matchesSpot(d, o)) || { spotId: o.spotId, spotName: o.posterName, total: 0, txCount: 0 });
+    const avg = (d) => (d.txCount ? d.total / d.txCount : 0);
+    const line = (d) => `• ${sn(d)}: ${fmt(Math.round(d.total))} · ${nChecks(d.txCount)} · ср.чек ${fmt(Math.round(avg(d)))}`;
+    if (picked.length === 2) {
+      const [a, b] = picked;
+      const [hi, lo] = a.total >= b.total ? [a, b] : [b, a];
+      const p = (x, y) => (y ? Math.round(((x - y) / y) * 100) : null);
+      const pc = p(hi.total, lo.total), pt = p(hi.txCount, lo.txCount), pa = p(avg(hi), avg(lo));
+      const why = pt != null && pa != null
+        ? (Math.abs(pt) >= Math.abs(pa)
+          ? `чеков ${pt >= 0 ? "больше" : "меньше"} на ${Math.abs(pt)} %, средний чек ${pa === 0 ? "такой же" : `${pa > 0 ? "выше" : "ниже"} на ${Math.abs(pa)} %`}`
+          : `средний чек ${pa > 0 ? "выше" : "ниже"} на ${Math.abs(pa)} %, чеков ${pt === 0 ? "столько же" : `${pt > 0 ? "больше" : "меньше"} на ${Math.abs(pt)} %`}`)
+        : "";
+      const tail = !lo.total ? `${sn(lo)} за ${pl} продаж не было.` : hi.total === lo.total ? "Касса одинаковая." : `${sn(hi)} больше на ${fmt(Math.round(hi.total - lo.total))} (+${pc} %)${why ? `: ${why}` : ""}.`;
+      return { text: `${sn(a)} и ${sn(b)}${ipLabel} за ${pl}:
+${line(a)}
+${line(b)}
+
+${tail}`, data: { picked } };
+    }
+    filtered = picked.filter((d) => d.total > 0);
+  }
 
   if (filtered.length === 0) {
     return { text: `Нет данных ${sl}${ipLabel} за ${pl}.`, data: null };

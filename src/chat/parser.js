@@ -1238,10 +1238,14 @@ export async function parseQuestion(text) {
   // «Товары по филиалам» — разрез по точкам; исполнитель смотрит на
   // это слово в period.raw (так же его ставит продолжение диалога)
   const byBranchAsked = /по\s+(?:филиал|точк)/.test(lower);
-  // Два филиала в одном вопросе — сравнение по всем, а не второй из них
+  // Два филиала в одном вопросе — сравнение, а не второй из них. Какие
+  // именно — помним: «сравни Абая и Дубай» отвечало рейтингом всех восьми
+  // точек (живая проверка 27.09.2026)
+  let cmpSpots = null;
   if (countSpots(lower) >= 2 && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
     metric = "compareBranches";
     spot = null;
+    cmpSpots = namedSpots(lower);
   }
   // «Что на Абае берут чаще, чем на Дубае» — товары двух точек рядом:
   // первая названная против второй
@@ -1451,6 +1455,7 @@ export async function parseQuestion(text) {
     ...(person ? { person } : {}),
     ...(limit ? { limit } : {}),
     ...(spot2 ? { spot2 } : {}),
+    ...(cmpSpots && metric === "compareBranches" ? { spots: cmpSpots } : {}),
     ...(products2 ? { products2 } : {}),
     // «Как дела», «как торгуем» — сводка «как идём», а не касса одной цифрой
     // «Как Дубай сегодня» — то же самое: «сегодня» не делает сводку кассой
