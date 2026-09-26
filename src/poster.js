@@ -894,6 +894,29 @@ export function getCachedCashBySpot(dateFrom, dateTo) {
 //
 // Масштабы у Poster разные: у товаров копейки (156000 = 1560 ₸),
 // у ингредиентов копейки ×100 (6512600 = 651,26 ₸ за литр).
+// Цены модификаций: «Круассан Курица» 1 560, «Круассан Сёмга» 1 660 — так
+// позиции зовут и склад, и кураторы. Сам товар получает цену, только если
+// она у всех модификаций одна (Панини, Сырники): у круассана от 890 до
+// 1 660 ₸, и списать «Круассан» по самой дорогой начинке — недоплатить
+// бариста. Без цены прайс попросит назвать начинку. Имя модификации «.»
+// (так в Poster у сырников) — не имя.
+export function modificationPrices(name, modifications) {
+  const out = [];
+  const seen = [];
+  for (const m of modifications || []) {
+    const prices = (m.spots || []).map((sp) => Number(sp.price)).filter((v) => v > 0);
+    if (!prices.length) continue;
+    const price = Math.round(Math.max(...prices) / 100);
+    seen.push(price);
+    const mod = String(m.modificator_name || "").trim();
+    if (/[а-яёa-z0-9]/i.test(mod) && mod.toLowerCase() !== String(name).toLowerCase()) {
+      out.push({ name: `${name} ${mod}`, price, source: "menu" });
+    }
+  }
+  if (seen.length && seen.every((v) => v === seen[0])) out.unshift({ name, price: seen[0], source: "menu" });
+  return out;
+}
+
 export async function fetchPosterPriceList(opts = {}) {
   const [menu, ing] = await Promise.all([
     call("menu.getProducts", {}, opts).catch(() => null),
@@ -905,6 +928,14 @@ export async function fetchPosterPriceList(opts = {}) {
   for (const p of menu?.response || []) {
     const name = p.product_name;
     if (!name) continue;
+    // Товар с модификациями — круассан с начинками, панини, сырники — цены
+    // на самом товаре не имеет: она у каждой модификации по точкам. Такие
+    // товары не попадали в прайс вовсе, и недостача «Круассан 2», «Кр кур
+    // 1», «Панини 1» считалась без денег (живая проверка 27.09.2026).
+    if (p.modifications?.length) {
+      out.push(...modificationPrices(name, p.modifications));
+      continue;
+    }
     // Цена задаётся по точкам; берём наибольшую — филиалы у них одинаковые,
     // а если где-то забыли проставить, ноль не должен победить.
     const prices = Object.values(p.price || {}).map(Number).filter((v) => v > 0);

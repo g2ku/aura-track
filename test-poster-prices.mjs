@@ -63,6 +63,36 @@ section("Масштабы у Poster разные, и их легко переп�
   eq(r[0].unit, "l", "единица сохранена — цена за литр, не за штуку");
 }
 
+section("Товары с модификациями: круассан с начинками, панини, сырники");
+
+{
+  // Живая проверка 27.09.2026: у таких товаров цены на самом товаре нет —
+  // она у каждой модификации. В прайс они не попадали вовсе, и недостача
+  // «Круассан», «Кр кур», «Панини», «Сырники» считалась без денег
+  const { modificationPrices } = await import("./src/poster.js");
+  const spots = (price) => ["1", "4", "9"].map((spot_id) => ({ spot_id, price: String(price) }));
+  const cro = modificationPrices("Круассан", [
+    { modificator_name: "Курица", spots: spots(156000) },
+    { modificator_name: "Сёмга", spots: spots(166000) },
+    { modificator_name: "Классический", spots: [{ spot_id: "1", price: "0" }, { spot_id: "4", price: "89000" }] },
+  ]);
+  eq(cro.map((x) => [x.name, x.price]), [["Круассан Курица", 1560], ["Круассан Сёмга", 1660], ["Круассан Классический", 890]], "каждая начинка — своей строкой, как её зовёт склад");
+  ok(!cro.some((x) => x.name === "Круассан"), "цены разные — у самого «Круассана» цены нет: пусть назовут начинку, а не спишут по самой дорогой");
+  const pan = modificationPrices("Панини", [{ modificator_name: "Курица", spots: spots(165000) }]);
+  eq(pan.map((x) => [x.name, x.price]), [["Панини", 1650], ["Панини Курица", 1650]], "одна цена у всех — она и у самого товара");
+  const syr = modificationPrices("Сырники", [{ modificator_name: ".", spots: spots(59000) }]);
+  eq(syr.map((x) => [x.name, x.price]), [["Сырники", 590]], "модификация «.» — не имя: только «Сырники»");
+  eq(modificationPrices("Пусто", [{ modificator_name: "А", spots: [{ spot_id: "1", price: "0" }] }]), [], "без цен — ничего");
+  ok(/p\.modifications\?\.length[\s\S]*?modificationPrices\(name, p\.modifications\)/.test(body), "прайс для зарплаты берёт модификации");
+
+  // И через разбор недостачи куратора — как в зарплатном проекте
+  const { priceItems } = await import("./src/payroll.js");
+  const list = [...cro, ...pan, ...syr, { name: "Круассан Курица", price: 1200, source: "ingredient" }];
+  const { rows, missing } = priceItems([{ name: "Кр кур", qty: 2 }, { name: "Панини", qty: 1 }, { name: "Сырники", qty: 3 }, { name: "Круассан", qty: 1 }], list);
+  eq(rows.map((r) => [r.name, r.sum]), [["Круассан Курица", 3120], ["Панини", 1650], ["Сырники", 1770], ["Круассан", null]], "«Кр кур 2» — 3 120 ₸ по цене продажи, а не себестоимости");
+  eq(missing, ["Круассан"], "«Круассан» без начинки — в списке без цены, куратор уточнит");
+}
+
 section("Цена по точкам");
 
 {

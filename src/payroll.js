@@ -186,7 +186,10 @@ export function parseInventoryMessage(text, matchBranch) {
 // Сопоставить позиции с прайсом. Возвращает строки с ценой и суммой,
 // а также список того, для чего цены нет — считать с дырами нельзя.
 export function priceItems(items, priceList) {
-  const names = priceList.map((p) => p.name);
+  // Имена — без повторов: «Круассан Курица» есть и в меню (цена продажи), и
+  // среди ингредиентов (себестоимость), и сокращение «Кр кур» видело два
+  // варианта одного имени и не решалось. Цена — первой строки, то есть меню
+  const names = [...new Set(priceList.map((p) => p.name))];
   const rows = [];
   const missing = [];
 
