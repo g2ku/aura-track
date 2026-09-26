@@ -578,6 +578,23 @@ section("Бот: две точки — один на один, «чеки по �
   ok(/Дубай с \d+ .* продаж не было\./.test(none) && !/за с /.test(none), `точка без продаж — без «за с …»:\n${none}`);
 }
 
+section("Бот: «хуже всего продаётся» — с конца и без добавок; средний чек по точкам");
+{
+  // 27.09.2026: «что хуже всего продаётся за неделю» бот отвечал лучшими
+  // товарами, а «средний чек по точкам» сортировал по кассе
+  const withAddons = (d) => ({ ...d, rowsBySpot: { ...d.rowsBySpot, "4": { ...d.rowsBySpot["4"], "Сахар стик": { qty: 30, sum: 0 }, "Сироп ваниль": { qty: 2, sum: 200 }, "Эклер": { qty: 1, sum: 900 } } } });
+  const PRICES = [{ n: "Сироп ваниль", min: 100, max: 100, s: {}, c: "Сиропы" }, { n: "Эклер", min: 900, max: 900, s: {}, c: "Перекусы" }];
+  const wdeps = { ...deps, getDays: async (f, t) => range(f, t, 1).map(withAddons), getToday: async () => null, getMenuPrices: async () => PRICES };
+  const worst = nb((await answerQuestion("что хуже всего продаётся за прошлую неделю", wdeps)).text);
+  ok(/Хуже всего продаются/.test(worst) && /1\. Эклер — 7 шт · 6 300 ₸/.test(worst), `с конца, первым — самый слабый:\n${worst}`);
+  ok(!/Сахар стик|Сироп ваниль/.test(worst), "сахар за 0 ₸ и сиропы (по разделу) — не в счёт");
+  ok(/не в счёт \(2\)/.test(worst), "и сказано, сколько отброшено");
+  const noIdx = nb((await answerQuestion("что хуже всего продаётся за прошлую неделю", { ...wdeps, getMenuPrices: async () => null })).text);
+  ok(/Сироп ваниль/.test(noIdx) && /индекса меню с разделами ещё нет/.test(noIdx), "без индекса — сиропы не отделить, и это сказано");
+  const avg = nb((await answerQuestion("средний чек по точкам за прошлую неделю", deps)).text);
+  ok(/Средний чек по точкам/.test(avg) && /1\. Абая — 2 500 ₸/.test(avg) && /По сети: /.test(avg), `по среднему чеку, а не по кассе:\n${avg}`);
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

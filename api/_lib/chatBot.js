@@ -425,8 +425,19 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
       return [`<b>${escapeHtml(row(named[0]).name)} и ${escapeHtml(row(named[1]).name)} ${escapeHtml(when)}</b>`,
         `• ${escapeHtml(h.lines[0])}`, `• ${escapeHtml(h.lines[1])}`, "", escapeHtml(h.tail)].join("\n");
     }
+    const rawLower = String(parsed.raw || "").toLowerCase();
+    // «Средний чек по точкам» — по среднему чеку; раньше — по кассе
+    if (/средн[а-яё]*\s+чек/.test(rawLower)) {
+      const ids = named.length > 2 ? named : Object.keys(s.cash);
+      const rows = ids.map(row).filter((r) => r.tx > 0).map((r) => ({ ...r, avg: r.total / r.tx })).sort((a, b) => b.avg - a.avg);
+      if (!rows.length) return `Продаж ${when} не нашёл.`;
+      const net = rows.reduce((n, r) => n + r.total, 0) / (rows.reduce((n, r) => n + r.tx, 0) || 1);
+      return [`<b>Средний чек по точкам ${escapeHtml(when)}</b>`,
+        ...rows.map((r, i) => `${i + 1}. ${escapeHtml(r.name)} — ${fmt(r.avg)} · ${nChecks(r.tx, int(r.tx))}`),
+        "", `По сети: ${fmt(net)}`].join("\n");
+    }
     // «Чеки по точкам» — по чекам, а не по кассе
-    const byChecks = /(?:^|[^а-яё])чек(?:и|ов|ам)?(?![а-яё])/.test(String(parsed.raw || "").toLowerCase()) && !/средн/.test(String(parsed.raw || "").toLowerCase());
+    const byChecks = /(?:^|[^а-яё])чек(?:и|ов|ам)?(?![а-яё])/.test(rawLower) && !/средн/.test(rawLower);
     const ids = named.length > 2 ? named : Object.keys(s.cash);
     const rows = ids.map(row).filter((r) => r.total > 0 || named.length > 2)
       .sort((a, b) => (byChecks ? b.tx - a.tx : b.total - a.total));
@@ -476,6 +487,24 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
   // «Самый дорогой напиток», «цены на раф» — по меню, как на сайте
   // (src/chat/prices.js). Раньше — топ по выручке
   if (parsed.metric === "products" && parsed.priceRank) return priceAnswer(parsed, s, { prices, where, when, spots });
+
+  // «Что хуже всего продаётся» — с конца и без добавок (сахар-стик за 0 ₸,
+  // сиропы по 100 ₸), как на сайте. Раньше бот отдавал лучшие
+  if (parsed.metric === "products" && parsed.operation === "min" && !parsed.product) {
+    const catOf = {};
+    for (const p of prices || []) catOf[String(p.n).toLowerCase()] = p.c || "";
+    const known = Object.keys(catOf).length > 0;
+    const all = s.products.filter((p) => p.qty > 0);
+    const list = all
+      .filter((p) => p.sum > 0 && !/^доп(?:\.|\s)/i.test(p.name) && !isAddonCategoryName(catOf[String(p.name).toLowerCase()]))
+      .sort((a, b) => a.sum - b.sum || a.qty - b.qty);
+    if (!list.length) return `Продаж ${escapeHtml(when)} не нашёл.`;
+    const top = list.slice(0, parsed.limit || 10);
+    const out = all.length - list.length;
+    return [`<b>Хуже всего продаются${escapeHtml(where)} ${escapeHtml(when)}</b>`,
+      ...top.map((p, i) => `${i + 1}. ${escapeHtml(p.name)} — ${int(p.qty)} шт · ${fmt(p.sum)}`),
+      "", `Из ${int(list.length)} позиций с продажами${out ? `; добавки и то, что шло за 0 ₸, не в счёт (${int(out)})` : ""}.${known ? "" : " Сиропы от напитков отделить пока не по чему — индекса меню с разделами ещё нет."}`].join("\n");
+  }
 
   if (parsed.metric === "products") {
     let list = s.products;
@@ -756,8 +785,10 @@ export async function answerQuestion(text, deps) {
     const invoices = await deps.getInvoices(shiftYmd(to, -90), to).catch(() => []);
     margin.purchases = purchaseCosts(invoices, { toYmd: to });
   }
-  // Цены меню — только под вопрос о ценах
-  const prices = parsed.priceRank && deps.getMenuPrices ? await deps.getMenuPrices().catch(() => null) : null;
+  // Индекс меню с разделами — и для «хуже всего продаётся»: сиропы и
+  // сахар-стик отделяются по разделу
+  const wantPrices = parsed.metric === "products" && (parsed.priceRank || parsed.operation === "min");
+  const prices = wantPrices && deps.getMenuPrices ? await deps.getMenuPrices().catch(() => null) : null;
   const answer = answerFrom(parsed, days, { today, baseDays, margin, prices });
   if (!answer) return null;
   const lines = [];
