@@ -37,6 +37,7 @@ function missingNote() {
 import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel, addonProductNames, categoryNamed, resolveFoodCategories, isBeansCategoryName } from "./categories.js";
 import { rankPrices, priceText, priceNotes, priceScope } from "./prices.js";
 import { headToHead } from "./compare.js";
+import { workingHour } from "./hours.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt, describeDayList, nChecks, plural } from "../utils.js";
@@ -2529,6 +2530,9 @@ async function handleByHour(metric, spot, period, ipGroup) {
 
   const hourTotals = Array(24).fill(0);
   const hourCounts = Array(24).fill(0);
+  // Какие точки продавали в каждый час — для «тихих часов» (hours.js)
+  const hourSpots = Array.from({ length: 24 }, () => new Set());
+  const allSpots = new Set();
   const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
   const spotOk = (spotId) => matchesSpot({ spotId: String(spotId), spotName: "" }, spot)
     && (!groupBranches || filterByIPGroupSync([{ spotId: String(spotId) }], groupBranches).length > 0);
@@ -2539,7 +2543,10 @@ async function handleByHour(metric, spot, period, ipGroup) {
   for (const d of rolled) {
     for (const [spotId, hs] of Object.entries(d.hours || {})) {
       if (!spotOk(spotId)) continue;
-      for (let h = 0; h < 24; h++) { hourTotals[h] += hs.cash?.[h] || 0; hourCounts[h] += hs.tx?.[h] || 0; }
+      for (let h = 0; h < 24; h++) {
+        hourTotals[h] += hs.cash?.[h] || 0; hourCounts[h] += hs.tx?.[h] || 0;
+        if (hs.tx?.[h] > 0) { hourSpots[h].add(String(spotId)); allSpots.add(String(spotId)); }
+      }
     }
   }
   const todayIso = businessToday();
@@ -2558,6 +2565,7 @@ async function handleByHour(metric, spot, period, ipGroup) {
       const hour = Number(m[1]);
       hourTotals[hour] += Number(r.sum) || 0;
       hourCounts[hour]++;
+      if (r.spotId) { hourSpots[hour].add(String(r.spotId)); allSpots.add(String(r.spotId)); }
     }
   }
 
@@ -2579,9 +2587,13 @@ async function handleByHour(metric, spot, period, ipGroup) {
   // Тихие часы — среди тех, когда точки работали. Раньше брались три
   // последних из всех 24, и ответ был «04:00, 05:00, 06:00 — 0 ₸»: ночь,
   // точки закрыты, толку ноль
-  const working = indexed.filter((h) => h.count > 0);
-  if (!working.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
-  const quietHours = working.length > 3 ? working.slice(-3).reverse() : [];
+  const sold = indexed.filter((h) => h.count > 0);
+  if (!sold.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
+  // …и когда открыто большинство точек: ночной хвост одной Гагарины
+  // тихими часами сети не считаем
+  const isWorking = workingHour(hourSpots, allSpots.size);
+  const working = sold.filter((h) => isWorking(h.hour) && !peakHours.includes(h));
+  const quietHours = working.length ? working.slice(-3).reverse() : [];
   const quietLines = quietHours.map(h => `• ${h.label}: ${fmt(h.total)} (${nChecks(h.count)})`).join("\n");
 
   return {

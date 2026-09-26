@@ -1140,6 +1140,25 @@ section("Товар не продавали на точке — это не «т
   ok(/не найден за .*г\.(?!\.)/.test(plain(none)) && !/г\.\./.test(plain(none)), `«не найден за 19 сентября 2026 г.» — одна точка: ${plain(none).split("\n")[0]}`);
 }
 
+section("Пик по часам: ночной хвост одной точки — не тихие часы сети");
+{
+  // 27.09.2026: тихими часами сети выходили 00:00–03:00 — открыта одна
+  // Гагарина. Здесь у Гагарины (1) ещё и продажа в 02:00
+  const P = globalThis.__poster;
+  const orig = P.fetchHoursByDay;
+  P.fetchHoursByDay = async function (from, to) {
+    const r = await orig.call(this, from, to);
+    for (const d of r.days) { d.hours["1"].cash[2] = 1500; d.hours["1"].tx[2] = 1; }
+    return r;
+  };
+  const net = await ask("в какое время пик продаж вчера");
+  const quiet = net.split("Тихие часы")[1] || "";
+  ok(quiet && !/02:00/.test(quiet), `в тихих сети нет 02:00 одной точки:${quiet}`);
+  const one = await ask("в какое время пик продаж на гагарина вчера");
+  ok(/02:00/.test(one.split("Тихие часы")[1] || ""), "у самой Гагарины 02:00 — её рабочий час");
+  P.fetchHoursByDay = orig;
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

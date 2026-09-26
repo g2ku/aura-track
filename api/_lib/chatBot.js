@@ -26,6 +26,7 @@ import { explainChange, usualWeekday } from "../../src/chat/why.js";
 import { todayForecast, monthForecast } from "../../src/chat/forecast.js";
 import { rankPrices, priceText, priceNotes, priceScope } from "../../src/chat/prices.js";
 import { headToHead } from "../../src/chat/compare.js";
+import { workingHour } from "../../src/chat/hours.js";
 import { nChecks } from "../../src/utils.js";
 import { isFoodCategoryName, isAddonCategoryName, isBeansCategoryName } from "../../src/chat/categories.js";
 
@@ -306,12 +307,16 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
     // почасовую: час у него неизвестен. Тогда «пик» считается от меньшей
     // базы — и цифра расходится с ответом про кассу за тот же день.
     let hourCash = 0, dayCash = 0;
+    const hourSpots = Array.from({ length: 24 }, () => new Set()), allSpots = new Set();
     for (const d of days || []) {
       if (!d?.hours) { if (d?.date === today) skippedToday = true; continue; }
       covered++;
       for (const [spot, hs] of Object.entries(d.hours)) {
         if (spots && !spots.has(String(spot))) continue;
-        for (let h = 0; h < 24; h++) { cash[h] += hs.cash?.[h] || 0; tx[h] += hs.tx?.[h] || 0; }
+        for (let h = 0; h < 24; h++) {
+          cash[h] += hs.cash?.[h] || 0; tx[h] += hs.tx?.[h] || 0;
+          if (hs.tx?.[h] > 0) { hourSpots[h].add(String(spot)); allSpots.add(String(spot)); }
+        }
       }
       for (const [spot, v] of Object.entries(d.cashBySpot || {})) {
         if (spots && !spots.has(String(spot))) continue;
@@ -324,9 +329,13 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
     const key = metric === "checks" ? "tx" : "cash";
     rows.sort((a, b) => b[key] - a[key]);
     const top = rows.slice(0, 3);
-    const quiet = rows.slice(3).slice(-3).reverse();
+    // Тихие — когда открыто большинство точек (hours.js): ночной
+    // хвост одной Гагарины — не «тихие часы сети»
+    const isWorking = workingHour(hourSpots, allSpots.size);
+    const quiet = rows.slice(3).filter((r) => isWorking(r.h)).slice(-3).reverse();
     const hh = (h) => `${String(h).padStart(2, "0")}:00`;
-    const line = (r) => `${hh(r.h)} — ${fmt(Math.round(r.cash / covered))}/день · ${Math.round(r.tx / covered)} чек.`;
+    // За один день — просто сумма часа; «/день» — только у среднего
+    const line = (r) => `${hh(r.h)} — ${fmt(Math.round(r.cash / covered))}${covered > 1 ? "/день" : ""} · ${Math.round(r.tx / covered)} чек.`;
     return [`<b>Пик${escapeHtml(where)} ${escapeHtml(when)}</b>`,
       ...top.map((r, i) => `${i === 0 ? "🔥" : i === 1 ? "⭐" : "•"} ${line(r)}`),
       ...(quiet.length ? ["", "💤 Тихие часы:", ...quiet.map((r) => `• ${line(r)}`)] : []),

@@ -595,6 +595,22 @@ section("Бот: «хуже всего продаётся» — с конца и
   ok(/Средний чек по точкам/.test(avg) && /1\. Абая — 2 500 ₸/.test(avg) && /По сети: /.test(avg), `по среднему чеку, а не по кассе:\n${avg}`);
 }
 
+section("Пик: тихие часы — когда сеть открыта, а не ночной хвост одной точки");
+{
+  // 27.09.2026: тихими часами сети выходили 00:00–03:00 — открыта одна
+  // Гагарина. И «₸/день» у ответа за один день
+  const night = (d) => { const h = JSON.parse(JSON.stringify(d.hours)); h["4"].cash[2] = 3000; h["4"].tx[2] = 1; h["4"].cash[20] = 9000; h["4"].tx[20] = 3; h["9"].cash[20] = 8000; h["9"].tx[20] = 3; return { ...d, hours: h }; };
+  const hdeps = { ...deps, getDays: async (f, t) => range(f, t, 1).map(night) };
+  const r = nb((await answerQuestion("во сколько пик вчера", hdeps)).text);
+  const quiet = r.split("Тихие часы:")[1] || "";
+  ok(/20:00/.test(quiet) && !/02:00/.test(quiet), `тихие — вечер, когда открыты обе, а не 02:00 одной точки:\n${r}`);
+  ok(!/₸\/день/.test(r), "за один день — без «/день»");
+  const one = nb((await answerQuestion("во сколько пик на абая вчера", hdeps)).text);
+  ok(/02:00/.test(one.split("Тихие часы:")[1] || ""), "у одной точки её ночной час — её рабочее время");
+  const week = nb((await answerQuestion("во сколько пик за прошлую неделю", hdeps)).text);
+  ok(/₸\/день/.test(week) && /Среднее за 7 дн\./.test(week), "за неделю — среднее «/день», как было");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
