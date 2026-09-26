@@ -119,6 +119,17 @@ export function addonProductNames(categories, productsByCategory) {
   return names;
 }
 
+// Вопрос называет раздел меню целиком: «лимонады», «чай», «смузи»,
+// «молочные коктейли». Совпадение — в обе стороны: «кофе» не станет
+// «Холодным кофе», а «холодный кофе» — просто «Кофе». Раздел без товаров
+// не в счёт.
+export function categoryNamed(categories, query, matchPhrase, productsByCategory) {
+  const found = findCategory(categories, query, matchPhrase);
+  if (!found) return null;
+  if (matchPhrase(String(found.root.name), query) < 2 || matchPhrase(String(query), found.root.name) < 2) return null;
+  return productNamesIn(found.chosen, productsByCategory).size ? found : null;
+}
+
 // Раздел меню по разобранному вопросу: сезонное, «еда» или названная
 // категория. Названной категории нет — товары по названию среди еды
 // (names — готовый набор, chosen — откуда брали). null — нет ни того, ни

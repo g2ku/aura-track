@@ -34,7 +34,7 @@ function missingNote() {
   }
   return out.length ? `\n${out.join("\n")}` : "";
 }
-import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel, addonProductNames } from "./categories.js";
+import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel, addonProductNames, categoryNamed } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt, describeDayList, nChecks, plural } from "../utils.js";
@@ -1094,6 +1094,28 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
   const products = Object.values(productMap);
 
   if (productName) {
+    // Название раздела меню — раздел целиком: «лимонады» по слову ловили
+    // и «Лимон» из добавок, и айс-ти «Голубика-лимон», а «продажи чая» не
+    // находили ничего (живая проверка 26.09.2026). Товары с тем же словом
+    // в других разделах («матча» в бабл-ти и сезонном) — строкой ниже
+    let menu = null;
+    try { menu = await getMenuCategories(); } catch (_) { /* без меню — по названиям */ }
+    const named = menu ? categoryNamed(menu.categories, productName, matchPhrase, menu.productsByCategory) : null;
+    if (named) {
+      const inCat = productNamesIn(named.chosen, menu.productsByCategory);
+      const addons = addonProductNames(menu.categories, menu.productsByCategory);
+      const outside = products
+        .filter((p) => p.sum > 0 && productMatches(p.name, productName) && !inCat.has(String(p.name).toLowerCase()) && !addons.has(String(p.name).toLowerCase()))
+        .sort((a, b) => b.sum - a.sum);
+      const where = isAll(spot) ? "" : ` ${label(spot)}`;
+      const r = await categoryReport(named, `${named.title} — раздел меню${where}${ipLabel} за ${pl}`, operation, spot, period, ipGroup, { menu, data });
+      if (outside.length && r?.text) {
+        const q = outside.reduce((n, p) => n + p.qty, 0), sum = outside.reduce((n, p) => n + p.sum, 0);
+        r.text += `\n\nПохожие названия в других разделах: ${outside.slice(0, 5).map((p) => `${p.name} — ${p.qty} шт.`).join(", ")}${outside.length > 5 ? ` и ещё ${outside.length - 5}` : ""} (всего ${q} шт. / ${fmt(sum)}).`;
+      }
+      return r;
+    }
+
     // По словам, основам и с опечаткой: «капуч», «раф кокос», «круасан»
     const matches = products.filter((p) => productMatches(p.name, productName));
     if (matches.length === 0) {

@@ -981,6 +981,39 @@ section("Чеки склоняются: «192 чека», а не «192 чеко
   has(cash, "144 чека", "144 чека");
 }
 
+section("Название раздела меню — раздел целиком: «лимонады», «чай»");
+{
+  // Живая проверка 26.09.2026: «лимонады» по слову ловили «Лимон» из
+  // добавок и айс-ти «Голубика-лимон», а «продажи чая» — «не найден»
+  const P = globalThis.__poster;
+  const realSales = P.fetchPosterSales, realMenu = P.getMenuCategories;
+  const extra = [["Классический Лимонад 0.5", 70, 76300], ["Лимон", 1, 0], ["Айс-ти Голубика-лимон 450", 3, 3270], ["Черный Чай 0.5", 20, 7000], ["Чайник Ташкентский", 5, 9000]];
+  P.fetchPosterSales = async function (from, to) {
+    const r = await realSales.call(this, from, to);
+    return { ...r, rows: [...r.rows, ...extra.map(([productName, qty, sum]) => ({ spotId: "4", spotName: SPOTS[4], productName, qty, sum }))] };
+  };
+  P.getMenuCategories = async function () {
+    const m = await realMenu.call(this);
+    return {
+      categories: [...m.categories, { id: "8", name: "Лимонады", parentId: null }, { id: "19", name: "Добавки", parentId: null }, { id: "10", name: "Чай", parentId: null }, { id: "36", name: "Чайники", parentId: "10" }, { id: "16", name: "Холодные чаи", parentId: null }],
+      productsByCategory: { ...m.productsByCategory, "8": [{ id: "80", name: "Классический Лимонад 0.5" }], "19": [{ id: "190", name: "Лимон" }], "10": [{ id: "100", name: "Черный Чай 0.5" }], "36": [{ id: "360", name: "Чайник Ташкентский" }], "16": [{ id: "160", name: "Айс-ти Голубика-лимон 450" }] },
+    };
+  };
+  const lem = plain(await ask("лимонады за неделю"));
+  has(lem, "Лимонады — раздел меню за", "лимонады — раздел");
+  has(lem, "1. Классический Лимонад 0.5: 70 шт.", "с лимонадом раздела");
+  ok(!/\n\d+\. Лимон:|Лимон —/.test(lem), "добавка «Лимон» — ни в списке, ни в похожих");
+  has(lem, "Похожие названия в других разделах: Айс-ти Голубика-лимон 450 — 3 шт.", "похожее из другого раздела — отдельной строкой");
+  const tea = plain(await ask("продажи чая за неделю"));
+  has(tea, "Чай — раздел меню за", "«чая» — раздел «Чай», а не «не найден»");
+  has(tea, "Чайник Ташкентский", "с подразделом «Чайники»");
+  has(plain(await ask("круассаны за неделю")), "Продажи «круассаны»", "товар без своего раздела — как был, по названию");
+  P.fetchPosterSales = realSales; P.getMenuCategories = realMenu;
+  const { stem, productMatches } = await import("./src/chat/normalize.js");
+  ok(stem("чая") === "чай" && stem("чаем") === "чай" && stem("чай") === "чай", "основа «чая», «чаем» — «чай»");
+  ok(productMatches("Черный Чай 0.5", "чая"), "«чая» находит «Черный Чай»");
+}
+
 section("Товар на одной точке — её место среди точек, а не список всей сети");
 {
   // «Сколько капучино на Гагарина за неделю» отвечало итогом Гагарины, а

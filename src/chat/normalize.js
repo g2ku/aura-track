@@ -72,8 +72,13 @@ const ENDINGS = [
   "а", "я", "ы", "и", "о", "е", "у", "ю", "ь", "й",
 ];
 
+// Короткие слова стеммер не трогает, а у «чая» основа — «чай»:
+// «продажи чая» не находили ни товаров, ни раздела «Чай» (26.09.2026)
+const SHORT_FORMS = { чая: "чай", чаю: "чай", чаем: "чай", чае: "чай", чаи: "чай", чаев: "чай", чаях: "чай", чаям: "чай" };
+
 export function stem(word) {
   let w = normalize(word);
+  if (SHORT_FORMS[w]) return SHORT_FORMS[w];
   if (w.length <= 3) return w;
   for (const e of ENDINGS) {
     if (w.length - e.length >= 3 && w.endsWith(e)) { w = w.slice(0, -e.length); break; }
