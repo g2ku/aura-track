@@ -8,7 +8,7 @@
 // Запуск: node test-business-day.mjs
 
 import { readFileSync } from "node:fs";
-import { businessDate, businessDateOfString, businessToday, DAY_START_HOUR, BUSINESS_HOURS, businessHourIndex, sumToNow } from "./src/businessDay.js";
+import { businessDate, businessDateOfString, businessToday, DAY_START_HOUR, BUSINESS_HOURS, businessHourIndex, sumToNow, businessDaysAgo } from "./src/businessDay.js";
 import { todayForecast } from "./src/chat/forecast.js";
 
 let passed = 0, failed = 0;
@@ -67,6 +67,16 @@ eq(sumToNow(null, 3, 0), 0, "нет данных — ноль");
 }
 ok(uses("src/components/CashLedger.jsx", /BUSINESS_HOURS\.map\(/), "график по часам — по рабочим суткам");
 ok(uses("src/components/CashLedger.jsx", /sumToNow\(yesterdayHourly\.buckets/), "«вчера к этому часу» — по рабочим суткам");
+
+// Периоды экранов продаж — от рабочего сегодня
+eq(businessDaysAgo(0, at("2026-09-27T01:55:00")), "2026-09-26", "ночью «сегодня» экранов — 26-е");
+eq(businessDaysAgo(6, at("2026-09-27T01:55:00")), "2026-09-20", "ночью «7 дней» — с 20-го по 26-е");
+eq(businessDaysAgo(29, at("2026-09-27T10:00:00")), "2026-08-29", "днём «30 дней» — как раньше, от календаря");
+eq(businessDaysAgo(1, at("2026-10-01T03:00:00")), "2026-09-29", "через границу месяца");
+for (const f of ["ReceiptsView", "TrafficHeatmap", "ProfitabilityMatrix", "PosterCompareView", "PosterView"]) {
+  const src = readFileSync(`src/components/${f}.jsx`, "utf8");
+  ok(/from "\.\.\/businessDay\.js"/.test(src) && !/d\.setDate\(d\.getDate\(\) - /.test(src) && !/const d = new Date\(\);\n\s*(const m|return `\$\{d\.getFullYear)/.test(src), `${f}: «сегодня» и «N дней» — рабочие`);
+}
 
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }

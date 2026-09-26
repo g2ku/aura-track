@@ -9,16 +9,14 @@ import { fetchPosterSales } from "../poster";
 import { loadMargin, calcRecipeCost } from "../margin";
 import { buildMatrix, matrixStats, periodDays, purchaseCosts } from "../menuMatrix.js";
 import { useAppStore } from "../store/useAppStore";
+import { businessToday, businessDaysAgo } from "../businessDay.js";
 
 function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessToday();
 }
 
 function daysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessDaysAgo(n);
 }
 
 const pct = (v) => `${v > 0 ? "" : ""}${v.toFixed(1)}%`;

@@ -20,20 +20,14 @@ import {
 import { fmt, nChecks } from "../utils";
 import { useToast } from "../ui";
 import { spotNameByPosterId, useUserBranch, getSpotNameForBranch } from "../auth.jsx";
+import { businessToday, businessDaysAgo } from "../businessDay.js";
 
 function today() {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return businessToday();
 }
 
 function monthAgo() {
-  const d = new Date();
-  d.setDate(d.getDate() - 29);
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return businessDaysAgo(29);
 }
 
 const PERIOD_PRESETS = [
@@ -43,16 +37,8 @@ const PERIOD_PRESETS = [
 ];
 
 function applyPreset(setFrom, setTo, days) {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - (days - 1));
-  const fmtDate = (d) => {
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${d.getFullYear()}-${m}-${day}`;
-  };
-  setFrom(fmtDate(from));
-  setTo(fmtDate(to));
+  setFrom(businessDaysAgo(days - 1));
+  setTo(businessToday());
 }
 
 // Кол-во: целые — как есть, дробные — с одной десятой.

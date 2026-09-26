@@ -9,16 +9,17 @@ import { fetchReceipts } from "../poster";
 import { fmt, nChecks } from "../utils";
 import { useToast } from "../ui";
 import { canSeeOpenChecks, useUserBranch, getUserSpotId, spotNameByPosterId } from "../auth.jsx";
+import { businessToday, businessDaysAgo } from "../businessDay.js";
 
+// «Сегодня» — рабочий день (до 05:00 ещё прошлый). В 01:55 календарное
+// 27-е давало у Poster 0 чеков, а в рабочем 26-м их было 1094 — с
+// ночными чеками Гагарины
 function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessToday();
 }
 
 function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessDaysAgo(n);
 }
 
 const PERIOD_PRESETS = [

@@ -59,3 +59,12 @@ export function sumToNow(buckets, hour, frac = 0) {
   }
   return s;
 }
+
+// N рабочих дней назад от рабочего сегодня — «ГГГГ-ММ-ДД». Экраны продаж
+// берут период отсюда: в 01:55 календарное «сегодня» — 27-е, в котором у
+// Poster ещё 0 чеков, а рабочий день 26-го — 1094 чека
+export function businessDaysAgo(n, now = Date.now()) {
+  const d = new Date(`${businessToday(now)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}

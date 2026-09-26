@@ -7,16 +7,14 @@ import { fmt } from "../utils";
 import { fetchCashPerDay } from "../poster";
 import { BRANCHES } from "../auth.jsx";
 import { LoadError } from "./Fallbacks.jsx";
+import { businessToday, businessDaysAgo } from "../businessDay.js";
 
 function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessToday();
 }
 
 function daysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessDaysAgo(n);
 }
 
 const SPOTS = Object.values(BRANCHES).map((b) => ({ id: b.spotId, name: b.spotName }));

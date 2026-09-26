@@ -12,20 +12,14 @@ import {
 } from "../poster";
 import { fmt } from "../utils";
 import { useToast } from "../ui";
+import { businessToday, businessDaysAgo } from "../businessDay.js";
 
 function today() {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return businessToday();
 }
 
 function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return businessDaysAgo(n);
 }
 
 function makeDefaultPeriods() {
