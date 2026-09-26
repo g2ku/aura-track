@@ -116,6 +116,7 @@ function looksLikeKeyword(word) {
 // Гагарина» делало «гагарина» товаром.
 function isSpotWord(word) {
   if (!word || word.length < 3) return false;
+  if (shortSpotTail(word)) return true;
   for (const alias of Object.keys(SPOT_ALIASES)) {
     if (alias.includes(" ") || SPOT_ALIASES[alias].branchId === "all") continue;
     if (matchPhrase(word, alias)) return true;
@@ -842,6 +843,19 @@ function parseComparisonPeriods(text) {
 
 // ─── Парсинг филиала ──────────────────────────────────────────────
 
+// Короткое название с хвостом: «обиай», «обишке» — «оби» в три буквы
+// нечёткий поиск ниже не берёт (от четырёх), а точный ждёт целое слово.
+// И с запинкой спереди: «обоби» (живой вопрос «как обоби» уходил в товар)
+function shortSpotTail(w) {
+  for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
+    if (alias.length !== 3 || entry.branchId === "all" || !/^[а-яё]+$/.test(alias)) continue;
+    // …но не настоящие слова: «обида», «обитый», «обилие»
+    if (w.startsWith(alias) && w.length > alias.length && w.length <= alias.length + 3 && !/^оби[дтл]/.test(w)) return entry;
+    if (w.endsWith(alias) && w.length > alias.length && w.length <= alias.length + 2) return entry;
+  }
+  return null;
+}
+
 function parseSpot(text) {
   const lower = normalize(text);
   let bestMatch = null;
@@ -854,14 +868,9 @@ function parseSpot(text) {
   }
   if (bestMatch) return bestMatch;
 
-  // Короткое название с хвостом: «обиай», «обишке» — «оби» в три буквы
-  // нечёткий поиск ниже не берёт (от четырёх), а точный ждёт целое слово
   for (const w of words(lower)) {
-    for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
-      if (alias.length !== 3 || entry.branchId === "all" || !/^[а-яё]+$/.test(alias)) continue;
-      // …но не настоящие слова: «обида», «обитый», «обилие»
-      if (w.startsWith(alias) && w.length > alias.length && w.length <= alias.length + 3 && !/^оби[дтл]/.test(w)) return entry;
-    }
+    const hit = shortSpotTail(w);
+    if (hit) return hit;
   }
 
   // «Гагарин», «на Дубае», «в Коктеме» — форма не из списка. Сравниваем
@@ -1203,7 +1212,10 @@ export async function parseQuestion(text) {
   const explicitPeriod = parsePeriodExplicit(lower);
   // «Как дела», «как торгуем», «что по деньгам» — это про сегодня, а не про месяц
   // «Что с Коктемом» — то же «как дела», если названа точка
-  const askingNow = /как\s+(?:дела|день|идут|идет|идёт)|торгуем|что\s+по\s+деньгам/.test(lower) || (spotNamed && /(?:^|\s)что\s+с\s/.test(lower));
+  // «Как Оби», «как там Гагарина» — одна точка и больше ничего: тоже «как дела»
+  const bareHow = spotNamed && /^как(?:\s|$)/.test(lower)
+    && words(lower).every((w) => /^(как|там|у|нас|на|в|во|сейчас|сегодня|дела|идут|идёт|идет)$/.test(w) || isSpotWord(w));
+  const askingNow = bareHow || /как\s+(?:дела|день|идут|идет|идёт)|торгуем|что\s+по\s+деньгам/.test(lower) || (spotNamed && /(?:^|\s)что\s+с\s/.test(lower));
   const period = explicitPeriod || (askingNow ? { from: fmtDate(new Date()), to: fmtDate(new Date()) } : currentMonthPeriod());
   // «Лучший день недели», «по дням недели» без срока — четыре полные
   // недели: за текущую неделю каждого дня по одному, сравнивать нечего
@@ -1358,7 +1370,8 @@ export async function parseQuestion(text) {
     ...(spot2 ? { spot2 } : {}),
     ...(products2 ? { products2 } : {}),
     // «Как дела», «как торгуем» — сводка «как идём», а не касса одной цифрой
-    ...(askingNow && !explicitPeriod ? { status: true } : {}),
+    // «Как Дубай сегодня» — то же самое: «сегодня» не делает сводку кассой
+    ...(askingNow && (!explicitPeriod || (explicitPeriod.from === fmtDate(new Date()) && explicitPeriod.to === explicitPeriod.from)) ? { status: true } : {}),
     product,
     category,
     ipGroup,

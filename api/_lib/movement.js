@@ -47,6 +47,16 @@ export function normalizeMovement(rows) {
   return out;
 }
 
+// Товары — выпечка, вода, пачки кофе — в справочнике ингредиентов не
+// значатся, а в menu.getProducts единица у них пустая. Остаток Poster
+// ведёт поштучно (проверено 26.09.2026: все 55 товаров — type 3,
+// weight_flag 0). Поэтому если справочник пришёл, всё, чего в нём нет, —
+// штуки. Без справочника не гадаем: пусто честнее, чем выдуманные «шт».
+export function unitFor(id, units) {
+  if (units[id]) return units[id];
+  return Object.keys(units).length ? "p" : "";
+}
+
 // Сводим точки в таблицу: строка на ингредиент, в ней колонки по филиалам.
 //
 // perBranch — { "Гагарина": normalizeMovement(...), ... }
@@ -61,7 +71,7 @@ export function buildMovementTable(perBranch, units = {}) {
         row = {
           id,
           name: v.name,
-          unit: units[id] || "",
+          unit: unitFor(id, units),
           price: v.price,
           byBranch: {},
           spent: 0,

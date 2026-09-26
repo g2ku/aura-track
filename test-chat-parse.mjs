@@ -193,6 +193,15 @@ section("Формулировки «как человек спросит» (пр
   eq((await ask("касса или чеки")).products2, undefined, "«касса или чеки» — не товары");
   eq((await ask("выручка обиай")).spot?.posterName, "OBI", "«обиай» — OBI (короткое название с хвостом)");
   {
+    // «Как Оби» — одна точка без метрики: сводка «как дела», а не касса за месяц
+    const a = await ask("как обоби");
+    eq([a.spot?.posterName, a.status, a.product ?? null], ["OBI", true, null], "«как обоби» — запинка, это OBI и «как дела», а не товар");
+    eq((await ask("как там гагарина")).status, true, "«как там Гагарина» — как дела у точки");
+    eq((await ask("как дубай сегодня")).status, true, "«как Дубай сегодня» — тоже сводка");
+    eq((await ask("как оби вчера")).status, undefined, "а «вчера» — уже касса за день");
+    eq((await ask("как круассаны на оби")).status, undefined, "товар назван — не сводка");
+  }
+  {
     const v = await ask("как вчера по сравнению с прошлой пятницей");
     eq(v.operation, "percentChange", "«по сравнению с прошлой пятницей» — сравнение дней, а не точек");
     const d1 = new Date(v.period.from + "T00:00:00"), d2 = new Date(v.period2.from + "T00:00:00");

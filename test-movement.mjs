@@ -77,6 +77,16 @@ section("Таблица: строка на ингредиент, колонка 
 }
 
 {
+  // Товары (Пончик, пачка кофе) в справочнике ингредиентов не значатся:
+  // было «-430» без единицы, стало «-430 шт»
+  const t = buildMovementTable({ "Дубай": normalizeMovement([MILK, { ingredient_id: "27", ingredient_name: "Пончик", write_offs: 3, end: 5 }]) }, { "41": "l" });
+  eq(t.find((x) => x.id === "27").unit, "p", "товар без единицы считается в штуках");
+  eq(t.find((x) => x.id === "41").unit, "l", "у ингредиента единица из справочника");
+  const bare = buildMovementTable({ "Дубай": normalizeMovement([{ ingredient_id: "27", ingredient_name: "Пончик", write_offs: 3, end: 5 }]) }, {});
+  eq(bare[0].unit, "", "справочник не пришёл — не выдумываем");
+}
+
+{
   // Сверху то, на что ушло больше денег
   const table = buildMovementTable({
     "Дубай": normalizeMovement([
