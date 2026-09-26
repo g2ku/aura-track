@@ -24,7 +24,8 @@ const nb = (s) => String(s).replace(/[  ]/g, " ");
 // Дни: 4 — Абая, 9 — Дубай, 11 — Рамс (ИП Алуа). Поставим сегодня
 // настоящим, чтобы «вчера» в разборе совпало с данными.
 const shift = (ymd, n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const TODAY = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+// «Сегодня» — рабочее, как у бота: до 05:00 ещё вчера (иначе ночью тест врёт)
+const TODAY = (() => { const d = new Date(Date.now() - 5 * 3600000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
 const Y = shift(TODAY, -1);
 const hoursFor = (k) => { const cash = Array(24).fill(0), tx = Array(24).fill(0); cash[9] = 30000 * k; tx[9] = 12 * k; cash[14] = 50000 * k; tx[14] = 20 * k; cash[19] = 20000 * k; tx[19] = 8 * k; return { cash, tx }; };
 const day = (date, k = 1) => ({

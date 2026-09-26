@@ -42,13 +42,14 @@ section("Итог дня из чеков — как в клиенте");
     { spot_id: 4, payed_sum: "3000", date_close: "2026-09-17 12:00:00", products: [{ product_id: 2, modification_id: 7, num: 2, payed_sum: 3000 }] },
     { spot_id: 9, payed_sum: "2000", date_open: "2026-09-17 09:00:00", products: [{ product_id: 99, num: 1, payed_sum: 2000 }] },
     { spot_id: 9, payed_sum: "0", date_close: "2026-09-17 13:00:00", products: [] },          // пустой — не чек
-    { spot_id: 9, payed_sum: "500", date_close: "2026-09-18 00:30:00", products: [] },        // чужой день
+    { spot_id: 9, payed_sum: "500", date_close: "2026-09-18 00:30:00", products: [] },        // ночь после смены — ещё 17-е (рабочие сутки)
+    { spot_id: 9, payed_sum: "700", date_close: "2026-09-18 07:30:00", products: [] },        // утро 18-го — чужой день
   ];
   const r = rollupDay("2026-09-17", txs, menu);
   eq(r.date, "2026-09-17", "дата");
-  eq(r.transactionsCount, 3, "три чека: нулевой и чужой день не считаются");
-  eq(r.txBySpot, { "4": 2, "9": 1 }, "чеки по точкам");
-  eq(r.cashBySpot, { "4": 4500, "9": 2000 }, "касса по точкам");
+  eq(r.transactionsCount, 4, "четыре чека: нулевой и утро следующего дня не считаются, ночь — считается");
+  eq(r.txBySpot, { "4": 2, "9": 2 }, "чеки по точкам");
+  eq(r.cashBySpot, { "4": 4500, "9": 2500 }, "касса по точкам");
   eq(r.rowsBySpot["4"], { "Латте 0,4": { qty: 1, sum: 1500 }, "Капучино L": { qty: 2, sum: 3000 } }, "товары по названиям из меню");
   eq(r.rowsBySpot["9"], { "Товар #99": { qty: 1, sum: 2000 } }, "неизвестный товар — «Товар #id», как в клиенте");
   eq(r.hasProducts, true, "с товарами");
@@ -140,36 +141,39 @@ section("Оплаты — только закрытых чеков, как ка�
   eq(aggregatePayDay(rows).total, { 11: 1500 }, "на сайте — то же правило");
 }
 
-section("Ночные чеки: день — по закрытию по Алматы");
+section("Рабочие сутки 05:00–05:00, как у Poster");
 
 {
-  // На боевых данных 25.09.2026: сутки Poster — по Москве. Чеки, закрытые
-  // 24.09 с 00:00 до ~02:00 по Алматы (17 шт., 38 400 ₸), лежали во
-  // «вчерашних» сутках и не попадали ни в 23-е (чужой день), ни в 24-е.
-  // А dash за 24-е отдавал 24 чека, закрытых 25.09 ночью, — оплаты
-  // выходили на 2 % больше кассы, и сверка ругалась каждый день
-  const { closedOnDay, addEarlyChecks, payDayFrom, rollupMismatch, rollupDay } = await import("./api/_lib/salesRollup.js");
+  // 27.09.2026: сутки Poster — рабочие, а не московские: transactions за
+  // 25.09 отдаёт чеки до 26.09 03:01 (Гагарина). Версия 4 перекладывала
+  // ночь в следующий календарный день: Гагарина за 25.09 — на 21 454 ₸
+  // меньше Poster, за 26.09 — на 35 855 ₸ больше
+  const { closedOnDay, addEarlyChecks, payDayFrom, rollupMismatch, rollupDay, ROLLUP_VERSION } = await import("./api/_lib/salesRollup.js");
   const at = (s) => new Date(s + "+05:00").getTime();
   const dash = [
-    { transaction_id: 1, status: "2", spot_id: 2, payed_sum: 250000, payment_method_id: 11, date_close: at("2026-09-24T00:40:00") }, // ночь на 24-е — наш
-    { transaction_id: 2, status: "2", spot_id: 2, payed_sum: 100000, payment_method_id: 11, date_close: at("2026-09-24T12:00:00") }, // день — наш, есть и в transactions
-    { transaction_id: 3, status: "2", spot_id: 2, payed_sum: 180000, payment_method_id: 0, date_close: at("2026-09-25T00:30:00") },  // ночь на 25-е — не наш
-    { transaction_id: 4, status: "2", spot_id: 2, payed_sum: 90000, payment_method_id: 11, date_close: at("2026-09-23T23:10:00") },  // 23-е — не наш
-    { transaction_id: 5, status: "1", spot_id: 2, payed_sum: 50000, date_start: at("2026-09-24T20:00:00"), date_close: "0" },          // открытый — не деньги
+    { transaction_id: 1, status: "2", spot_id: 1, payed_sum: 250000, payment_method_id: 11, date_close: at("2026-09-24T00:40:00") }, // ночь прошлой смены — 23-е
+    { transaction_id: 2, status: "2", spot_id: 1, payed_sum: 100000, payment_method_id: 11, date_close: at("2026-09-24T12:00:00") }, // день — наш
+    { transaction_id: 3, status: "2", spot_id: 1, payed_sum: 180000, payment_method_id: 0, date_close: at("2026-09-25T01:30:00") },  // своя ночь — наш
+    { transaction_id: 4, status: "2", spot_id: 1, payed_sum: 90000, payment_method_id: 11, date_close: at("2026-09-25T07:10:00") },  // утро 25-го — не наш
+    { transaction_id: 5, status: "1", spot_id: 1, payed_sum: 50000, date_start: at("2026-09-24T20:00:00"), date_close: "0" },          // открытый — не деньги
   ];
   const closed = closedOnDay(dash, "2026-09-24");
-  eq(closed.map((t) => t.transaction_id), [1, 2], "в 24-е — только чеки, закрытые 24-го по Алматы");
+  eq(closed.map((t) => t.transaction_id), [2, 3], "24-е — день и своя ночь до 05:00; прошлая ночь и утро 25-го — нет");
 
-  // transactions за сутки Poster 24-го: дневной чек есть, ночного на 24-е нет
-  const txs = [{ transaction_id: 2, spot_id: 2, payed_sum: "1000", date_close: "2026-09-24 12:00:00", products: [] }];
+  // transactions за сутки Poster 24-го — ровно это: день и своя ночь
+  const txs = [
+    { transaction_id: 2, spot_id: 1, payed_sum: "1000", date_close: "2026-09-24 12:00:00", products: [] },
+    { transaction_id: 3, spot_id: 1, payed_sum: "1800", date_close: "2026-09-25 01:30:00", products: [] },
+  ];
   const doc = addEarlyChecks(rollupDay("2026-09-24", txs, {}), closed, new Set(txs.map((t) => String(t.transaction_id))));
-  eq(doc.cashBySpot["2"], 3500, "касса дня — с ночным чеком (1 000 + 2 500)");
-  eq(doc.txBySpot["2"], 2, "и чеков два");
-  eq(doc.early, { n: 1, sum: 2500 }, "ночные посчитаны и помечены");
-  eq(doc.hours["2"].cash[0], 2500, "в часах — в 00:00");
+  eq(doc.cashBySpot["1"], 2800, "касса дня — со своей ночью (1 000 + 1 800), как в Poster");
+  eq(doc.txBySpot["1"], 2, "и чеков два");
+  eq(doc.early, undefined, "догружать из dash нечего — Poster уже отдал ночь");
+  eq(doc.hours["1"].cash[1], 1800, "ночной чек — в часе 01:00");
   const pay = payDayFrom(closed);
-  eq(Object.values(pay.total).reduce((a, b) => a + b, 0), 3500, "оплаты — по тем же чекам");
+  eq(Object.values(pay.total).reduce((a, b) => a + b, 0), 2800, "оплаты — по тем же чекам");
   eq(rollupMismatch(doc, pay), null, "касса и оплаты сходятся — ложной тревоги нет");
+  ok(ROLLUP_VERSION >= 5, "версия итогов поднята — старые дни пересоберутся");
 }
 
 section("Ответ клиенту");
@@ -239,7 +243,7 @@ section("Клиент: серверные дни — в кэш, в Poster тол
   eq(calls.slice(before).filter((u) => u.startsWith("/api/sales-days") || u.includes("dash.getTransactions")).length, 0, "ни к серверу, ни в Poster — всё уже в кэше");
 
   // Сервер недоступен — работаем как раньше
-  globalThis.localStorage.removeItem("supply-track.poster.salesByDay.v15");
+  globalThis.localStorage.removeItem((await import("./src/storageHygiene.js")).SALES_DAY_KEY);
   globalThis.fetch = async (url) => {
     const u = String(url);
     if (u.startsWith("/api/sales-days")) return new Response("<!doctype html>", { status: 200, headers: { "Content-Type": "text/html" } });
@@ -274,7 +278,7 @@ section("Полугодие — по месяцам, без товаров ле�
 
 {
   const calls = [];
-  globalThis.localStorage.removeItem("supply-track.poster.salesByDay.v15");
+  globalThis.localStorage.removeItem((await import("./src/storageHygiene.js")).SALES_DAY_KEY);
   globalThis.fetch = async (url) => {
     const u = String(url); calls.push(u);
     if (u.startsWith("/api/sales-days")) {
@@ -307,7 +311,7 @@ section("Ручка и сторож собраны правильно");
   ok(api.includes("clampRange("), "границы запроса проверяются");
   const watch = readFileSync("api/tg/watch.js", "utf8");
   const body = watch.slice(watch.indexOf("export default async function handler"));
-  ok(/config\.salesRollupTime && config\.lastSalesRollupDate !== today && nowHM >= config\.salesRollupTime/.test(body), "ночью, раз в день, выключается пустым временем");
+  ok(/config\.salesRollupTime && config\.lastSalesRollupDate !== today && nowHM >= rollupAt/.test(body) && /< "05:05" \? "05:05"/.test(body), "раз в день, не раньше 05:05 (рабочие сутки кончаются в 05:00), выключается пустым временем");
   ok(/pending\.length - done <= 0 \|\| \(batch\.length && !done\)/.test(body), "метка ставится, когда всё собрано — или когда Poster лежит, чтобы не долбить его весь день");
   ok(body.includes("payDayFrom(closed)") && body.includes("rollupDay(day, txs, menu)") && body.includes("closedOnDay(dash, day)"), "в документ идут и чеки с товарами, и способы оплаты — по дню закрытия по Алматы");
   ok(/dashTransactions\(shiftYmd\(day, -1\)/.test(body), "dash — за двое суток Poster: ночные чеки лежат во вчерашних");

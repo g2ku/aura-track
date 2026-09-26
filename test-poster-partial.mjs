@@ -31,14 +31,16 @@ const log = console.log; console.log = () => {}; console.warn = () => {};
 const { fetchPosterSales, fetchCashBySpot, fetchCashPerDay, fetchHoursByDay, fetchHourlyCurve } = await import("./src/poster.js");
 console.log = log;
 
-const now = new Date();
+// «Сегодня» кассы — рабочие сутки (до 05:00 — ещё вчера): тест не должен
+// падать, если его гоняют ночью
+const now = new Date(Date.now() - 5 * 3600000);
 const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 const dash = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 const today = ymd(now);
 const back = (n) => { const d = new Date(now); d.setDate(d.getDate() - n); return ymd(d); };
 
 // Шесть прошлых дней — в кэше (так их кладут ночные итоги), сегодня — нет
-const CACHE_KEY = "supply-track.poster.salesByDay.v15";
+const { SALES_DAY_KEY: CACHE_KEY } = await import("./src/storageHygiene.js");
 const cache = {};
 for (let i = 1; i <= 6; i++) cache[back(i)] = { ts: Date.now(), transactionsCount: 10, txBySpot: { 4: 10 }, cashBySpot: { 4: 100000 }, rowsBySpot: { 4: { "Латте": { qty: 10, sum: 100000 } } }, hasProducts: true };
 mem.set(CACHE_KEY, JSON.stringify(cache));
@@ -163,29 +165,37 @@ section("Метка ночной сверки доезжает от сервер
   globalThis.fetch = prevFetch;
 }
 
-section("Касса сегодня — с ночными чеками из вчерашних суток Poster");
+section("Рабочие сутки, как у Poster: ночь — ещё тот же день");
 
 {
-  // 25.09.2026: сутки Poster — по Москве. Чек, закрытый у нас в 00:40,
-  // лежит во вчерашних сутках, и «касса сегодня» его не видела
+  // 27.09.2026: сутки Poster — рабочие, а не московские: transactions за
+  // 25.09 отдаёт чеки до 26.09 03:01. Раньше сайт брал «ночные чеки» из
+  // вчерашнего dash и приписывал их следующему дню, а свой ночной хвост
+  // выкидывал: Гагарина за 26.09 — 264 205 ₸ на сайте при 228 350 в Poster
   mem.clear();
   mem.set("supply-track.poster.spots.v1", JSON.stringify({ ts: Date.now(), data: { 4: { name: "Aura02_Abaya" } } }));
-  const at = (h, m) => { const d = new Date(now); d.setHours(h, m, 0, 0); return d.getTime(); };
-  const str = (h, m) => { const d = new Date(at(h, m)); const p = (v) => String(v).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(h)}:${p(m)}:00`; };
+  const str = (dayShift, h, m) => { const d = new Date(now); d.setDate(d.getDate() + dayShift); const p = (v) => String(v).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(h)}:${p(m)}:00`; };
+  const seen = [];
+  const prevFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
+    seen.push(u);
     const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
     if (u.includes("/api/sales-days")) return json({ days: {} });
-    if (u.includes("transactions.getTransactions")) return json({ response: { count: 1, data: [{ transaction_id: 11, spot_id: 4, payed_sum: "2000", date_close: str(10, 0), products: [] }] } });
+    if (u.includes("transactions.getTransactions")) return json({ response: { count: 2, data: [
+      { transaction_id: 11, spot_id: 4, payed_sum: "2000", date_close: str(0, 10, 0), products: [] },
+      { transaction_id: 12, spot_id: 4, payed_sum: "1500", date_close: str(1, 1, 18), products: [] },   // ночь после смены — её же день
+    ] } });
     if (u.includes("dash.getTransactions")) return json({ response: [
-      { transaction_id: 10, status: "2", spot_id: 4, payed_sum: 150000, date_close: at(0, 40) },  // сегодня 00:40 — наш
-      { transaction_id: 11, status: "2", spot_id: 4, payed_sum: 200000, date_close: at(10, 0) },  // уже есть в transactions
+      { transaction_id: 10, status: "2", spot_id: 4, payed_sum: 90000, date_close: new Date(now).setHours(0, 40, 0, 0) },  // прошлая ночь — не наша
     ] });
     return json({ response: [] });
   };
   const r = await fetchPosterSales(dash(today), dash(today), { withProducts: false });
-  eq(r.cashBySpot, { 4: 3500 }, "касса сегодня — с ночным чеком (2 000 + 1 500)");
+  eq(r.cashBySpot, { 4: 3500 }, "касса дня — со своей ночью (2 000 + 1 500), без чужой (900)");
   eq(r.txBySpot, { 4: 2 }, "и чеков два");
+  ok(!seen.some((u) => u.includes("dash.getTransactions")), "вчерашний dash за «ночными чеками» больше не нужен");
+  globalThis.fetch = prevFetch;
 }
 
 section("Скидка у Poster — процент; в деньгах — разница «до» и «после»");

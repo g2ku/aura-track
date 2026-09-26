@@ -28,6 +28,7 @@ import {
 } from "./openChecks.js";
 import { BRANCHES } from "./branches.js";
 import { SALES_DAY_KEY, PAY_DAY_KEY, fitDayCache } from "./storageHygiene.js";
+import { businessDate, businessDateOfString, businessToday } from "./businessDay.js";
 
 // Реэкспорт: экраны берут это из poster.js вместе с остальными данными
 export {
@@ -281,9 +282,9 @@ export function getPaymentMethodName(id) {
 }
 
 
+// «Сегодня» кассы — рабочие сутки: до 05:00 это ещё вчера (см. businessDay.js)
 function todayYmd() {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  return businessToday().replace(/-/g, "");
 }
 
 // Разбивка по способам оплаты — с кэшем по дням.
@@ -324,11 +325,11 @@ function writePayDays(cache) {
 // открытия. Часовой пояс браузерный, он же алматинский.
 // День строки — по Алматы явно, а не по часам телефона: у телефона в
 // другом поясе ночные чеки уезжали бы в соседний день
-const ALMATY_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit" });
+// Сутки — рабочие, как у Poster: чек до 05:00 — ещё прошлый день
 export function dayOfRow(tx) {
   const ms = Number(tx.date_close) || Number(tx.date_start) || Number(tx.date_start_new) || 0;
   if (!ms) return null;
-  return ALMATY_DAY.format(new Date(ms)).replace(/-/g, "");
+  return businessDate(ms).replace(/-/g, "");
 }
 
 // Свод одного дня: суммы по способам оплаты и сырые открытые чеки.
@@ -443,16 +444,11 @@ export async function fetchPaymentBreakdown(dateFrom, dateTo, opts = {}) {
 
   if (need.length) {
     // Один запрос на весь недостающий отрезок — так же, как грузятся
-    // продажи. И отдельно — сутки Poster перед ним: они по Москве, и чеки,
-    // закрытые у нас после полуночи первого дня, лежат там. Отдельно, а не
-    // одним отрезком: прошедшие сутки прокси кэширует на день, а отрезок до
-    // сегодня — на 15 секунд, и главная при каждом обновлении качала бы
-    // вчерашний день заново. Лишнее отрежет группировка по дню закрытия
-    const [main, prevDay] = await Promise.all([
-      call("dash.getTransactions", dashDates(need[0], need[need.length - 1]), opts),
-      call("dash.getTransactions", dashDates(shiftYmd(need[0], -1), shiftYmd(need[0], -1)), opts).catch(() => null),
-    ]);
-    const data = { response: [...(main?.response || []), ...(prevDay?.response || []).filter((t) => dayOfRow(t) === need[0] && !isOpenCheck(t))] };
+    // продажи. Сутки Poster — рабочие (ночь до ~03:00 — ещё этот день),
+    // поэтому соседние сутки не нужны: раньше из вчерашних брали «ночные
+    // чеки» и приписывали их следующему дню (27.09.2026)
+    const main = await call("dash.getTransactions", dashDates(need[0], need[need.length - 1]), opts);
+    const data = { response: [...(main?.response || [])] };
     const byDay = new Map(need.map((d) => [d, []]));
     const lastDay = need[need.length - 1];
     for (const tx of data?.response || []) {
@@ -620,9 +616,7 @@ function getCachedDay(yyyymmdd, needProducts = true) {
   if (!entry) return null;
   if (needProducts && entry.hasProducts === false) return null;
   // Сегодняшний день — не кэшируем (всегда свежие данные)
-  const today = new Date();
-  const todayYMD = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
-  if (yyyymmdd === todayYMD) return null;
+  if (yyyymmdd === todayYmd()) return null;
   // Прошлые дни — кэш 24ч
   if (Date.now() - (entry.ts || 0) > CACHE_TTL_MS) return null;
   // Защита от устаревших записей со сломанным матчингом имён
@@ -1621,27 +1615,10 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
       });
       for (const arr of results) allData.push(...arr);
     }
-    // Ночные чеки первого дня: закрыты у нас после полуночи, а в сутках
-    // Poster (по Москве) числятся вчерашними — transactions за этот день
-    // их не отдаёт, и «касса сегодня» теряла их (25.09.2026: ~1,8 % дня).
-    // Берём из dash за вчерашние сутки — прокси кэширует их на день
-    try {
-      const prev = shiftYmd(uncachedFrom, -1);
-      const d = await call("dash.getTransactions", dashDates(prev, prev), opts);
-      const have = new Set(allData.map((t) => String(t.transaction_id)));
-      for (const t of d?.response || []) {
-        if (String(t.status) !== "2" || have.has(String(t.transaction_id))) continue;
-        if (dayOfRow(t) !== uncachedFrom) continue;
-        allData.push({
-          transaction_id: t.transaction_id, spot_id: t.spot_id,
-          payed_sum: Number(t.payed_sum || 0) / 100,
-          date_close: almatyTimeString(t.date_close), products: [],
-        });
-      }
-    } catch (e) {
-      if (e?.name === "AbortError") throw e;
-      /* без ночных чеков — как раньше */
-    }
+    // Ночные чеки догружать не надо: сутки Poster — рабочие, до ~05:00,
+    // и transactions за день уже отдаёт ночь этого дня (Гагарина до 03:00).
+    // Раньше их брали из вчерашнего dash и приписывали следующему дню —
+    // касса Гагарины расходилась с Poster на десятки тысяч (27.09.2026)
   } catch (e) {
     if (uncachedDays.length >= days.length) throw e;
     fetchError = e;
@@ -1658,8 +1635,9 @@ export async function fetchPosterSales(dateFrom, dateTo, opts = {}) {
     if (payedSum === 0) continue;
     const spotId = String(tx.spot_id || "");
 
-    const dateClose = (tx.date_close || "").slice(0, 10).replace(/-/g, "");
-    const dateOpen = (tx.date_open || "").slice(0, 10).replace(/-/g, "");
+    // День чека — рабочий, как у Poster: закрытый в 01:18 — ещё вчерашний
+    const dateClose = (businessDateOfString(tx.date_close) || "").replace(/-/g, "");
+    const dateOpen = (businessDateOfString(tx.date_open) || "").replace(/-/g, "");
     const dateStr = byDay[dateClose] ? dateClose : (byDay[dateOpen] ? dateOpen : null);
     if (dateStr) {
       byDay[dateStr].push(tx);

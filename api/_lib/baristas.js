@@ -12,6 +12,7 @@
 
 import { spotNameByPosterId } from "./branches.js";
 import { localDateStr, localMinutesOfDay } from "./time.js";
+import { businessDate, DAY_START_HOUR } from "../../src/businessDay.js";
 
 const num = (v) => {
   const n = Number(v);
@@ -24,9 +25,10 @@ const num = (v) => {
 // 25.09: 00:56–23:56» — будто 23 часа за прилавком, а «кто работал
 // вчера» показывал вчерашнюю ночь (живая проверка 26.09.2026). Чек до
 // 05:00 — это ещё прошлая смена.
-export const WORKDAY_START_HOUR = 5;
+// Граница — общая с кассой (src/businessDay.js): рабочие сутки Poster
+export const WORKDAY_START_HOUR = DAY_START_HOUR;
 export function workDay(ms) {
-  return localDateStr(Number(ms) - WORKDAY_START_HOUR * 3600000);
+  return businessDate(ms);
 }
 
 // Только чеки спрошенных дней (по Алматы). Если Poster отдал другой срок —

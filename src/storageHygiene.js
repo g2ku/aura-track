@@ -15,8 +15,10 @@
 // Чистые функции над storage: в node проверяются подменой.
 
 // Текущие ключи кэшей. Меняя версию — меняйте здесь: прошлая сотрётся сама
-export const SALES_DAY_KEY = "supply-track.poster.salesByDay.v15";
-export const PAY_DAY_KEY = "supply-track.poster.payByDay.v3";
+// v16 / v4 (27.09.2026) — рабочие сутки 05:00–05:00, как у Poster: дни,
+// разложенные по календарю, в кэше неверны у ночных точек (Гагарина)
+export const SALES_DAY_KEY = "supply-track.poster.salesByDay.v16";
+export const PAY_DAY_KEY = "supply-track.poster.payByDay.v4";
 export const HOURLY_PREFIX = "supply-track.poster.hourly.";
 
 // Кэш дней — не больше этого (символов JSON). Хранилище браузера — около

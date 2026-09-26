@@ -38,6 +38,7 @@ import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTi
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt, describeDayList, nChecks, plural } from "../utils.js";
+import { businessToday } from "../businessDay.js";
 import { BRANCHES, spotNameByPosterId } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
@@ -182,7 +183,7 @@ function pctChange(a, b) {
 // первый период — по вчера, второй — той же длины от своего начала, то
 // есть с теми же днями недели
 function fullDaysOnly(p1, p2) {
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   if (!p1 || !p2 || p1.to < todayIso || p1.from >= todayIso) return { p1, p2, cutNote: "" };
   const y = new Date(todayIso + "T00:00:00");
   y.setDate(y.getDate() - 1);
@@ -279,7 +280,7 @@ async function executeInner(parsed, userBranch) {
     // обычного к этому часу; если продаж ещё нет (ночь, утро) — как прошёл
     // вчерашний день, с причинами. Раньше ночью было «0 ₸» (26.09.2026)
     if (parsed.status && ["cash", "checks", "avgCheck"].includes(metric)) {
-      const todayIso = fmtDateJS(new Date());
+      const todayIso = businessToday();
       let rows = (await fetchCashBySpot(todayIso, todayIso)).filter((d) => matchesSpot(d, effectiveSpot));
       rows = await filterByIPGroup(rows, ipGroup);
       const cashNow = rows.reduce((a, d) => a + (d.total || 0), 0);
@@ -320,7 +321,7 @@ async function executeInner(parsed, userBranch) {
 
     // Метрики «про сейчас» — раньше разрезов: «во сколько открылась»
     // несёт слово «во сколько», но это не пик по часам
-    if (metric === "opening") return await handleOpening(effectiveSpot, parsed.assumed?.period ? { from: fmtDateJS(new Date()), to: fmtDateJS(new Date()) } : period, parsed.raw);
+    if (metric === "opening") return await handleOpening(effectiveSpot, parsed.assumed?.period ? { from: businessToday(), to: businessToday() } : period, parsed.raw);
     if (metric === "payments") return await handlePayments(effectiveSpot, period, ipGroup, parsed.raw);
     if (metric === "openChecks") return await handleOpenChecks(effectiveSpot);
     if (metric === "alerts") return await handleAlerts();
@@ -330,19 +331,19 @@ async function executeInner(parsed, userBranch) {
     if (metric === "deleted") return await handleDeleted(effectiveSpot, period, ipGroup);
     // Часы внутри дня: «касса до обеда», «чеки после 18» — по чекам
     if (parsed.hours && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
-      const p = parsed.assumed?.period ? { from: fmtDateJS(new Date()), to: fmtDateJS(new Date()) } : period;
+      const p = parsed.assumed?.period ? { from: businessToday(), to: businessToday() } : period;
       return await handleHours(metric, effectiveSpot, p, parsed.hours, ipGroup);
     }
 
     // Operations that work across metrics
     if (operation === "trend") return await handleTrend(metric, effectiveSpot, period, ipGroup);
     // Прогноз на сегодня — по форме дня; на месяц — по истории месяцев
-    if (operation === "forecast" && period.from === period.to && period.to === fmtDateJS(new Date())) return await handleTodayForecast(effectiveSpot, ipGroup);
+    if (operation === "forecast" && period.from === period.to && period.to === businessToday()) return await handleTodayForecast(effectiveSpot, ipGroup);
     // Месяц, который идёт сейчас: «прогноз на конец месяца», «сколько
     // сделаем в сентябре» — сделанное плюс оставшиеся дни. Раньше любой
     // прогноз уходил в «следующий месяц» по регрессии: на «конец месяца»
     // 27 сентября отвечало «прогноз на октябрь» (живая проверка 27.09.2026)
-    if (operation === "forecast" && period.from <= fmtDateJS(new Date()) && period.to >= fmtDateJS(new Date())) return await handleMonthForecast(effectiveSpot, period, ipGroup);
+    if (operation === "forecast" && period.from <= businessToday() && period.to >= businessToday()) return await handleMonthForecast(effectiveSpot, period, ipGroup);
     if (operation === "forecast") return await handleForecast(metric, effectiveSpot, period, ipGroup);
     if (operation === "bestDays" || operation === "worstDays") return await handleTopDays(metric, effectiveSpot, period, ipGroup, operation === "worstDays", parsed.limit || 3);
     if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
@@ -386,7 +387,7 @@ const WEEKDAY_ACC_PL = ["воскресеньям", "понедельникам"
 
 async function handleTodayForecast(spot, ipGroup) {
   const { todayForecast } = await import("./forecast.js");
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const sl = label(spot);
   let rows = (await fetchCashBySpot(todayIso, todayIso)).filter((d) => matchesSpot(d, spot));
   rows = await filterByIPGroup(rows, ipGroup);
@@ -476,7 +477,7 @@ async function handleProductPair(spot, period, pair, ipGroup) {
 // перед периодом. Только закончившиеся дни: сегодняшний ещё идёт.
 async function handleWhy(spot, period, ipGroup) {
   const { explainChange, usualWeekday } = await import("./why.js");
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const sl = label(spot);
   const shift = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return fmtDateJS(x); };
   if (period.from >= todayIso) {
@@ -795,7 +796,7 @@ async function handleCash(operation, spot, period, ipGroup) {
   if (operation === "average" && filtered.length > 0) {
     // Среднее в день — по закончившимся дням: неполный сегодняшний день
     // тянул его вниз (половина дня делилась как целый)
-    const todayIso = fmtDateJS(new Date());
+    const todayIso = businessToday();
     if (period.to >= todayIso && period.from < todayIso) {
       const y = new Date(todayIso + "T00:00:00");
       y.setDate(y.getDate() - 1);
@@ -855,7 +856,7 @@ async function handleCash(operation, spot, period, ipGroup) {
 // точку с наибольшим числом чеков. Тянем сами чеки, но не дальше месяца:
 // за год их сотни тысяч, и ответ не стоит такого трафика
 async function handleBiggestReceipts(spot, period, ipGroup) {
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const to = period.to > todayIso ? todayIso : period.to;
   const days = daysInPeriod(period.from, to);
   let from = period.from;
@@ -1017,7 +1018,7 @@ async function handleNotSold(spot, period, ipGroup) {
   ]);
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
-  const days = daysInPeriod(period.from, period.to > fmtDateJS(new Date()) ? fmtDateJS(new Date()) : period.to) || 1;
+  const days = daysInPeriod(period.from, period.to > businessToday() ? businessToday() : period.to) || 1;
   const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
   const ok = (row) => matchesRowSpot(row, spot) && (!groupBranches || matchesIPGroup(row.spotName, groupBranches));
   const sold = new Set();
@@ -1385,7 +1386,7 @@ async function handleTax(operation, spot, period, ipGroup) {
 // брались чеки transactions.getTransactions без открытых: имён в них нет,
 // и ассистент отвечал «Poster их не отдал», хотя экран чеков их показывал.
 async function handleStaff(spot, period, ipGroup, parsed) {
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const to = period.to > todayIso ? todayIso : period.to;
   let from = period.from;
   let note = "";
@@ -1505,7 +1506,7 @@ async function handleStaff(spot, period, ipGroup, parsed) {
 // поиск товара «удаленные» и честно отвечал, что такого товара нет.
 const ALMATY_HM = new Intl.DateTimeFormat("ru-RU", { timeZone: "Asia/Almaty", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 async function handleDeleted(spot, period, ipGroup) {
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const to = period.to > todayIso ? todayIso : period.to;
   let from = period.from > to ? to : period.from;
   let note = "";
@@ -1573,7 +1574,7 @@ async function handleDeleted(spot, period, ipGroup) {
 // «Сколько скидок дали за неделю» — сумма скидок в чеках и их доля от
 // того, что могли бы взять. Не дальше месяца: чеки за год не нужны.
 async function handleDiscounts(spot, period, ipGroup) {
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const to = period.to > todayIso ? todayIso : period.to;
   let from = period.from;
   let note = "";
@@ -1627,7 +1628,7 @@ async function handleDiscounts(spot, period, ipGroup) {
 // чеков, закрытых в это окно. Не дальше месяца: чеков за год слишком
 // много, а вопрос обычно про сегодня или вчера.
 async function handleHours(metric, spot, period, hours, ipGroup) {
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const to = period.to > todayIso ? todayIso : period.to;
   let from = period.from;
   let note = "";
@@ -2103,7 +2104,7 @@ async function handleTrend(metric, spot, period, ipGroup) {
 // Сегодняшний неполный день в «сделано» не идёт, он — в оставшихся.
 async function handleMonthForecast(spot, period, ipGroup) {
   const { monthForecast } = await import("./forecast.js");
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const shift = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return fmtDateJS(x); };
   const yest = shift(todayIso, -1);
   const sl = label(spot);
@@ -2220,7 +2221,7 @@ const WEEKEND = new Set([0, 6]);
 // а спрашивали, какого числа была рекордная касса. Средние по дням недели
 // остаются одной строкой внизу — они объясняют, почему лидируют субботы.
 async function handleTopDays(metric, spot, period, ipGroup, worst, limit = 3) {
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   let perDay = await fetchCashPerDay(period.from, period.to > todayIso ? todayIso : period.to);
   perDay = perDay.filter((d) => matchesSpot({ spotId: d.spotId, spotName: d.spotName }, spot));
   perDay = await filterByIPGroup(perDay, ipGroup);
@@ -2339,7 +2340,7 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
     const keys = Object.keys(byDate).sort();
     if (!keys.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
     const shown = keys.slice(-62);
-    const todayKey = fmtDateJS(new Date()).replace(/-/g, "");
+    const todayKey = businessToday().replace(/-/g, "");
     const useTx = metric === "checks";
     const rows = shown.map((k) => {
       const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
@@ -2369,7 +2370,7 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
 
   const acc = weekdayNames.map((name) => ({ name, total: 0, tx: 0, days: 0 }));
   // Сегодняшний неполный день в среднее своего дня недели не идёт
-  const todayKeyW = fmtDateJS(new Date()).replace(/-/g, "");
+  const todayKeyW = businessToday().replace(/-/g, "");
   for (const [k, v] of Object.entries(byDate)) {
     if (k.replace(/-/g, "") === todayKeyW) continue;
     const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
@@ -2448,7 +2449,7 @@ async function handleByHour(metric, spot, period, ipGroup) {
       for (let h = 0; h < 24; h++) { hourTotals[h] += hs.cash?.[h] || 0; hourCounts[h] += hs.tx?.[h] || 0; }
     }
   }
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const missingPast = missing.filter((d) => d <= todayIso);
   if (missingPast.length) {
     // Дни без итогов — подряд от первого до последнего: чеков за них немного
@@ -2504,7 +2505,7 @@ async function handleAnomaly(metric, spot, period, ipGroup) {
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
   // Только закончившиеся дни: сегодняшний неполный всегда выходил бы
   // «провалом» и сбивал среднее
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const y = new Date(todayIso + "T00:00:00");
   y.setDate(y.getDate() - 1);
   const to = period.to >= todayIso ? fmtDateJS(y) : period.to;
@@ -2630,7 +2631,7 @@ const SPOT_NAME = Object.fromEntries(Object.values(BRANCHES).map((b) => [String(
 async function handleOpenChecks(spot) {
   const { fetchPaymentBreakdown } = await import("../poster.js");
   // Локальная дата, не UTC: до пяти утра по Алматы «сегодня» в UTC — ещё вчера
-  const today = fmtDateJS(new Date());
+  const today = businessToday();
   const r = await fetchPaymentBreakdown(today, today);
   let items = r?.openChecks?.items || [];
   if (spot && spot.spotId && spot.spotId !== "all") {
@@ -2688,7 +2689,7 @@ async function handleStock(spot, period, product, raw = "") {
   const q = String(raw).toLowerCase();
   // Остатки — на сегодня, а не на конец месяца: «сентябрь» по умолчанию
   // шёл до 30-го, и расход в день делился на ещё не прошедшие дни
-  const todayIso = fmtDateJS(new Date());
+  const todayIso = businessToday();
   const runway = /законч|заканч|кончает|хватит/.test(q);
   let from = period.from;
   const to = period.to > todayIso ? todayIso : period.to;

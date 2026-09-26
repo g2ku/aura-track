@@ -362,7 +362,11 @@ export default async function handler(req, res) {
     // функции); метка «сегодня сделано» ставится только когда пробелов
     // за последние ROLLUP_BACK_DAYS не осталось — иначе следующее
     // пробуждение продолжит. Сбой одного дня не мешает остальным.
-    if (config.salesRollupTime && config.lastSalesRollupDate !== today && nowHM >= config.salesRollupTime) {
+    // Не раньше 05:05: рабочие сутки кончаются в 05:00 (Гагарина до трёх
+    // ночи), и итог вчерашнего дня, собранный в 03:30, мог не увидеть её
+    // последних чеков. После 05:00 календарное «сегодня» и рабочее совпадают
+    const rollupAt = config.salesRollupTime && config.salesRollupTime < "05:05" ? "05:05" : config.salesRollupTime;
+    if (config.salesRollupTime && config.lastSalesRollupDate !== today && nowHM >= rollupAt) {
       try {
         const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, rollupMismatch, closedOnDay, addEarlyChecks, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
         const have = await listSalesDayDates(shiftYmd(today, -ROLLUP_BACK_DAYS), today);

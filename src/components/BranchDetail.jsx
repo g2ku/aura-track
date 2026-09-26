@@ -11,6 +11,7 @@ import { Button } from "../ui";
 import { branchScope, useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
 import { BRANCHES } from "../branches.js";
 import { fetchCashPerDay } from "../poster";
+import { businessToday } from "../businessDay.js";
 
 const BranchLine = lazy(() => import("./charts/BranchLine"));
 
@@ -24,18 +25,15 @@ function ChartFallback() {
 }
 
 function daysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  const d = new Date(`${businessToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
 }
 
+// «Сегодня» кассы — рабочие сутки: до 05:00 ещё вчерашние (businessDay.js).
+// В 01:20 главная иначе открывала новый день с одним ночным хвостом Гагарины
 function todayStr() {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return businessToday();
 }
 
 

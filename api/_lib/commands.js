@@ -5,6 +5,7 @@
 // этому всё поведение бота тестируется без Telegram и без Firestore —
 // в тестах подставляется поддельное хранилище.
 
+import { businessToday } from "../../src/businessDay.js";
 import { parseInvoiceMessage } from "./tgParser.js";
 import { BRANCHES, BRANCH_ORDER, branchNamesFor, matchIpGroup, matchBranch } from "./branches.js";
 import { formatReport, formatAck, formatDateRu, todayAlmaty, escapeHtml, mergeDocs, fmtInt, filterByBranches, grandTotal } from "./dailyDoc.js";
@@ -154,7 +155,8 @@ async function askBot(text, store, ctx = null) {
     const { parsed } = await understand(text);
     if (parsed?.metric === "cups") return handleCommand({ cmd: "стаканы", args: "" }, ctx);
   }
-  const today = todayAlmaty();
+  // «Сегодня» кассы — рабочие сутки: до 05:00 ещё вчера, как у Poster и сайта
+  const today = businessToday();
   // Память исправлений — общая с сайтом: чему научили там, понимает и бот
   const { recallFrom } = await import("./chatBot.js");
   const learned = store.getChatLearned ? await store.getChatLearned().catch(() => null) : null;
@@ -566,7 +568,8 @@ async function handleCommand({ cmd, args }, ctx) {
       if (!store.getSalesDays) return { text: "Итоги недоступны." };
       const { formatWeeklyDigest } = await import("./briefing.js");
       const { shiftDay } = await import("./cups.js");
-      const to = shiftDay(todayAlmaty(), -1), from = shiftDay(to, -6);
+      // Продажи — по рабочим суткам: ночью «вчера» ещё идёт (businessDay.js)
+      const to = shiftDay(businessToday(), -1), from = shiftDay(to, -6);
       const [cur, prev] = await Promise.all([store.getSalesDays(from, to), store.getSalesDays(shiftDay(from, -7), shiftDay(to, -7))]);
       const text = formatWeeklyDigest(cur, prev, { from, to });
       return text
@@ -607,7 +610,7 @@ async function handleCommand({ cmd, args }, ctx) {
       if (!store.getSalesDays) return { text: "Итоги недоступны." };
       const { formatMonthlyDigest } = await import("./briefing.js");
       const { shiftDay } = await import("./cups.js");
-      const today = todayAlmaty();
+      const today = businessToday();
       const MONTHS = ["январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"];
       const want = String(args || "").trim().toLowerCase();
       const mi = want ? MONTHS.findIndex((m) => want.startsWith(m)) : -1;

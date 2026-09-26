@@ -17,6 +17,7 @@
 
 import { enumerateDates } from "./dailyDoc.js";
 import { localDateStr, localMinutesOfDay } from "./time.js";
+import { businessDate, businessDateOfString } from "../../src/businessDay.js";
 
 // Полгода назад: столько смотрят налоги по ИП и прогноз. Заполняется
 // постепенно — по ROLLUP_PER_RUN дней за пробуждение сторожа, свежие первыми.
@@ -54,8 +55,9 @@ export function rollupDay(ymd, transactions, menu = {}) {
   for (const tx of transactions || []) {
     const payed = Number(tx.payed_sum || tx.sum || 0);
     if (!(payed > 0)) continue;
-    const close = String(tx.date_close || "").slice(0, 10).replace(/-/g, "");
-    const open = String(tx.date_open || "").slice(0, 10).replace(/-/g, "");
+    // День чека — рабочий, как у Poster: закрытый в 01:18 — ещё вчерашний
+    const close = (businessDateOfString(tx.date_close) || "").replace(/-/g, "");
+    const open = (businessDateOfString(tx.date_open) || "").replace(/-/g, "");
     const day = close || open;
     if (day && day !== dayKey) continue;
 
@@ -137,7 +139,7 @@ export function payDayFrom(rows) {
 // двое суток Poster (вчера и сегодня): сутки Poster — по Москве, и чеки,
 // закрытые у нас после полуночи, лежат во вчерашних. ymd — «ГГГГ-ММ-ДД»
 export function closedOnDay(dashRows, ymd) {
-  return (dashRows || []).filter((t) => String(t.status) === "2" && Number(t.date_close) > 0 && localDateStr(Number(t.date_close)) === ymd);
+  return (dashRows || []).filter((t) => String(t.status) === "2" && Number(t.date_close) > 0 && businessDate(Number(t.date_close)) === ymd);
 }
 
 // Досчитать в итог дня ночные чеки, которых нет в transactions за этот
@@ -174,7 +176,12 @@ export function addEarlyChecks(doc, closed, txIds) {
 // 38 400 ₸), а оплаты, наоборот, брали чеки следующей ночи, и сверка
 // каждый день кричала «два метода разошлись». Теперь всё — по дню
 // закрытия по Алматы
-export const ROLLUP_VERSION = 4;
+// 5 — рабочие сутки 05:00–05:00 (27.09.2026). Версия 4 стояла на ошибке:
+// сутки Poster не московские, а рабочие — transactions за 25.09 отдаёт
+// чеки до 26.09 03:01. «Ночные чеки», переложенные в следующий день, у
+// Гагарины давали −21 454 ₸ за 25.09 и +35 855 ₸ за 26.09 против Poster.
+// Теперь день чека — рабочий (src/businessDay.js), как в самом Poster
+export const ROLLUP_VERSION = 5;
 
 // existing — даты собранных дней или { date, v } с версией
 export function pendingDays(existing, { today, back = ROLLUP_BACK_DAYS, version = ROLLUP_VERSION } = {}) {

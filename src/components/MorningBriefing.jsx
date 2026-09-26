@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fmt } from "../utils";
 import { fetchCashBySpot, fetchPosterSales } from "../poster";
+import { businessToday } from "../businessDay.js";
 import { BRANCHES } from "../auth.jsx";
 
 function yesterdayStr() {
@@ -13,9 +14,9 @@ function yesterdayStr() {
 }
 
 function daysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const d = new Date(`${businessToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
 }
 
 function normalize(s) {

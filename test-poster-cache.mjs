@@ -6,6 +6,7 @@
 //
 // Запуск: node test-poster-cache.mjs
 
+import { SALES_DAY_KEY } from "./src/storageHygiene.js";
 import { pathToFileURL } from "node:url";
 import { resolve as resolvePath } from "node:path";
 import { cacheHeaderFor } from "./api/poster/[...path].js";
@@ -191,7 +192,7 @@ section("Кэш продаж вытесняет старые дни");
     + src.slice(a, b).replace(/^function (setCachedDay|readCache)/gm, "export function $1");
   const { setCachedDay } = await import("data:text/javascript," + encodeURIComponent(mod));
 
-  const KEY = "supply-track.poster.salesByDay.v15";
+  const KEY = SALES_DAY_KEY;
   const hours = (h) => Date.now() - h * 3600 * 1000;
 
   store.set(KEY, JSON.stringify({

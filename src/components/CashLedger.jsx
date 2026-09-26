@@ -17,6 +17,7 @@ import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useAppStore } from "../store/useAppStore";
 import { canSeeItemFor } from "./Sidebar";
+import { businessToday } from "../businessDay.js";
 
 function ru(n, one, few, many) {
   const a = Math.abs(n) % 100;
@@ -31,15 +32,16 @@ function pad(n) {
   return String(n).padStart(2, "0");
 }
 
+// «Сегодня» кассы — рабочие сутки: до 05:00 ещё вчерашние (businessDay.js).
+// В 01:20 главная иначе открывала новый день с одним ночным хвостом Гагарины
 function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return businessToday();
 }
 
 function daysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const d = new Date(`${businessToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
 }
 
 function fmtPct(change) {

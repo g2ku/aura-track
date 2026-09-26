@@ -10,8 +10,8 @@
 
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
 import { getSalesDays, getMenuIndex } from "./_lib/store.js";
-import { toClientDays, clampRange } from "./_lib/salesRollup.js";
-import { todayAlmaty } from "./_lib/dailyDoc.js";
+import { toClientDays, clampRange, ROLLUP_VERSION } from "./_lib/salesRollup.js";
+import { businessToday } from "../src/businessDay.js";
 import { scopeFor, filterSalesDay } from "./_lib/scope.js";
 import { getSiteMeta } from "./_lib/store.js";
 
@@ -41,11 +41,15 @@ export default async function handler(req, res) {
   // Без товаров день весит сотни байт — таких можно отдать и за полгода
   // (налоги, прогноз); с товарами — не больше двух месяцев за раз
   const products = String(req.query?.products ?? "1") !== "0";
-  const range = clampRange(String(req.query?.from || ""), String(req.query?.to || ""), { today: todayAlmaty(), maxDays: products ? 62 : 400 });
+  const range = clampRange(String(req.query?.from || ""), String(req.query?.to || ""), { today: businessToday(), maxDays: products ? 62 : 400 });
   if (!range) { res.status(200).json({ days: {}, from: null, to: null }); return; }
 
   try {
-    const docs = await getSalesDays(range.from, range.to);
+    // Итоги прошлой версии не отдаём: дни версии 4 разложены по календарю, и
+    // у ночных точек (Гагарина до 03:00) касса расходилась с Poster на
+    // десятки тысяч. Пока сторож их пересобирает (свежие первыми), такие дни
+    // сайт возьмёт прямо из Poster — медленнее, но верно (27.09.2026)
+    const docs = (await getSalesDays(range.from, range.to)).filter((d) => (d?.v || 1) >= ROLLUP_VERSION);
     const scoped = scope.spotId ? docs.map((d) => filterSalesDay(d, scope.spotId)) : docs;
     res.status(200).json({ days: toClientDays(scoped, { products }), from: range.from, to: range.to });
   } catch (e) {

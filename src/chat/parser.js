@@ -6,6 +6,13 @@
 import { BRANCHES } from "../branches.js";
 import { parseCategoryIntent, categoryLabel } from "./categories.js";
 import { normalize, matchPhrase, words } from "./normalize.js";
+import { DAY_START_HOUR } from "../businessDay.js";
+
+// «Сегодня» разбора — рабочие сутки, как у кассы: до 05:00 это ещё вчера.
+// В 01:20 «касса сегодня» — смена 26.09 с ночью Гагарины, а не пустое 27-е
+// (27.09.2026). Дата сдвинута на начало рабочих суток: её getDate() и есть
+// рабочий день; часы из неё не берём
+const bizNow = () => new Date(Date.now() - DAY_START_HOUR * 3600000);
 
 // ─── Словари ──────────────────────────────────────────────────────
 
@@ -344,7 +351,7 @@ const hasMonth = (text, prefix) => MONTH_RE[prefix].test(text);
 
 // ─── Парсинг периода ──────────────────────────────────────────────
 
-function currentMonthPeriod(now = new Date()) {
+function currentMonthPeriod(now = bizNow()) {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
   const lastDay = new Date(currentYear, currentMonth, 0).getDate();
@@ -367,7 +374,7 @@ function parsePeriodExplicit(rawText) {
   // без этого период съезжал на неделю
   // «Лучший день недели» — тоже разрез, не срок
   const text = String(rawText).replace(/(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ");
-  const now = new Date();
+  const now = bizNow();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
 
@@ -693,7 +700,7 @@ function parsePeriodExplicit(rawText) {
 // субботу). «Эти выходные» — всегда текущие, «позапрошлые» — на неделю
 // раньше. period.weekend — чтобы сравнивать с выходными, а не с пятницей.
 const WEEKEND_RE = /(?:за|на)\s+(?:(?:позапрошл|прошл|эт|прошедш|последн)[а-яё]+\s+)?выходн|(?:позапрошл|прошл|эт|прошедш|последн)[а-яё]+\s+выходн|как\s+(?:прошли\s+|там\s+|у\s+нас\s+)?выходн|выходн[а-яё]*\s+(?:прошли|как)|за\s+суббот[ау]\s+и\s+воскресень|за\s+сб\s+и\s+вс/;
-export function weekendPeriod(text, now = new Date()) {
+export function weekendPeriod(text, now = bizNow()) {
   if (!WEEKEND_RE.test(text)) return null;
   const D = 86400000;
   const dowNow = (now.getDay() + 6) % 7;      // 0 — понедельник, 5 — суббота
@@ -736,7 +743,7 @@ function fmtDate(d) {
 // ─── Parse a single month reference and return period ────────────
 
 function monthToPeriod(monthName, year) {
-  const now = new Date();
+  const now = bizNow();
   const currentYear = year || now.getFullYear();
   for (const [prefix, monthNum] of Object.entries(MONTH_NAMES)) {
     if (hasMonth(monthName, prefix)) {
@@ -755,7 +762,7 @@ function monthToPeriod(monthName, year) {
 
 function parseComparisonPeriods(text) {
   const lower = text.toLowerCase();
-  const now = new Date();
+  const now = bizNow();
   const currentYear = now.getFullYear();
 
   // «Сравни сегодня со вчера» — самая частая пара у владельца
@@ -1029,7 +1036,7 @@ export function parseHours(text) {
   // «В это же время», «на этот час» — с начала дня по текущий час: так
   // сегодня сравнивают со вчера честно, а не полный день с неполным
   if (/в\s+это\s+же\s+врем|на\s+это\s+врем|на\s+этот\s+час|к\s+этому\s+час/.test(t)) {
-    const now = new Date();
+    const now = new Date();   // настоящий час, не рабочий день
     return { from: 0, to: Math.min(24, now.getHours() + 1), label: `до ${String(now.getHours() + 1).padStart(2, "0")}:00` };
   }
   // «До 12 сентября», «после 5 сентября», «с 1 сентября до 10 сентября» —
@@ -1154,7 +1161,7 @@ export async function parseQuestion(text) {
       metric: "math",
       operation: "math",
       spot: { branchId: "all", spotId: "all", posterName: "all" },
-      period: { from: fmtDate(new Date()), to: fmtDate(new Date()) },
+      period: { from: fmtDate(bizNow()), to: fmtDate(bizNow()) },
       product: null,
       ipGroup: null,
       raw: text,
@@ -1281,12 +1288,12 @@ export async function parseQuestion(text) {
   const bareHow = spotNamed && /^как(?:\s|$)/.test(lower)
     && words(lower).every((w) => /^(как|там|у|нас|на|в|во|сейчас|сегодня|дела|идут|идёт|идет)$/.test(w) || isSpotWord(w));
   const askingNow = bareHow || /как\s+(?:дела|день|идут|идет|идёт)|торгуем|что\s+по\s+деньгам/.test(lower) || (spotNamed && /(?:^|\s)что\s+с\s/.test(lower));
-  const period = explicitPeriod || (askingNow ? { from: fmtDate(new Date()), to: fmtDate(new Date()) } : currentMonthPeriod());
+  const period = explicitPeriod || (askingNow ? { from: fmtDate(bizNow()), to: fmtDate(bizNow()) } : currentMonthPeriod());
   // «Лучший день недели», «по дням недели» без срока — четыре полные
   // недели: за текущую неделю каждого дня по одному, сравнивать нечего
   const periodWords = lower.replace(/(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ");
   if (!explicitPeriod && operation === "byWeekday" && !/месяц|недел|год|квартал|\d/.test(periodWords)) {
-    const y = new Date(); y.setDate(y.getDate() - 1);
+    const y = bizNow(); y.setDate(y.getDate() - 1);
     const f = new Date(y); f.setDate(f.getDate() - 27);
     period.from = fmtDate(f); period.to = fmtDate(y);
   }
@@ -1303,7 +1310,7 @@ export async function parseQuestion(text) {
     if (!["checks", "avgCheck"].includes(metric)) metric = "cash";
     // Без срока — четыре недели по вчера, как у разреза по дням недели
     if (!explicitPeriod && !/месяц|недел|год|квартал|\d/.test(lower)) {
-      const y = new Date(); y.setDate(y.getDate() - 1);
+      const y = bizNow(); y.setDate(y.getDate() - 1);
       const f = new Date(y); f.setDate(f.getDate() - 27);
       period.from = fmtDate(f); period.to = fmtDate(y);
     }
@@ -1341,7 +1348,7 @@ export async function parseQuestion(text) {
   // «Сделаем», «наберём» разбор принимал за название товара
   if (willAsk && product && /^(?:сделаем|сделает|будет|выйдет|набер[её]м|заработаем|закрыти)/.test(product)) product = null;
   if (willAsk && !product && !category) {
-    const td = fmtDate(new Date());
+    const td = fmtDate(bizNow());
     if (!explicitPeriod || (explicitPeriod.from === td && explicitPeriod.to === td)) {
       operation = "forecast";
       metric = "cash";
@@ -1371,12 +1378,12 @@ export async function parseQuestion(text) {
   // полный день
   const why = /почему|из-за чего|отчего|что случил|в ч[её]м причин|причин[аыу](?![а-яё])/.test(lower);
   // «Что случилось» про прошедший день — тоже разбор, а не лента «сейчас»
-  const pastDay = explicitPeriod && explicitPeriod.to < fmtDate(new Date());
+  const pastDay = explicitPeriod && explicitPeriod.to < fmtDate(bizNow());
   if (why && !product && !category && (!metric || ["cash", "checks", "avgCheck", "compareBranches"].includes(metric) || (metric === "alerts" && pastDay))) {
     operation = "why";
     metric = "cash";
     if (!explicitPeriod) {
-      const y = new Date();
+      const y = bizNow();
       y.setDate(y.getDate() - 1);
       period.from = period.to = fmtDate(y);
     }
@@ -1388,7 +1395,7 @@ export async function parseQuestion(text) {
   if (operation === "percentChange" && ["cash", "checks", "avgCheck", "products", "compareBranches"].includes(metric)) {
     // Текущий месяц — по сегодня, иначе «касса выросла?» сравнивала бы
     // ещё не наступившие дни
-    const todayIso = fmtDate(new Date());
+    const todayIso = fmtDate(bizNow());
     if (period.to > todayIso && period.from <= todayIso) period.to = todayIso;
     const days = daysBetween(period.from, period.to);
     if (days >= 45) operation = "trend";
@@ -1415,7 +1422,7 @@ export async function parseQuestion(text) {
   // прошлого четверга» — день против того же дня недели раньше. Раньше
   // слово «сравнение» уводило в сравнение точек (26.09.2026)
   const vsWd = lower.match(/(?:сравнени[а-яё]*\s+с|против|чем|(?:^|\s)к)\s+прошл[а-яё]*\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)/);
-  if (vsWd && period.from === period.to && period.to < fmtDate(new Date())) {
+  if (vsWd && period.from === period.to && period.to < fmtDate(bizNow())) {
     const idx = { "воскресень": 0, "понедельник": 1, "вторник": 2, "сред": 3, "четверг": 4, "пятниц": 5, "суббот": 6 }[vsWd[1]];
     const d = new Date(period.from + "T00:00:00");
     do { d.setDate(d.getDate() - 1); } while (d.getDay() !== idx);
@@ -1478,7 +1485,7 @@ export async function parseQuestion(text) {
     ...(products2 ? { products2 } : {}),
     // «Как дела», «как торгуем» — сводка «как идём», а не касса одной цифрой
     // «Как Дубай сегодня» — то же самое: «сегодня» не делает сводку кассой
-    ...(askingNow && (!explicitPeriod || (explicitPeriod.from === fmtDate(new Date()) && explicitPeriod.to === explicitPeriod.from)) ? { status: true } : {}),
+    ...(askingNow && (!explicitPeriod || (explicitPeriod.from === fmtDate(bizNow()) && explicitPeriod.to === explicitPeriod.from)) ? { status: true } : {}),
     product,
     category,
     ipGroup,
