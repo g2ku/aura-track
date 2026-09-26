@@ -6,7 +6,7 @@
 //
 // Запуск: node test-people.mjs
 
-import { summarizeBaristas, summarizeDeleted, rowsInPeriod, deletionOf, mergeDeleted, namesFromRows } from "./api/_lib/baristas.js";
+import { summarizeBaristas, summarizeDeleted, rowsInPeriod, deletionOf, mergeDeleted, namesFromRows, workDay } from "./api/_lib/baristas.js";
 import { dashDateParams } from "./api/_lib/poster.js";
 import { countAlerts, mergeLog, purgeLog, summarizeLog } from "./api/_lib/alertLog.js";
 import { usualByHour, todayByHour, buildBehindAlerts, MIN_SAMPLE_DAYS } from "./api/_lib/usualDay.js";
@@ -68,6 +68,30 @@ section("Бариста: считаются только продажи");
   eq(only23.rows.length, 1, "в сводку за 23-е — только чек 23-го");
   eq(only23.dropped, 2, "остальные отброшены и посчитаны");
   eq(rowsInPeriod([{ status: "1", date_close: "0", date_start: 0 }], "20260923", "20260923").rows.length, 1, "строка без времени не теряется");
+}
+
+{
+  // Ночная смена — одна смена, а не две (живая проверка 26.09.2026: Рамс,
+  // «Тома, 25.09: 00:56–23:56» — будто 23 часа за прилавком)
+  const at = (s) => new Date(s + "+05:00").getTime();
+  const c = (t) => ({ status: "2", payed_sum: 150000, spot_id: 11, user_id: 41, name: "Тома", date_close: at(t) });
+  const rows = [c("2026-09-24T16:00:00"), c("2026-09-24T23:30:00"), c("2026-09-25T00:56:00"),
+    c("2026-09-25T07:39:00"), c("2026-09-25T15:00:00")];
+  eq(workDay(at("2026-09-25T00:56:00")), "2026-09-24", "чек в 00:56 — ещё вчерашняя смена");
+  eq(workDay(at("2026-09-25T04:59:00")), "2026-09-24", "и в 04:59 тоже");
+  eq(workDay(at("2026-09-25T05:00:00")), "2026-09-25", "с 05:00 — новые рабочие сутки");
+  const t = summarizeBaristas(rows).people[0];
+  eq(t.shifts, [
+    { day: "2026-09-24", from: "16:00", to: "00:56", checks: 3 },
+    { day: "2026-09-25", from: "07:39", to: "15:00", checks: 2 },
+  ], "ночная смена 16:00–00:56 целиком, утренняя — отдельно");
+  eq(t.hours, 16.3, "часы: 8,9 + 7,4, а не сутки");
+
+  // «Кто работал 25-го»: вчерашний ночной хвост не в счёт, свой — в счёт
+  const tail = c("2026-09-26T01:20:00");
+  const r = rowsInPeriod([...rows, tail], "20260925", "20260925", { byWorkDay: true });
+  eq(r.rows.map((x) => new Date(x.date_close).toISOString().slice(11, 16)), ["02:39", "10:00", "20:20"], "25-е: утро, день и хвост до 01:20 ночи на 26-е");
+  eq(rowsInPeriod([...rows, tail], "20260925", "20260925").rows.length, 3, "без флага — по календарю, как касса");
 }
 
 {

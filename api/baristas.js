@@ -43,14 +43,18 @@ export default async function handler(req, res) {
     // Один запрос на весь период: Poster сам отдаёт диапазон.
     // С предыдущих суток Poster: они по Москве, и чеки, закрытые у нас
     // после полуночи первого дня, лежат в них. rowsInPeriod отрежет лишнее
-    const prev = (() => { const d = new Date(`${iso(from)}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10).replace(/-/g, ""); })();
+    // по рабочим суткам — отброшенные строки здесь норма, а не сбой
+    const shift = (ymd, n) => { const d = new Date(`${iso(ymd)}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10).replace(/-/g, ""); };
+    const prev = shift(from, -1);
+    // И следующие сутки: смена считается по рабочим суткам (до 05:00), а
+    // Гагарина пробивает чеки до трёх ночи. Сегодня завтра не спрашиваем
+    const next = to < today ? shift(to, 1) : to;
     // Удалённые с историей — параллельно с основным запросом, не после
-    const deletedP = posterCall("dash.getTransactions", { ...dashDateParams(prev, to), status: 3, include_history: "true" })
+    const deletedP = posterCall("dash.getTransactions", { ...dashDateParams(prev, next), status: 3, include_history: "true" })
       .then((d) => d?.response || [])
       .catch((e) => { console.warn("[baristas] история удалённых не пришла:", e?.message); return null; });
-    const all = await dashTransactions(prev, to);
-    const { rows, dropped } = rowsInPeriod(all, from, to);
-    if (dropped) console.warn(`[baristas] Poster отдал ${dropped} чеков не за ${from}–${to}`);
+    const all = await dashTransactions(prev, next);
+    const { rows } = rowsInPeriod(all, from, to, { byWorkDay: true });
     // Всё мимо срока — это не «чеков нет», а Poster ответил не про то
     if (all.length && !rows.length) throw new Error(`Poster отдал чеки не за ${iso(from)} — ${iso(to)}`);
     const { people, spots } = summarizeBaristas(rows);
@@ -78,7 +82,7 @@ export default async function handler(req, res) {
 // из основных строк, без удалившего: лучше «не знаю кто», чем кассир под
 // видом удалившего.
 async function deletedWithHistory(rows, withHistory, from, to) {
-  const deletedRows = withHistory ? mergeDeleted(rows, rowsInPeriod(withHistory, from, to).rows) : rows;
+  const deletedRows = withHistory ? mergeDeleted(rows, rowsInPeriod(withHistory, from, to, { byWorkDay: true }).rows) : rows;
   const names = namesFromRows(rows);
   // Удалял тот, кто сам чеков не пробивал (управляющий) — спросим имена
   const unknown = deletedRows.map(deletionOf).filter((d) => d?.userId && !names[d.userId]);

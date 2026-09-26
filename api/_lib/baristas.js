@@ -18,14 +18,26 @@ const num = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// Рабочие сутки — с 05:00 до 05:00 по Алматы. Рамс, Гагарина, Жароково
+// работают за полночь, и по календарной полуночи ночная смена рвалась
+// надвое: хвост до 00:56 склеивался со следующим днём, и выходило «Тома,
+// 25.09: 00:56–23:56» — будто 23 часа за прилавком, а «кто работал
+// вчера» показывал вчерашнюю ночь (живая проверка 26.09.2026). Чек до
+// 05:00 — это ещё прошлая смена.
+export const WORKDAY_START_HOUR = 5;
+export function workDay(ms) {
+  return localDateStr(Number(ms) - WORKDAY_START_HOUR * 3600000);
+}
+
 // Только чеки спрошенных дней (по Алматы). Если Poster отдал другой срок —
-// не выдаём сегодняшнюю смену за вчерашнюю. from/to — ГГГГММДД
-export function rowsInPeriod(rows, from, to) {
+// не выдаём сегодняшнюю смену за вчерашнюю. from/to — ГГГГММДД.
+// byWorkDay — день чека по рабочим суткам (для смен бариста)
+export function rowsInPeriod(rows, from, to, { byWorkDay = false } = {}) {
   const kept = [];
   let dropped = 0;
   for (const tx of rows || []) {
     const at = Number(tx.date_close) || Number(tx.date_start) || 0;
-    const day = at ? localDateStr(at).replace(/-/g, "") : null;
+    const day = at ? (byWorkDay ? workDay(at) : localDateStr(at)).replace(/-/g, "") : null;
     if (day && (day < from || day > to)) { dropped++; continue; }
     kept.push(tx);
   }
@@ -65,7 +77,7 @@ export function summarizeBaristas(rows) {
     // календаря, а не на отработанные.
     const at = num(tx.date_close) || num(tx.date_start);
     if (at) {
-      const day = localDateStr(at);
+      const day = workDay(at);
       const d = (p.days[day] ||= { first: at, last: at, checks: 0 });
       if (at < d.first) d.first = at;
       if (at > d.last) d.last = at;
