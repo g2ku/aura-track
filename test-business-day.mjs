@@ -8,7 +8,8 @@
 // Запуск: node test-business-day.mjs
 
 import { readFileSync } from "node:fs";
-import { businessDate, businessDateOfString, businessToday, DAY_START_HOUR } from "./src/businessDay.js";
+import { businessDate, businessDateOfString, businessToday, DAY_START_HOUR, BUSINESS_HOURS, businessHourIndex, sumToNow } from "./src/businessDay.js";
+import { todayForecast } from "./src/chat/forecast.js";
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -39,6 +40,33 @@ ok(uses("api/_lib/salesRollup.js", /businessDate\(Number\(t\.date_close\)\) === 
 ok(uses("api/_lib/commands.js", /const today = businessToday\(\);/), "бот: «сегодня» — рабочее");
 ok(uses("src/chat/parser.js", /bizNow\(\)/), "ассистент: «сегодня» — рабочее");
 ok(uses("api/sales-days.js", /\(d\?\.v \|\| 1\) >= ROLLUP_VERSION/), "итоги старой версии сайту не отдаются");
+
+// Часы рабочих суток: 05…23, потом 00…04 — ночь в конце дня, а не в начале
+eq(BUSINESS_HOURS.length, 24, "в сутках 24 часа");
+eq(BUSINESS_HOURS.slice(0, 2), [5, 6], "рабочие сутки начинаются с 05");
+eq(BUSINESS_HOURS.slice(-5), [0, 1, 2, 3, 4], "и кончаются ночью");
+eq(businessHourIndex(5), 0, "05 — первый час");
+eq(businessHourIndex(1), 20, "01 — двадцать первый");
+ok(businessHourIndex(1) > businessHourIndex(23), "01:00 — позже 23:00");
+// Касса по часам: утро 500, вечер 1200, ночь 100 + 50 (Гагарина)
+const hours = Array(24).fill(0);
+hours[9] = 500; hours[20] = 1200; hours[0] = 100; hours[1] = 50;
+eq(sumToNow(hours, 12, 0), 500, "к 12:00 — только утро");
+eq(sumToNow(hours, 23, 59 / 60), 1700, "к полуночи — весь вечер, без ночи");
+eq(sumToNow(hours, 1, 0.5), 1825, "к 01:30 — вечер, полночь и половина второго часа");
+eq(sumToNow(hours, 4, 1), 1850, "к 05:00 — весь день");
+eq(sumToNow(null, 3, 0), 0, "нет данных — ноль");
+
+// Прогноз на сегодня ночью: день почти набран, а не «только начался»
+{
+  const f = todayForecast({ cash: 1800, nowMin: 80, days: [hours, hours] });
+  ok(f && f.share > 0.95, `в 01:20 набрано почти всё (${f?.share})`);
+  ok(f && Math.abs(f.forecast - 1850) < 30, `прогноз ночью — около итога дня (${f?.forecast})`);
+  const m = todayForecast({ cash: 500, nowMin: 12 * 60, days: [hours] });
+  ok(m && Math.abs(m.share - 500 / 1850) < 1e-9, "днём доля — как раньше");
+}
+ok(uses("src/components/CashLedger.jsx", /BUSINESS_HOURS\.map\(/), "график по часам — по рабочим суткам");
+ok(uses("src/components/CashLedger.jsx", /sumToNow\(yesterdayHourly\.buckets/), "«вчера к этому часу» — по рабочим суткам");
 
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }

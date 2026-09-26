@@ -17,7 +17,7 @@ import { loadIPGroups } from "../ipGroups";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useAppStore } from "../store/useAppStore";
 import { canSeeItemFor } from "./Sidebar";
-import { businessToday } from "../businessDay.js";
+import { businessToday, BUSINESS_HOURS, businessHourIndex, sumToNow } from "../businessDay.js";
 
 function ru(n, one, few, many) {
   const a = Math.abs(n) % 100;
@@ -249,8 +249,8 @@ export default function CashLedger({
   const yesterdaySameTimeTotal = useMemo(() => {
     if (!yesterdayHourly?.buckets) return null;
     const now = new Date();
-    const h = now.getHours();
-    return yesterdayHourly.buckets.slice(0, h).reduce((s, v) => s + v, 0) + (yesterdayHourly.buckets[h] || 0) * (now.getMinutes() / 60);
+    // По рабочим суткам: в 01:20 вчерашний день к этому часу — почти весь
+    return sumToNow(yesterdayHourly.buckets, now.getHours(), now.getMinutes() / 60);
   }, [yesterdayHourly]);
 
   // График кассы по дням — из локального кэша дней (без лишних запросов)
@@ -677,10 +677,13 @@ export default function CashLedger({
             <span className="cl-zone-sub">· обновляется каждые 2 мин</span>
           </div>
           <div className="hour-chart">
-            {hourlyCurve.buckets.map((s, h) => {
+            {/* Часы — в порядке рабочих суток: с 05 утра до 04 ночи. Ночью
+                прошедший день горит целиком, а не только час после полуночи */}
+            {BUSINESS_HOURS.map((h) => {
+              const s = hourlyCurve.buckets[h] || 0;
               const max = Math.max(...hourlyCurve.buckets, 1);
               const now = new Date().getHours();
-              const isPast = h <= now;
+              const isPast = businessHourIndex(h) <= businessHourIndex(now);
               const pct = Math.max(0, Math.round((s / max) * 100));
               return (
                 <div key={h} className="hour-chart-col" title={`${h}:00–${h + 1}:00 · ${fmt(s)}`}>

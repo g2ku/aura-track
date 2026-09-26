@@ -9,15 +9,18 @@
 // days — почасовая касса каждого прошлого дня: [[24 числа], …];
 // nowMin — минута суток по Алматы.
 
+import { sumToNow } from "../businessDay.js";
+
 export function todayForecast({ cash, nowMin, days }) {
   const h = Math.floor(nowMin / 60);
   const frac = (nowMin % 60) / 60;
+  // Доля дня — по рабочим суткам (05:00–05:00): ночью набрана почти вся
   const shares = [];
   const totals = [];
   for (const hours of days || []) {
     const total = hours.reduce((a, v) => a + (v || 0), 0);
     if (!(total > 0)) continue;
-    const done = hours.slice(0, h).reduce((a, v) => a + (v || 0), 0) + (hours[h] || 0) * frac;
+    const done = sumToNow(hours, h, frac);
     shares.push(done / total);
     totals.push(total);
   }

@@ -130,7 +130,8 @@ section("Главная: «вчера к этому часу» и «вчера �
   const src = (await import("node:fs")).readFileSync("src/components/CashLedger.jsx", "utf8");
   ok(/Вчера к этому часу/.test(src), "есть строка «вчера к этому часу» — с процентом");
   ok(/<span className="cl-line-label">Вчера за день<\/span>[\s\S]{0,120}<span className="cl-line-value">\{fmt\(yesterdayTotal\)\}<\/span>/.test(src), "«вчера за день» — без процента");
-  ok(/buckets\[h\] \|\| 0\) \* \(now\.getMinutes\(\) \/ 60\)/.test(src), "текущий час вчера — долей, а не целиком");
+  // Текущий час — долей (дробь минут), счёт — по рабочим суткам (sumToNow)
+  ok(/sumToNow\(yesterdayHourly\.buckets, now\.getHours\(\), now\.getMinutes\(\) \/ 60\)/.test(src), "текущий час вчера — долей, а не целиком");
 }
 
 section("Лента проблем перепроверяется");

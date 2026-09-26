@@ -36,3 +36,26 @@ export function businessDateOfString(str) {
 export function businessToday(now = Date.now()) {
   return businessDate(now);
 }
+
+// Часы рабочих суток по порядку: 05…23, потом ночь 00…04. Ночью «к этому
+// часу» — это почти весь день, а не час-два от полуночи: в 01:20 график
+// главной гасил весь день с 07:00 как «будущее», а «вчера к этому часу»
+// сравнивало день с одним ночным часом (27.09.2026)
+export const BUSINESS_HOURS = [...Array(24 - DAY_START_HOUR).keys()].map((i) => i + DAY_START_HOUR)
+  .concat([...Array(DAY_START_HOUR).keys()]);
+
+// Место часа в рабочих сутках: 05 → 0, 23 → 18, 00 → 19, 04 → 23
+export function businessHourIndex(h) {
+  return (Number(h) - DAY_START_HOUR + 24) % 24;
+}
+
+// Сколько набрано к моменту: часы рабочих суток до текущего целиком и
+// текущий — долей. buckets — 24 числа по часам 00…23
+export function sumToNow(buckets, hour, frac = 0) {
+  let s = 0;
+  for (const h of BUSINESS_HOURS) {
+    if (h === hour) return s + (buckets?.[h] || 0) * frac;
+    s += buckets?.[h] || 0;
+  }
+  return s;
+}
