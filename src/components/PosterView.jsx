@@ -17,7 +17,7 @@ import {
   fetchPosterSales,
   clearPosterCache,
 } from "../poster";
-import { fmt } from "../utils";
+import { fmt, nChecks } from "../utils";
 import { useToast } from "../ui";
 import { spotNameByPosterId, useUserBranch, getSpotNameForBranch } from "../auth.jsx";
 
@@ -109,7 +109,7 @@ export default function PosterView() {
         toast({
           tone: "success",
           icon: "ti-check",
-          message: `Готово: ${result.rows.length} позиций · ${result.transactionsCount} чеков · ${result.daysCount} дн.${cachedNote}`,
+          message: `Готово: ${result.rows.length} позиций · ${nChecks(result.transactionsCount)} · ${result.daysCount} дн.${cachedNote}`,
         });
       }
     } catch (e) {

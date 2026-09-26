@@ -3,6 +3,18 @@
 export const fmt = (n) =>
   new Intl.NumberFormat("ru-RU").format(Math.round(n || 0)) + " ₸";
 
+// Слово после числа: 1 чек, 3 чека, 5 чеков, 21 чек, 112 чеков. Ответы
+// писали «192 чеков», «142 чеков» почти в каждой кассе (живая проверка
+// 26.09.2026). text — как показать число, если не как есть («1 093»)
+export function plural(n, one, few, many) {
+  const a = Math.abs(Math.round(Number(n) || 0)) % 100;
+  if (a >= 11 && a <= 14) return many;
+  if (a % 10 === 1) return one;
+  if (a % 10 >= 2 && a % 10 <= 4) return few;
+  return many;
+}
+export const nChecks = (n, text = n) => `${text} ${plural(n, "чек", "чека", "чеков")}`;
+
 export const pct = (a, b) => {
   if (!b) return 0;
   return Math.min(100, Math.max(0, (a / b) * 100));

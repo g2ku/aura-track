@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchReceipts } from "../poster";
-import { fmt } from "../utils";
+import { fmt, nChecks } from "../utils";
 import { useToast } from "../ui";
 import { canSeeOpenChecks, useUserBranch, getUserSpotId, spotNameByPosterId } from "../auth.jsx";
 
@@ -114,7 +114,7 @@ export default function ReceiptsView() {
           : "";
         toast({
           tone: "success",
-          message: `Готово: ${result.transactionsCount} чеков · ${result.daysCount} дн.${open}`,
+          message: `Готово: ${nChecks(result.transactionsCount)} · ${result.daysCount} дн.${open}`,
         });
       }
     } catch (e) {
@@ -194,7 +194,7 @@ export default function ReceiptsView() {
           </h1>
           {data && (
             <div className="view-sub">
-              {data.transactionsCount} чеков · {data.daysCount} дн.
+              {nChecks(data.transactionsCount)} · {data.daysCount} дн.
             </div>
           )}
         </div>
@@ -310,7 +310,7 @@ export default function ReceiptsView() {
             </div>
 
             <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-              {filtered.length} чеков
+              {nChecks(filtered.length)}
             </div>
           </div>
 

@@ -37,7 +37,7 @@ function missingNote() {
 import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
-import { fmt, describeDayList } from "../utils.js";
+import { fmt, describeDayList, nChecks } from "../utils.js";
 import { BRANCHES, spotNameByPosterId } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
@@ -763,7 +763,7 @@ async function handleCash(operation, spot, period, ipGroup) {
 
   if (operation === "compare") {
     const sorted = [...filtered].sort((a, b) => b.total - a.total);
-    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(d.avgCheck)})`).join("\n");
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${nChecks(d.txCount)}, ср.чек ${fmt(d.avgCheck)})`).join("\n");
     return { text: `Сравнение филиалов${ipLabel} за ${pl}:\n${lines}`, data: sorted };
   }
 
@@ -772,7 +772,7 @@ async function handleCash(operation, spot, period, ipGroup) {
     const sorted = [...filtered].sort((a, b) => a.total - b.total);
     const w = sorted[0], top = sorted[sorted.length - 1];
     const share = totalCash ? Math.round((w.total / totalCash) * 100) : 0;
-    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${nChecks(d.txCount)})`).join("\n");
     return {
       text: `Слабее всех${ipLabel} за ${pl} — ${sn(w)}: ${fmt(w.total)}, ${share} % кассы сети, в ${top.total && w.total ? (top.total / w.total).toFixed(1).replace(".", ",") : "—"} раза меньше лидера (${sn(top)}).\n\nОт слабой к сильной:\n${lines}`,
       data: { sorted, totalCash },
@@ -781,7 +781,7 @@ async function handleCash(operation, spot, period, ipGroup) {
 
   if (operation === "max" && filtered.length > 0) {
     const sorted = [...filtered].sort((a, b) => b.total - a.total);
-    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${fmt(d.total)} (${nChecks(d.txCount)})`).join("\n");
     return { text: `Топ филиалов по кассе${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)}`, data: { sorted, totalCash } };
   }
 
@@ -811,7 +811,7 @@ async function handleCash(operation, spot, period, ipGroup) {
     }, d.total, period, spot, ipGroup, sumCash);
   }
 
-  const lines = filtered.map(d => `• ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков)`).join("\n");
+  const lines = filtered.map(d => `• ${sn(d)}: ${fmt(d.total)} (${nChecks(d.txCount)})`).join("\n");
   return withContext({
     text: `Касса ${sl}${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${fmt(totalCash)} | Чеков: ${totalTx.toLocaleString("ru-RU")}`,
     data: { filtered, totalCash, totalTx },
@@ -871,7 +871,7 @@ async function handleChecks(operation, spot, period, ipGroup, raw = "") {
 
   if (operation === "max" && filtered.length > 1) {
     const sorted = [...filtered].sort((a, b) => b.txCount - a.txCount);
-    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${d.txCount.toLocaleString("ru-RU")} чеков`).join("\n");
+    const lines = sorted.map((d, i) => `${i + 1}. ${sn(d)}: ${nChecks(d.txCount, d.txCount.toLocaleString("ru-RU"))}`).join("\n");
     return { text: `Топ по количеству чеков${ipLabel} за ${pl}:\n${lines}\n\nИтого: ${totalTx.toLocaleString("ru-RU")}`, data: sorted };
   }
 
@@ -1368,7 +1368,7 @@ async function handleStaff(spot, period, ipGroup, parsed) {
       const hint = close.length ? `Похожие: ${close.join(", ")}` : names.length <= 8 ? `Есть: ${names.join(", ")}` : "";
       return { text: `Бариста «${parsed.person}» в чеках ${sl} за ${pl} не нашёл.${hint ? `\n${hint}` : ""}`, data: { suggestions: close } };
     }
-    const lines = hit.map((b) => `${b.name}: ${fmt(b.cash)} · ${b.checks} чеков · средний чек ${fmt(b.avg)}${b.spots.length ? ` · ${b.spots.join(", ")}` : ""}`);
+    const lines = hit.map((b) => `${b.name}: ${fmt(b.cash)} · ${nChecks(b.checks)} · средний чек ${fmt(b.avg)}${b.spots.length ? ` · ${b.spots.join(", ")}` : ""}`);
     return { text: `${lines.join("\n")}\nЗа ${pl}${note}`, data: { rows: hit } };
   }
 
@@ -1378,7 +1378,6 @@ async function handleStaff(spot, period, ipGroup, parsed) {
     // человек — своей строкой: одной строкой на точку она уходила за
     // край экрана (у Гагарины — 1 400 px на телефоне)
     const oneDay = from === to;
-    const nChecks = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "чек" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "чека" : "чеков"}`;
     const nDays = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "день" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "дня" : "дней"}`;
     const bySpot = {};
     for (const p of people) {
@@ -1404,8 +1403,8 @@ async function handleStaff(spot, period, ipGroup, parsed) {
   const title = measure === "avgCheck" ? "Средний чек по бариста" : measure === "checks" ? "Чеки по бариста" : "Касса по бариста";
   const lines = top.map((b, i) => {
     const mark = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
-    const val = measure === "avgCheck" ? fmt(b.avg) : measure === "checks" ? `${b.checks} чеков` : fmt(b.cash);
-    const rest = measure === "avgCheck" ? ` (${b.checks} чеков)` : measure === "checks" ? ` (${fmt(b.cash)})` : ` (${b.checks} чеков, ср. ${fmt(b.avg)})`;
+    const val = measure === "avgCheck" ? fmt(b.avg) : measure === "checks" ? `${nChecks(b.checks)}` : fmt(b.cash);
+    const rest = measure === "avgCheck" ? ` (${nChecks(b.checks)})` : measure === "checks" ? ` (${fmt(b.cash)})` : ` (${nChecks(b.checks)}, ср. ${fmt(b.avg)})`;
     return `${mark} ${b.name}: ${val}${rest}${isAll(spot) && b.spots.length ? ` — ${b.spots.join(", ")}` : ""}`;
   });
   const tail = [];
@@ -1448,7 +1447,6 @@ async function handleDeleted(spot, period, ipGroup) {
   }
   if (!rows.length) return { text: `Удалённых чеков ${sl} за ${pl} нет ✅${note}`, data: { rows: [], count: 0, sum: 0 } };
 
-  const nChecks = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "чек" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "чека" : "чеков"}`;
   const total = rows.reduce((n, x) => n + (x.sum || 0), 0);
   const paid = rows.filter((x) => x.paid > 0);
   const spotOf = (x) => x.spot || sn({ spotId: x.spotId });
@@ -1516,7 +1514,7 @@ async function handleDiscounts(spot, period, ipGroup) {
   const withDisc = items.filter((x) => (Number(x.discount) || 0) > 0);
   const total = withDisc.reduce((s, x) => s + (Number(x.discount) || 0), 0);
   const cash = items.reduce((s, x) => s + (Number(x.sum) || 0), 0);
-  if (!total) return { text: `Скидок ${sl} за ${pl} не было — все ${items.length} чеков по полной цене.${note}`, data: { total: 0 } };
+  if (!total) return { text: `Скидок ${sl} за ${pl} не было — все ${nChecks(items.length)} по полной цене.${note}`, data: { total: 0 } };
   const share = cash + total ? Math.round((total / (cash + total)) * 1000) / 10 : 0;
   // Какие проценты давали: «10 % — 100 чеков». Процент — из discountPct,
   // деньги — разница «до» и «после» (см. fetchReceipts)
@@ -1574,7 +1572,7 @@ async function handleHours(metric, spot, period, hours, ipGroup) {
   const share = all ? Math.round((total / all) * 100) : 0;
   const head = metric === "checks"
     ? `Чеки ${hours.label} ${sl} за ${pl}: ${inWindow.length.toLocaleString("ru-RU")} из ${items.length.toLocaleString("ru-RU")} (${share} % кассы)`
-    : `Касса ${hours.label} ${sl} за ${pl}: ${fmt(total)} — ${share} % от ${fmt(all)} (${inWindow.length} чеков)`;
+    : `Касса ${hours.label} ${sl} за ${pl}: ${fmt(total)} — ${share} % от ${fmt(all)} (${nChecks(inWindow.length)})`;
   const lines = [head];
   if (isAll(spot)) {
     const bySpot = {};
@@ -1586,7 +1584,7 @@ async function handleHours(metric, spot, period, hours, ipGroup) {
       if (h != null && h >= hours.from && h < hours.to) { b.win += v; b.winN++; }
     }
     const rows = Object.values(bySpot).sort((a, b) => b.win - a.win);
-    if (rows.length > 1) lines.push("", ...rows.map((b) => `• ${sn(b)}: ${metric === "checks" ? `${b.winN} чеков` : fmt(b.win)} (${b.all ? Math.round((b.win / b.all) * 100) : 0} %)`));
+    if (rows.length > 1) lines.push("", ...rows.map((b) => `• ${sn(b)}: ${metric === "checks" ? `${nChecks(b.winN)}` : fmt(b.win)} (${b.all ? Math.round((b.win / b.all) * 100) : 0} %)`));
   }
   return { text: lines.join("\n") + note, data: { total, all, count: inWindow.length, hours } };
 }
@@ -1600,7 +1598,7 @@ async function handleHoursCompare(metric, spot, p1, p2, hours, ipGroup) {
   const [a, b] = await Promise.all([one(p1), one(p2)]);
   const useChecks = metric === "checks";
   const va = useChecks ? a.count : a.value, vb = useChecks ? b.count : b.value;
-  const unit = (v) => (useChecks ? `${v} чеков` : fmt(v));
+  const unit = (v) => (useChecks ? `${nChecks(v)}` : fmt(v));
   const pct = vb ? Math.round(((va - vb) / Math.abs(vb)) * 1000) / 10 : null;
   const sign = pct == null ? "" : pct > 0 ? `📈 +${String(pct).replace(".", ",")} %` : pct < 0 ? `📉 −${String(Math.abs(pct)).replace(".", ",")} %` : "➡️ поровну";
   return {
@@ -2004,7 +2002,7 @@ async function handleTrend(metric, spot, period, ipGroup) {
   const trend = last.total > first.total ? "рост" : last.total < first.total ? "снижение" : "стабильно";
   const pct = first.total > 0 ? ((last.total - first.total) / first.total * 100).toFixed(1) : 0;
 
-  const lines = monthlyData.map(m => `• ${m.month}: ${fmt(m.total)} (${m.tx} чеков, ${m.days} дн.)`).join("\n");
+  const lines = monthlyData.map(m => `• ${m.month}: ${fmt(m.total)} (${nChecks(m.tx)}, ${m.days} дн.)`).join("\n");
   const emoji = trend === "рост" ? "📈" : trend === "снижение" ? "📉" : "➡️";
   const scope = spanDays >= 45 && months.length >= 2 ? `${months.length} мес.` : "3 полных месяца";
 
@@ -2111,7 +2109,6 @@ async function handleTopDays(metric, spot, period, ipGroup, worst, limit = 3) {
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
   const val = metric === "checks" ? (r) => r.tx : metric === "avgCheck" ? (r) => (r.tx ? r.total / r.tx : 0) : (r) => r.total;
-  const nChecks = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "чек" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "чека" : "чеков"}`;
   const show = metric === "checks" ? (r) => `${nChecks(r.tx)} (${fmt(r.total)})` : metric === "avgCheck" ? (r) => `${fmt(Math.round(val(r)))} (${nChecks(r.tx)})` : (r) => `${fmt(r.total)} (${nChecks(r.tx)})`;
 
   // Дни без продаж — закрытая точка или Poster не отдал день; худшим
@@ -2133,7 +2130,7 @@ async function handleTopDays(metric, spot, period, ipGroup, worst, limit = 3) {
   const tail = [];
   if (days.length > 1 && avg) {
     const pct = Math.round(((val(lead) - avg) / avg) * 100);
-    const avgText = metric === "checks" ? `${Math.round(avg)} чеков` : fmt(Math.round(avg));
+    const avgText = metric === "checks" ? `${nChecks(Math.round(avg))}` : fmt(Math.round(avg));
     tail.push(`Обычный день здесь — ${avgText}: ${worst ? "худший" : "лучший"} ${pct >= 0 ? "выше" : "ниже"} на ${Math.abs(pct)} %.`);
   }
   // Кто сделал день: на всю сеть — какая точка дальше всех ушла от своей
@@ -2209,7 +2206,7 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
       const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
       return { key: k, dow: new Date(iso + "T00:00:00").getDay(), dm: `${iso.slice(8, 10)}.${iso.slice(5, 7)}`, ...byDate[k] };
     });
-    const lines = rows.map((r) => `• ${weekdayNames[r.dow]} ${r.dm}: ${useTx ? `${r.tx} чеков (${fmt(r.total)})` : `${fmt(r.total)} (${r.tx} чеков)`}${r.key === todayKey ? " — день ещё идёт" : ""}`);
+    const lines = rows.map((r) => `• ${weekdayNames[r.dow]} ${r.dm}: ${useTx ? `${nChecks(r.tx)} (${fmt(r.total)})` : `${fmt(r.total)} (${nChecks(r.tx)})`}${r.key === todayKey ? " — день ещё идёт" : ""}`);
     // Среднее, лучший и худший — по закончившимся дням: сегодняшний
     // неполный всегда выходил бы «худшим»
     const done = rows.filter((r) => r.key !== todayKey);
@@ -2220,9 +2217,9 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
       const best = done.reduce((a, b) => (val(b) > val(a) ? b : a));
       const worst = done.reduce((a, b) => (val(b) < val(a) ? b : a));
       const avg = Math.round(done.reduce((n, r) => n + val(r), 0) / done.length);
-      tail.push(`В среднем: ${useTx ? `${avg} чеков` : fmt(avg)} в день`);
-      tail.push(`🏆 Лучший: ${weekdayNames[best.dow]} ${best.dm} — ${useTx ? `${best.tx} чеков` : fmt(best.total)}`);
-      tail.push(`📉 Худший: ${weekdayNames[worst.dow]} ${worst.dm} — ${useTx ? `${worst.tx} чеков` : fmt(worst.total)}`);
+      tail.push(`В среднем: ${useTx ? `${nChecks(avg)}` : fmt(avg)} в день`);
+      tail.push(`🏆 Лучший: ${weekdayNames[best.dow]} ${best.dm} — ${useTx ? `${nChecks(best.tx)}` : fmt(best.total)}`);
+      tail.push(`📉 Худший: ${weekdayNames[worst.dow]} ${worst.dm} — ${useTx ? `${nChecks(worst.tx)}` : fmt(worst.total)}`);
     }
     const cut = keys.length > shown.length ? `\n\nПоказаны последние ${shown.length} дн. из ${keys.length}.` : "";
     return {
@@ -2265,7 +2262,7 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
     if (!wd.days || !we.days) return { text: `За ${pl} ${sl} нет ${wd.days ? "выходных" : "будних"} дней с продажами.`, data: null };
     const pick = (g) => (useChecks ? g.avgTx : g.avg);
     const pct = Math.round(((pick(we) - pick(wd)) / (pick(wd) || 1)) * 1000) / 10;
-    const unit = (v) => (useChecks ? `${v} чеков/день` : `${fmt(v)}/день`);
+    const unit = (v) => (useChecks ? `${nChecks(v)}/день` : `${fmt(v)}/день`);
     const sign = pct > 0 ? `📈 выходные выше на ${String(pct).replace(".", ",")} %` : pct < 0 ? `📉 выходные ниже на ${String(Math.abs(pct)).replace(".", ",")} %` : "➡️ поровну";
     return {
       text: `${useChecks ? "Чеки" : "Касса"} — будни против выходных ${sl}${ipLabel} за ${pl}:\n• Будни: ${unit(pick(wd))} (${wd.days} дн.)\n• Выходные: ${unit(pick(we))} (${we.days} дн.)\n\n${sign}`,
@@ -2277,8 +2274,8 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   const lines = indexed.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
     return useChecks
-      ? `${emoji} ${d.name}: ${d.avgTx} чеков/день (${d.days} дн.)`
-      : `${emoji} ${d.name}: ${fmt(d.avg)}/день (${d.avgTx} чеков, ${d.days} дн.)`;
+      ? `${emoji} ${d.name}: ${nChecks(d.avgTx)}/день (${d.days} дн.)`
+      : `${emoji} ${d.name}: ${fmt(d.avg)}/день (${nChecks(d.avgTx)}, ${d.days} дн.)`;
   }).join("\n");
 
   const best = indexed[0], worst = indexed[indexed.length - 1];
@@ -2343,7 +2340,7 @@ async function handleByHour(metric, spot, period, ipGroup) {
   const peakHours = indexed.slice(0, 3);
   const lines = peakHours.map((h, i) => {
     const emoji = i === 0 ? "🔥" : i === 1 ? "⭐" : "•";
-    return `${emoji} ${h.label}: ${fmt(h.total)} (${h.count} чеков)`;
+    return `${emoji} ${h.label}: ${fmt(h.total)} (${nChecks(h.count)})`;
   }).join("\n");
 
   // Тихие часы — среди тех, когда точки работали. Раньше брались три
@@ -2352,7 +2349,7 @@ async function handleByHour(metric, spot, period, ipGroup) {
   const working = indexed.filter((h) => h.count > 0);
   if (!working.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
   const quietHours = working.length > 3 ? working.slice(-3).reverse() : [];
-  const quietLines = quietHours.map(h => `• ${h.label}: ${fmt(h.total)} (${h.count} чеков)`).join("\n");
+  const quietLines = quietHours.map(h => `• ${h.label}: ${fmt(h.total)} (${nChecks(h.count)})`).join("\n");
 
   return {
     text: `Пиковые часы ${sl}${ipLabel} за ${pl}:\n\n🔥 Топ-3 часа:\n${lines}${quietLines ? `\n\n💤 Тихие часы (когда точки работали):\n${quietLines}` : ""}`,
@@ -2433,7 +2430,7 @@ async function handleCompareBranches(operation, spot, period, ipGroup) {
     const days = daysInPeriod(period.from, period.to);
     const avgPerDay = days > 0 ? Math.round(d.total / days) : d.total;
     return {
-      text: `Касса ${sn(d)}${ipLabel} за ${pl}:\n${fmt(d.total)} / ${d.txCount} чеков / ср.чек ${fmt(avgCheck)}\nСреднее/день: ${fmt(avgPerDay)} (${days} дн.)`,
+      text: `Касса ${sn(d)}${ipLabel} за ${pl}:\n${fmt(d.total)} / ${nChecks(d.txCount)} / ср.чек ${fmt(avgCheck)}\nСреднее/день: ${fmt(avgPerDay)} (${days} дн.)`,
       data: d,
     };
   }
@@ -2443,7 +2440,7 @@ async function handleCompareBranches(operation, spot, period, ipGroup) {
   const lines = sorted.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
     const avgCheck = d.txCount > 0 ? Math.round(d.total / d.txCount) : 0;
-    return `${emoji} ${sn(d)}: ${fmt(d.total)} (${d.txCount} чеков, ср.чек ${fmt(avgCheck)})`;
+    return `${emoji} ${sn(d)}: ${fmt(d.total)} (${nChecks(d.txCount)}, ср.чек ${fmt(avgCheck)})`;
   }).join("\n");
 
   const best = sorted[0];

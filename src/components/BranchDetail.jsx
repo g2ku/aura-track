@@ -5,7 +5,7 @@
 import { useMemo, useState, Suspense, lazy, useEffect } from "react";
 import {
   aggregateDocs, fmt,
-  dateInRange, dateInputToRu,
+  dateInRange, dateInputToRu, nChecks,
 } from "../utils";
 import { Button } from "../ui";
 import { branchScope, useUserBranch, formatBranchName, getSpotNameForBranch } from "../auth.jsx";
@@ -181,7 +181,7 @@ export default function BranchDetail({ branch, docs, canEdit, onBack }) {
             <div className="kpi-label"><i className="ti ti-cash" aria-hidden="true" /> Касса</div>
           </div>
           <div className="kpi-value accent">{fmt(filteredCashTotal)}</div>
-          <div className="kpi-sub">{filteredCashTx} чеков · {filteredCash.length} дн.</div>
+          <div className="kpi-sub">{nChecks(filteredCashTx)} · {filteredCash.length} дн.</div>
         </div>
 
         <div className="kpi-card kpi-paid">
