@@ -1113,12 +1113,12 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
     }
 
     // Per-branch breakdown
-    const bySpot = Object.values(spotProductMap)
-      .map(s => {
+    const bySpot = Object.entries(spotProductMap)
+      .map(([sid, s]) => {
         const pMatches = Object.values(s.products).filter((p) => productMatches(p.name, productName));
         const total = pMatches.reduce((acc, p) => acc + p.qty, 0);
         const sum = pMatches.reduce((acc, p) => acc + p.sum, 0);
-        return { spotName: s.spotName, qty: total, sum, products: pMatches };
+        return { spotId: sid, spotName: s.spotName, qty: total, sum, products: pMatches };
       })
       .filter(s => s.qty > 0)
       .sort((a, b) => b.sum - a.sum);
@@ -1126,8 +1126,21 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
     const allQty = matches.reduce((s, p) => s + p.qty, 0);
     const allSum = matches.reduce((s, p) => s + p.sum, 0);
 
-    // Show all variants
-    const variantLines = matches.map(p => `  ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
+    // Варианты — от самого продаваемого
+    const variantLines = [...matches].sort((a, b) => b.sum - a.sum).map(p => `  ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
+
+    // Одна точка: список «по филиалам» был всей сетью — под итогом одной
+    // Гагарины стояли 526 шт. Атакента (живая проверка 26.09.2026). Для
+    // одной точки — её место среди всех и итог сети для масштаба
+    if (!isAll(spot)) {
+      const mine = bySpot.findIndex((s) => matchesSpot({ spotId: s.spotId, spotName: s.spotName }, spot));
+      const net = bySpot.reduce((n, s) => n + s.qty, 0);
+      const place = mine >= 0 && bySpot.length > 1
+        ? `\n\nСреди точек — ${mine + 1}-е место из ${bySpot.length}; по сети ${net} шт. / ${fmt(bySpot.reduce((n, s) => n + s.sum, 0))}`
+        : "";
+      const text = `Продажи «${productName}» ${label(spot)}${ipLabel} за ${pl}:\n\nВарианты:\n${variantLines}\n\nИтого: ${allQty} шт. / ${fmt(allSum)}${place}`;
+      return { text, data: { matches, bySpot } };
+    }
 
     // Per-branch totals
     const branchLines = bySpot.map(s => `• ${sn(s)}: ${s.qty} шт. / ${fmt(s.sum)}`).join("\n");
