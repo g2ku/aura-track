@@ -2102,6 +2102,7 @@ async function handleTrend(metric, spot, period, ipGroup) {
 // (субботы у сети сильнее воскресений — одним средним их не взять).
 // Сегодняшний неполный день в «сделано» не идёт, он — в оставшихся.
 async function handleMonthForecast(spot, period, ipGroup) {
+  const { monthForecast } = await import("./forecast.js");
   const todayIso = fmtDateJS(new Date());
   const shift = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return fmtDateJS(x); };
   const yest = shift(todayIso, -1);
@@ -2116,29 +2117,15 @@ async function handleMonthForecast(spot, period, ipGroup) {
   const iso = (k) => { const x = String(k).replace(/-/g, ""); return `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6, 8)}`; };
   const byDate = {};
   for (const d of perDay) byDate[iso(d.date)] = (byDate[iso(d.date)] || 0) + (d.total || 0);
-  const done = Object.entries(byDate).filter(([k]) => k >= period.from && k <= yest).reduce((a, [, v]) => a + v, 0);
-  const doneDays = period.from <= yest ? daysInPeriod(period.from, yest) : 0;
-  const dow = (k) => new Date(k + "T00:00:00").getDay();
-  const norm = {};
-  for (const [k, v] of Object.entries(byDate)) {
-    if (k < from28 || !(v > 0)) continue;
-    const n = (norm[dow(k)] ||= { sum: 0, n: 0 });
-    n.sum += v; n.n++;
-  }
-  const usual = (k) => (norm[dow(k)]?.n ? norm[dow(k)].sum / norm[dow(k)].n : null);
-  const left = [];
-  for (let k = todayIso; k <= period.to; k = shift(k, 1)) left.push(k);
-  if (left.some((k) => usual(k) == null)) {
-    return { text: `Прогноза ${sl}${ipLabel} на конец месяца нет: за четыре прошлые недели не на все дни недели есть итоги.`, data: null };
-  }
-  const rest = left.reduce((a, k) => a + usual(k), 0);
-  const forecast = done + rest;
+  const f = monthForecast({ byDate, from: period.from, to: period.to, today: todayIso });
+  if (!f) return { text: `Прогноза ${sl}${ipLabel} на конец месяца нет: за четыре прошлые недели не на все дни недели есть итоги.`, data: null };
+  const { done, doneDays, rest, forecast } = f;
   const round = (v) => Math.round(v / 1000) * 1000;
   const monthName = new Date(period.to + "T00:00:00").toLocaleDateString("ru-RU", { month: "long" });
   const monthGen = new Date(period.to + "T00:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" }).replace(/^\d+\s*/, "");
   const lines = [`Прогноз ${sl}${ipLabel} на конец ${monthGen}: ~${fmt(round(forecast))}`];
   if (doneDays) lines.push(`• Сделано за ${doneDays} дн. (по вчера): ${fmt(Math.round(done))}`);
-  lines.push(`• Осталось ${left.length} дн.${left[0] === todayIso ? " вместе с сегодняшним" : ""}: обычно ~${fmt(round(rest / left.length))} в день по своим дням недели — ещё ~${fmt(round(rest))}`);
+  lines.push(`• Осталось ${f.left} дн.${f.withToday ? " вместе с сегодняшним" : ""}: обычно ~${fmt(round(rest / f.left))} в день по своим дням недели — ещё ~${fmt(round(rest))}`);
 
   // Прошлый месяц целиком — чтобы было с чем сравнить
   try {
@@ -2152,7 +2139,7 @@ async function handleMonthForecast(spot, period, ipGroup) {
       lines.push("", `${prevName[0].toUpperCase()}${prevName.slice(1)} — ${fmt(Math.round(prev))}: ${monthName} идёт ${pct === 0 ? "вровень" : pct > 0 ? `на +${pct} %` : `на −${Math.abs(pct)} %`}.`);
     }
   } catch { /* без сравнения */ }
-  return { text: lines.join("\n"), data: { done, rest, forecast, left: left.length } };
+  return { text: lines.join("\n"), data: { done, rest, forecast, left: f.left } };
 }
 
 async function handleForecast(metric, spot, period, ipGroup) {

@@ -36,3 +36,31 @@ export function todayForecast({ cash, nowMin, days }) {
     days: shares.length,
   };
 }
+
+// Прогноз на месяц, который идёт: сделанное по вчера + каждый оставшийся
+// день (с сегодняшним) — обычной кассой своего дня недели за четыре
+// прошлые недели. Одно на сайт и бота: данные каждый собирает сам.
+//
+// byDate — { "ГГГГ-ММ-ДД": касса } за дни от начала периода (или от
+// четырёх недель назад, что раньше) по вчера. null — на какой-то день
+// недели нормы нет, прогнозу не на что опереться.
+export function monthForecast({ byDate, from, to, today }) {
+  const shift = (d, n) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const dow = (d) => new Date(`${d}T00:00:00Z`).getUTCDay();
+  const yest = shift(today, -1);
+  const from28 = shift(today, -28);
+  let done = 0, doneDays = 0;
+  for (let d = from; d <= yest && d <= to; d = shift(d, 1)) { done += byDate[d] || 0; doneDays++; }
+  const norm = {};
+  for (const [d, v] of Object.entries(byDate || {})) {
+    if (d < from28 || d > yest || !(v > 0)) continue;
+    const n = (norm[dow(d)] ||= { sum: 0, n: 0 });
+    n.sum += v; n.n++;
+  }
+  const left = [];
+  for (let d = today < from ? from : today; d <= to; d = shift(d, 1)) left.push(d);
+  const usual = (d) => (norm[dow(d)]?.n ? norm[dow(d)].sum / norm[dow(d)].n : null);
+  if (left.some((d) => usual(d) == null)) return null;
+  const rest = left.reduce((a, d) => a + usual(d), 0);
+  return { done, doneDays, left: left.length, withToday: left[0] === today, rest, forecast: done + rest };
+}

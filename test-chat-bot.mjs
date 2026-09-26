@@ -517,6 +517,21 @@ section("Лучший и худший день, разделы меню — ка
   ok(del && del.text.startsWith("Это умеет только сайт"), "удалённые чеки — тоже сайт");
 }
 
+section("Прогноз на месяц, который идёт — как на сайте");
+{
+  // 27.09.2026: на «прогноз на конец месяца» бот отдавал кассу месяца по
+  // сегодня без прогноза. Каждый день фикстуры — 170 000 ₸ по сети
+  const [y, m, d] = TODAY.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const t = (await answerQuestion("прогноз на конец месяца", deps))?.text || "";
+  ok(/^<b>Прогноз на конец [а-я]+: ~/.test(t), `заголовок прогноза: ${t.split("\n")[0]}`);
+  if (d > 1) ok(t.includes(`Сделано за ${d - 1} дн. (по вчера): ${new Intl.NumberFormat("ru-RU").format(170000 * (d - 1)).replace(/\u00a0/g, " ")} ₸`.replace(/ /g, "\u00a0")) || t.replace(/\u00a0/g, " ").includes(`Сделано за ${d - 1} дн. (по вчера): ${new Intl.NumberFormat("ru-RU").format(170000 * (d - 1)).replace(/\u00a0/g, " ")} ₸`), `сделано по вчера: ${t}`);
+  ok(t.replace(/\u00a0/g, " ").includes(`Осталось ${last - d + 1} дн. с сегодняшним: ~170 000 ₸ в день`), `оставшиеся дни — по обычному дню: ${t}`);
+  ok(/Прогноз на конец [а-я]+: ~[\d\u00a0 ]+₸/.test(t) && !/умеет только сайт/.test(t), "считает сам");
+  const abaya = (await answerQuestion("сколько сделает абая в этом месяце", deps))?.text || "";
+  ok(abaya.includes("Прогноз Абая на конец"), `по точке: ${abaya.split("\n")[0]}`);
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

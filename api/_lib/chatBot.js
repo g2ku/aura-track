@@ -23,7 +23,7 @@ import { escapeHtml } from "./dailyDoc.js";
 import { categoryMargins, marginTotals, purchaseCosts, costQuality } from "../../src/menuMatrix.js";
 import { calcRecipeCost } from "../../src/recipeCost.js";
 import { explainChange, usualWeekday } from "../../src/chat/why.js";
-import { todayForecast } from "../../src/chat/forecast.js";
+import { todayForecast, monthForecast } from "../../src/chat/forecast.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
 const int = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0));
@@ -598,6 +598,41 @@ export async function answerQuestion(text, deps) {
       `Обычный такой день — ${fmt(f.usual)}: ${vs === 0 ? "идём вровень" : vs > 0 ? `идём на ${vs} % выше` : `идём на ${Math.abs(vs)} % ниже`}.`,
       f.share < 0.25 ? "<i>Рано: утром доля дня скачет — точнее после обеда.</i>" : "",
     ].filter(Boolean).join("\n"), parsed };
+  }
+  // «Прогноз на конец месяца», «сколько сделаем в сентябре» — месяц,
+  // который идёт: сделанное по вчера + оставшиеся дни по обычной кассе
+  // своего дня недели, как на сайте. Раньше бот отдавал кассу месяца по
+  // сегодня без всякого прогноза (живая проверка 27.09.2026)
+  if (parsed.operation === "forecast" && parsed.period?.from <= today && parsed.period?.to > today) {
+    const spots = spotsFor(parsed);
+    const where = spots && spots.size === 1 ? ` ${spotNameByPosterId([...spots][0])}` : parsed.ipGroup?.name ? ` (${parsed.ipGroup.name})` : "";
+    const yest = shiftYmd(today, -1);
+    const from28 = shiftYmd(today, -28);
+    const histFrom = parsed.period.from < from28 ? parsed.period.from : from28;
+    const cashOf = (d) => Object.entries(d?.cashBySpot || {}).filter(([id]) => !spots || spots.has(String(id))).reduce((a, [, v]) => a + (v || 0), 0);
+    const docs = await deps.getDays(histFrom, yest).catch(() => []);
+    const byDate = {};
+    for (const d of docs || []) if (d?.date) byDate[d.date] = cashOf(d);
+    const f = monthForecast({ byDate, from: parsed.period.from, to: parsed.period.to, today });
+    if (!f) return { text: `Прогноза${escapeHtml(where)} на конец месяца нет: за четыре прошлые недели в итогах не на все дни недели есть касса.`, parsed };
+    const r = (v) => Math.round(v / 1000) * 1000;
+    const monthGen = new Date(`${parsed.period.to}T00:00:00Z`).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" }).replace(/^\d+\s*/, "");
+    const lines = [`<b>Прогноз${escapeHtml(where)} на конец ${monthGen}: ~${fmt(r(f.forecast))}</b>`];
+    if (f.doneDays) lines.push(`Сделано за ${f.doneDays} дн. (по вчера): ${fmt(f.done)}`);
+    lines.push(`Осталось ${f.left} дн.${f.withToday ? " с сегодняшним" : ""}: ~${fmt(r(f.rest / f.left))} в день по своим дням недели — ещё ~${fmt(r(f.rest))}`);
+    // Прошлый месяц целиком — из тех же итогов
+    try {
+      const [y, m] = parsed.period.from.split("-").map(Number);
+      const pf = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+      const pt = new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10);
+      const prev = (await deps.getDays(pf, pt)).reduce((a, d) => a + cashOf(d), 0);
+      if (prev > 0) {
+        const pct = Math.round(((f.forecast - prev) / prev) * 100);
+        const name = new Date(`${pt}T00:00:00Z`).toLocaleDateString("ru-RU", { month: "long", timeZone: "UTC" });
+        lines.push(`${name[0].toUpperCase()}${name.slice(1)} — ${fmt(prev)}: ${pct === 0 ? "идём вровень" : pct > 0 ? `идём на +${pct} %` : `идём на −${Math.abs(pct)} %`}.`);
+      }
+    } catch { /* без сравнения */ }
+    return { text: lines.join("\n"), parsed };
   }
   // Сравнение периодов, кончающихся сегодня: сегодня ещё идёт, и неполный
   // день против полного тянул любое «кто просел» вниз. Сравниваем полные
