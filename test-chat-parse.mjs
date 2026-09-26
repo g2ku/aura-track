@@ -9,10 +9,10 @@
 // Запуск: node test-chat-parse.mjs
 
 import { parseQuestion } from "./src/chat/parser.js";
-import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty, findCategory } from "./src/chat/categories.js";
+import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty, findCategory, resolveFoodCategories, resolveCategoryIntent } from "./src/chat/categories.js";
 import { QuerySchema, toExecutorQuery, historyLine, SYSTEM_PROMPT } from "./api/_lib/chatSchema.js";
 import { smartParse } from "./src/chat/smart.js";
-import { mergeFollowUp, preferFollowUp, fuzzyMetric, hasExplicitPeriod } from "./src/chat/parser.js";
+import { mergeFollowUp, preferFollowUp, fuzzyMetric, hasExplicitPeriod, weekendPeriod } from "./src/chat/parser.js";
 import { normalize, stem, distance, matchWord, matchPhrase, productMatches, closestNames } from "./src/chat/normalize.js";
 import { alternatives, understoodLine, periodPhrase } from "./src/chat/clarify.js";
 import { followUpsFor, FOLLOW_UP } from "./src/chat/followUps.js";
@@ -938,7 +938,8 @@ section("Ещё вопросы владельца: выходные, полов�
   eq((await ask("пончики")).product, "пончики", "«пончики» — товар, хотя начинается с «по»");
   eq((await ask("заказы")).product, "заказы", "«заказы» — тоже");
   eq((await ask("сколько денег у сети за неделю")).metric, "cash", "«у сети» — не бариста");
-  eq((await ask("самый прибыльный день")).operation, "byWeekday", "«прибыльный день» — по дням недели, не прибыль");
+  // Не прибыль и не средние по дням недели: самый кассовый день — дата
+  eq([(await ask("самый прибыльный день")).metric, (await ask("самый прибыльный день")).operation], ["cash", "bestDays"], "«прибыльный день» — лучшая дата по кассе, не прибыль");
   eq((await ask("прибыль за неделю")).metric, "profit", "а прибыль — прибыль");
   eq([(await ask("налоги за полугодие")).period.from, (await ask("налоги за полугодие")).period.to], ["2026-07-01", "2026-09-20"], "полугодие — календарное, по сегодня");
   eq((await ask("налоги за прошлое полугодие")).period.to, "2026-06-30", "прошлое полугодие — целиком");
@@ -1128,6 +1129,87 @@ section("Оценка — не название товара, но размер 
   // А размер в названии товара — часть названия, выкидывать нельзя
   const cr = await ask("сколько продали круассан миндальный большой");
   eq(cr?.product, "круассан миндальный большой", "размер остаётся в названии товара");
+}
+
+
+section("Живые формулировки владельца: еда, выпечка, удалённые чеки, выходные, лучший день");
+
+{
+  // «Еда», «выпечка» — разделы меню, а не товар с таким словом (26.09.2026:
+  // «продажи еды» отвечало «товар „еды" не найден»)
+  const food = await ask("продажи еды");
+  eq([food.metric, food.product, food.category], ["products", null, { kind: "food" }], "«продажи еды» — раздел «еда», не товар");
+  const bake = await ask("сколько выпечки продали");
+  eq([bake.product, bake.category], [null, { kind: "menu", query: "выпечка" }], "«выпечки» — раздел меню");
+  eq((await ask("десерты за неделю")).category, { kind: "menu", query: "десерты" }, "«десерты за неделю» — раздел");
+  eq((await ask("выпечка на Абая вчера")).spot.posterName, "Abaya", "раздел с точкой — точка на месте");
+  // «Еда» внутри слова — не еда
+  eq((await ask("что продавалось в среду")).category, null, "«среду» — не «еда»");
+  eq((await ask("касса до обеда")).category, null, "«обеда» — не «еда»");
+  // У маржи свой разбор — раздел его не перебивает
+  eq((await ask("маржа выпечки")).metric, "margin", "«маржа выпечки» — маржа");
+  eq((await ask("сколько круассанов продали")).product, "круассанов", "товар остаётся товаром");
+
+  const menu = [
+    { id: "1", name: "Кофе", parentId: null }, { id: "2", name: "Выпечка", parentId: null },
+    { id: "3", name: "Десерты", parentId: null }, { id: "4", name: "Чизкейки", parentId: "3" },
+    { id: "5", name: "Лимонады", parentId: null },
+  ];
+  const f = resolveFoodCategories(menu);
+  eq(f.chosen.map((c) => c.name), ["Выпечка", "Десерты", "Чизкейки"], "еда — выпечка и десерты с подкатегорией, без кофе и лимонадов");
+  eq(f.title, "Еда", "и называется «Еда»");
+  eq(resolveFoodCategories([...menu, { id: "9", name: "Еда", parentId: null }]).chosen.map((c) => c.name), ["Еда"], "категория «Еда» в Poster побеждает догадку");
+  eq(resolveFoodCategories([{ id: "1", name: "Кофе", parentId: null }]), null, "еды в меню нет — null, а не весь каталог");
+  eq(resolveCategoryIntent(menu, { kind: "menu", query: "выпечка" }, matchPhrase)?.title, "Выпечка", "названный раздел — по справочнику");
+  eq(resolveCategoryIntent(menu, { kind: "menu", query: "салаты" }, matchPhrase), null, "раздела нет — null");
+
+  // Удалённые чеки — своя метрика (26.09.2026: искался товар «удаленные»)
+  const del = await ask("удалённые чеки вчера");
+  eq([del.metric, del.product, del.period.from], ["deleted", null, "2026-09-19"], "«удалённые чеки вчера»");
+  const del2 = await ask("сколько удалили чеков на Абая");
+  eq([del2.metric, del2.product, del2.spot.posterName], ["deleted", null, "Abaya"], "«сколько удалили чеков» — не товар «удалили»");
+  eq((await ask("отменённые чеки сегодня")).metric, "deleted", "отменённые — те же удалённые");
+  eq((await mergeFollowUp(await ask("касса вчера"), "а удалённые?")).metric, "deleted", "«а удалённые?» — продолжение");
+  eq(followUpsFor({ metric: "deleted", operation: "sum", spot: { branchId: "all" }, period: { from: "2026-09-19", to: "2026-09-19" }, raw: "удалённые чеки вчера" }),
+    ["Удалённые чеки за неделю", "Кто работал вчера", "Открытые чеки"], "подсказки к удалённым — без приписанного месяца");
+
+  // Выходные. Сегодня воскресенье 20.09: «выходные» — эти, суббота и сегодня
+  const how = await ask("как прошли выходные");
+  eq([how.metric, how.operation, how.period.from, how.period.to, how.period2?.from, how.period2?.to],
+    ["cash", "percentChange", "2026-09-19", "2026-09-20", "2026-09-12", "2026-09-13"], "«как прошли выходные» — против выходных неделей раньше");
+  const grew = await ask("касса за выходные выросла");
+  eq([grew.period2?.from, grew.period2?.to], ["2026-09-12", "2026-09-13"], "рост за выходные — к прошлым выходным, а не к четвергу-пятнице");
+  eq((await ask("выручка за выходные")).operation, "sum", "просто касса за выходные — сумма");
+  eq((await ask("как выходные у Дубая")).spot.posterName, "Dubai", "«как выходные у Дубая» — точка, а не бариста");
+  eq((await ask("позапрошлые выходные касса")).period.from, "2026-09-05", "позапрошлые — неделей раньше прошлых, «позапрошлые» не товар");
+  eq((await ask("касса за прошлые выходные")).period.from, "2026-09-12", "прошлые в воскресенье — неделей раньше этих");
+  // Суббота 26.09 — эти выходные только начались: «выходные» — прошлые
+  const sat = new Date("2026-09-26T10:00:00+05:00");
+  eq(weekendPeriod("выручка за выходные", sat), { from: "2026-09-19", to: "2026-09-20", weekend: true }, "в субботу «за выходные» — прошедшие (живой вопрос 26.09)");
+  eq(weekendPeriod("касса за эти выходные", sat), { from: "2026-09-26", to: "2026-09-26", weekend: true }, "«эти выходные» в субботу — сегодня");
+  const mon = new Date("2026-09-21T10:00:00+05:00");
+  eq(weekendPeriod("как прошли выходные", mon)?.from, "2026-09-19", "в понедельник — только что прошедшие");
+  eq(weekendPeriod("касса за позапрошлые выходные", mon)?.from, "2026-09-12", "позапрошлые в понедельник — неделей раньше");
+  eq(weekendPeriod("чеки в выходные за месяц", mon), null, "«в выходные» — разрез, не срок");
+  eq(weekendPeriod("касса за прошлые выходные", sat)?.from, "2026-09-19", "прошлые в субботу — прошедшие");
+  eq(weekendPeriod("касса за позапрошлые выходные", sat)?.from, "2026-09-12", "позапрошлые в субботу — неделей раньше");
+
+  // Лучший и худший день — даты, а не средние по дням недели
+  const best = await ask("лучший день в сентябре");
+  eq([best.metric, best.operation, best.period.from, best.period.to], ["cash", "bestDays", "2026-09-01", "2026-09-30"], "«лучший день в сентябре» — дата");
+  eq((await ask("худший день месяца")).operation, "worstDays", "«худший день месяца»");
+  eq((await ask("самый слабый день на Абая за неделю")).operation, "worstDays", "«самый слабый день»");
+  const top5 = await ask("топ 5 дней за сентябрь");
+  eq([top5.operation, top5.limit], ["bestDays", 5], "«топ 5 дней» — пять дат");
+  eq([(await ask("в какой день больше всего чеков за месяц")).metric, (await ask("в какой день больше всего чеков за месяц")).operation], ["checks", "bestDays"], "по чекам — тоже дата");
+  const bare = await ask("лучший день");
+  eq([bare.period.from, bare.period.to], ["2026-08-23", "2026-09-19"], "без срока — четыре недели по вчера");
+  eq(bare.assumed.metric, false, "касса здесь — не догадка");
+  eq((await ask("лучший день недели")).operation, "byWeekday", "«лучший день недели» — разрез по дням недели, как было");
+  eq((await ask("какой день недели лучше")).operation, "byWeekday", "«какой день недели лучше» — тоже");
+  for (const q of ["лучшее время дня", "топ точек за день", "какая точка лучше за день", "кто лучше всех работал в тот день"]) {
+    ok(!["bestDays", "worstDays"].includes((await ask(q)).operation), `«${q}» — не про даты`);
+  }
 }
 
 console.log("\n══════════════════════════════════════════════════");

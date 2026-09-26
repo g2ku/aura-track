@@ -334,6 +334,27 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
     ].filter(Boolean).join("\n");
   }
 
+  // «Лучший день в сентябре», «худший день месяца» — конкретные даты, как
+  // на сайте. Сегодня не считаем: день ещё идёт
+  if ((parsed.operation === "bestDays" || parsed.operation === "worstDays") && ["cash", "checks", "avgCheck"].includes(metric)) {
+    const worst = parsed.operation === "worstDays";
+    const rows = (days || []).filter((d) => d?.date && d.date < today)
+      .map((d) => ({ date: d.date, x: sumDays([d], spots) }))
+      .filter((r) => r.x.total > 0);
+    if (!rows.length) return `Закончившихся дней с продажами ${escapeHtml(when)} нет.`;
+    rows.sort((a, b) => (worst ? pickOf(a.x) - pickOf(b.x) : pickOf(b.x) - pickOf(a.x)));
+    const N = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    const dm = (ymd) => `${N[new Date(`${ymd}T00:00:00Z`).getUTCDay()]} ${ymd.slice(8, 10)}.${ymd.slice(5, 7)}`;
+    const top = rows.slice(0, Math.min(parsed.limit || 3, rows.length));
+    const marks = worst ? ["📉"] : ["🏆", "🥈", "🥉"];
+    const avg = rows.reduce((n, r) => n + pickOf(r.x), 0) / rows.length;
+    const pct = avg ? Math.round(((pickOf(top[0].x) - avg) / avg) * 100) : 0;
+    return [`<b>${worst ? "Худшие дни" : "Лучшие дни"}${escapeHtml(where)} ${escapeHtml(when)}</b>`,
+      ...top.map((r, i) => `${marks[i] || "•"} ${dm(r.date)} — ${unitOf(pickOf(r.x))}`),
+      rows.length > 1 ? `\nОбычный день — ${unitOf(avg)}: ${worst ? "худший" : "лучший"} ${pct >= 0 ? "выше" : "ниже"} на ${Math.abs(pct)} %.` : "",
+    ].filter(Boolean).join("\n");
+  }
+
   // По дням недели — среднее на один такой день; «по будням» и «в
   // выходные» режут список по слову из вопроса
   if (parsed.operation === "byWeekday" && ["cash", "checks", "avgCheck"].includes(metric)) {
@@ -514,7 +535,9 @@ export async function answerQuestion(text, deps) {
   if (!parsed) return null;
   // «Прогноз на сегодня» разбор метит метрикой forecast — это касса
   if (parsed.operation === "forecast" && parsed.metric === "forecast") parsed.metric = "cash";
-  if (!SUPPORTED.has(parsed.metric)) {
+  // Разделы меню (выпечка, еда, сезонное) боту не посчитать: справочника
+  // меню у него нет, и без него вышли бы все товары под чужим заголовком
+  if (!SUPPORTED.has(parsed.metric) || (parsed.category && parsed.metric === "products")) {
     return { text: `Это умеет только сайт — ${deps.siteUrl ? `${deps.siteUrl}/#/chat` : "раздел «Ассистент»"}.`, parsed };
   }
   const { today } = deps;

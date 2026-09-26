@@ -7,6 +7,8 @@
 // касание вместо повторного набора. Всё чистое: период и филиал на
 // входе, строки на выходе.
 
+import { categoryLabel } from "./categories.js";
+
 const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 const MONTHS_ACC = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 
@@ -55,8 +57,9 @@ export function understoodLine(parsed, now = new Date()) {
       margin: "маржа", profit: "прибыль", tax: "налог", compareBranches: "филиалы", weekday: "по дням недели",
       hourly: "по часам", trend: "тренд", forecast: "прогноз", anomaly: "аномалии", openChecks: "открытые чеки",
       alerts: "проблемы", payments: "способы оплаты", opening: "открытие точек", staff: "по бариста", cups: "стаканы",
+      deleted: "удалённые чеки", discounts: "скидки",
     };
-    const what = parsed.category ? "сезонное меню" : parsed.product ? `«${parsed.product}»` : parsed.person ? `бариста «${parsed.person}»` : (names[parsed.metric] || parsed.metric);
+    const what = parsed.category ? categoryLabel(parsed.category) : parsed.product ? `«${parsed.product}»` : parsed.person ? `бариста «${parsed.person}»` : (names[parsed.metric] || parsed.metric);
     bits.push(what, spotWord(parsed.spot), periodPhrase(parsed.period, now), parsed.hours?.label || "");
     return `Понял так: ${bits.filter(Boolean).join(", ")}.`;
   }

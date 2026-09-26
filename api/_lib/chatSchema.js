@@ -127,6 +127,6 @@ export function historyLine(prev) {
   if (prev.spot && prev.spot.branchId !== "all") parts.push(`филиал ${prev.spot.posterName}`);
   if (prev.period) parts.push(`период ${prev.period.from}–${prev.period.to}`);
   if (prev.product) parts.push(`товар ${prev.product}`);
-  if (prev.category) parts.push("сезонное меню");
+  if (prev.category) parts.push(prev.category.kind === "food" ? "раздел меню еда" : prev.category.kind === "menu" ? `раздел меню ${prev.category.query}` : "сезонное меню");
   return parts.join(", ");
 }

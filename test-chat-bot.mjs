@@ -495,6 +495,28 @@ section("Маржа в боте: покупное по накладным, ка�
   ok(/Заработали/.test(r), "и без единой техкарты покупное считается по накладным");
 }
 
+
+section("Лучший и худший день, разделы меню — как на сайте");
+
+{
+  // Три дня назад — вдвое больше обычного, четыре — вдвое меньше
+  const B = shift(Y, -2), W = shift(Y, -3);
+  const depsDays = { ...deps, getDays: async (from, to) => range(from, to, 1).map((d) => (d.date === B ? day(B, 2) : d.date === W ? day(W, 0.5) : d)) };
+  const dm = (ymd) => `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}`;
+  const best = await answerQuestion("лучший день за неделю", depsDays);
+  ok(best && nb(best.text).startsWith("<b>Лучшие дни"), `лучший день — даты: ${best?.text}`);
+  ok(best && nb(best.text).includes(`${dm(B)} — 340 000 ₸`), `первым — день с двойной кассой: ${best?.text}`);
+  ok(best && !nb(best.text).includes(`${dm(TODAY)} —`), "сегодняшний неполный день не в счёт");
+  const worst = await answerQuestion("худший день за неделю", depsDays);
+  ok(worst && nb(worst.text).includes(`📉`) && nb(worst.text).includes(`${dm(W)} — 85 000 ₸`), `худший — день с половиной кассы: ${worst?.text}`);
+
+  // Разделы меню бот не считает — справочника меню у него нет
+  const bake = await answerQuestion("продажи выпечки за неделю", deps);
+  ok(bake && bake.text.startsWith("Это умеет только сайт"), `выпечка — на сайт, а не все товары под чужим заголовком: ${bake?.text}`);
+  const del = await answerQuestion("удалённые чеки вчера", deps);
+  ok(del && del.text.startsWith("Это умеет только сайт"), "удалённые чеки — тоже сайт");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

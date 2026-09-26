@@ -6,7 +6,7 @@
 //
 // Запуск: node test-people.mjs
 
-import { summarizeBaristas, rowsInPeriod } from "./api/_lib/baristas.js";
+import { summarizeBaristas, summarizeDeleted, rowsInPeriod } from "./api/_lib/baristas.js";
 import { dashDateParams } from "./api/_lib/poster.js";
 import { countAlerts, mergeLog, purgeLog, summarizeLog } from "./api/_lib/alertLog.js";
 import { usualByHour, todayByHour, buildBehindAlerts, MIN_SAMPLE_DAYS } from "./api/_lib/usualDay.js";
@@ -210,6 +210,26 @@ section("Обычный день: точка сравнивается сама �
     nowHHMM: "10:30", spotName: (s) => s, openSpots: new Set(["4"]),
   });
   eq(a, [], "о закрытой точке не пишем");
+}
+
+
+section("Удалённые чеки: status 3 из тех же строк dash");
+
+{
+  const at = Date.parse("2026-09-25T21:40:00+05:00");
+  const rows = [
+    { status: "2", spot_id: "4", name: "Айгерим", payed_sum: 250000, date_close: at },
+    { status: "1", spot_id: "4", name: "Айгерим", sum: 90000, date_start: at },
+    { status: "3", transaction_id: 7, spot_id: "4", name: "Данияр", sum: 320000, payed_sum: 0, date_close: at },
+    { status: 3, transaction_id: 8, spot_id: "9", name: "Айгерим", sum: 150000, payed_sum: 150000, date_start: at - 3600000 },
+  ];
+  const d = summarizeDeleted(rows);
+  eq([d.count, d.sum], [2, 4700], "только удалённые: два чека на 4 700 ₸ — закрытые и открытые не в счёт");
+  eq(d.rows.map((r) => [r.id, r.spot, r.name, r.sum, r.paid]), [["7", "Абая", "Данияр", 3200, 0], ["8", "Дубай", "Айгерим", 1500, 1500]], "свежие сверху, с точкой, человеком и оплатой");
+  eq(d.rows[0].day, "2026-09-25", "день — по Алматы");
+  eq(summarizeDeleted(null), { count: 0, sum: 0, rows: [] }, "пустой ответ не роняет");
+  eq(summarizeDeleted(rows, 1).rows.length, 1, "строк не больше лимита, а счёт — все");
+  eq(summarizeDeleted(rows, 1).count, 2, "счёт не режется лимитом");
 }
 
 console.log("\n══════════════════════════════════════════════════");

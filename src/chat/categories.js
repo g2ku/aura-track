@@ -39,8 +39,83 @@ export function parseCategoryIntent(text) {
   const lower = String(text || "").toLowerCase();
   const special = /спешл|спешиал|спешел|special|спец(?![а-яё])|спец\s*меню|сезонн/.test(lower);
   const named = SEASONS.find((s) => s.re.test(lower) && /меню|спешл|спец|special|продал|продаж/.test(lower));
-  if (!special && !named) return null;
-  return { kind: "special", season: named?.id || null };
+  if (special || named) return { kind: "special", season: named?.id || null };
+  return parseMenuGroup(lower);
+}
+
+// «Продажи еды», «сколько выпечки продали», «десерты за неделю» — не
+// товар, а раздел меню. Раньше «еды» и «выпечки» искались как название
+// товара: «еды» не находилось вовсе, а «выпечки» — только если в Poster
+// так и не нашлось товара с похожим словом.
+//
+// «Еда» — не категория Poster, а всё съедобное: выпечка, десерты, кухня.
+// Остальные слова — названия категорий, их ищем в справочнике как есть.
+// Граница слова — вручную: «еда» сидит внутри «среда» и «обеда». «Еду»
+// не берём: «еду на Абая» — это не про меню.
+const FOOD_WORD = /(?:^|[^а-яё])(?:еда|еды|еде|едой|перекус[а-яё]*)(?![а-яё])/;
+const MENU_WORDS = [
+  { re: /выпечк|выпечен/, query: "выпечка" },
+  { re: /десерт/, query: "десерты" },
+  { re: /сэндвич|сендвич/, query: "сэндвичи" },
+  { re: /салат/, query: "салаты" },
+  { re: /завтрак/, query: "завтраки" },
+  { re: /(?:^|[^а-яё])кухн/, query: "кухня", food: true },
+  { re: /(?:^|[^а-яё])(?:снек|закуск)/, query: "снеки", food: true },
+];
+export function parseMenuGroup(text) {
+  const lower = String(text || "").toLowerCase().replace(/ё/g, "е");
+  if (FOOD_WORD.test(lower)) return { kind: "food" };
+  const hit = MENU_WORDS.find((w) => w.re.test(lower));
+  return hit ? { kind: "menu", query: hit.query, ...(hit.food ? { food: true } : {}) } : null;
+}
+
+// Что считать едой в справочнике Poster. Названий категорий мы не
+// задаём — владелец может назвать раздел «Кухня», «Bakery» или «Сэндвичи»
+const FOOD_CATEGORY = /^(?:еда|food)$|выпеч|десерт|кухн|завтрак|сэндвич|сендвич|салат|суп|снек|закуск|торт|пирож|булоч|хлеб|блин|сырник|чизкейк|круасс|бургер|паст[аы]|пицц|bakery|dessert|kitchen|sandwich|snack/i;
+
+// Категория и все её потомки — товары лежат в подкатегориях
+function withDescendants(categories, roots) {
+  const out = [...roots];
+  const seen = new Set(roots.map((c) => String(c.id)));
+  for (let i = 0; i < out.length; i++) {
+    for (const c of categories) {
+      if (String(c.parentId) === String(out[i].id) && !seen.has(String(c.id))) { seen.add(String(c.id)); out.push(c); }
+    }
+  }
+  return out;
+}
+
+// Всё съедобное меню. Категория так и названная («Еда», «Food») побеждает;
+// иначе — все разделы с едой по названию. Подкатегория еды внутри еды не
+// дублируется: withDescendants её уже взял.
+export function resolveFoodCategories(categories) {
+  const list = categories || [];
+  const exact = list.filter((c) => /^(?:еда|food)$/i.test(String(c.name || "").trim()));
+  const roots = exact.length ? exact : list.filter((c) => FOOD_CATEGORY.test(String(c.name || "")));
+  if (!roots.length) return null;
+  const ids = new Set(roots.map((c) => String(c.id)));
+  const top = roots.filter((c) => !ids.has(String(c.parentId)));
+  return { chosen: withDescendants(list, top), title: exact.length ? exact[0].name : "Еда", parts: top.map((c) => c.name) };
+}
+
+// Раздел меню по разобранному вопросу: сезонное, «еда» или названная
+// категория. null — такого в справочнике нет.
+export function resolveCategoryIntent(categories, intent, matchPhrase, now = new Date()) {
+  if (!intent) return null;
+  if (intent.kind === "special") return resolveSpecialCategory(categories, { season: intent.season, now });
+  if (intent.kind === "food") return resolveFoodCategories(categories);
+  const found = findCategory(categories, intent.query, matchPhrase);
+  if (found) return found;
+  return intent.food ? resolveFoodCategories(categories) : null;
+}
+
+// Как назвать раздел, пока справочник не загружен: в уточнениях и в
+// строке «что понял»
+export function categoryLabel(intent) {
+  if (!intent) return "";
+  if (intent.kind === "food") return "еда";
+  if (intent.kind === "menu") return intent.query;
+  return "сезонное меню";
 }
 
 // Выбор подкатегории по справочнику Poster.
@@ -103,6 +178,5 @@ export function findCategory(categories, query, matchPhrase) {
     }
   }
   if (!best) return null;
-  const children = categories.filter((c) => String(c.parentId) === String(best.id));
-  return { root: best, chosen: [best, ...children], title: best.name };
+  return { root: best, chosen: withDescendants(categories, [best]), title: best.name };
 }

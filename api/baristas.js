@@ -6,7 +6,7 @@
 
 import { dashTransactions } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
-import { summarizeBaristas, rowsInPeriod } from "./_lib/baristas.js";
+import { summarizeBaristas, summarizeDeleted, rowsInPeriod } from "./_lib/baristas.js";
 import { summarizeLog } from "./_lib/alertLog.js";
 import { getConfig } from "./_lib/store.js";
 import { spotNameByPosterId } from "./_lib/branches.js";
@@ -50,6 +50,7 @@ export default async function handler(req, res) {
     // Всё мимо срока — это не «чеков нет», а Poster ответил не про то
     if (all.length && !rows.length) throw new Error(`Poster отдал чеки не за ${iso(from)} — ${iso(to)}`);
     const { people, spots } = summarizeBaristas(rows);
+    const deleted = summarizeDeleted(rows);
 
     // История тревог — из накопленного сторожем журнала
     let problems = { days: 0, rows: [] };
@@ -61,7 +62,7 @@ export default async function handler(req, res) {
       console.warn("[baristas] журнал тревог не прочитался:", e?.message);
     }
 
-    res.status(200).json({ from, to, people, spots, problems });
+    res.status(200).json({ from, to, people, spots, problems, deleted });
   } catch (e) {
     console.error("[baristas]", e?.message);
     res.status(200).json({ from, to, people: [], spots: {}, problems: { days: 0, rows: [] }, error: e?.message });

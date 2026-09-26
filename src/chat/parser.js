@@ -4,7 +4,7 @@
 // нельзя открыть из node и приходится проверять его регулярками по
 // исходнику, что мы и делали, пока не завелись настоящие ошибки.
 import { BRANCHES } from "../branches.js";
-import { parseCategoryIntent } from "./categories.js";
+import { parseCategoryIntent, categoryLabel } from "./categories.js";
 import { normalize, matchPhrase, words } from "./normalize.js";
 
 // ─── Словари ──────────────────────────────────────────────────────
@@ -13,6 +13,9 @@ const METRICS = [
   // Порядок важен: первое совпадение выигрывает. Эти три стоят сверху,
   // потому что их слова пересекаются с более общими — «открытые чеки»
   // иначе уезжали в «чеки» и превращались в количество продаж за месяц.
+  // Удалённые чеки — выше всех «чеков»: «удалённые чеки вчера» уходило в
+  // поиск товара «удаленные»
+  { keys: ["удален", "удалил", "удаля", "удалени", "отменен", "отменил", "отмена чек", "отмены чек", "сторн"], value: "deleted" },
   { keys: ["открытые чек", "открыт чек", "открытых чек", "незакрыт", "висят чек", "висящие чек", "что висит"], value: "openChecks" },
   // Во сколько открылись точки — по первому чеку дня
   { keys: ["во сколько открыл", "во сколько открыва", "когда открыл", "когда открыва", "время открыт", "открылась позже", "открылись позже", "открылась раньше", "опоздал", "опоздан", "позже всех", "раньше всех", "первый чек",
@@ -109,7 +112,7 @@ function looksLikeKeyword(word) {
   for (const op of OPERATIONS) for (const key of op.keys) if (!key.includes(" ") && matchPhrase(word, key)) return true;
   // Предлоги — только целым словом: «пончики» начинаются с «по», но это
   // товар, а не служебное слово
-  return /^(вчера|позавчера|сегодня|сейчас|недел|месяц|квартал|год|назад|последн|прошл|текущ|этот|эта|числ|начал)/.test(word) || /^(за|по|на|в|с|у|к|и|а)$/.test(word);
+  return /^(вчера|позавчера|сегодня|сейчас|недел|месяц|квартал|год|назад|последн|позапрошл|прошл|прошедш|текущ|этот|эта|эти|этих|числ|начал)/.test(word) || /^(за|по|на|в|с|у|к|и|а)$/.test(word);
 }
 
 // Слово — название филиала (в любой форме)? «Сколько заработали на
@@ -492,17 +495,11 @@ function parsePeriodExplicit(rawText) {
     return { from: fmtDate(now), to: fmtDate(now) };
   }
 
-  // «За выходные», «на выходных», «за субботу и воскресенье» — последние
-  // выходные: если сегодня суббота или воскресенье — эти, иначе прошлые.
-  // «По выходным» без «за» — разрез по дням недели, сюда не попадает.
-  if (/(?:за|на)\s+(?:прошл[а-яё]+\s+|эт[а-яё]+\s+)?выходн|за\s+суббот[ау]\s+и\s+воскресень|за\s+сб\s+и\s+вс/.test(text)) {
-    const dowNow = (now.getDay() + 6) % 7;      // 0 — понедельник, 5 — суббота
-    const prev = /прошл/.test(text);
-    let sat = new Date(now.getTime() - ((dowNow - 5 + 7) % 7) * 86400000);   // ближайшая суббота назад (или сегодня)
-    if (prev && dowNow >= 5) sat = new Date(sat.getTime() - 7 * 86400000);
-    const sun = new Date(sat.getTime() + 86400000);
-    return { from: fmtDate(sat), to: fmtDate(sun > now ? now : sun) };
-  }
+  // «За выходные», «на выходных», «как прошли выходные», «эти выходные» —
+  // последние выходные. «По выходным» и «в выходные» — разрез по дням
+  // недели, сюда не попадают.
+  const weekend = weekendPeriod(text, now);
+  if (weekend) return weekend;
 
   // «Первая половина сентября», «вторая половина месяца» — 1–15 и 16–конец
   const half = text.match(/(перв[а-яё]+|втор[а-яё]+)\s+половин[а-яё]*\s+(?:([а-яё]+)|месяца)/);
@@ -679,6 +676,37 @@ function parsePeriodExplicit(rawText) {
 
   // Период не назван
   return null;
+}
+
+// Какие выходные имеются в виду. В будни — последние прошедшие. В
+// воскресенье — эти (суббота и сегодня). В субботу — прошлые: эти только
+// начались, и «как прошли выходные» в субботу утром про прошлую неделю
+// (живая проверка 26.09.2026: отвечало кассой за одну сегодняшнюю
+// субботу). «Эти выходные» — всегда текущие, «позапрошлые» — на неделю
+// раньше. period.weekend — чтобы сравнивать с выходными, а не с пятницей.
+const WEEKEND_RE = /(?:за|на)\s+(?:(?:позапрошл|прошл|эт|прошедш|последн)[а-яё]+\s+)?выходн|(?:позапрошл|прошл|эт|прошедш|последн)[а-яё]+\s+выходн|как\s+(?:прошли\s+|там\s+|у\s+нас\s+)?выходн|выходн[а-яё]*\s+(?:прошли|как)|за\s+суббот[ау]\s+и\s+воскресень|за\s+сб\s+и\s+вс/;
+export function weekendPeriod(text, now = new Date()) {
+  if (!WEEKEND_RE.test(text)) return null;
+  const D = 86400000;
+  const dowNow = (now.getDay() + 6) % 7;      // 0 — понедельник, 5 — суббота
+  const thisOne = /(?:^|\s)эт[а-яё]+\s+выходн/.test(text);
+  // «Прошлые» — прилагательное; «как прошли выходные» — глагол, не оно
+  const prevAdj = /(?:^|\s)прошл(?:ые|ых|ым|ыми)\s+выходн/.test(text);
+  // «Прошлые» в субботу и воскресенье — неделей раньше текущих, в будни —
+  // последние прошедшие; «позапрошлые» — ещё на неделю раньше «прошлых»
+  const prevBack = dowNow >= 5 ? 1 : 0;
+  let back = dowNow === 5 && !thisOne ? 1 : 0;
+  if (prevAdj) back = prevBack;
+  if (/позапрошл/.test(text)) back = prevBack + 1;
+  const sat = new Date(now.getTime() - (((dowNow - 5 + 7) % 7) + back * 7) * D);
+  const sun = new Date(sat.getTime() + D);
+  return { from: fmtDate(sat), to: fmtDate(sun > now ? now : sun), weekend: true };
+}
+
+// Те же дни неделей раньше — пара к «как прошли выходные»
+function weekEarlier(p) {
+  const shift = (ymd) => { const d = new Date(ymd + "T00:00:00"); d.setDate(d.getDate() - 7); return fmtDate(d); };
+  return { from: shift(p.from), to: shift(p.to), weekend: true, label: "выходные неделей раньше" };
 }
 
 function findMonth(text) {
@@ -946,6 +974,9 @@ function parseMetric(text, product) {
   // вытаскивает «стаканов» как товар, а вопрос про учёт, не про продажи
   const cupsKeys = METRICS.find((m) => m.value === "cups")?.keys || [];
   if (cupsKeys.some((k) => lower.includes(k))) return "cups";
+  // Удалённые чеки — тоже: «сколько удалили чеков» делало товар «удалили»
+  const deletedKeys = METRICS.find((m) => m.value === "deleted")?.keys || [];
+  if (deletedKeys.some((k) => lower.includes(k))) return "deleted";
   // Бариста — тоже: «сколько чеков у Айгерим» вытаскивает имя как товар
   const staffKeys = METRICS.find((m) => m.value === "staff")?.keys || [];
   if (staffKeys.some((k) => lower.includes(k))) return "staff";
@@ -1076,6 +1107,15 @@ function parseProduct(text) {
   return null;
 }
 
+// Раздел меню из вопроса. «Выпечка», «еда» — это про продажи раздела;
+// «маржа выпечки», «остатки выпечки», «кто продал больше десертов» —
+// нет: у маржи, склада и бариста свой разбор, и раздел его не перебивает
+function menuCategory(lower) {
+  const category = parseCategoryIntent(lower);
+  if (category && category.kind !== "special" && ["margin", "profit", "stock", "cups", "staff"].includes(exactMetric(lower))) return null;
+  return category;
+}
+
 // ─── Главная функция ──────────────────────────────────────────────
 
 export async function parseQuestion(text) {
@@ -1105,7 +1145,7 @@ export async function parseQuestion(text) {
 
   // Категория — раньше товара: «сколько спешл продали» не должно уехать
   // в поиск товара по слову, а «летнее меню» — в товар «летнее».
-  const category = parseCategoryIntent(lower);
+  const category = menuCategory(lower);
   let product = category ? null : parseProduct(lower);
   const ipGroup = parseIPGroup(lower);
 
@@ -1163,7 +1203,7 @@ export async function parseQuestion(text) {
   // «сколько молока ушло на Баумана» искало позицию с таким названием
   // целиком — и, конечно, не находило
   if (metric === "stock") product = ingredient ? ingredient[0] : null;
-  if (metric === "cups") product = null;
+  if (metric === "cups" || metric === "deleted") product = null;
   // У бариста «товар» — это имя человека: «чеки у Айгерим» → person
   let person = null;
   if (metric === "staff") {
@@ -1227,9 +1267,30 @@ export async function parseQuestion(text) {
     const f = new Date(y); f.setDate(f.getDate() - 27);
     period.from = fmtDate(f); period.to = fmtDate(y);
   }
+  // «Лучший день в сентябре», «худший день месяца», «самый кассовый день»
+  // — конкретные даты, а не средние по дням недели: на такой вопрос
+  // отвечали «суббота», а владелец хотел «13 сентября» (26.09.2026).
+  // «Лучший день недели» и «какой день недели сильнее» — по-прежнему разрез
+  const dayWord = /(?:^|[^а-яё])(?:день|дни|дня|дней|дате|дату|даты)(?![а-яё])/;
+  const rank = /(?:топ|лучш|худш|сильн|слаб|прибыльн|рекордн|удачн|неудачн|провальн|кассов|плох)[а-яё]*|сам[а-яё]+\s+(?:больш|маленьк|высок|низк)[а-яё]*|(?:больше|меньше)\s+всего/;
+  // Рейтинг точек, товаров, людей или часов «за день» — не про даты
+  if (dayWord.test(lower) && rank.test(lower) && !/(?:дн[а-яё]*|день)\s+недел|по\s+дням|будн|выходн|точ(?:к|ек)|филиал|товар|позици|бариста|врем|час|(?:^|\s)кто\s/.test(lower) && !product && !category
+    && ["cash", "checks", "avgCheck", "weekday"].includes(metric)) {
+    operation = /худш|слаб|неудачн|провальн|плох|маленьк|низк|меньше\s+всего/.test(lower) ? "worstDays" : "bestDays";
+    if (!["checks", "avgCheck"].includes(metric)) metric = "cash";
+    // Без срока — четыре недели по вчера, как у разреза по дням недели
+    if (!explicitPeriod && !/месяц|недел|год|квартал|\d/.test(lower)) {
+      const y = new Date(); y.setDate(y.getDate() - 1);
+      const f = new Date(y); f.setDate(f.getDate() - 27);
+      period.from = fmtDate(f); period.to = fmtDate(y);
+    }
+  }
   // «Что было в этот день год назад», «как прошлый вторник» — назван
   // конкретный день, а не разрез: слова «день»/«час» здесь не метрика
   if (["weekday", "hourly"].includes(metric) && explicitPeriod && period.from === period.to) metric = "cash";
+  // «Как прошли выходные», «касса за выходные» — названы сами выходные, а
+  // не разрез по дням недели: слово «выходные» здесь не метрика
+  if (metric === "weekday" && explicitPeriod?.weekend && !/будн/.test(lower)) metric = "cash";
   if (byBranchAsked && metric === "products") period.raw = "по филиалам";
   // «Продажи по точкам», «касса по филиалам» — сравнение точек
   if (byBranchAsked && ["cash", "checks", "avgCheck"].includes(metric)) { metric = "compareBranches"; spot = null; }
@@ -1332,6 +1393,18 @@ export async function parseQuestion(text) {
     if (!metric || metric === "compareBranches") metric = "cash";
   }
 
+  // «Как прошли выходные» — выходные против выходных неделей раньше; и
+  // «касса за выходные выросла?» — тоже с ними, а не с четвергом-пятницей
+  // перед ними, как вышло бы по общему правилу «такой же отрезок до»
+  if (explicitPeriod?.weekend && !product && !category && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
+    const howWent = /как\s+(?:прошли\s+|там\s+|у\s+нас\s+)?(?:(?:эти|прошлые|позапрошлые)\s+)?выходн|выходн[а-яё]*\s+(?:прошли|как)/.test(lower);
+    if (howWent && operation === "sum") operation = "percentChange";
+    if (operation === "percentChange") {
+      period2 = weekEarlier(period);
+      if (metric === "compareBranches") metric = "cash";
+    }
+  }
+
   // Окно по часам: «до обеда», «после 18:00», «с 8 до 11», «утром»
   const hours = parseHours(lower);
   // «Топ 5», «5 лучших», «10 худших» — сколько строк показать
@@ -1381,8 +1454,8 @@ export async function parseQuestion(text) {
     // Что мы додумали сами, а не услышали. «Абая за вчера» — это касса,
     // но человек кассу не называл; ассистент ответит и предложит другое.
     assumed: {
-      // «Почему» и прогноз — про кассу по смыслу, не догадка
-      metric: !hasMetricKeyword && !hasProduct && !category && !hasMoney && metric === "cash" && !["why", "forecast"].includes(operation),
+      // «Почему», прогноз и лучший день — про кассу по смыслу, не догадка
+      metric: !hasMetricKeyword && !hasProduct && !category && !hasMoney && metric === "cash" && !["why", "forecast", "bestDays", "worstDays"].includes(operation),
       period: !explicitPeriod,
       // Товар — догадка по незнакомому слову, а не найденное название:
       // память исправлений и модель имеют право её перебить
@@ -1406,7 +1479,7 @@ export async function mergeFollowUp(prev, text) {
 
   const spot = parseSpot(lower);
   const period = parsePeriodExplicit(lower);
-  const category = parseCategoryIntent(lower);
+  const category = menuCategory(lower);
   let product = category ? null : parseProduct(lower);
   const ipGroup = parseIPGroup(lower);
 
@@ -1494,7 +1567,7 @@ export function describeParsed(parsed) {
   if (!isAll) parts.push(`Филиал: ${spotText}`);
   if (parsed.ipGroup) parts.push(`ИП: ${parsed.ipGroup.name}`);
   if (parsed.product) parts.push(`Товар: ${parsed.product}`);
-  if (parsed.category) parts.push(`Категория: сезонное меню${parsed.category.season ? ` (${parsed.category.season})` : ""}`);
+  if (parsed.category) parts.push(`Категория: ${categoryLabel(parsed.category)}${parsed.category.season ? ` (${parsed.category.season})` : ""}`);
   parts.push(`Период: ${parsed.period.from} — ${parsed.period.to}`);
   if (parsed.period2) parts.push(`Период2: ${parsed.period2.from} — ${parsed.period2.to}`);
   if (parsed.hours) parts.push(`Часы: ${parsed.hours.from}–${parsed.hours.to}`);

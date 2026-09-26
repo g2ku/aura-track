@@ -127,3 +127,35 @@ export function summarizeBaristas(rows) {
 
   return { people, spots };
 }
+
+// Удалённые чеки (status 3). Их нет ни в кассе, ни в экране чеков, а
+// вопрос «сколько чеков удалили вчера и кто» — один из первых, что
+// задаёт владелец: удалённый чек после оплаты — это деньги мимо кассы.
+// Строки те же, что у бариста, — лишнего запроса в Poster нет.
+//
+// Сумма — заказа (sum), а не оплаты: удалённый чек обычно не оплачен,
+// и payed_sum у него ноль. Время — удаления, если Poster его отдал
+// (date_close), иначе открытия.
+export function summarizeDeleted(rows, limit = 300) {
+  const list = [];
+  for (const tx of rows || []) {
+    if (String(tx.status) !== "3") continue;
+    const at = num(tx.date_close) || num(tx.date_start) || num(tx.date_start_new);
+    list.push({
+      id: String(tx.transaction_id || ""),
+      spotId: String(tx.spot_id || ""),
+      spot: spotNameByPosterId(tx.spot_id),
+      name: String(tx.name || "").trim(),
+      sum: Math.round(Math.max(num(tx.sum), num(tx.payed_sum)) / 100),
+      paid: Math.round(num(tx.payed_sum) / 100),
+      at,
+      day: at ? localDateStr(at) : null,
+    });
+  }
+  list.sort((a, b) => b.at - a.at);
+  return {
+    count: list.length,
+    sum: list.reduce((n, r) => n + r.sum, 0),
+    rows: list.slice(0, limit),
+  };
+}

@@ -34,7 +34,7 @@ function missingNote() {
   }
   return out.length ? `\n${out.join("\n")}` : "";
 }
-import { resolveSpecialCategory, productNamesIn, seasonTitle, findCategory } from "./categories.js";
+import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt, describeDayList } from "../utils.js";
@@ -300,9 +300,11 @@ async function executeInner(parsed, userBranch) {
           handleCategory("sum", effectiveSpot, period, category, ipGroup),
           handleCategory("sum", effectiveSpot, period2Full, category, ipGroup),
         ]);
+        // Раздела нет в меню — так и говорим, а не «0 ₸ против 0 ₸»
+        if (!a.data?.category) return a;
         const sa = a.data?.totalSum || 0, sb = b.data?.totalSum || 0;
         const pct = pctChange(sa, sb);
-        const title = a.data?.category?.title || "Сезонное меню";
+        const title = a.data?.category?.title || (category.kind === "special" ? "Сезонное меню" : categoryLabel(category));
         return {
           text: `${title}: ${formatPeriodLabel(period)} — ${fmt(sa)} (${a.data?.totalQty || 0} шт.), `
             + `${formatPeriodLabel(period2Full)} — ${fmt(sb)} (${b.data?.totalQty || 0} шт.). `
@@ -311,7 +313,9 @@ async function executeInner(parsed, userBranch) {
         };
       }
       const r = await handlePercentChange(metric, effectiveSpot, period, period2Full, product, ipGroup, parsed.raw);
-      return cutNote && r?.text ? { ...r, text: r.text + cutNote } : r;
+      // «Как прошли выходные» — сказать, что сравниваем выходные с выходными
+      const head = parsed.period?.weekend && period2.weekend ? "Выходные против выходных неделей раньше.\n" : "";
+      return r?.text ? { ...r, text: head + r.text + cutNote } : r;
     }
 
     // Метрики «про сейчас» — раньше разрезов: «во сколько открылась»
@@ -323,6 +327,7 @@ async function executeInner(parsed, userBranch) {
     if (metric === "cups") return await handleCups(effectiveSpot);
     if (metric === "discounts") return await handleDiscounts(effectiveSpot, period, ipGroup);
     if (metric === "staff") return await handleStaff(effectiveSpot, period, ipGroup, parsed);
+    if (metric === "deleted") return await handleDeleted(effectiveSpot, period, ipGroup);
     // Часы внутри дня: «касса до обеда», «чеки после 18» — по чекам
     if (parsed.hours && ["cash", "checks", "avgCheck", "compareBranches"].includes(metric)) {
       const p = parsed.assumed?.period ? { from: fmtDateJS(new Date()), to: fmtDateJS(new Date()) } : period;
@@ -334,6 +339,7 @@ async function executeInner(parsed, userBranch) {
     // Прогноз на сегодня — по форме дня; на месяц — по истории месяцев
     if (operation === "forecast" && period.from === period.to && period.to === fmtDateJS(new Date())) return await handleTodayForecast(effectiveSpot, ipGroup);
     if (operation === "forecast") return await handleForecast(metric, effectiveSpot, period, ipGroup);
+    if (operation === "bestDays" || operation === "worstDays") return await handleTopDays(metric, effectiveSpot, period, ipGroup, operation === "worstDays", parsed.limit || 3);
     if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
     if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
     if (operation === "anomaly") return await handleAnomaly(metric, effectiveSpot, period, ipGroup);
@@ -1189,11 +1195,23 @@ async function handleCategory(operation, spot, period, category, ipGroup) {
   const pl = formatPeriodLabel(period);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
-  const picked = resolveSpecialCategory(menu.categories, { season: category.season });
+  const special = category.kind === "special" || !category.kind;
+  const picked = special
+    ? resolveSpecialCategory(menu.categories, { season: category.season })
+    : resolveCategoryIntent(menu.categories, category, matchPhrase);
   if (!picked) {
+    if (special) {
+      return {
+        text: "В меню Poster не нашёл категорию «Special menu». Проверьте название категории в справочнике.",
+        data: null,
+      };
+    }
+    // Раздела нет — называем, какие есть: человек выберет, а не гадает
+    const roots = (menu.categories || []).filter((c) => !c.parentId && (menu.productsByCategory?.[c.id] || []).length).map((c) => c.name);
+    const what = category.kind === "food" ? "разделов с едой (выпечка, десерты, кухня)" : `раздела «${categoryLabel(category)}»`;
     return {
-      text: "В меню Poster не нашёл категорию «Special menu». Проверьте название категории в справочнике.",
-      data: null,
+      text: `В меню Poster нет ${what}.${roots.length ? `\n\nРазделы меню: ${roots.join(", ")}` : ""}`,
+      data: { suggestions: roots },
     };
   }
   const names = productNamesIn(picked.chosen, menu.productsByCategory);
@@ -1202,10 +1220,13 @@ async function handleCategory(operation, spot, period, category, ipGroup) {
   }
 
   // Заголовок говорит, ЧТО именно посчитали: сезон выбран за человека, и
-  // он должен это видеть, а не догадываться.
+  // он должен это видеть, а не догадываться. «Еда» — сборная: называем,
+  // из каких разделов она сложилась
   const head = picked.fallback
     ? `Сезонное меню за ${pl}${ipLabel} — подкатегории «${seasonTitle(picked.season)}» в Poster нет, посчитал всю категорию «${picked.root.name}»`
-    : `${picked.title} за ${pl}${ipLabel}`;
+    : picked.parts?.length && picked.parts.join() !== picked.title
+      ? `${picked.title} (${picked.parts.join(", ")}) за ${pl}${ipLabel}`
+      : `${picked.title} за ${pl}${ipLabel}`;
   return categoryReport(picked, head, operation, spot, period, ipGroup, { menu, data });
 }
 
@@ -1376,6 +1397,71 @@ async function handleStaff(spot, period, ipGroup, parsed) {
   // Средний чек по одному-двум чекам — не показатель, а случайность
   if (measure === "avgCheck" && top.some((b) => b.checks < 5)) tail.push("У кого меньше 5 чеков — средний чек случайный, сравнивать рано.");
   return { text: `${title} ${sl} за ${pl}:\n${lines.join("\n")}${tail.length ? `\n\n${tail.join("\n")}` : ""}${note}`, data: { rows, measure } };
+}
+
+// ─── Удалённые чеки ──────────────────────────────────────────────
+//
+// «Удалённые чеки вчера», «кто удалял чеки на Абая за неделю». Poster
+// отдаёт их только в dash.getTransactions (status 3) — сервер собирает их
+// тем же запросом, что и бариста (/api/baristas). Раньше вопрос уходил в
+// поиск товара «удаленные» и честно отвечал, что такого товара нет.
+const ALMATY_HM = new Intl.DateTimeFormat("ru-RU", { timeZone: "Asia/Almaty", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+async function handleDeleted(spot, period, ipGroup) {
+  const todayIso = fmtDateJS(new Date());
+  const to = period.to > todayIso ? todayIso : period.to;
+  let from = period.from > to ? to : period.from;
+  let note = "";
+  if (daysInPeriod(from, to) > 31) {
+    const d = new Date(to + "T00:00:00");
+    d.setDate(d.getDate() - 30);
+    from = fmtDateJS(d);
+    note = "\n\nСмотрел последний месяц периода — дальше чеков слишком много.";
+  }
+  const r = await fetchBaristas(from, to);
+  if (r?.error) throw new Error(`Poster не ответил: ${r.error}`);
+  const pl = formatPeriodLabel({ from, to });
+  const sl = label(spot);
+  // Старый сервер поля не знает — не выдаём это за «удалённых нет»
+  if (!r?.deleted) return { text: "Удалённые чеки сервер пока не отдаёт — обновите страницу через пару минут.", data: null };
+
+  let rows = (r.deleted.rows || []).filter((x) => matchesSpot({ spotId: x.spotId, spotName: x.spot }, spot));
+  if (ipGroup) {
+    const keep = await filterByIPGroup(rows.map((x) => ({ spotId: x.spotId, spotName: x.spot })), ipGroup);
+    const ids = new Set(keep.map((x) => String(x.spotId)));
+    rows = rows.filter((x) => ids.has(String(x.spotId)));
+  }
+  if (!rows.length) return { text: `Удалённых чеков ${sl} за ${pl} нет ✅${note}`, data: { rows: [], count: 0, sum: 0 } };
+
+  const nChecks = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "чек" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "чека" : "чеков"}`;
+  const total = rows.reduce((n, x) => n + (x.sum || 0), 0);
+  const paid = rows.filter((x) => x.paid > 0);
+  const spotOf = (x) => x.spot || sn({ spotId: x.spotId });
+  const who = (x) => x.name || "без имени";
+
+  // По точкам: сколько, на какую сумму и кто удалял
+  const bySpot = {};
+  for (const x of rows) {
+    const b = (bySpot[spotOf(x)] ||= { name: spotOf(x), count: 0, sum: 0, people: {} });
+    b.count++; b.sum += x.sum || 0;
+    b.people[who(x)] = (b.people[who(x)] || 0) + 1;
+  }
+  const spots = Object.values(bySpot).sort((a, b) => b.count - a.count || b.sum - a.sum);
+  const peopleLine = (b) => Object.entries(b.people).sort((a, c) => c[1] - a[1]).map(([n, c]) => `${n} ${c}`).join(", ");
+  const spotLines = spots.map((b) => `• ${b.name}: ${nChecks(b.count)} на ${fmt(b.sum)} — ${peopleLine(b)}`);
+
+  // Сами чеки: свежие сверху, не больше десяти. Оплаченный удалённый —
+  // деньги мимо кассы, его помечаем
+  const shown = rows.slice(0, 10);
+  const checkLines = shown.map((x) => `• ${x.at ? ALMATY_HM.format(new Date(x.at)).replace(",", "") : "—"} ${spotOf(x)} — ${fmt(x.sum)}, ${who(x)}${x.paid > 0 ? ` · был оплачен ${fmt(x.paid)}` : ""}`);
+  const more = rows.length > shown.length ? `\n…и ещё ${rows.length - shown.length}` : "";
+  const paidLine = paid.length ? `\n⚠️ Из них ${paid.length === 1 ? "один был оплачен" : `${paid.length} были оплачены`}: ${fmt(paid.reduce((n, x) => n + x.paid, 0))} — проверьте, куда ушли деньги.` : "";
+
+  return {
+    text: `Удалённые чеки ${sl} за ${pl}: ${nChecks(rows.length)} на ${fmt(total)}${paidLine}`
+      + `${spots.length > 1 || isAll(spot) ? `\n\nПо точкам:\n${spotLines.join("\n")}` : `\nКто удалял: ${peopleLine(spots[0])}`}`
+      + `\n\nЧеки:\n${checkLines.join("\n")}${more}${note}`,
+    data: { rows, count: rows.length, sum: total, spots },
+  };
 }
 
 // ─── Скидки ──────────────────────────────────────────────────────
@@ -1975,6 +2061,83 @@ async function handleForecast(metric, spot, period, ipGroup) {
 // воскресенья, и по сумме понедельник «выигрывал» ни за что.
 // «По будням» и «в выходные» — фильтр по слову из вопроса.
 const WEEKEND = new Set([0, 6]);
+// ─── Лучшие и худшие дни ─────────────────────────────────────────
+//
+// «Лучший день в сентябре», «худший день месяца», «топ-5 дней» —
+// конкретные даты. Раньше ответом были средние по дням недели: «суббота»,
+// а спрашивали, какого числа была рекордная касса. Средние по дням недели
+// остаются одной строкой внизу — они объясняют, почему лидируют субботы.
+async function handleTopDays(metric, spot, period, ipGroup, worst, limit = 3) {
+  const todayIso = fmtDateJS(new Date());
+  let perDay = await fetchCashPerDay(period.from, period.to > todayIso ? todayIso : period.to);
+  perDay = perDay.filter((d) => matchesSpot({ spotId: d.spotId, spotName: d.spotName }, spot));
+  perDay = await filterByIPGroup(perDay, ipGroup);
+
+  const iso = (k) => { const s = String(k).replace(/-/g, ""); return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`; };
+  const byDate = {};
+  for (const d of perDay) {
+    const k = iso(d.date);
+    // Сегодня день ещё идёт — в худшие попал бы всегда, в лучшие никогда
+    if (k >= todayIso || k < period.from || k > period.to) continue;
+    const b = (byDate[k] ||= { date: k, total: 0, tx: 0, spots: {} });
+    b.total += d.total || 0;
+    b.tx += d.txCount || 0;
+    b.spots[d.spotId] = { spotId: d.spotId, spotName: d.spotName, total: (b.spots[d.spotId]?.total || 0) + (d.total || 0) };
+  }
+  const pl = formatPeriodLabel(period);
+  const sl = label(spot);
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
+  const val = metric === "checks" ? (r) => r.tx : metric === "avgCheck" ? (r) => (r.tx ? r.total / r.tx : 0) : (r) => r.total;
+  const nChecks = (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "чек" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "чека" : "чеков"}`;
+  const show = metric === "checks" ? (r) => `${nChecks(r.tx)} (${fmt(r.total)})` : metric === "avgCheck" ? (r) => `${fmt(Math.round(val(r)))} (${nChecks(r.tx)})` : (r) => `${fmt(r.total)} (${nChecks(r.tx)})`;
+
+  // Дни без продаж — закрытая точка или Poster не отдал день; худшим
+  // таким днём ничего не объяснить, называем их отдельно
+  const all = Object.values(byDate);
+  const days = all.filter((r) => r.total > 0);
+  const empty = all.length - days.length;
+  if (!days.length) return { text: `Закончившихся дней с продажами ${sl}${ipLabel} за ${pl} нет.`, data: null };
+
+  const sorted = [...days].sort((a, b) => (worst ? val(a) - val(b) : val(b) - val(a)));
+  const top = sorted.slice(0, Math.min(limit, days.length));
+  const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+  const dm = (k) => `${dayNames[new Date(k + "T00:00:00").getDay()]} ${k.slice(8, 10)}.${k.slice(5, 7)}`;
+  const marks = worst ? ["📉", "•", "•"] : ["🏆", "🥈", "🥉"];
+  const lines = top.map((r, i) => `${marks[i] || "•"} ${dm(r.date)} — ${show(r)}`);
+
+  const avg = days.reduce((n, r) => n + val(r), 0) / days.length;
+  const lead = top[0];
+  const tail = [];
+  if (days.length > 1 && avg) {
+    const pct = Math.round(((val(lead) - avg) / avg) * 100);
+    const avgText = metric === "checks" ? `${Math.round(avg)} чеков` : fmt(Math.round(avg));
+    tail.push(`Обычный день здесь — ${avgText}: ${worst ? "худший" : "лучший"} ${pct >= 0 ? "выше" : "ниже"} на ${Math.abs(pct)} %.`);
+  }
+  // Кто сделал день: на всю сеть — какая точка принесла больше всех
+  if (isAll(spot) && Object.keys(lead.spots).length > 1 && metric === "cash") {
+    const spotsOfDay = Object.values(lead.spots).sort((a, b) => (worst ? a.total - b.total : b.total - a.total));
+    const first = spotsOfDay[0];
+    const d = `${lead.date.slice(8, 10)}.${lead.date.slice(5, 7)}`;
+    tail.push(worst ? `${d} меньше всех — ${sn(first)}: ${fmt(first.total)}.` : `${d} больше всех принесла ${sn(first)} — ${fmt(first.total)}.`);
+  }
+  // Средние по дням недели — от двух недель: иначе у каждого дня по одному
+  if (days.length >= 14) {
+    const acc = {};
+    for (const r of days) { const w = new Date(r.date + "T00:00:00").getDay(); const a = (acc[w] ||= { n: 0, v: 0 }); a.n++; a.v += val(r); }
+    const byW = Object.entries(acc).map(([w, a]) => ({ w: Number(w), avg: a.v / a.n })).sort((a, b) => (worst ? a.avg - b.avg : b.avg - a.avg));
+    const WD = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+    tail.push(`В среднем ${worst ? "слабее всего" : "сильнее всего"} — ${WD[byW[0].w]}.`);
+  }
+  if (empty) tail.push(`Дней без продаж: ${empty} — в расчёт не шли.`);
+
+  const what = metric === "checks" ? "по чекам" : metric === "avgCheck" ? "по среднему чеку" : "по кассе";
+  const head = `${worst ? (top.length > 1 ? "Худшие дни" : "Худший день") : (top.length > 1 ? "Лучшие дни" : "Лучший день")} ${what} ${sl}${ipLabel} за ${pl}:`;
+  return {
+    text: `${head}\n${lines.join("\n")}${tail.length ? `\n\n${tail.join("\n")}` : ""}`,
+    data: { days: top, avg, worst },
+  };
+}
+
 async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
