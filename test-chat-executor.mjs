@@ -373,6 +373,29 @@ section("Разрезы: часы, дни недели, товары");
   ok(worst.indexOf("Матча") < worst.indexOf("Круассан"), "а самая слабая позиция — первой");
   const bs = await ask("товары по филиалам за неделю");
   has(bs, "Абая", "товары по филиалам — разрез по точкам");
+
+  // Добавки — не позиция меню: на живых данных (26.09.2026) весь список
+  // худших был «Сахар стик 0 ₸, Корица 0 ₸, Малина Сироп 100 ₸»
+  const P = globalThis.__poster;
+  const realSales = P.fetchPosterSales, realMenu = P.getMenuCategories;
+  P.fetchPosterSales = async function (from, to) {
+    const r = await realSales.call(this, from, to);
+    return { ...r, rows: [...r.rows,
+      { spotId: "4", spotName: SPOTS[4], productName: "Сахар стик", qty: 230, sum: 0 },
+      { spotId: "4", spotName: SPOTS[4], productName: "Малина Сироп", qty: 1, sum: 100 },
+      { spotId: "4", spotName: SPOTS[4], productName: "Доп. шот эспрессо", qty: 2, sum: 600 }] };
+  };
+  P.getMenuCategories = async function () {
+    const m = await realMenu.call(this);
+    return { categories: [...m.categories, { id: "12", name: "Сиропы", parentId: null }], productsByCategory: { ...m.productsByCategory, "12": [{ id: "120", name: "Малина Сироп" }] } };
+  };
+  const w2 = plain(await ask("5 худших товаров за неделю"));
+  ok(!/Сахар стик|Малина Сироп|Доп\. шот/.test(w2), `добавок среди худших нет:\n      ${w2.replace(/\n/g, "\n      ")}`);
+  has(w2, "1. Матча", "самая слабая позиция меню — первой");
+  has(w2, "Добавки не в счёт (сиропы, сахар, доп. шоты и то, что шло за 0 ₸): 3 наименования.", "и сказано, сколько добавок не в счёт");
+  has(await ask("5 худших товаров за неделю на абае"), "Худшие товары Абая за", "точка — в заголовке");
+  has(await ask("топ товаров за неделю"), "Латте 0,4", "лучшие — как были");
+  P.fetchPosterSales = realSales; P.getMenuCategories = realMenu;
 }
 
 section("Крупные чеки — отдельные чеки, а не точка");

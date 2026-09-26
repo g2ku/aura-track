@@ -34,10 +34,10 @@ function missingNote() {
   }
   return out.length ? `\n${out.join("\n")}` : "";
 }
-import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel } from "./categories.js";
+import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel, addonProductNames } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
-import { fmt, describeDayList, nChecks } from "../utils.js";
+import { fmt, describeDayList, nChecks, plural } from "../utils.js";
 import { BRANCHES, spotNameByPosterId } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
@@ -1169,13 +1169,26 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
 
   // «10 худших» — с конца, «топ 5» — столько строк, сколько просили
   const worst = operation === "min";
-  products.sort((a, b) => (worst ? a.sum - b.sum : b.sum - a.sum));
+  // Худшие — среди позиций меню: добавки (сахар за 0 ₸, сироп за 100 ₸)
+  // иначе занимают весь список. Меню не загрузилось — хотя бы без нулевых
+  let ranked = products;
+  let addonsOut = 0;
+  if (worst) {
+    let addons = new Set();
+    try { const menu = await getMenuCategories(); addons = addonProductNames(menu.categories, menu.productsByCategory); } catch (_) { /* без меню — только нулевые */ }
+    ranked = products.filter((p) => p.sum > 0 && !addons.has(String(p.name).toLowerCase()) && !/^доп(?:\.|\s)/i.test(String(p.name)));
+    addonsOut = products.length - ranked.length;
+  }
+  ranked.sort((a, b) => (worst ? a.sum - b.sum : b.sum - a.sum));
   const n = limit || (operation === "max" ? 10 : worst ? 10 : 15);
-  const top = products.slice(0, n);
+  const top = ranked.slice(0, n);
   const lines = top.map((p, i) => `${i + 1}. ${p.name}: ${p.qty} шт. / ${fmt(p.sum)}`).join("\n");
   const totalQty = products.reduce((s, p) => s + p.qty, 0);
   const totalSum = products.reduce((s, p) => s + p.sum, 0);
-  const title = worst ? `Худшие товары${ipLabel} за ${pl} (из ${products.length} наименований с продажами)` : `Товары${ipLabel} за ${pl} (всего ${products.length} наименований)`;
+  const where = isAll(spot) ? "" : ` ${label(spot)}`;
+  const title = worst
+    ? `Худшие товары${where}${ipLabel} за ${pl} (из ${ranked.length} ${plural(ranked.length, "позиции", "позиций", "позиций")} меню с продажами)`
+    : `Товары${where}${ipLabel} за ${pl} (всего ${products.length} ${plural(products.length, "наименование", "наименования", "наименований")})`;
 
   // «Итого» по товарам и касса за тот же день — разные числа: в товарах
   // нет скидок, возвратов и того, что прошло мимо позиций. Человек
@@ -1193,8 +1206,9 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
     }
   } catch {}
 
+  const addonNote = addonsOut ? `\n\nДобавки не в счёт (сиропы, сахар, доп. шоты и то, что шло за 0 ₸): ${addonsOut} ${plural(addonsOut, "наименование", "наименования", "наименований")}.` : "";
   return {
-    text: `${title}:\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}${cashNote}`,
+    text: `${title}:\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}${cashNote}${addonNote}`,
     data: { products: top, totalQty, totalSum },
   };
 }

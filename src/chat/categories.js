@@ -104,6 +104,21 @@ export function resolveFoodCategories(categories) {
   return { chosen: withDescendants(list, top), title: exact.length ? exact[0].name : "Еда", parts: top.map((c) => c.name) };
 }
 
+// Добавки — довесок к позиции, а не позиция: сахар-стик и корица за
+// 0 ₸, сироп за 100 ₸. В «что продаётся хуже всего» они занимали весь
+// список (живая проверка 26.09.2026: Сахар стик, Корица, Лимон, сиропы).
+// Разделы — по названию; «Доп. шот эспрессо» у Aura02 лежит вне
+// разделов — его узнаём по «Доп.» в начале.
+const ADDON_CATEGORY = /добав|сироп|эликсир|заготов|топпинг|модиф|syrup|topping|add-?on|extra/i;
+export function addonProductNames(categories, productsByCategory) {
+  const roots = (categories || []).filter((c) => ADDON_CATEGORY.test(String(c.name || "")));
+  const names = productNamesIn(withDescendants(categories || [], roots), productsByCategory);
+  for (const list of Object.values(productsByCategory || {})) {
+    for (const p of list || []) if (/^доп(?:\.|\s)/i.test(String(p.name || ""))) names.add(String(p.name).toLowerCase());
+  }
+  return names;
+}
+
 // Раздел меню по разобранному вопросу: сезонное, «еда» или названная
 // категория. Названной категории нет — товары по названию среди еды
 // (names — готовый набор, chosen — откуда брали). null — нет ни того, ни
