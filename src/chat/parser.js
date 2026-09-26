@@ -354,6 +354,11 @@ const MONTH_NAMES = {
 
 // Месяц — только с начала слова. Подстрокой «мая» находилась в «сАМАЯ»:
 // «самая слабая точка за месяц» отвечало кассой за май (26.09.2026)
+// «Прошлая пятница», «прошлую неделю» — прилагательное, а не глагол:
+// «как прошла пятница» в субботу — это вчера, а не пятница неделю назад
+// (живая проверка 27.09.2026: отвечало за 18.09 вместо 25.09)
+const PREV_ADJ = "прошл(?:ый|ая|ую|ой|ое|ом|ого|ому|ые|ых|ым|ыми)";
+
 const MONTH_RE = Object.fromEntries(Object.keys(MONTH_NAMES).map((p) => [p, new RegExp(`(?:^|[^а-яё])${p}`)]));
 const hasMonth = (text, prefix) => MONTH_RE[prefix].test(text);
 
@@ -479,7 +484,7 @@ function parsePeriodExplicit(rawText) {
   // слово «неделя» любое значило «последние семь дней», и «за прошлую
   // неделю» в среду отдавало пол-этой и пол-прошлой.
   const dow = (now.getDay() + 6) % 7; // 0 — понедельник
-  if (/прошл[а-яё]+\s+недел|позапрошл[а-яё]+\s+недел/.test(text)) {
+  if (new RegExp(`${PREV_ADJ}\\s+недел|позапрошл[а-яё]+\\s+недел`).test(text)) {
     const back = /позапрошл/.test(text) ? 14 : 7;
     const monday = new Date(now.getTime() - (dow + back) * 86400000);
     const sunday = new Date(monday.getTime() + 6 * 86400000);
@@ -534,7 +539,7 @@ function parsePeriodExplicit(rawText) {
   // «В среду», «в прошлую пятницу» — ближайший такой день назад (сегодня
   // тоже считается). «По понедельникам» без «в» — это разрез по дням
   // недели, сюда не попадает.
-  const wd = text.match(/(?:^|\s)(?:(?:в|во|как)\s+)?(?:(прошл[а-яё]+)\s+)?(понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)(?![а-яё])/);
+  const wd = text.match(new RegExp(`(?:^|\\s)(?:(?:в|во|как)\\s+)?(?:(?:прошл[аои]|прош[её]л)\\s+)?(?:(${PREV_ADJ})\\s+)?(понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)(?![а-яё])`));
   if (wd) {
     const idx = ["понедельник", "вторник", "сред", "четверг", "пятниц", "суббот", "воскресенье"].findIndex((k) => wd[2].startsWith(k));
     const todayIdx = (now.getDay() + 6) % 7;
@@ -587,7 +592,7 @@ function parsePeriodExplicit(rawText) {
     return { from: fmtDate(d), to: fmtDate(d) };
   }
   // «В прошлом сентябре» — этот месяц прошлого года
-  const prevMonthNamed = text.match(/прошл[а-яё]+\s+(январ|феврал|март|апрел|ма[йея]|июн|июл|август|сентябр|октябр|ноябр|декабр)[а-яё]*/);
+  const prevMonthNamed = text.match(new RegExp(`${PREV_ADJ}\\s+(январ|феврал|март|апрел|ма[йея]|июн|июл|август|сентябр|октябр|ноябр|декабр)[а-яё]*`));
   if (prevMonthNamed) {
     const m = findMonth(prevMonthNamed[1]);
     if (m) {
@@ -597,7 +602,7 @@ function parsePeriodExplicit(rawText) {
     }
   }
   // «Прошлый год» — целиком
-  if (/прошл[а-яё]+\s+год/.test(text)) {
+  if (new RegExp(`${PREV_ADJ}\\s+год`).test(text)) {
     return { from: `${currentYear - 1}-01-01`, to: `${currentYear - 1}-12-31` };
   }
   // «В этом году», «с начала года» — с 1 января по сегодня
@@ -628,7 +633,7 @@ function parsePeriodExplicit(rawText) {
   // сегодня; «прошлое полугодие» — предыдущее целиком. Так считаются налоги
   if (/полугоди/.test(text)) {
     const firstHalf = currentMonth <= 6;
-    const prev = /прошл|предыдущ/.test(text);
+    const prev = new RegExp(`${PREV_ADJ}|предыдущ`).test(text);
     let y = currentYear, h = firstHalf ? 1 : 2;
     if (prev) { if (h === 1) { y -= 1; h = 2; } else h = 1; }
     const from = `${y}-${h === 1 ? "01" : "07"}-01`;
@@ -673,7 +678,7 @@ function parsePeriodExplicit(rawText) {
   }
 
   // "за прошлый месяц"
-  if (/(?:прошл[а-яё]+\s+месяц|прошлом\s+месяц)/.test(text)) {
+  if (new RegExp(`${PREV_ADJ}\\s+месяц`).test(text)) {
     const prevFirst = new Date(currentYear, currentMonth - 2, 1);
     const prevLastDay = new Date(currentYear, currentMonth - 1, 0).getDate();
     const py = prevFirst.getFullYear();
