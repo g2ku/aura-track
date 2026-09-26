@@ -804,8 +804,32 @@ async function handleCash(operation, spot, period, ipGroup) {
     }
     const days = filtered[0].daysCount || 1;
     const avgPerDay = Math.round(totalCash / days);
+    // Из чего среднее: сильный и слабый день недели — «334 тыс. в день» у
+    // Рамса это 349 тыс. в четверг и 293 тыс. в воскресенье. От двух недель,
+    // иначе каждого дня по одному
+    let spread = "";
+    if (days >= 14) {
+      try {
+        const perDay = await filterByIPGroup((await fetchCashPerDay(period.from, period.to)).filter((d) => matchesSpot(d, spot)), ipGroup);
+        const byDate = {};
+        for (const d of perDay) byDate[d.date] = (byDate[d.date] || 0) + (d.total || 0);
+        const acc = {};
+        for (const [k, v] of Object.entries(byDate)) {
+          const ymd = String(k).replace(/-/g, "");
+          const dow = new Date(`${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}T00:00:00`).getDay();
+          const a = (acc[dow] ||= { sum: 0, n: 0 });
+          if (v > 0) { a.sum += v; a.n++; }
+        }
+        const avg = Object.entries(acc).filter(([, a]) => a.n).map(([w, a]) => ({ w: Number(w), v: a.sum / a.n }));
+        if (avg.length >= 5) {
+          const DN = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+          const hi = avg.reduce((m, x) => (x.v > m.v ? x : m)), lo = avg.reduce((m, x) => (x.v < m.v ? x : m));
+          spread = `\nСильнее всего ${DN[hi.w]} — ${fmt(Math.round(hi.v))}, слабее ${DN[lo.w]} — ${fmt(Math.round(lo.v))}`;
+        }
+      } catch { /* без разброса */ }
+    }
     return {
-      text: `Средняя касса ${sl}${ipLabel} за ${pl}:\n${fmt(totalCash)} за ${days} дн. = ${fmt(avgPerDay)}/день\nЧеков: ${totalTx.toLocaleString("ru-RU")}`,
+      text: `Средняя касса ${sl}${ipLabel} за ${pl}:\n${fmt(totalCash)} за ${days} дн. = ${fmt(avgPerDay)}/день${spread}\nЧеков: ${totalTx.toLocaleString("ru-RU")}`,
       data: { totalCash, totalTx, avgPerDay, days },
     };
   }
