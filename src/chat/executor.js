@@ -858,12 +858,15 @@ async function handleAvgCheck(operation, spot, period, ipGroup) {
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   if (filtered.length > 1) {
-    const lines = filtered.map(d => {
-      const a = d.txCount > 0 ? Math.round(d.total / d.txCount) : 0;
-      return `• ${sn(d)}: ${fmt(a)}`;
-    }).join("\n");
+    // По убыванию — и «у кого самый большой средний чек» первой строкой
+    const rows = filtered.map((d) => ({ d, a: d.txCount > 0 ? Math.round(d.total / d.txCount) : 0 })).sort((x, y) => y.a - x.a);
+    const lines = rows.map(({ d, a }) => `• ${sn(d)}: ${fmt(a)}`).join("\n");
+    const lead = operation === "min" ? rows[rows.length - 1] : rows[0];
+    const head = operation === "max" || operation === "min"
+      ? `${operation === "max" ? "Самый большой" : "Самый маленький"} средний чек${ipLabel} за ${pl} — ${sn(lead.d)}: ${fmt(lead.a)} (по сети ${fmt(avg)}).\n\n`
+      : "";
     return {
-      text: `Средний чек ${sl}${ipLabel} за ${pl}:\n${lines}\n\nОбщий средний: ${fmt(avg)}`,
+      text: `${head}Средний чек ${sl}${ipLabel} за ${pl}:\n${lines}\n\nОбщий средний: ${fmt(avg)}`,
       data: { filtered, avg },
     };
   }
@@ -2288,7 +2291,7 @@ async function handleStock(spot, period, product, raw = "") {
   // Остатки — на сегодня, а не на конец месяца: «сентябрь» по умолчанию
   // шёл до 30-го, и расход в день делился на ещё не прошедшие дни
   const todayIso = fmtDateJS(new Date());
-  const runway = /законч|кончает|хватит/.test(q);
+  const runway = /законч|заканч|кончает|хватит/.test(q);
   let from = period.from;
   const to = period.to > todayIso ? todayIso : period.to;
   // Запас — по свежему расходу за две недели: и не дальше (месяц назад
