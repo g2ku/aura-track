@@ -854,6 +854,16 @@ function parseSpot(text) {
   }
   if (bestMatch) return bestMatch;
 
+  // Короткое название с хвостом: «обиай», «обишке» — «оби» в три буквы
+  // нечёткий поиск ниже не берёт (от четырёх), а точный ждёт целое слово
+  for (const w of words(lower)) {
+    for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
+      if (alias.length !== 3 || entry.branchId === "all" || !/^[а-яё]+$/.test(alias)) continue;
+      // …но не настоящие слова: «обида», «обитый», «обилие»
+      if (w.startsWith(alias) && w.length > alias.length && w.length <= alias.length + 3 && !/^оби[дтл]/.test(w)) return entry;
+    }
+  }
+
   // «Гагарин», «на Дубае», «в Коктеме» — форма не из списка. Сравниваем
   // основы слов; «все»/«всех» сюда не пускаем — слишком короткие, чтобы
   // угадывать.
