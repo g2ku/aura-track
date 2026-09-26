@@ -573,13 +573,56 @@ export async function getIdToken() {
     // Сессия восстанавливается из браузера не мгновенно (~0,4 с по замеру
     // 26.09.2026). Главная рисуется по сохранённой роли раньше — её первые
     // запросы ждут сессию, а не уходят без токена за «сессия истекла»
-    if (!a.currentUser && typeof a.authStateReady === "function") await a.authStateReady();
+    if (!a.currentUser && typeof a.authStateReady === "function") {
+      const early = await persistedToken();
+      if (early) return early;
+      await a.authStateReady();
+    }
     const u = a.currentUser;
     if (!u) return "";
     return await u.getIdToken();
   } catch {
     return "";
   }
+}
+
+// Токен, сохранённый в браузере прошлым входом, — пока Firebase поднимает
+// сессию. На старте он сперва перепроверяет пользователя у Google
+// (accounts:lookup, ≈0,35 с по замеру 26.09.2026), и первые запросы
+// главной стояли за этой проверкой в очереди. Сам токен уже лежит в
+// IndexedDB, и Firebase отдал бы ровно его: getIdToken обновляет только
+// протухающий. Берём, если жить ему больше пяти минут, иначе ждём сессию.
+// Сервер проверяет подпись и срок одинаково, откуда бы токен ни пришёл.
+// После выхода записи нет — signOut её стирает.
+const AUTH_DB = "firebaseLocalStorageDb";
+const AUTH_STORE = "firebaseLocalStorage";
+export function persistedToken(now = Date.now()) {
+  return new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === "undefined" || !cfg.apiKey) return resolve("");
+      const req = indexedDB.open(AUTH_DB);
+      // Базы нет — не создаём её за Firebase: отменяем, откроется ошибкой
+      req.onupgradeneeded = () => req.transaction.abort();
+      req.onerror = () => resolve("");
+      req.onblocked = () => resolve("");
+      req.onsuccess = () => {
+        const db = req.result;
+        const done = (v) => { try { db.close(); } catch { /* уже закрыта */ } resolve(v); };
+        try {
+          const get = db.transaction(AUTH_STORE, "readonly").objectStore(AUTH_STORE).get(`firebase:authUser:${cfg.apiKey}:[DEFAULT]`);
+          get.onsuccess = () => {
+            const t = get.result?.value?.stsTokenManager;
+            done(t?.accessToken && Number(t.expirationTime) - now > 5 * 60 * 1000 ? t.accessToken : "");
+          };
+          get.onerror = () => done("");
+        } catch {
+          done("");
+        }
+      };
+    } catch {
+      resolve("");
+    }
+  });
 }
 
 // Выход

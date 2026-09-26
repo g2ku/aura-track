@@ -225,10 +225,61 @@ section("Токен ждёт восстановления сессии — ра�
   reset(offline);
   const F = await import(new URL(`./${fbOut}?tok`, import.meta.url).href);
   const pending = F.getIdToken();
+  await new Promise((r) => setTimeout(r, 5));
   globalThis.__fbAuth.currentUser = { getIdToken: async () => "tok-123" };
   ready();
   eq(await pending, "tok-123", "дождался сессии и отдал токен");
+
+  // Быстрый путь: токен прошлого входа уже в IndexedDB — первые запросы
+  // главной не ждут перепроверку у Google (accounts:lookup, ≈0,35 с)
+  const idb = (rows) => ({
+    open: () => {
+      const req = {};
+      setTimeout(() => {
+        req.result = {
+          close() {},
+          transaction: () => ({ objectStore: () => ({ get: (key) => {
+            const g = {};
+            setTimeout(() => { g.result = rows[key]; g.onsuccess?.(); });
+            return g;
+          } }) }),
+        };
+        req.onsuccess?.();
+      });
+      return req;
+    },
+  });
+  const KEY = "firebase:authUser:k:[DEFAULT]";
+  const stored = (ms) => ({ [KEY]: { fbase_key: KEY, value: { stsTokenManager: { accessToken: "saved-tok", expirationTime: Date.now() + ms } } } });
+  // Модуль держит тот объект Auth, что был при импорте, — меняем его поля
+  const A = globalThis.__fbAuth;
+  let waited = false;
+  Object.assign(A, { currentUser: null, authStateReady: () => { waited = true; return new Promise(() => {}); } });
+  globalThis.indexedDB = idb(stored(40 * 60 * 1000));
+  eq(await F.getIdToken(), "saved-tok", "сохранённый токен (жить 40 минут) — сразу, без ожидания сессии");
+  eq(waited, false, "и перепроверку не ждали");
+
+  globalThis.indexedDB = idb(stored(2 * 60 * 1000));
+  let ready2;
+  Object.assign(A, { currentUser: null, authStateReady: () => new Promise((r) => { ready2 = r; }) });
+  const p2 = F.getIdToken();
+  for (let i = 0; i < 50 && !ready2; i++) await new Promise((r) => setTimeout(r, 2));
+  A.currentUser = { getIdToken: async () => "fresh-tok" };
+  ready2();
+  eq(await p2, "fresh-tok", "протухает через 2 минуты — ждём сессию, она его обновит");
+
+  globalThis.indexedDB = idb({});
+  let ready3;
+  Object.assign(A, { currentUser: null, authStateReady: () => new Promise((r) => { ready3 = r; }) });
+  const p3 = F.getIdToken();
+  for (let i = 0; i < 50 && !ready3; i++) await new Promise((r) => setTimeout(r, 2));
+  ready3();
+  eq(await p3, "", "записи нет (вышли) — без токена, как и раньше");
+  delete globalThis.indexedDB;
   globalThis.__fbAuth = null;
+
+  const vite = readFileSync("vite.config.js", "utf8");
+  ok(/homePreloadPlugin\(\)\]/.test(vite) && /CashLedger\\\.jsx/.test(vite), "чанк главной подсказан в index.html — едет вместе с main.js");
 
   const auth = readFileSync("src/auth.jsx", "utf8");
   ok(/if \(loading && !isRegisterPage && !auth\)/.test(auth), "крутилка — только если роли в браузере нет");
