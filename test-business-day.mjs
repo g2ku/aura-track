@@ -78,6 +78,19 @@ for (const f of ["ReceiptsView", "TrafficHeatmap", "ProfitabilityMatrix", "Poste
   ok(/from "\.\.\/businessDay\.js"/.test(src) && !/d\.setDate\(d\.getDate\(\) - /.test(src) && !/const d = new Date\(\);\n\s*(const m|return `\$\{d\.getFullYear)/.test(src), `${f}: «сегодня» и «N дней» — рабочие`);
 }
 
+// Сравнение точек ночью: сегодня — рабочий день, срез прошлого — по рабочим суткам
+{
+  const src = readFileSync("src/components/CrossLocationDashboard.jsx", "utf8");
+  ok(/return businessToday\(\);/.test(src) && /return businessDaysAgo\(n\);/.test(src), "сравнение точек: периоды — от рабочего сегодня");
+  ok(/const part = sumToNow\(hs\.cash, hh, mm \/ 60\)/.test(src) && !/hs\.cash\.slice\(0, hh\)/.test(src), "срез прошлого периода «к этому часу» — по рабочим суткам");
+  ok(!/new Date\(\);\n\s*const trendFrom/.test(src) && /fetchCashPerDay\(shiftDay\(todayStr2, -6\), todayStr2\)/.test(src), "тренд 7 дней — до рабочего сегодня");
+  // Гагарина 26.09 в 01:58: 239 900 ₸ против 25.09 к тому же часу —
+  // 239 200 (0 %). Старый срез брал только 00:00–01:58 25-го — 32 600, «+636 %»
+  const g = Array(24).fill(0);
+  g[10] = 100000; g[18] = 106600; g[0] = 20000; g[1] = 12600;
+  eq(Math.round(sumToNow(g, 1, 58 / 60)), 239200 - 12600 + Math.round(12600 * 58 / 60), "Гагарина к 01:58 — почти весь прошлый день");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

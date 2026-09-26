@@ -7,17 +7,24 @@ import { fetchCashBySpot, fetchCashPerDay, fetchHoursByDay } from "../poster";
 import { isAdmin, getUserBranch } from "../auth.jsx";
 import { BRANCHES } from "../auth.jsx";
 import { LoadError } from "./Fallbacks.jsx";
+import { businessToday, businessDaysAgo, sumToNow } from "../businessDay.js";
 
+// Дни — рабочие (до 05:00 ещё прошлый, businessDay.js). В 02:00
+// календарное «сегодня» — 27-е без единого чека, и все точки стояли в
+// нуле с −100 % к пятнице
 function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessToday();
 }
 
 function daysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessDaysAgo(n);
 }
+
+const shiftDay = (ymd, n) => {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
 const PERIODS = [
   { id: "today", label: "Сегодня", from: () => todayStr(), to: () => todayStr() },
@@ -87,15 +94,9 @@ export default function CrossLocationDashboard({ agg }) {
       setCashData(cash);
 
       // Предыдущий период для сравнения
-      const fromD = new Date(dateFrom);
-      const toD = new Date(dateTo);
-      const days = Math.round((toD - fromD) / 86400000) + 1;
-      const prevFrom = new Date(fromD);
-      prevFrom.setDate(prevFrom.getDate() - days);
-      const prevTo = new Date(fromD);
-      prevTo.setDate(prevTo.getDate() - 1);
-      const prevFromStr = `${prevFrom.getFullYear()}-${String(prevFrom.getMonth() + 1).padStart(2, "0")}-${String(prevFrom.getDate()).padStart(2, "0")}`;
-      const prevToStr = `${prevTo.getFullYear()}-${String(prevTo.getMonth() + 1).padStart(2, "0")}-${String(prevTo.getDate()).padStart(2, "0")}`;
+      const days = Math.round((new Date(`${dateTo}T00:00:00Z`) - new Date(`${dateFrom}T00:00:00Z`)) / 86400000) + 1;
+      const prevFromStr = shiftDay(dateFrom, -days);
+      const prevToStr = shiftDay(dateFrom, -1);
       const prevCash = await fetchCashBySpot(prevFromStr, prevToStr);
       if (ref.cancelled) return;
       // Период кончается сегодня — сегодня ещё идёт. Полный прошлый день
@@ -113,7 +114,9 @@ export default function CrossLocationDashboard({ agg }) {
             const hs = day[String(c.spotId)];
             if (!hs?.cash) return c;
             const full = hs.cash.reduce((a, b) => a + b, 0);
-            const part = hs.cash.slice(0, hh).reduce((a, b) => a + b, 0) + (hs.cash[hh] || 0) * (mm / 60);
+            // По рабочим суткам: в 01:40 прошлый день к этому часу — почти
+            // весь, а не только его первые полтора часа после полуночи
+            const part = sumToNow(hs.cash, hh, mm / 60);
             return { ...c, total: Math.round(c.total - full + part) };
           });
           cut = true;
@@ -124,22 +127,16 @@ export default function CrossLocationDashboard({ agg }) {
       setPrevCashData(prevAdj);
 
       // Тренд: последние 7 дней по каждой точке (один запрос на все точки сразу)
-      const today = new Date();
-      const trendFrom = new Date(today);
-      trendFrom.setDate(trendFrom.getDate() - 6);
-      const trendFromStr = `${trendFrom.getFullYear()}-${String(trendFrom.getMonth() + 1).padStart(2, "0")}-${String(trendFrom.getDate()).padStart(2, "0")}`;
-      const todayStr2 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-      const perDay = await fetchCashPerDay(trendFromStr, todayStr2);
+      const todayStr2 = todayStr();
+      const perDay = await fetchCashPerDay(shiftDay(todayStr2, -6), todayStr2);
       if (ref.cancelled) return;
 
       const trends = {};
       for (const spot of cash) {
         const dailyData = [];
         for (let i = 6; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(d.getDate() - i);
-          const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-          const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          const ds = shiftDay(todayStr2, -i);
+          const ymd = ds.replace(/-/g, "");
           const row = perDay.find((p) => p.spotId === String(spot.spotId) && p.date === ymd);
           dailyData.push({ date: ds, total: row?.total || 0 });
         }
