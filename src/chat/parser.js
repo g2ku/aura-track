@@ -898,8 +898,15 @@ function parseSpot(text) {
   const lower = normalize(text);
   let bestMatch = null;
   let bestLen = 0;
+  // «Все/всех» — это вся сеть, но только если конкретная точка не названа:
+  // в «кто хуже всех продаёт на Абае» «всех» — не про точки, а точное
+  // совпадение побеждало нечёткое «абае», и ответ шёл по всей сети
+  // (живая проверка 27.09.2026)
+  let allMatch = null;
   for (const [alias, entry] of Object.entries(SPOT_ALIASES)) {
-    if (alias.length > bestLen && includesAlias(lower, alias)) {
+    if (!includesAlias(lower, alias)) continue;
+    if (entry.branchId === "all") { allMatch ||= entry; continue; }
+    if (alias.length > bestLen) {
       bestMatch = entry;
       bestLen = alias.length;
     }
@@ -922,7 +929,7 @@ function parseSpot(text) {
       bestMatch = entry; bestScore = s; bestLen = alias.length;
     }
   }
-  return bestScore ? bestMatch : null;
+  return bestScore ? bestMatch : allMatch;
 }
 
 // Короткое имя точки ищем только целым словом: «оби» есть внутри
@@ -987,7 +994,11 @@ function parseMetric(text, product) {
   if (deletedKeys.some((k) => lower.includes(k))) return "deleted";
   // Бариста — тоже: «сколько чеков у Айгерим» вытаскивает имя как товар
   const staffKeys = METRICS.find((m) => m.value === "staff")?.keys || [];
+  // «Кто лучше всех продаёт» — про людей (27.09.2026: отвечало рейтингом
+  // точек). Но «какая точка лучше всех продаёт» — про точки
   if (staffKeys.some((k) => lower.includes(k))) return "staff";
+  const aboutSpots = /точк|филиал|заведени/.test(lower);
+  if (!aboutSpots && /(?:^|\s)кто\s(?:[а-яё]+\s){0,3}?прода[её]т|(?:лучше|хуже)\s+всех\s+прода/.test(lower)) return "staff";
   // «Сколько стоит латте», «себестоимость латте» — про цену, а не продажи
   if (/себестоимост|наценк|сколько стоит|во сколько обходит|закупочн/.test(lower)) return "margin";
   // If product was detected, default to products (unless explicit metric keyword overrides)

@@ -1395,9 +1395,11 @@ async function handleStaff(spot, period, ipGroup, parsed) {
   // своей точки). В рейтинге сети он один: складываем
   const merged = {};
   for (const p of people) {
-    const b = (merged[p.name] ||= { name: p.name, cash: 0, checks: 0, spots: [] });
+    const b = (merged[p.name] ||= { name: p.name, cash: 0, checks: 0, spots: [], days: 0, hours: 0 });
     b.cash += Number(p.total) || 0;
     b.checks += Number(p.checks) || 0;
+    b.days += Number(p.daysWorked) || 0;
+    b.hours += Number(p.hours) || 0;
     if (!b.spots.includes(spotOf(p))) b.spots.push(spotOf(p));
   }
   const rows = Object.values(merged).map((b) => ({ ...b, avg: b.checks ? Math.round(b.cash / b.checks) : 0 }));
@@ -1440,20 +1442,34 @@ async function handleStaff(spot, period, ipGroup, parsed) {
     return { text: `Кто работал ${sl} за ${pl}:\n${lines.join("\n").replace(/^\n/, "")}${note}`, data: { spots: spotsList } };
   }
 
+  // «Кто хуже всех продаёт» — не хвост того же списка: там внизу тот, кто
+  // вышел на одну короткую смену (Дарина, 12 чеков за 19:33–22:21 — живая
+  // проверка 27.09.2026). Честно — касса за час у прилавка (от первого до
+  // последнего чека смены), от меньшей; меньше часа — не мерим
+  const worstAsked = /хуже|худш|слабе|меньше\s+всех/.test(q) && measure === "cash";
+  const perHour = (b) => (b.hours >= 1 ? b.cash / b.hours : null);
   const key = measure === "avgCheck" ? "avg" : measure === "checks" ? "checks" : "cash";
-  rows.sort((a, b) => b[key] - a[key]);
+  if (worstAsked) rows.sort((a, b) => (perHour(a) ?? Infinity) - (perHour(b) ?? Infinity));
+  else rows.sort((a, b) => b[key] - a[key]);
   const top = rows.slice(0, 12);
-  const title = measure === "avgCheck" ? "Средний чек по бариста" : measure === "checks" ? "Чеки по бариста" : "Касса по бариста";
+  const days = (b) => (b.days ? `, ${b.days} ${plural(b.days, "день", "дня", "дней")}` : "");
+  const title = worstAsked ? "Касса за час у прилавка по бариста" : measure === "avgCheck" ? "Средний чек по бариста" : measure === "checks" ? "Чеки по бариста" : "Касса по бариста";
   const lines = top.map((b, i) => {
-    const mark = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
+    const mark = worstAsked ? (i === 0 && perHour(b) != null ? "📉" : "•") : i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
+    const where = isAll(spot) && b.spots.length ? ` — ${b.spots.join(", ")}` : "";
+    if (worstAsked) {
+      const ph = perHour(b);
+      return `${mark} ${b.name}: ${ph != null ? `${fmt(Math.round(ph))} в час (${Math.round(b.hours)} ч за ${b.days} ${plural(b.days, "смену", "смены", "смен")}` : `меньше часа за прилавком — не мерим (${nChecks(b.checks)}`}, всего ${fmt(b.cash)})${where}`;
+    }
     const val = measure === "avgCheck" ? fmt(b.avg) : measure === "checks" ? `${nChecks(b.checks)}` : fmt(b.cash);
-    const rest = measure === "avgCheck" ? ` (${nChecks(b.checks)})` : measure === "checks" ? ` (${fmt(b.cash)})` : ` (${nChecks(b.checks)}, ср. ${fmt(b.avg)})`;
-    return `${mark} ${b.name}: ${val}${rest}${isAll(spot) && b.spots.length ? ` — ${b.spots.join(", ")}` : ""}`;
+    const rest = measure === "avgCheck" ? ` (${nChecks(b.checks)})` : measure === "checks" ? ` (${fmt(b.cash)}${days(b)})` : ` (${nChecks(b.checks)}, ср. ${fmt(b.avg)}${days(b)})`;
+    return `${mark} ${b.name}: ${val}${rest}${where}`;
   });
   const tail = [];
   if (rows.length > top.length) tail.push(`…и ещё ${rows.length - top.length}`);
   // Средний чек по одному-двум чекам — не показатель, а случайность
   if (measure === "avgCheck" && top.some((b) => b.checks < 5)) tail.push("У кого меньше 5 чеков — средний чек случайный, сравнивать рано.");
+  if (worstAsked) tail.push("От меньшей к большей. Часы — от первого до последнего чека смены.");
   return { text: `${title} ${sl} за ${pl}:\n${lines.join("\n")}${tail.length ? `\n\n${tail.join("\n")}` : ""}${note}`, data: { rows, measure } };
 }
 
