@@ -53,12 +53,17 @@ export function parseCategoryIntent(text) {
 // Граница слова — вручную: «еда» сидит внутри «среда» и «обеда». «Еду»
 // не берём: «еду на Абая» — это не про меню.
 const FOOD_WORD = /(?:^|[^а-яё])(?:еда|еды|еде|едой|перекус[а-яё]*)(?![а-яё])/;
+// items — как узнать товары раздела по названию, когда самого раздела в
+// Poster нет. У Aura02 так и есть: вся еда лежит в одних «Перекусах», и
+// «сколько выпечки продали» иначе отвечало «раздела нет» (живая проверка
+// 26.09.2026). До разделов меню «десерты» и «сэндвичи» находили товары по
+// слову — это поведение и возвращаем, только шире одного слова.
 const MENU_WORDS = [
-  { re: /выпечк|выпечен/, query: "выпечка" },
-  { re: /десерт/, query: "десерты" },
-  { re: /сэндвич|сендвич/, query: "сэндвичи" },
-  { re: /салат/, query: "салаты" },
-  { re: /завтрак/, query: "завтраки" },
+  { re: /выпечк|выпечен/, query: "выпечка", items: /круасс|маффин|кекс|синнабон|пончик|берлинер|самс|слойк|в тесте|мадлен|печень|кукис|булоч|пирожок|пирожк|(?:^|[^а-яё])пай(?![а-яё])|брауни|вафл|тарталет|штрудел/ },
+  { re: /десерт/, query: "десерты", items: /десерт|торт|чизкейк|брауни|макарон|моти|пирожн|тарталет|баноффи|вафл|мадлен|кукис|печень|эклер|тирамису|панна|мусс/ },
+  { re: /сэндвич|сендвич/, query: "сэндвичи", items: /сэндвич|сендвич|панини|чиабатт|бейгл|багет|френч.?дог|хот.?дог/, not: /брауни/ },
+  { re: /салат/, query: "салаты", items: /салат/ },
+  { re: /завтрак/, query: "завтраки", items: /завтрак|сырник|блин|тост|омлет|каш[аи](?![а-яё])|гранол|яйц/ },
   { re: /(?:^|[^а-яё])кухн/, query: "кухня", food: true },
   { re: /(?:^|[^а-яё])(?:снек|закуск)/, query: "снеки", food: true },
 ];
@@ -71,7 +76,8 @@ export function parseMenuGroup(text) {
 
 // Что считать едой в справочнике Poster. Названий категорий мы не
 // задаём — владелец может назвать раздел «Кухня», «Bakery» или «Сэндвичи»
-const FOOD_CATEGORY = /^(?:еда|food)$|выпеч|десерт|кухн|завтрак|сэндвич|сендвич|салат|суп|снек|закуск|торт|пирож|булоч|хлеб|блин|сырник|чизкейк|круасс|бургер|паст[аы]|пицц|bakery|dessert|kitchen|sandwich|snack/i;
+// «Перекусы» — так еду зовёт Aura02
+const FOOD_CATEGORY = /^(?:еда|food)$|перекус|выпеч|десерт|кухн|завтрак|сэндвич|сендвич|салат|суп|снек|закуск|торт|пирож|булоч|хлеб|блин|сырник|чизкейк|круасс|бургер|паст[аы]|пицц|bakery|dessert|kitchen|sandwich|snack/i;
 
 // Категория и все её потомки — товары лежат в подкатегориях
 function withDescendants(categories, roots) {
@@ -99,14 +105,35 @@ export function resolveFoodCategories(categories) {
 }
 
 // Раздел меню по разобранному вопросу: сезонное, «еда» или названная
-// категория. null — такого в справочнике нет.
-export function resolveCategoryIntent(categories, intent, matchPhrase, now = new Date()) {
+// категория. Названной категории нет — товары по названию среди еды
+// (names — готовый набор, chosen — откуда брали). null — нет ни того, ни
+// другого.
+export function resolveCategoryIntent(categories, intent, matchPhrase, now = new Date(), productsByCategory = null) {
   if (!intent) return null;
   if (intent.kind === "special") return resolveSpecialCategory(categories, { season: intent.season, now });
   if (intent.kind === "food") return resolveFoodCategories(categories);
   const found = findCategory(categories, intent.query, matchPhrase);
   if (found) return found;
-  return intent.food ? resolveFoodCategories(categories) : null;
+  if (intent.food) return resolveFoodCategories(categories);
+  return menuItemsByName(categories, intent.query, productsByCategory);
+}
+
+function menuItemsByName(categories, query, productsByCategory) {
+  const word = MENU_WORDS.find((w) => w.query === query);
+  if (!word?.items || !productsByCategory) return null;
+  // Сначала среди еды: «торт» в названии напитка — не десерт
+  const food = resolveFoodCategories(categories);
+  const pool = food?.chosen || (categories || []);
+  const names = new Set();
+  for (const c of pool) {
+    for (const p of productsByCategory[String(c.id)] || []) {
+      const n = String(p.name || "").toLowerCase().replace(/ё/g, "е");
+      if (word.items.test(n) && !word.not?.test(n)) names.add(String(p.name).toLowerCase());
+    }
+  }
+  if (!names.size) return null;
+  const title = query[0].toUpperCase() + query.slice(1);
+  return { chosen: pool, names, title, byName: true, from: food?.parts || [] };
 }
 
 // Как назвать раздел, пока справочник не загружен: в уточнениях и в

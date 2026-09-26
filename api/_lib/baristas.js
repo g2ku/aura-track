@@ -131,24 +131,37 @@ export function summarizeBaristas(rows) {
 // Удалённые чеки (status 3). Их нет ни в кассе, ни в экране чеков, а
 // вопрос «сколько чеков удалили вчера и кто» — один из первых, что
 // задаёт владелец: удалённый чек после оплаты — это деньги мимо кассы.
-// Строки те же, что у бариста, — лишнего запроса в Poster нет.
 //
 // Сумма — заказа (sum), а не оплаты: удалённый чек обычно не оплачен,
-// и payed_sum у него ноль. Время — удаления, если Poster его отдал
-// (date_close), иначе открытия.
-export function summarizeDeleted(rows, limit = 300) {
+// и payed_sum у него ноль.
+//
+// Кто и когда удалил — только в истории чека (событие delete). name в
+// строке — кассир, пробивший чек, и это часто другой человек: 14.09 на
+// Гагарина чек пробил бариста, а удалила управляющая (живая проверка
+// 26.09.2026). Без истории deletedBy пустой — не выдаём кассира за
+// удалившего. names — user_id → имя.
+export function deletionOf(tx) {
+  const ev = (tx?.history || []).filter((h) => h?.type_history === "delete").pop();
+  return ev ? { userId: String(ev.user_id || ""), at: num(ev.time) } : null;
+}
+
+export function summarizeDeleted(rows, limit = 300, names = {}) {
   const list = [];
   for (const tx of rows || []) {
     if (String(tx.status) !== "3") continue;
-    const at = num(tx.date_close) || num(tx.date_start) || num(tx.date_start_new);
+    const del = deletionOf(tx);
+    const closedAt = num(tx.date_close) || num(tx.date_start) || num(tx.date_start_new);
+    const at = del?.at || closedAt;
     list.push({
       id: String(tx.transaction_id || ""),
       spotId: String(tx.spot_id || ""),
       spot: spotNameByPosterId(tx.spot_id),
       name: String(tx.name || "").trim(),
+      deletedBy: del ? (names[del.userId] || (del.userId ? `id ${del.userId}` : "")) : "",
       sum: Math.round(Math.max(num(tx.sum), num(tx.payed_sum)) / 100),
       paid: Math.round(num(tx.payed_sum) / 100),
       at,
+      deletedAt: del?.at || null,
       day: at ? localDateStr(at) : null,
     });
   }
@@ -158,4 +171,28 @@ export function summarizeDeleted(rows, limit = 300) {
     sum: list.reduce((n, r) => n + r.sum, 0),
     rows: list.slice(0, limit),
   };
+}
+
+// Удалённые чеки с историей поверх строк основного запроса: основной
+// запрос истории не несёт (с ней он весил бы в разы больше), а удалённых
+// мало — два за август–сентябрь. Чек без истории остаётся как был.
+export function mergeDeleted(rows, withHistory) {
+  const byId = new Map((withHistory || []).filter((tx) => String(tx.status) === "3").map((tx) => [String(tx.transaction_id), tx]));
+  const out = [];
+  for (const tx of rows || []) {
+    if (String(tx.status) !== "3") continue;
+    out.push(byId.get(String(tx.transaction_id)) || tx);
+    byId.delete(String(tx.transaction_id));
+  }
+  return [...out, ...byId.values()];
+}
+
+// user_id → имя по строкам чеков: кассиров знаем без лишнего запроса
+export function namesFromRows(rows) {
+  const names = {};
+  for (const tx of rows || []) {
+    const id = String(tx.user_id || ""), name = String(tx.name || "").trim();
+    if (id && name && !names[id]) names[id] = name;
+  }
+  return names;
 }

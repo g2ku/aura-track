@@ -4,9 +4,9 @@
 // каждой строке dash.getTransactions, а тревоги сторож и так находит —
 // раньше он их просто забывал.
 
-import { dashTransactions } from "./_lib/poster.js";
+import { dashTransactions, posterCall, dashDateParams } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
-import { summarizeBaristas, summarizeDeleted, rowsInPeriod } from "./_lib/baristas.js";
+import { summarizeBaristas, summarizeDeleted, rowsInPeriod, mergeDeleted, namesFromRows, deletionOf } from "./_lib/baristas.js";
 import { summarizeLog } from "./_lib/alertLog.js";
 import { getConfig } from "./_lib/store.js";
 import { spotNameByPosterId } from "./_lib/branches.js";
@@ -44,13 +44,17 @@ export default async function handler(req, res) {
     // С предыдущих суток Poster: они по Москве, и чеки, закрытые у нас
     // после полуночи первого дня, лежат в них. rowsInPeriod отрежет лишнее
     const prev = (() => { const d = new Date(`${iso(from)}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10).replace(/-/g, ""); })();
+    // Удалённые с историей — параллельно с основным запросом, не после
+    const deletedP = posterCall("dash.getTransactions", { ...dashDateParams(prev, to), status: 3, include_history: "true" })
+      .then((d) => d?.response || [])
+      .catch((e) => { console.warn("[baristas] история удалённых не пришла:", e?.message); return null; });
     const all = await dashTransactions(prev, to);
     const { rows, dropped } = rowsInPeriod(all, from, to);
     if (dropped) console.warn(`[baristas] Poster отдал ${dropped} чеков не за ${from}–${to}`);
     // Всё мимо срока — это не «чеков нет», а Poster ответил не про то
     if (all.length && !rows.length) throw new Error(`Poster отдал чеки не за ${iso(from)} — ${iso(to)}`);
     const { people, spots } = summarizeBaristas(rows);
-    const deleted = summarizeDeleted(rows);
+    const deleted = await deletedWithHistory(rows, await deletedP, from, to);
 
     // История тревог — из накопленного сторожем журнала
     let problems = { days: 0, rows: [] };
@@ -67,4 +71,24 @@ export default async function handler(req, res) {
     console.error("[baristas]", e?.message);
     res.status(200).json({ from, to, people: [], spots: {}, problems: { days: 0, rows: [] }, error: e?.message });
   }
+}
+
+// Удалённые — вторым запросом: status=3 и история. Кто удалил и когда,
+// есть только в истории чека. Не ответил (withHistory null) — удалённые
+// из основных строк, без удалившего: лучше «не знаю кто», чем кассир под
+// видом удалившего.
+async function deletedWithHistory(rows, withHistory, from, to) {
+  const deletedRows = withHistory ? mergeDeleted(rows, rowsInPeriod(withHistory, from, to).rows) : rows;
+  const names = namesFromRows(rows);
+  // Удалял тот, кто сам чеков не пробивал (управляющий) — спросим имена
+  const unknown = deletedRows.map(deletionOf).filter((d) => d?.userId && !names[d.userId]);
+  if (unknown.length) {
+    try {
+      const e = await posterCall("access.getEmployees", {});
+      for (const u of e?.response || []) if (u?.user_id && u?.name) names[String(u.user_id)] ||= String(u.name).trim();
+    } catch (e) {
+      console.warn("[baristas] сотрудники не прочитались:", e?.message);
+    }
+  }
+  return summarizeDeleted(deletedRows, 300, names);
 }

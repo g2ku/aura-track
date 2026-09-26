@@ -6,7 +6,7 @@
 //
 // Запуск: node test-people.mjs
 
-import { summarizeBaristas, summarizeDeleted, rowsInPeriod } from "./api/_lib/baristas.js";
+import { summarizeBaristas, summarizeDeleted, rowsInPeriod, deletionOf, mergeDeleted, namesFromRows } from "./api/_lib/baristas.js";
 import { dashDateParams } from "./api/_lib/poster.js";
 import { countAlerts, mergeLog, purgeLog, summarizeLog } from "./api/_lib/alertLog.js";
 import { usualByHour, todayByHour, buildBehindAlerts, MIN_SAMPLE_DAYS } from "./api/_lib/usualDay.js";
@@ -230,6 +230,31 @@ section("Удалённые чеки: status 3 из тех же строк dash"
   eq(summarizeDeleted(null), { count: 0, sum: 0, rows: [] }, "пустой ответ не роняет");
   eq(summarizeDeleted(rows, 1).rows.length, 1, "строк не больше лимита, а счёт — все");
   eq(summarizeDeleted(rows, 1).count, 2, "счёт не режется лимитом");
+  eq(d.rows.map((r) => r.deletedBy), ["", ""], "без истории удалившего не знаем — кассир не выдаётся за него");
+}
+
+section("Удалённые чеки: кто удалил — из истории чека");
+{
+  // Как 14.09 на Гагарина: чек пробил бариста (user 129), через две
+  // минуты удалила управляющая (user 58), которая сама чеков не пробивала
+  const closeAt = Date.parse("2026-09-14T23:45:10+05:00"), delAt = Date.parse("2026-09-14T23:47:04+05:00");
+  const plain = { transaction_id: "675760", spot_id: "1", status: "3", name: "Ислам", user_id: "129", sum: "129000", payed_sum: "129000", date_close: String(closeAt) };
+  const withHist = { ...plain, history: [
+    { type_history: "open", user_id: "129", time: String(closeAt - 46000) },
+    { type_history: "close", user_id: "129", time: String(closeAt) },
+    { type_history: "delete", user_id: "58", time: String(delAt) },
+  ] };
+  eq(deletionOf(withHist), { userId: "58", at: delAt }, "удаление — событие delete: кто и когда");
+  eq(deletionOf(plain), null, "истории нет — null");
+  const sale = { transaction_id: "1", spot_id: "1", status: "2", name: "Ислам", user_id: "129", payed_sum: "100000", date_close: String(closeAt - H) };
+  const merged = mergeDeleted([sale, plain], [withHist]);
+  eq(merged.map((t) => [t.transaction_id, !!t.history]), [["675760", true]], "удалённые — с историей, продажи не берутся");
+  eq(mergeDeleted([plain], []).map((t) => !!t.history), [false], "история не пришла по чеку — остаётся как был");
+  eq(mergeDeleted([], [withHist]).length, 1, "удалённый только во втором ответе — тоже в счёт");
+  eq(namesFromRows([sale, { user_id: "58", name: "" }]), { 129: "Ислам" }, "имена — по строкам, пустые не берутся");
+  const r = summarizeDeleted(merged, 300, { 129: "Ислам", 58: "Жасмин" }).rows[0];
+  eq([r.name, r.deletedBy, r.at, r.deletedAt], ["Ислам", "Жасмин", delAt, delAt], "кассир — Ислам, удалила — Жасмин, время — удаления");
+  eq(summarizeDeleted(merged, 300, {}).rows[0].deletedBy, "id 58", "имени нет — хотя бы id, но не кассир");
 }
 
 console.log("\n══════════════════════════════════════════════════");

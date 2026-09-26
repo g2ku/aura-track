@@ -1163,6 +1163,29 @@ section("Живые формулировки владельца: еда, вып�
   eq(resolveCategoryIntent(menu, { kind: "menu", query: "выпечка" }, matchPhrase)?.title, "Выпечка", "названный раздел — по справочнику");
   eq(resolveCategoryIntent(menu, { kind: "menu", query: "салаты" }, matchPhrase), null, "раздела нет — null");
 
+  // Меню как у Aura02 (живая проверка 26.09.2026): вся еда — в одних
+  // «Перекусах», разделов «Выпечка» и «Десерты» нет
+  const aura = [
+    { id: "4", name: "Кофе", parentId: null }, { id: "5", name: "Перекусы", parentId: null },
+    { id: "11", name: "Напитки", parentId: null }, { id: "28", name: "Special menu", parentId: null },
+  ];
+  const auraItems = {
+    "4": [{ id: "1", name: "Латте" }, { id: "2", name: "Торт-латте" }],
+    "5": ["Круассан", "Синнабон", "Сосиска в тесте", "Чизкейк", "Брауни сендвич", "Клаб Сэндвич", "Панини", "Салат", "Сырники", "Обед"].map((name, i) => ({ id: `p${i}`, name })),
+    "11": [{ id: "3", name: "Кола" }],
+  };
+  eq(resolveFoodCategories(aura)?.chosen.map((c) => c.name), ["Перекусы"], "«Перекусы» — это еда");
+  eq(resolveCategoryIntent(aura, parseCategoryIntent("продажи перекусов"), matchPhrase)?.chosen.map((c) => c.name), ["Перекусы"], "«продажи перекусов» — раздел «Перекусы»");
+  const byName = (q) => [...(resolveCategoryIntent(aura, parseCategoryIntent(q), matchPhrase, new Date(), auraItems)?.names || [])];
+  eq(byName("сколько выпечки продали"), ["круассан", "синнабон", "сосиска в тесте", "брауни сендвич"], "выпечка — по названиям из «Перекусов»");
+  eq(byName("десерты за неделю"), ["чизкейк", "брауни сендвич"], "десерты — по названиям; «Торт-латте» из кофе не десерт");
+  eq(byName("сэндвичи за месяц"), ["клаб сэндвич", "панини"], "сэндвичи — без брауни-сэндвича");
+  eq(byName("салаты за неделю"), ["салат"], "салаты — как до разделов меню: товар «Салат»");
+  eq(byName("завтраки"), ["сырники"], "завтраки — сырники");
+  const bn = resolveCategoryIntent(aura, parseCategoryIntent("выпечка"), matchPhrase, new Date(), auraItems);
+  eq([bn.title, bn.byName, bn.from], ["Выпечка", true, ["Перекусы"]], "и сказано, что собрано по названиям и откуда");
+  eq(resolveCategoryIntent(aura, parseCategoryIntent("выпечка"), matchPhrase, new Date(), { "5": [{ id: "1", name: "Обед" }] }), null, "по названиям ничего — null");
+
   // Удалённые чеки — своя метрика (26.09.2026: искался товар «удаленные»)
   const del = await ask("удалённые чеки вчера");
   eq([del.metric, del.product, del.period.from], ["deleted", null, "2026-09-19"], "«удалённые чеки вчера»");
