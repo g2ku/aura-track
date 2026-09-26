@@ -13,6 +13,7 @@
 // стоит 1560 ₸, себестоимость 1222 ₸ — списывается 1560 ₸.
 
 import { resolveProductName } from "../api/_lib/products.js";
+import { normalizeProductName } from "../api/_lib/tgParser.js";
 
 // ─── Разбор сообщения куратора ───────────────────────────────────────
 
@@ -183,6 +184,14 @@ export function parseInventoryMessage(text, matchBranch) {
 
 // ─── Оценка позиций по цене продажи ──────────────────────────────────
 
+// Товар, в названии которого есть это слово целиком — если он один
+function byWholeWord(raw, names) {
+  const w = normalizeProductName(raw);
+  if (!w || w.includes(" ") || w.length < 4) return null;
+  const hits = names.filter((n) => normalizeProductName(n).split(" ").includes(w));
+  return hits.length === 1 ? hits[0] : null;
+}
+
 // Сопоставить позиции с прайсом. Возвращает строки с ценой и суммой,
 // а также список того, для чего цены нет — считать с дырами нельзя.
 export function priceItems(items, priceList) {
@@ -194,8 +203,16 @@ export function priceItems(items, priceList) {
   const missing = [];
 
   for (const it of items) {
-    const { name: canonical, corrected } = resolveProductName(it.name, names);
-    const found = priceList.find((p) => p.name === canonical);
+    let { name: canonical, corrected } = resolveProductName(it.name, names);
+    let found = priceList.find((p) => p.name === canonical);
+    // «Кукис» — это «Нью-Йорк кукис», «Берлинер» — «Мини - берлинер»:
+    // слово стоит не первым, и сокращение по началу слов его не видит
+    // (живая проверка 27.09.2026). Одно целое слово, и ровно у одного
+    // товара — берём его; у двух — не гадаем
+    if (!found) {
+      const hit = byWholeWord(it.name, names);
+      if (hit) { canonical = hit; corrected = true; found = priceList.find((p) => p.name === hit); }
+    }
     const price = found && Number.isFinite(+found.price) && +found.price > 0 ? +found.price : null;
 
     rows.push({
