@@ -281,10 +281,12 @@ export async function purgeSeen(olderThanMs = 24 * 60 * 60 * 1000, limit = 400) 
 // метод, и команда тихо отвалится в проде, пройдя все тесты.
 // Поставки из Poster для сверки. Живут не в Firestore, но команде бота
 // нужны так же, как всё остальное, — поэтому отдаются тем же набором.
-export async function getSupplies() {
-  const { posterCall } = await import("./poster.js");
-  const d = await posterCall("storage.getSupplies", {});
-  return d?.response || [];
+export async function getSupplies(date = null) {
+  const { suppliesBetween, recentSupplies } = await import("./poster.js");
+  if (!date) return recentSupplies(60);
+  // День по Алматы, а сутки Poster — по Москве: берём по дню с боков
+  const shift = (ymd, n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  return suppliesBetween(shift(date, -1), shift(date, 1));
 }
 
 // Снимок текущей обстановки — для «/сторож сейчас».
@@ -325,8 +327,8 @@ export async function getWatchSnapshot(opts = {}) {
   }
 
   try {
-    const sup = await posterCall("storage.getSupplies", {});
-    alerts.push(...buildSupplyAlerts(sup?.response || [], { ...opts, now: Date.now(), seen: {} }));
+    const { recentSupplies } = await import("./poster.js");
+    alerts.push(...buildSupplyAlerts(await recentSupplies(60), { ...opts, now: Date.now(), seen: {} }));
   } catch (e) {
     console.warn("[tg] поставки в снимок не попали:", e?.message);
   }

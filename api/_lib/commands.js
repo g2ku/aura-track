@@ -386,7 +386,7 @@ async function handleCommand({ cmd, args }, ctx) {
         };
       }
 
-      const [doc, sup] = await Promise.all([store.getDoc(date), store.getSupplies()]);
+      const [doc, sup] = await Promise.all([store.getDoc(date), store.getSupplies(date)]);
       const byBranch = posterSuppliesByBranch(sup, date);
       const text = formatReconcile(reconcile(doc?.totals || {}, byBranch), formatDateRu(date));
       return { text: text || `За ${formatDateRu(date)} сверять нечего.` };

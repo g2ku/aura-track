@@ -14,7 +14,7 @@
 
 import { getConfig, setConfig, getDoc, getCupState, getCupDays, purgeCupDays, purgeChatLog, listSalesDayDates, saveSalesDay, getSalesDays, saveMenuIndex } from "../_lib/store.js";
 import { todayAlmaty } from "../_lib/dailyDoc.js";
-import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../_lib/poster.js";
+import { dashTransactions, posterCall, dayTransactions, menuProducts, recentSupplies } from "../_lib/poster.js";
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
@@ -535,12 +535,11 @@ export default async function handler(req, res) {
         }));
       }
 
-      // Поставки — раз в день: ответ storage.getSupplies весит 2,7 МБ,
+      // Поставки — раз в день (за 60 дней — 600 строк вместо всей истории),
       // а факт «не проводили два дня» за пятнадцать минут не меняется.
       if (config.lastSupplyCheck !== today) {
         try {
-          const sup = await posterCall("storage.getSupplies", {});
-          alerts.push(...buildSupplyAlerts(sup?.response || [], {
+          alerts.push(...buildSupplyAlerts(await recentSupplies(60), {
             now: Date.now(),
             seen: config.alertSeen || {},
             noSupplyDays: config.noSupplyDays,

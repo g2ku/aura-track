@@ -10,7 +10,9 @@
 
 import { getConfig, setConfig, getDoc, purgeSeen } from "../_lib/store.js";
 import { formatReport, todayAlmaty, formatDateRu } from "../_lib/dailyDoc.js";
-import { posterCall } from "../_lib/poster.js";
+import { suppliesBetween } from "../_lib/poster.js";
+
+const shiftDay = (ymd, n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 import { posterSuppliesByBranch, reconcile, formatReconcile } from "../_lib/reconcile.js";
 import { sendMessage } from "../_lib/telegram.js";
 
@@ -80,8 +82,8 @@ export default async function handler(req, res) {
     // по восьми точкам никто не станет.
     try {
       if (!config.reconcileEnabled) throw { skip: true };
-      const sup = await posterCall("storage.getSupplies", {});
-      const byBranch = posterSuppliesByBranch(sup?.response || [], date);
+      // Сутки Poster — по Москве: берём день по бокам, отрежет posterSuppliesByBranch
+      const byBranch = posterSuppliesByBranch(await suppliesBetween(shiftDay(date, -1), shiftDay(date, 1)), date);
       const result = reconcile(doc?.totals || {}, byBranch);
       // В отчёт не шлём «сверять нечего»: это сообщение уходит каждый
       // вечер, и пустая строка в нём — чистый шум. На команду /сверка

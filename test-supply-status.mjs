@@ -113,7 +113,9 @@ section("Мёртвые методы Poster не вернулись");
      "группировки по несуществующему spot_id не осталось");
 
   const api = stripComments(readFileSync("api/supply-status.js", "utf8"));
-  ok(/storage\.getSupplies/.test(api), "сервер зовёт настоящий метод");
+  // storage.getSupplies за четыре месяца — через recentSupplies, а там
+  // именно dateFrom/dateTo (test-supplies-dates.mjs)
+  ok(/recentSupplies\(120\)/.test(api) && /storage\.getSupplies/.test(readFileSync("api/_lib/poster.js", "utf8")), "сервер зовёт настоящий метод, за срок");
 }
 
 console.log("\n══════════════════════════════════════════════════");

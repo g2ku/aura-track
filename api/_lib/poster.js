@@ -74,6 +74,26 @@ export async function dayTransactions(ymd, { perPage = 200, concurrency = 4 } = 
   return all;
 }
 
+// Поставки за срок. Даты — ТОЛЬКО dateFrom/dateTo, как у отчёта о
+// движении: date_from метод молча игнорирует и отдаёт всю историю с 2022
+// года — 10 198 строк, 2,8 МБ. С dateFrom месяц — 68 КБ и впятеро быстрее
+// (проверено 27.09.2026). Поэтому «весит 2,7 МБ и фильтров не знает» в
+// старых комментариях — это про snake_case. from/to — ГГГГ-ММ-ДД или
+// ГГГГММДД; по умолчанию to — сегодня по Алматы.
+export async function suppliesBetween(from, to = null) {
+  const ymd = (d) => String(d).replace(/-/g, "");
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const d = await posterCall("storage.getSupplies", { dateFrom: ymd(from), dateTo: ymd(to || today) });
+  return d?.response || [];
+}
+
+// Поставки за последние days дней — для «когда последний раз возили»
+export async function recentSupplies(days = 120) {
+  const from = new Date(Date.now() - days * 86400000);
+  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Almaty", year: "numeric", month: "2-digit", day: "2-digit" }).format(from);
+  return suppliesBetween(ymd);
+}
+
 export async function menuProducts() {
   const d = await posterCall("menu.getProducts", {});
   return d?.response || [];

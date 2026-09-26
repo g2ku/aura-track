@@ -163,7 +163,8 @@ section("Проверка стоит до обращения к Poster");
 
   const supply = stripComments(readFileSync("api/supply-status.js", "utf8"));
   const g2 = supply.indexOf("requireUser(req)");
-  const c2 = supply.indexOf("posterCall(");
+  // В Poster ходит через recentSupplies (поставки за срок, 27.09.2026)
+  const c2 = supply.indexOf("recentSupplies(");
   ok(g2 > 0 && c2 > 0 && g2 < c2, "у /api/supply-status тот же порядок");
 }
 

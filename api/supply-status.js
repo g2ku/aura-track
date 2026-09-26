@@ -7,7 +7,7 @@
 //
 // Поэтому ходит сюда: тот же ответ, свёрнутый до восьми строк.
 
-import { posterCall } from "./_lib/poster.js";
+import { recentSupplies } from "./_lib/poster.js";
 import { requireUser, denyResponse } from "./_lib/requireUser.js";
 import { supplyStatusBySpot } from "./_lib/supplyStatus.js";
 
@@ -29,8 +29,8 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", url.searchParams.get("_fresh") ? "no-store" : CACHE);
 
   try {
-    const d = await posterCall("storage.getSupplies", {});
-    res.status(200).json({ status: supplyStatusBySpot(d?.response || []) });
+    // Четыре месяца: «когда последний раз возили» дальше не заглядывает
+    res.status(200).json({ status: supplyStatusBySpot(await recentSupplies(120)) });
   } catch (e) {
     // Дашборд без поставок жить умеет — пустой ответ лучше пятисотки.
     console.warn("[supply-status]", e?.message);
