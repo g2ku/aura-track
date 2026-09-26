@@ -495,10 +495,12 @@ async function handleWhy(spot, period, ipGroup) {
     if (!d || !Object.keys(d.cashBySpot || {}).length) return null;
     let cash = 0, tx = 0;
     const ids = new Set();
+    const spots = {};
     for (const [id, v] of Object.entries(d.cashBySpot)) {
       const name = d.spotNames?.[id] || id;
       if (!inScope(id, name)) continue;
       ids.add(String(id)); cash += v || 0; tx += d.txBySpot?.[id] || 0;
+      spots[String(id)] = (spots[String(id)] || 0) + (v || 0);
     }
     const products = {};
     for (const r of d.rows || []) {
@@ -518,7 +520,7 @@ async function handleWhy(spot, period, ipGroup) {
         }
       }
     } catch { /* без часов — без этой строки */ }
-    return { cash, tx, products, hours };
+    return { cash, tx, products, hours, spots };
   };
   const curX = await collect(cur, period);
   const baseX = (await Promise.all(baseData.map((d, i) => collect(d, bases[i])))).filter(Boolean);
@@ -526,7 +528,7 @@ async function handleWhy(spot, period, ipGroup) {
   if (!curX || (!curX.cash && !baseX.some((x) => x.cash))) return { text: `Продаж ${sl} за ${formatPeriodLabel(period)} нет — сравнивать нечего.`, data: null };
   const baseWord = oneDay ? usualWeekday(new Date(period.from + "T00:00:00").getDay()) : `предыдущих ${days} дн.`;
   const head = `${isAll(spot) ? "Вся сеть" : sl}, ${formatPeriodLabel(period)}`;
-  const r = explainChange({ head, baseWord, cur: curX, bases: baseX, fmt });
+  const r = explainChange({ head, baseWord, cur: curX, bases: baseX, fmt, spotName: (id) => sn({ spotId: id, spotName: cur?.spotNames?.[id] }) });
   const lines = [...r.lines];
   if (oneDay && baseX.length < 4) lines.push(`\n(Обычный день — по ${baseX.length} ${baseX.length === 1 ? "прошлому" : "прошлым"} таким же дням недели.)`);
   return { text: lines.join("\n"), data: { dCash: r.dCash, dTx: r.dTx, dAvg: r.dAvg } };
@@ -2170,21 +2172,29 @@ async function handleTopDays(metric, spot, period, ipGroup, worst, limit = 3) {
     tail.push(`Обычный день здесь — ${avgText}: ${worst ? "худший" : "лучший"} ${pct >= 0 ? "выше" : "ниже"} на ${Math.abs(pct)} %.`);
   }
   // Кто сделал день: на всю сеть — какая точка дальше всех ушла от своей
-  // нормы. «Меньше всех — OBI» говорило только, что OBI — самая маленькая
-  // точка: она меньше всех почти каждый день (живая проверка 26.09.2026).
+  // нормы в ТОТ ЖЕ день недели. Сначала было «меньше всех — OBI» (самая
+  // маленькая точка — всегда), потом — от среднего по всем дням, и
+  // воскресенье Абаи выходило «−41 %», хотя для воскресенья это её норма;
+  // настоящие потери 20.09 — Атакент и OBI (живая проверка 27.09.2026).
+  // Меньше двух таких дней в периоде — сравниваем со всеми днями.
   if (isAll(spot) && Object.keys(lead.spots).length > 1 && metric === "cash") {
+    const dow = (k) => new Date(k + "T00:00:00").getDay();
+    const sameDow = days.filter((r) => r.date !== lead.date && dow(r.date) === dow(lead.date));
+    const pool = sameDow.length >= 2 ? sameDow : days.filter((r) => r.date !== lead.date);
     const norm = {};
-    for (const r of days) for (const s of Object.values(r.spots)) {
-      const n = (norm[s.spotId] ||= { sum: 0, n: 0 });
-      if (s.total > 0) { n.sum += s.total; n.n++; }
+    for (const r of pool) for (const x of Object.values(r.spots)) {
+      const n = (norm[x.spotId] ||= { sum: 0, n: 0 });
+      if (x.total > 0) { n.sum += x.total; n.n++; }
     }
-    const rel = (s) => { const n = norm[s.spotId]; return n?.n ? s.total / (n.sum / n.n) - 1 : 0; };
+    const rel = (x) => { const n = norm[x.spotId]; return n?.n ? x.total / (n.sum / n.n) - 1 : 0; };
     const spotsOfDay = Object.values(lead.spots).sort((a, b) => (worst ? rel(a) - rel(b) || a.total - b.total : rel(b) - rel(a) || b.total - a.total));
     const first = spotsOfDay[0];
     const pctS = Math.round(rel(first) * 100);
     const d = `${lead.date.slice(8, 10)}.${lead.date.slice(5, 7)}`;
-    if (worst && pctS < 0) tail.push(`${d} сильнее всех просела ${sn(first)}: ${fmt(first.total)}, ${pctS} % к её обычному дню.`);
-    else if (!worst && pctS > 0) tail.push(`${d} сильнее всех выросла ${sn(first)}: ${fmt(first.total)}, +${pctS} % к её обычному дню.`);
+    const WD_GEN = ["воскресенью", "понедельнику", "вторнику", "среде", "четвергу", "пятнице", "субботе"];
+    const vs = sameDow.length >= 2 ? `к ${[3, 5, 6].includes(dow(lead.date)) ? "обычной" : "обычному"} ${WD_GEN[dow(lead.date)]} этой точки` : "к обычному дню этой точки";
+    if (worst && pctS < 0) tail.push(`${d} дальше всех от нормы вниз — ${sn(first)}: ${fmt(first.total)}, ${pctS} % ${vs}.`);
+    else if (!worst && pctS > 0) tail.push(`${d} дальше всех от нормы вверх — ${sn(first)}: ${fmt(first.total)}, +${pctS} % ${vs}.`);
   }
   // Средние по дням недели — от двух недель: иначе у каждого дня по одному
   if (days.length >= 14) {

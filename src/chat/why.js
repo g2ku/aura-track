@@ -16,7 +16,7 @@
 const sgn = (p) => `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p).toFixed(1).replace(".", ",")} %`;
 const pct = (x, y) => (y ? ((x - y) / y) * 100 : 0);
 
-export function explainChange({ head, baseWord, cur, bases, fmt }) {
+export function explainChange({ head, baseWord, cur, bases, fmt, spotName = (id) => id }) {
   const n = bases.length;
   if (!n) return null;
   const avgOf = (f) => bases.reduce((a, b) => a + (f(b) || 0), 0) / n;
@@ -38,6 +38,29 @@ export function explainChange({ head, baseWord, cur, bases, fmt }) {
     lines.push(`• Главное — чеков ${dTx < 0 ? "меньше" : "больше"}: ${Math.round(cur.tx)} против обычных ${Math.round(b.tx)} (${sgn(dTx)}) — ${dTx < 0 ? "пришло меньше людей" : "пришло больше людей"}. Средний чек ${fmt(Math.round(avgC))} (${sgn(dAvg)}).`);
   } else {
     lines.push(`• Главное — средний чек: ${fmt(Math.round(avgC))} против ${fmt(Math.round(avgB))} (${sgn(dAvg)}) — ${dAvg < 0 ? "брали меньше или дешевле" : "брали больше или дороже"}. Чеков почти столько же: ${Math.round(cur.tx)} (${sgn(dTx)}).`);
+  }
+
+  // Точки: на всю сеть — кто сделал разницу. 20.09 сеть была −10 % к
+  // обычному воскресенью, а ответ говорил про людей и товары и молчал,
+  // что почти всё — Абая, −41 % к своему воскресенью (живая проверка
+  // 27.09.2026). cur.spots / bases[].spots — { id: касса }
+  if (cur.spots && Object.keys(cur.spots).length > 1 && bases.some((x) => x.spots)) {
+    const total = cur.cash - b.cash;
+    const ids = new Set([...Object.keys(cur.spots), ...bases.flatMap((x) => Object.keys(x.spots || {}))]);
+    const rows = [...ids].map((id) => {
+      const bc = avgOf((x) => x.spots?.[id]);
+      const cc = cur.spots[id] || 0;
+      return { id, d: cc - bc, p: pct(cc, bc), bc };
+    }).filter((r) => r.bc > 0 && Math.sign(r.d) === Math.sign(total))
+      .sort((a, z) => Math.abs(z.d) - Math.abs(a.d));
+    const [first, second] = rows;
+    if (first && Math.abs(first.d) >= Math.abs(total) * 0.25) {
+      const piece = (r) => `${spotName(r.id)} ${sgn(r.p)} (${r.d < 0 ? "−" : "+"}${fmt(Math.round(Math.abs(r.d)))})`;
+      const most = Math.abs(first.d) >= Math.abs(total) * 0.6 ? " — больше половины разницы" : "";
+      const next = second && Math.abs(second.d) >= Math.abs(total) * 0.15 ? `, ${piece(second)}` : "";
+      // «Атакент», «OBI», «Гагарина» — разного рода: глагол во множественном
+      lines.push(`• По точкам больше всего ${down ? "недобрали" : "добавили"}: ${piece(first)}${most}${next}.`);
+    }
   }
 
   // Часы: окно в три часа, куда легла заметная часть разницы

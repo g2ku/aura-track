@@ -121,7 +121,7 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
         hours ||= Array(24).fill(0);
         (hs.cash || []).forEach((v, i) => { hours[i] += v || 0; });
       }
-      return { cash: x.total, tx: x.checks, products, hours };
+      return { cash: x.total, tx: x.checks, products, hours, spots: x.cash };
     };
     const cur = pack(days);
     const oneDay = parsed.period.from === parsed.period.to;
@@ -129,7 +129,7 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
     if (!cur || !bases.length) return `Не с чем сравнить ${escapeHtml(when)}: прошлых таких дней в итогах нет.`;
     const nDays = Math.round((Date.parse(`${parsed.period.to}T00:00:00Z`) - Date.parse(`${parsed.period.from}T00:00:00Z`)) / 86400000) + 1;
     const baseWord = oneDay ? usualWeekday(new Date(`${parsed.period.from}T00:00:00Z`).getUTCDay()) : `предыдущих ${nDays} дн.`;
-    const r = explainChange({ head: `${where.trim() || "Вся сеть"}, ${when.replace(/^за\s+/, "")}`, baseWord, cur, bases, fmt });
+    const r = explainChange({ head: `${where.trim() || "Вся сеть"}, ${when.replace(/^за\s+/, "")}`, baseWord, cur, bases, fmt, spotName: (id) => spotNameByPosterId(id) });
     return r ? r.lines.map((l, i) => (i === 0 ? `<b>${escapeHtml(l)}</b>` : escapeHtml(l))).join("\n") : null;
   }
 
