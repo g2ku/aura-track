@@ -1450,6 +1450,13 @@ export async function parseQuestion(text) {
   const limit = lim ? Math.min(50, Math.max(1, Number(lim[1] || lim[2]))) : null;
   if (limit && operation === "sum") operation = "max";
 
+  // Цены: «самый дорогой напиток», «самый дешёвый десерт», «цены на раф».
+  // Раньше «дорогой» значил «топ по выручке». «Сколько стоит латте» —
+  // себестоимость и цена, это маржа, её не трогаем
+  const priceRank = metric === "products" && /дорог|дешев|дешёв|(?:^|[^а-яё])цен[аыуе]?(?![а-яё])|прайс|почём|почем/.test(lower)
+    ? (/дешев|дешёв/.test(lower) ? "asc" : "desc")
+    : null;
+
   // Check if this is a meaningful query (has metric keyword, product, spot, or period keyword)
   // Слово метрики — точное или узнанное по основе/с опечаткой
   const hasMetricKeyword = !!exactMetric(lower) || !!fuzzyMetric(lower);
@@ -1483,6 +1490,7 @@ export async function parseQuestion(text) {
     ...(spot2 ? { spot2 } : {}),
     ...(cmpSpots && metric === "compareBranches" ? { spots: cmpSpots } : {}),
     ...(products2 ? { products2 } : {}),
+    ...(priceRank ? { priceRank } : {}),
     // «Как дела», «как торгуем» — сводка «как идём», а не касса одной цифрой
     // «Как Дубай сегодня» — то же самое: «сегодня» не делает сводку кассой
     ...(askingNow && (!explicitPeriod || (explicitPeriod.from === fmtDate(bizNow()) && explicitPeriod.to === explicitPeriod.from)) ? { status: true } : {}),

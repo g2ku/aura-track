@@ -137,6 +137,25 @@ section("Подстановка честно помечена");
   ok(/Math\.max\(\.\.\.prices\) \/ 100/.test(poster), "масштаб товаров учтён в коде");
 }
 
+// Цена в меню для ассистента: «самый дорогой напиток» (27.09.2026).
+// Функция чистая — вырезаем из poster.js, как разбор выше
+{
+  const at = src.indexOf("export function menuPriceOf");
+  const code = src.slice(at, src.indexOf("\n}\n", at) + 2).replace("export function", "function");
+  const menuPriceOf = new Function(`${code}; return menuPriceOf;`)();
+  const tea = menuPriceOf({ product_name: "Черный Чай 0.5", price: { 1: "35000", 2: "35000", 4: "0" } });
+  ok(tea && tea.min === 350 && tea.max === 350, "чёрный чай — 350 ₸, ноль на точке — «не проставили»");
+  ok(tea.bySpot["1"].min === 350 && !tea.bySpot["4"], "по точкам — только проставленные");
+  const cro = menuPriceOf({ product_name: "Круассан", modifications: [
+    { modificator_name: "Миндаль", spots: [{ spot_id: 1, price: "136000" }, { spot_id: 2, price: "136000" }] },
+    { modificator_name: "Сёмга", spots: [{ spot_id: 1, price: "166000" }] },
+  ] });
+  ok(cro.min === 1360 && cro.max === 1660, "круассан — от–до по начинкам");
+  ok(cro.bySpot["1"].min === 1360 && cro.bySpot["1"].max === 1660 && cro.bySpot["2"].max === 1360, "и на каждой точке свои от–до");
+  ok(menuPriceOf({ product_name: "Кипяток", price: { 1: "0" } }) === null, "без цены — null");
+  ok(/const price = menuPriceOf\(p\);/.test(src), "категории меню несут цену — ассистенту без лишнего запроса");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

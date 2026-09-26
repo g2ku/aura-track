@@ -34,7 +34,7 @@ function missingNote() {
   }
   return out.length ? `\n${out.join("\n")}` : "";
 }
-import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel, addonProductNames, categoryNamed } from "./categories.js";
+import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel, addonProductNames, categoryNamed, resolveFoodCategories } from "./categories.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt, describeDayList, nChecks, plural } from "../utils.js";
@@ -359,6 +359,7 @@ async function executeInner(parsed, userBranch) {
       case "products":
         if (parsed.spot2) return await handleProductsVsSpot(spot, parsed.spot2, period, parsed.limit || null);
         if (parsed.products2) return await handleProductPair(effectiveSpot, period, parsed.products2, ipGroup);
+        if (parsed.priceRank) return await handlePrices(parsed.priceRank, effectiveSpot, period, product, category, parsed.raw, parsed.limit || null);
         if (category) return await handleCategory(operation, effectiveSpot, period, category, ipGroup);
         if (/не\s+прода[её]|не\s+продава|не\s+продал|нет\s+продаж|без\s+продаж|мёртв|мертв/.test(String(parsed.raw || "").toLowerCase())) return await handleNotSold(effectiveSpot, period, ipGroup);
         return await handleProducts(operation, effectiveSpot, period, product, ipGroup, parsed.limit || null);
@@ -1264,6 +1265,95 @@ async function handleProducts(operation, spot, period, productName, ipGroup, lim
   return {
     text: `${title}:\n${lines}\n\nИтого: ${totalQty} шт. / ${fmt(totalSum)}${cashNote}${addonNote}`,
     data: { products: top, totalQty, totalSum },
+  };
+}
+
+// ─── Цены ─────────────────────────────────────────────────────────
+//
+// «Самый дорогой напиток», «самый дешёвый десерт», «цены на раф». Раньше
+// «самый дорогой» отдавал топ по выручке — первым шёл Капучино 450 мл за
+// 1 320 ₸ (живая проверка 27.09.2026). В список — только то, что правда
+// продавалось за срок; цена — из меню Poster (средняя по продажам врёт:
+// чёрный чай 350 ₸ выходил 383 ₸ из-за платных добавок).
+async function handlePrices(order, spot, period, productName, category, raw, limit) {
+  const [menu, data] = await Promise.all([getMenuCategories().catch(() => null), fetchPosterSales(period.from, period.to)]);
+  const pl = formatPeriodLabel(period);
+  const lower = String(raw || "").toLowerCase();
+  const drinks = !category && !productName && /напит/.test(lower);
+  const food = !category && !productName && /(?:^|[^а-яё])(?:еда|еды|перекус)/.test(lower);
+
+  // Что сравниваем: раздел, товар по слову, напитки (всё, кроме еды,
+  // добавок, зерна) или всё меню без добавок
+  let only = null;
+  let what = "Позиции";
+  let skip = new Set();
+  if (menu) {
+    skip = addonProductNames(menu.categories, menu.productsByCategory);
+    const beans = (menu.categories || []).filter((c) => /зерн|зёрн/i.test(String(c.name || "")));
+    for (const n of productNamesIn(beans, menu.productsByCategory)) skip.add(n);
+    const eat = resolveFoodCategories(menu.categories);
+    const eatNames = eat ? productNamesIn(eat.chosen, menu.productsByCategory) : new Set();
+    if (category) {
+      const picked = resolveCategoryIntent(menu.categories, category, matchPhrase, new Date(), menu.productsByCategory);
+      if (picked) { only = picked.names || productNamesIn(picked.chosen, menu.productsByCategory); what = picked.title; }
+    } else if (drinks) {
+      for (const n of eatNames) skip.add(n);
+      what = "Напитки";
+    } else if (food && eatNames.size) {
+      only = eatNames;
+      what = "Еда";
+    }
+  }
+
+  const byName = {};
+  for (const row of data.rows) {
+    if (!matchesRowSpot(row, spot)) continue;
+    const key = String(row.productName || "").toLowerCase();
+    if (!key || skip.has(key) || /^доп(?:\.|\s)/i.test(key)) continue;
+    if (only && !only.has(key)) continue;
+    if (productName && !productMatches(row.productName, productName)) continue;
+    const p = (byName[row.productName] ||= { name: row.productName, qty: 0, sum: 0 });
+    p.qty += row.qty || 0;
+    p.sum += row.sum || 0;
+  }
+  // Цена — из меню (на этой точке или от–до по сети и начинкам); нет в
+  // меню — средняя по продажам, помечаем «≈»
+  const menuPrice = {};
+  for (const list of Object.values(menu?.productsByCategory || {})) {
+    for (const p of list || []) if (p?.price) menuPrice[String(p.name).toLowerCase()] = p.price;
+  }
+  const spotId = isAll(spot) ? null : String(spot?.spotId || "");
+  const list = Object.values(byName)
+    .filter((p) => p.qty > 0 && p.sum > 0)
+    .map((p) => {
+      const m = menuPrice[String(p.name).toLowerCase()];
+      const here = m && spotId && m.bySpot?.[spotId];
+      if (here) return { ...p, min: here.min, max: here.max, fromMenu: true };
+      if (m) return { ...p, min: m.min, max: m.max, fromMenu: true };
+      const avg = Math.round(p.sum / p.qty);
+      return { ...p, min: avg, max: avg, fromMenu: false };
+    })
+    .map((p) => ({ ...p, price: order === "asc" ? p.min : p.max }))
+    .sort((a, b) => (order === "asc" ? a.price - b.price : b.price - a.price) || b.qty - a.qty);
+  const priceText = (p) => (p.fromMenu ? (p.min === p.max ? fmt(p.min) : `${String(fmt(p.min)).replace(/\s*₸$/, "")}–${fmt(p.max)}`) : `≈${fmt(p.min)}`);
+  const where = isAll(spot) ? "" : ` ${label(spot)}`;
+  const subject = productName ? `«${productName}»` : what.toLowerCase();
+  if (!list.length) return { text: `Продаж — ${subject}${where} за ${pl} — не нашёл, цен не с чего взять.`, data: { prices: [] } };
+
+  const n = limit || (productName ? 15 : 10);
+  const top = list.slice(0, n);
+  const lines = top.map((p, i) => `${i + 1}. ${p.name} — ${priceText(p)} (${p.qty} шт.)`).join("\n");
+  const head = productName
+    ? `Цены на «${productName}»${where}, ${order === "asc" ? "от дешёвых" : "от дорогих"}`
+    : `${order === "asc" ? "Самые дешёвые" : "Самые дорогие"}: ${what.toLowerCase()}${where}`;
+  const lead = top[0];
+  const notes = ["Цена — из меню Poster."];
+  if (top.some((p) => p.fromMenu && p.min !== p.max)) notes.push("«От–до» — разная по точкам или по начинке.");
+  if (top.some((p) => !p.fromMenu)) notes.push("«≈» — в меню цены нет, средняя по продажам.");
+  const more = list.length > top.length ? `\n…всего ${list.length} ${plural(list.length, "позиция", "позиции", "позиций")}` : "";
+  return {
+    text: `${head} (из проданного за ${pl}):\n${lines}${more}\n\n${order === "asc" ? "Дешевле всех" : "Дороже всех"} — ${lead.name}, ${priceText(lead)}. ${notes.join(" ")}`,
+    data: { prices: list },
   };
 }
 

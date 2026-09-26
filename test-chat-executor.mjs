@@ -1092,6 +1092,40 @@ section("Товар на одной точке — её место среди т
   has(all, "По филиалам:", "на всю сеть — разрез по точкам как был");
 }
 
+section("Цены: «самый дорогой напиток» — по меню, а не топ по выручке");
+{
+  // 27.09.2026 «самый дорогой напиток» отвечал топом продаж: первым шёл
+  // Капучино 450 мл. Теперь — цены из меню среди проданного за срок
+  const P = globalThis.__poster;
+  const orig = P.getMenuCategories;
+  P.getMenuCategories = async () => ({
+    categories: [{ id: "1", name: "Кофе", parentId: null }, { id: "2", name: "Выпечка", parentId: null }, { id: "5", name: "Сиропы", parentId: null }],
+    productsByCategory: {
+      "1": [{ id: "10", name: "Латте 0,4", price: { min: 1200, max: 1300, bySpot: { "4": { min: 1300, max: 1300 }, "9": { min: 1200, max: 1200 } } } }, { id: "11", name: "Раф" }],
+      "2": [{ id: "20", name: "Круассан", price: { min: 890, max: 1660, bySpot: {} } }],
+      "5": [{ id: "50", name: "Флэт уайт" }],
+    },
+  });
+  const drinks = await ask("самый дорогой напиток");
+  has(drinks, "Самые дорогие: напитки", "заголовок — про цены напитков");
+  has(drinks, "1. Матча — ≈2 000 ₸", "в меню цены нет — средняя по продажам с «≈»");
+  has(drinks, "2. Раф — ≈1 800 ₸", "от дорогих к дешёвым");
+  has(drinks, "Латте 0,4 — 1 200–1 300 ₸", "цена по сети — от–до по точкам");
+  ok(!plain(drinks).includes("Круассан"), "еда в напитки не попала");
+  ok(!plain(drinks).includes("Флэт уайт"), "сиропы и добавки — не напитки");
+  const cheap = await ask("самый дешёвый напиток");
+  ok(/^1\. Латте 0,4 — 1 200–1 300 ₸/m.test(plain(cheap)), `дешёвые — по нижней цене: ${plain(cheap).split("\n")[1]}`);
+  const here = await ask("самый дорогой напиток на абая");
+  has(here, "Латте 0,4 — 1 300 ₸", "на одной точке — её цена из меню");
+  const food = await ask("самая дешёвая еда");
+  has(food, "Круассан — 890–1 660 ₸", "еда — с разбросом по начинкам");
+  has(food, "«От–до» — разная по точкам или по начинке", "и объяснение разброса");
+  P.getMenuCategories = orig;
+  ok((await parseQuestion("сколько стоит латте")).metric === "margin", "«сколько стоит» — по-прежнему себестоимость и цена");
+  ok(!(await parseQuestion("топ 10 товаров за неделю")).priceRank, "«топ товаров» — по выручке, как было");
+  ok((await parseQuestion("цены на раф")).priceRank === "desc", "«цены на раф» — список цен");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
