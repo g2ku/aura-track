@@ -266,7 +266,8 @@ export default function CashLedger({
     // и на этом легко построить неверные выводы о смене.
     if (!canSeeOpenChecks()) return null;
     const src = payBreakdown?.openChecks;
-    if (!src || !src.count) return null;
+    // Пустые чеки — тоже повод показать блок: «ничего не пробито» живёт тут
+    if (!src || !src.items?.length) return null;
     const allowed = new Set(displayCash.map((c) => String(c.spotId)));
     const items = src.items.filter((i) => allowed.has(i.spotId));
     if (!items.length) return null;
@@ -295,9 +296,11 @@ export default function CashLedger({
       items,
       groups: groupOpenChecks(withOrder),
       emptyBySpot,
-      count: items.length,
-      sum: Math.round(items.reduce((s, i) => s + i.sum, 0)),
-      stuck: items.filter((i) => i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN).length,
+      // «Открыто · висит» — только заказы: 21 пустой чек рядом с одним
+      // настоящим давал «22 · 21 висит» при 3 330 ₸
+      count: withOrder.length,
+      sum: Math.round(withOrder.reduce((s, i) => s + i.sum, 0)),
+      stuck: withOrder.filter((i) => i.minutes != null && i.minutes >= OPEN_CHECK_STUCK_MIN).length,
       bySpot: src.bySpot,
     };
   }, [payBreakdown, displayCash]);
@@ -493,7 +496,7 @@ export default function CashLedger({
             <span className="cl-line-value">{fmt(yesterdayTotal)}</span>
           </div>
         )}
-        {openChecks && (
+        {openChecks?.count > 0 && (
           <div className="cl-line">
             <span className="cl-line-label">
               Открыто чеков · {openChecks.count}

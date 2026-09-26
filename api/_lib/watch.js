@@ -80,7 +80,11 @@ export function buildAlerts(rows, opts = {}) {
     if (!started) continue;
     const minutes = Math.round((now - started) / 60000);
     if (minutes < cfg.stuckCheckMin) continue;
-    stuckSpots.add(String(tx.spot_id || ""));
+    // Тишину на точке глушит только чек с заказом. Пустой чек (0 ₸) в
+    // тревоги не идёт — и глушить ему нечего: на Коктеме пустые чеки
+    // висели с 25.09, и «нет заказов» оттуда не приходило третьи сутки —
+    // ни то, ни другое (живая проверка 27.09.2026)
+    if (Number(tx.sum || 0) > 0) stuckSpots.add(String(tx.spot_id || ""));
 
     const key = `check:${tx.transaction_id}`;
     // Про забытый чек напоминаем дважды в сутки, а не двенадцать раз.

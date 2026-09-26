@@ -484,6 +484,27 @@ section("Завал — это не тишина");
   ok(alerts.some((a) => a.kind === "quiet"), "открыть пустой чек — не продать");
 }
 
+{
+  // Пустой чек, забытый позавчера, не глушит «нет заказов»: на Коктеме
+  // пустые чеки висели с 25.09 19:24, и о тишине оттуда не приходило
+  // ничего третьи сутки (27.09.2026). Пустые в тревоги не идут — значит,
+  // и тишину им глушить нельзя, иначе владелец не узнает ни о чём
+  const now = Date.now();
+  const ago = (min) => String(now - min * 60000);
+  const rows = [
+    { transaction_id: "1", spot_id: "7", status: "2", date_close: ago(95) },
+    { transaction_id: "2", spot_id: "7", status: "1", date_start: ago(1740), sum: "0", name: "Адият" },
+  ];
+  const alerts = buildAlerts(rows, { now, seen: {}, openSpots: new Set(["7"]) });
+  ok(alerts.some((a) => a.kind === "quiet" && a.spotId === "7"), "старый пустой чек — «нет заказов» всё равно приходит");
+  ok(!formatAlerts(alerts).includes("Адият"), "а сам пустой чек в тексте тревоги не появляется");
+
+  // Чек с заказом, наоборот, глушит: «висит 97 мин» и «нет заказов 97
+  // мин» — одно событие
+  const withOrder = buildAlerts([rows[0], { ...rows[1], sum: "450000", date_start: ago(97) }], { now, seen: {}, openSpots: new Set(["7"]) });
+  ok(!withOrder.some((a) => a.kind === "quiet"), "висит заказ — о тишине не пишем дважды");
+}
+
 section("Итог недели по понедельникам");
 
 {

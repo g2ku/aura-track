@@ -107,8 +107,13 @@ export function groupOpenChecks(items) {
   return groups;
 }
 
+// count и stuck — только чеки с заказом; пустые (ничего не пробито)
+// отдельно в empty. Было «Открыто чеков · 22 · 21 висит» при одном
+// настоящем заказе на 3 330 ₸: остальные 21 — пустые, часть с позавчера
+// (живая проверка 27.09.2026). items — все, пустые тоже: их список
+// «чек открыт, но ничего не пробито» строится из них же.
 export function emptyOpenChecks() {
-  return { count: 0, sum: 0, stuck: 0, bySpot: {}, items: [] };
+  return { count: 0, sum: 0, stuck: 0, empty: 0, bySpot: {}, items: [] };
 }
 
 // Пустой чек — открыт, но ничего не пробито. Это не зависшие деньги, а
@@ -135,15 +140,18 @@ export function collectOpenChecks(rows, lastOrderBySpot = collectLastOrders(rows
     const minutes = startedAt ? Math.max(0, Math.round((now - startedAt) / 60000)) : null;
     const spotId = String(tx.spot_id || "");
 
-    out.count++;
-    out.sum += sum;
-    if (minutes != null && minutes >= OPEN_CHECK_STUCK_MIN) out.stuck++;
+    const empty = !(sum > 0);
+    const stuck = !empty && minutes != null && minutes >= OPEN_CHECK_STUCK_MIN;
+    if (empty) out.empty++;
+    else { out.count++; out.sum += sum; }
+    if (stuck) out.stuck++;
 
     if (spotId) {
-      if (!out.bySpot[spotId]) out.bySpot[spotId] = { count: 0, sum: 0, stuck: 0 };
-      out.bySpot[spotId].count++;
-      out.bySpot[spotId].sum += sum;
-      if (minutes != null && minutes >= OPEN_CHECK_STUCK_MIN) out.bySpot[spotId].stuck++;
+      if (!out.bySpot[spotId]) out.bySpot[spotId] = { count: 0, sum: 0, stuck: 0, empty: 0 };
+      const b = out.bySpot[spotId];
+      if (empty) b.empty++;
+      else { b.count++; b.sum += sum; }
+      if (stuck) b.stuck++;
     }
 
     // Сколько на этой точке нет заказов. Если пробитого сегодня нет вовсе

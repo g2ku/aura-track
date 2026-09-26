@@ -59,11 +59,15 @@ const rows = [
 ];
 const r = collectOpenChecks(rows);
 
-eq(r.count, 4, "закрытые в счёт не идут");
+// count — только заказы: пустой чек (0 ₸) идёт в empty, а не в «открыто»
+// (27.09.2026: «Открыто чеков · 22 · 21 висит» при одном заказе)
+eq(r.count, 3, "закрытые и пустые в «открыто» не идут");
+eq(r.empty, 1, "пустой — отдельно");
+eq(r.items.length, 4, "а в списке — все, пустой тоже: из него строится «ничего не пробито»");
 eq(r.sum, 2570, "суммы в копейках приведены к тенге: 330+990+1250+0");
 eq(r.stuck, 2, `висящих дольше ${OPEN_CHECK_STUCK_MIN} мин`);
-eq(r.bySpot["4"], { count: 2, sum: 1320, stuck: 1 }, "разрез по филиалу 4");
-eq(r.bySpot["10"], { count: 2, sum: 1250, stuck: 1 }, "разрез по филиалу 10");
+eq(r.bySpot["4"], { count: 2, sum: 1320, stuck: 1, empty: 0 }, "разрез по филиалу 4");
+eq(r.bySpot["10"], { count: 1, sum: 1250, stuck: 1, empty: 1 }, "разрез по филиалу 10: заказ и пустой отдельно");
 
 section("Порядок и содержимое");
 
@@ -99,7 +103,8 @@ section("Живые данные Poster");
 try {
   const snap = JSON.parse(readFileSync("fixtures/dash-open-checks.json", "utf8"));
   const live = collectOpenChecks(snap.response);
-  eq(live.count, 14, "14 открытых чеков в реальном дне");
+  eq(live.count + live.empty, 14, "14 открытых чеков в реальном дне");
+  eq(live.count, 10, "из них с заказом — 10, пустых — 4");
   eq(live.sum, 18850, "18 850 ₸ вне кассы");
   ok(live.items[0].minutes >= 90, "самый давний висит полтора часа");
   ok(Object.keys(live.bySpot).length >= 7, "открытые чеки почти на всех точках");

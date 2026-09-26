@@ -267,7 +267,8 @@ export default function Dashboard({
     const src = payBreakdown?.openChecks;
     if (!src || !src.count) return null;
     const allowed = new Set(displayCashBySpot.map((c) => String(c.spotId)));
-    const items = src.items.filter((i) => allowed.has(i.spotId));
+    // Только заказы: пустой чек (ничего не пробито) — не «открыто на 0 ₸»
+    const items = src.items.filter((i) => allowed.has(i.spotId) && i.sum > 0);
     if (!items.length) return null;
     return {
       count: items.length,
