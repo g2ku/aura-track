@@ -649,6 +649,14 @@ function parsePeriodExplicit(rawText) {
     return { from: `${currentYear}-01-01`, to: fmtDate(now) };
   }
 
+  // «Прогноз на следующий месяц», «в следующем месяце» — месяц после
+  // текущего (раньше выходил текущий: «следующий» не узнавался)
+  if (/следующ[а-яё]*\s+месяц/.test(text)) {
+    const first = new Date(currentYear, currentMonth, 1);
+    const last = new Date(currentYear, currentMonth + 1, 0);
+    return { from: fmtDate(first), to: fmtDate(last) };
+  }
+
   // "за прошлый месяц"
   if (/(?:прошл[а-яё]+\s+месяц|прошлом\s+месяц)/.test(text)) {
     const prevFirst = new Date(currentYear, currentMonth - 2, 1);

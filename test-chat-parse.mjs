@@ -1235,6 +1235,14 @@ section("Живые формулировки владельца: еда, вып�
   }
 }
 
+section("«Следующий месяц» — следующий, а не текущий");
+{
+  const p = await ask("прогноз на следующий месяц");
+  eq([p.operation, p.period.from.slice(0, 7)], ["forecast", "2026-10"], "прогноз на следующий месяц — октябрь");
+  const q = await ask("прогноз на конец месяца");
+  eq([q.operation, q.period.from.slice(0, 7)], ["forecast", "2026-09"], "на конец месяца — этот, сентябрь");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);
