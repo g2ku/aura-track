@@ -241,6 +241,18 @@ section("В ленте — только то, чего нет на экране"
   eq(briefingWhy("2026-09-24", doc("2026-09-24", 1, false), base), null, "в пределах обычного — без разбора");
 }
 
+{
+  // Недельная сводка — тоже с «почему» для худшей точки
+  const { weeklyWhy } = await import("./api/_lib/briefing.js");
+  const day = (date, k) => ({ date, cashBySpot: { "7": 100000 * k, "4": 200000 }, txBySpot: { "7": 50 * k, "4": 100 }, rowsBySpot: { "7": { "Раф": { qty: 20 * k, sum: 36000 * k } } } });
+  const prev = ["2026-09-14", "2026-09-15", "2026-09-16"].map((d) => day(d, 1));
+  const cur = ["2026-09-21", "2026-09-22", "2026-09-23"].map((d) => day(d, 0.7));
+  const w = weeklyWhy(cur, prev);
+  ok(w && /🔎 <b>Коктем<\/b> — почему неделя ниже прошлой \(-30 %\)/.test(w), `худшая точка недели названа: ${w?.split("\n")[0]}`);
+  ok(/Главное — чеков меньше/.test(w), "и разобрано почему");
+  eq(weeklyWhy(prev, prev), null, "неделя как прошлая — без разбора");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

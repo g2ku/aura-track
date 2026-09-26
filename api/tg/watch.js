@@ -18,7 +18,7 @@ import { dashTransactions, posterCall, dayTransactions, menuProducts } from "../
 import { buildAlerts, buildSupplyAlerts, formatAlerts, markSeen, withinWorkingHours } from "../_lib/watch.js";
 import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildClosingAlerts } from "../_lib/shifts.js";
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
-import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, usualShares, briefingWhy, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
+import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, usualShares, briefingWhy, weeklyWhy, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
 import { CHAT_LOG_KEEP_DAYS } from "../_lib/chatLog.js";
 import { sendMessage, siteUrl, questionKeyboard, getWebhookInfo, webhookNeedsFix, setWebhook } from "../_lib/telegram.js";
@@ -267,7 +267,10 @@ export default async function handler(req, res) {
         if (weekdayOf(today) === 1) {
           const to = shiftYmd(today, -1), from = shiftYmd(today, -7);
           const [cur, prev] = await Promise.all([getSalesDays(from, to), getSalesDays(shiftYmd(from, -7), shiftYmd(to, -7))]);
-          const text = formatWeeklyDigest(cur, prev, { from, to });
+          const digest = formatWeeklyDigest(cur, prev, { from, to });
+          // Худшая точка недели — сразу с разбором «почему»
+          const why = digest ? weeklyWhy(cur, prev) : null;
+          const text = [digest, why].filter(Boolean).join("\n\n");
           if (text) await sendMessage(target, text, { ...(thread ? { message_thread_id: thread } : {}), ...questionKeyboard(["кто просел за неделю", "товары за неделю", "способы оплаты за неделю", "касса по будням за неделю"]) });
           out.weekly = !!text;
         }

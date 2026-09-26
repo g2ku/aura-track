@@ -124,6 +124,41 @@ export function briefingWhy(ymd, dayDoc, baseDocs, { fmt = fmtSum, name = (id) =
   return [`🔎 <b>${esc(name(worst.spot))}</b> — почему ниже обычного:`, ...r.lines.slice(1).map(esc)].join("\n");
 }
 
+// То же для недели: точка, сильнее всех просевшая к прошлой неделе
+// (≥ 10 %), — с разбором «почему» по суммам недели. cur и prev — дни
+// этой и прошлой недели из суточных итогов
+export function weeklyWhy(cur, prev, { fmt = fmtSum, name = (id) => spotNameByPosterId(id), minDrop = 10 } = {}) {
+  const sumCash = (docs, sp) => (docs || []).reduce((a, d) => a + (d.cashBySpot?.[sp] || 0), 0);
+  const spots = new Set((cur || []).flatMap((d) => Object.keys(d.cashBySpot || {})));
+  let worst = null;
+  for (const sp of spots) {
+    const c = sumCash(cur, sp), p = sumCash(prev, sp);
+    if (!p) continue;
+    const drop = ((c - p) / p) * 100;
+    if (drop <= -minDrop && (!worst || drop < worst.drop)) worst = { sp, drop };
+  }
+  if (!worst) return null;
+  const pack = (docs) => {
+    const products = {};
+    let tx = 0, cash = 0, hours = null;
+    for (const d of docs || []) {
+      cash += d.cashBySpot?.[worst.sp] || 0;
+      tx += d.txBySpot?.[worst.sp] || 0;
+      for (const [n, r] of Object.entries(d.rowsBySpot?.[worst.sp] || {})) {
+        const x = (products[n] ||= { qty: 0, sum: 0 });
+        x.qty += r.qty || 0; x.sum += r.sum || 0;
+      }
+      const hs = d.hours?.[worst.sp]?.cash;
+      if (hs) { hours ||= Array(24).fill(0); hs.forEach((v, i) => { hours[i] += v || 0; }); }
+    }
+    return { cash, tx, products, hours };
+  };
+  const r = explainChange({ head: name(worst.sp), baseWord: "прошлой недели", cur: pack(cur), bases: [pack(prev)], fmt });
+  if (!r) return null;
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return [`🔎 <b>${esc(name(worst.sp))}</b> — почему неделя ниже прошлой (${Math.round(worst.drop)} %):`, ...r.lines.slice(1).map(esc)].join("\n");
+}
+
 // Заметное отклонение точки от своего обычного дня. Меньше порога —
 // шум: у кофейни день ото дня гуляет на десять процентов просто так.
 export const SPOT_DEVIATION_PCT = 20;
