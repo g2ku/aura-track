@@ -24,6 +24,8 @@ import { categoryMargins, marginTotals, purchaseCosts, costQuality } from "../..
 import { calcRecipeCost } from "../../src/recipeCost.js";
 import { explainChange, usualWeekday } from "../../src/chat/why.js";
 import { todayForecast, monthForecast } from "../../src/chat/forecast.js";
+import { rankPrices, priceText, priceNotes, priceScope } from "../../src/chat/prices.js";
+import { isFoodCategoryName, isAddonCategoryName, isBeansCategoryName } from "../../src/chat/categories.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
 const int = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0));
@@ -97,7 +99,7 @@ export function sumDays(days, spots = null) {
 
 // Текст ответа. days — дни спрошенного отрезка; baseDays — дни опор
 // (по датам); today — чтобы не сравнивать незаконченный день.
-export function answerFrom(parsed, days, { today, baseDays = {}, margin = null } = {}) {
+export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, prices = null } = {}) {
   if (!parsed) return null;
   const spots = spotsFor(parsed);
   const where = parsed.ipGroup?.name ? ` (${parsed.ipGroup.name})`
@@ -453,6 +455,10 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
     return out.join("\n");
   }
 
+  // «Самый дорогой напиток», «цены на раф» — по меню, как на сайте
+  // (src/chat/prices.js). Раньше — топ по выручке
+  if (parsed.metric === "products" && parsed.priceRank) return priceAnswer(parsed, s, { prices, where, when, spots });
+
   if (parsed.metric === "products") {
     let list = s.products;
     if (parsed.product) list = list.filter((p) => productMatches(p.name, parsed.product));
@@ -496,6 +502,49 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null }
   return lines.join("\n");
 }
 
+// prices — из ночного индекса меню: [{ n, min, max, s, c }]. Его нет
+// (индекс ещё без цен) — средняя по продажам с «≈», и разделы меню не
+// различить: тогда честно считаем все позиции
+function priceAnswer(parsed, s, { prices, where, when, spots }) {
+  const order = parsed.priceRank;
+  const scope = parsed.category?.kind === "food" ? "food" : priceScope(parsed.raw, { product: parsed.product });
+  const byName = {};
+  const catOf = {};
+  for (const p of prices || []) {
+    byName[String(p.n).toLowerCase()] = { min: p.min, max: p.max, bySpot: p.s || {} };
+    catOf[String(p.n).toLowerCase()] = p.c || "";
+  }
+  const known = Object.keys(catOf).length > 0;
+  const sold = s.products.filter((p) => {
+    const key = String(p.name).toLowerCase();
+    if (/^доп(?:\.|\s)/i.test(key)) return false;
+    const c = catOf[key];
+    if (c != null && (isAddonCategoryName(c) || isBeansCategoryName(c))) return false;
+    if (parsed.product) return productMatches(p.name, parsed.product);
+    if (scope === "drinks") return c == null || !isFoodCategoryName(c);
+    if (scope === "food") return c != null && isFoodCategoryName(c);
+    return true;
+  });
+  const spotId = spots && spots.size === 1 ? [...spots][0] : null;
+  const list = rankPrices({ sold, prices: byName, order, spotId });
+  const what = parsed.product ? `«${parsed.product}»` : scope === "drinks" ? "напитки" : scope === "food" ? "еда" : "позиции";
+  if (!list.length) return `Продаж — ${escapeHtml(what)}${escapeHtml(where)} ${escapeHtml(when)} — не нашёл, цен не с чего взять.`;
+  const top = list.slice(0, parsed.limit || (parsed.product ? 15 : 10));
+  const head = parsed.product
+    ? `Цены на ${what}${where}, ${order === "asc" ? "от дешёвых" : "от дорогих"}`
+    : `${order === "asc" ? "Самые дешёвые" : "Самые дорогие"}: ${what}${where}`;
+  const lead = top[0];
+  const notes = priceNotes(top);
+  if (!known && scope !== "all" && !parsed.product) notes.push("Разделов меню в итогах пока нет — среди всех позиций.");
+  return [
+    `<b>${escapeHtml(head)}</b> (из проданного ${escapeHtml(when)})`,
+    ...top.map((p, i) => `${i + 1}. ${escapeHtml(p.name)} — ${priceText(p, fmt)} · ${int(p.qty)} шт`),
+    list.length > top.length ? `…всего ${list.length} поз.` : "",
+    "",
+    `${order === "asc" ? "Дешевле всех" : "Дороже всех"} — ${escapeHtml(lead.name)}, ${priceText(lead, fmt)}. ${escapeHtml(notes.join(" "))}`,
+  ].filter((l, i, a) => l !== "" || (i > 0 && a[i - 1] !== "")).join("\n");
+}
+
 function label(metric) {
   return { cash: "Касса", checks: "Чеки", avgCheck: "Средний чек", products: "Товары", compareBranches: "Точки" }[metric] || metric;
 }
@@ -537,7 +586,9 @@ export async function answerQuestion(text, deps) {
   if (parsed.operation === "forecast" && parsed.metric === "forecast") parsed.metric = "cash";
   // Разделы меню (выпечка, еда, сезонное) боту не посчитать: справочника
   // меню у него нет, и без него вышли бы все товары под чужим заголовком
-  if (!SUPPORTED.has(parsed.metric) || (parsed.category && parsed.metric === "products")) {
+  // Кроме цен еды: «самая дешёвая еда» бот различает по разделу у цены
+  const foodPrices = parsed.priceRank && parsed.category?.kind === "food";
+  if (!SUPPORTED.has(parsed.metric) || (parsed.category && parsed.metric === "products" && !foodPrices)) {
     return { text: `Это умеет только сайт — ${deps.siteUrl ? `${deps.siteUrl}/#/chat` : "раздел «Ассистент»"}.`, parsed };
   }
   const { today } = deps;
@@ -687,7 +738,9 @@ export async function answerQuestion(text, deps) {
     const invoices = await deps.getInvoices(shiftYmd(to, -90), to).catch(() => []);
     margin.purchases = purchaseCosts(invoices, { toYmd: to });
   }
-  const answer = answerFrom(parsed, days, { today, baseDays, margin });
+  // Цены меню — только под вопрос о ценах
+  const prices = parsed.priceRank && deps.getMenuPrices ? await deps.getMenuPrices().catch(() => null) : null;
+  const answer = answerFrom(parsed, days, { today, baseDays, margin, prices });
   if (!answer) return null;
   const lines = [];
   if (statusHead) lines.push(escapeHtml(statusHead));

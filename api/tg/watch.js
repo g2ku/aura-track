@@ -368,7 +368,7 @@ export default async function handler(req, res) {
     const rollupAt = config.salesRollupTime && config.salesRollupTime < "05:05" ? "05:05" : config.salesRollupTime;
     if (config.salesRollupTime && config.lastSalesRollupDate !== today && nowHM >= rollupAt) {
       try {
-        const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, shiftYmd, rollupMismatch, closedOnDay, addEarlyChecks, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
+        const { pendingDays, rollupDay, payDayFrom, menuIndexFrom, menuPricesFrom, shiftYmd, rollupMismatch, closedOnDay, addEarlyChecks, ROLLUP_BACK_DAYS, ROLLUP_PER_RUN } = await import("../_lib/salesRollup.js");
         const have = await listSalesDayDates(shiftYmd(today, -ROLLUP_BACK_DAYS), today);
         const pending = pendingDays(have, { today });
         // Пересборка старой версией — не новость: расхождения по ней уже
@@ -378,9 +378,11 @@ export default async function handler(req, res) {
         let done = 0;
         const mismatches = [];
         if (batch.length) {
-          const menu = menuIndexFrom(await menuProducts());
-          // Индекс меню — в базу: боту и сайту 15 КБ вместо 4,6 МБ из Poster
-          await saveMenuIndex(menu).catch((e) => console.warn("[menu] индекс не сохранился:", e?.message));
+          const products = await menuProducts();
+          const menu = menuIndexFrom(products);
+          // Индекс меню — в базу: боту и сайту 15 КБ вместо 4,6 МБ из Poster.
+          // С ценами: «самый дорогой напиток» бот отвечает по меню
+          await saveMenuIndex(menu, menuPricesFrom(products)).catch((e) => console.warn("[menu] индекс не сохранился:", e?.message));
           for (const day of batch) {
             try {
               // Чеки с товарами — за сутки Poster; строки dash — за двое

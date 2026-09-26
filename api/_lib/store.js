@@ -664,12 +664,15 @@ export async function saveSalesDay(doc) {
 
 const MENU_INDEX = "menu/index";
 
-export async function saveMenuIndex(idx) {
+// prices — цены меню для бота (menuPricesFrom): рядом с индексом, тем же
+// ночным запросом. Не влезают — пишем индекс без них, он важнее
+export async function saveMenuIndex(idx, prices = null) {
   const count = Object.keys(idx || {}).length;
   if (!count) return false;
   const size = Buffer.byteLength(JSON.stringify(idx), "utf8");
   if (size > 900_000) { console.warn(`[menu] индекс ${size} байт — не помещается в документ`); return false; }
-  await getDb().doc(MENU_INDEX).set({ idx, count, ts: Date.now() });
+  const withPrices = prices?.length && size + Buffer.byteLength(JSON.stringify(prices), "utf8") <= 900_000;
+  await getDb().doc(MENU_INDEX).set({ idx, count, ts: Date.now(), ...(withPrices ? { prices } : {}) });
   return true;
 }
 

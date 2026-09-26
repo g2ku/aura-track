@@ -533,6 +533,34 @@ section("Прогноз на месяц, который идёт — как на
   ok(abaya.includes("Прогноз Абая на конец"), `по точке: ${abaya.split("\n")[0]}`);
 }
 
+section("Бот: цены — по меню, а не топ по выручке");
+{
+  // 27.09.2026 «самый дорогой напиток» в боте, как и на сайте, отвечал
+  // топом по выручке. Цены — из ночного индекса меню, с разделом у каждой
+  const withFood = (d) => ({ ...d, rowsBySpot: { ...d.rowsBySpot, "4": { ...d.rowsBySpot["4"], "Круассан": { qty: 7, sum: 11000 }, "Сироп ваниль": { qty: 3, sum: 600 } } } });
+  const PRICES = [
+    { n: "Латте 0,4", min: 1400, max: 1500, s: { "4": { min: 1500, max: 1500 } }, c: "Кофе" },
+    { n: "Капучино L", min: 1800, max: 1800, s: {}, c: "Кофе" },
+    { n: "Круассан", min: 890, max: 1660, s: {}, c: "Перекусы" },
+    { n: "Сироп ваниль", min: 200, max: 200, s: {}, c: "Сиропы" },
+  ];
+  const pdeps = { ...deps, getDays: async (f, t) => range(f, t, 1).map(withFood), getToday: async () => null, getMenuPrices: async () => PRICES };
+  const r = nb((await answerQuestion("самый дорогой напиток за прошлую неделю", pdeps)).text);
+  ok(/Самые дорогие: напитки/.test(r), `заголовок — цены напитков:\n${r}`);
+  ok(/1\. Капучино L — 1 800 ₸/.test(r), "первым — самый дорогой по меню");
+  ok(/Латте 0,4 — 1 400–1 500 ₸/.test(r), "по сети — от–до по точкам");
+  ok(/Латте 0,3 — ≈1 250 ₸/.test(r), "нет в меню — средняя по продажам с «≈»");
+  ok(!/Круассан|Сироп/.test(r), "еда и сиропы — не напитки");
+  const food = nb((await answerQuestion("самая дешёвая еда за прошлую неделю", pdeps)).text);
+  ok(/Круассан — 890–1 660 ₸/.test(food) && !/Латте/.test(food), `еда — по разделу меню:\n${food}`);
+  const abaya = nb((await answerQuestion("самый дорогой напиток на абая за прошлую неделю", pdeps)).text);
+  ok(/Латте 0,4 — 1 500 ₸/.test(abaya), "на одной точке — её цена");
+  const noIdx = nb((await answerQuestion("самый дорогой напиток за прошлую неделю", { ...pdeps, getMenuPrices: async () => null })).text);
+  ok(/≈/.test(noIdx) && /Разделов меню в итогах пока нет/.test(noIdx), "индекса цен ещё нет — средние и честная оговорка");
+  const latte = nb((await answerQuestion("цены на латте за прошлую неделю", pdeps)).text);
+  ok(/Цены на «латте»/.test(latte) && /Латте 0,4/.test(latte) && /Латте 0,3/.test(latte) && !/Капучино/.test(latte), "«цены на латте» — только латте");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

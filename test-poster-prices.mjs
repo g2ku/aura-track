@@ -138,11 +138,10 @@ section("Подстановка честно помечена");
 }
 
 // Цена в меню для ассистента: «самый дорогой напиток» (27.09.2026).
-// Функция чистая — вырезаем из poster.js, как разбор выше
+// Функция чистая — в своём модуле, её берёт и сервер для бота
 {
-  const at = src.indexOf("export function menuPriceOf");
-  const code = src.slice(at, src.indexOf("\n}\n", at) + 2).replace("export function", "function");
-  const menuPriceOf = new Function(`${code}; return menuPriceOf;`)();
+  const { menuPriceOf } = await import("./src/menuPrice.js");
+  const { menuPricesFrom } = await import("./api/_lib/salesRollup.js");
   const tea = menuPriceOf({ product_name: "Черный Чай 0.5", price: { 1: "35000", 2: "35000", 4: "0" } });
   ok(tea && tea.min === 350 && tea.max === 350, "чёрный чай — 350 ₸, ноль на точке — «не проставили»");
   ok(tea.bySpot["1"].min === 350 && !tea.bySpot["4"], "по точкам — только проставленные");
@@ -154,6 +153,16 @@ section("Подстановка честно помечена");
   ok(cro.bySpot["1"].min === 1360 && cro.bySpot["1"].max === 1660 && cro.bySpot["2"].max === 1360, "и на каждой точке свои от–до");
   ok(menuPriceOf({ product_name: "Кипяток", price: { 1: "0" } }) === null, "без цены — null");
   ok(/const price = menuPriceOf\(p\);/.test(src), "категории меню несут цену — ассистенту без лишнего запроса");
+  // Ночной индекс цен для бота: массив, раздел у каждой позиции
+  const idx = menuPricesFrom([
+    { product_name: "Fanta / Фанта", category_name: "Напитки", price: { 1: "40000" } },
+    { product_name: "Круассан", category_name: "Перекусы", modifications: [{ spots: [{ spot_id: 1, price: "89000" }] }, { spots: [{ spot_id: 1, price: "166000" }] }] },
+    { product_name: "Кипяток", category_name: "Напитки", price: { 1: "0" } },
+  ]);
+  ok(idx.length === 2 && idx[0].n === "Fanta / Фанта" && idx[0].min === 400 && idx[0].c === "Напитки", "индекс цен: имя, цена, раздел; без цены — не пишем");
+  ok(idx[1].min === 890 && idx[1].max === 1660 && idx[1].s["1"].max === 1660, "круассан — от–до и по точкам");
+  const watch = readFileSync("api/tg/watch.js", "utf8");
+  ok(/saveMenuIndex\(menu, menuPricesFrom\(products\)\)/.test(watch), "сторож кладёт цены рядом с индексом меню");
 }
 
 console.log("\n══════════════════════════════════════════════════");

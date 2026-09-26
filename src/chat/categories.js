@@ -110,6 +110,12 @@ export function resolveFoodCategories(categories) {
 // Разделы — по названию; «Доп. шот эспрессо» у Aura02 лежит вне
 // разделов — его узнаём по «Доп.» в начале.
 const ADDON_CATEGORY = /добав|сироп|эликсир|заготов|топпинг|модиф|syrup|topping|add-?on|extra/i;
+
+// Раздел меню по имени — для бота, у которого вместо справочника разделов
+// только имя раздела у каждой позиции (ночной индекс цен)
+export const isFoodCategoryName = (name) => FOOD_CATEGORY.test(String(name || ""));
+export const isAddonCategoryName = (name) => ADDON_CATEGORY.test(String(name || ""));
+export const isBeansCategoryName = (name) => /зерн|зёрн|beans/i.test(String(name || ""));
 export function addonProductNames(categories, productsByCategory) {
   const roots = (categories || []).filter((c) => ADDON_CATEGORY.test(String(c.name || "")));
   const names = productNamesIn(withDescendants(categories || [], roots), productsByCategory);

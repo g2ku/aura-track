@@ -259,7 +259,7 @@ section("Индекс меню — ночью в базу, оттуда боту
 
 {
   const w = readFileSync("api/tg/watch.js", "utf8");
-  ok(w.includes("await saveMenuIndex(menu)"), "сторож сохраняет индекс меню при сборке итогов");
+  ok(w.includes("await saveMenuIndex(menu, menuPricesFrom(products))"), "сторож сохраняет индекс меню (с ценами) при сборке итогов");
   const api = readFileSync("api/sales-days.js", "utf8");
   ok(api.includes('req.query?.menu || "") === "1"') && api.indexOf("requireUser(req)") < api.indexOf("getMenuIndex()"), "ручка отдаёт индекс — только вошедшим");
   const poster = readFileSync("src/poster.js", "utf8");

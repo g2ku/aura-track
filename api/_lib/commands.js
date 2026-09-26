@@ -165,6 +165,8 @@ async function askBot(text, store, ctx = null) {
     siteUrl: siteUrl(),
     recall: recallFrom(learned),
     getDays: (from, to) => store.getSalesDays(from, to),
+    // Цены меню — из ночного индекса (только под вопрос о ценах)
+    getMenuPrices: store.getMenuIndex ? async () => (await store.getMenuIndex())?.prices || null : null,
     // Техкарты — только когда спросили про маржу: лишний запрос в базу
     // на каждый «касса вчера» не нужен
     getMargin: store.getMarginSettings || null,

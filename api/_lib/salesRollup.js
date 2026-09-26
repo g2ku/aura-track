@@ -18,6 +18,7 @@
 import { enumerateDates } from "./dailyDoc.js";
 import { localDateStr, localMinutesOfDay } from "./time.js";
 import { businessDate, businessDateOfString } from "../../src/businessDay.js";
+import { menuPriceOf } from "../../src/menuPrice.js";
 
 // Полгода назад: столько смотрят налоги по ИП и прогноз. Заполняется
 // постепенно — по ROLLUP_PER_RUN дней за пробуждение сторожа, свежие первыми.
@@ -35,6 +36,22 @@ export function menuIndexFrom(products) {
     if (mid === "0") idx[pid] = name;
   }
   return idx;
+}
+
+// Цены меню для бота: «самый дорогой напиток», «цены на раф». Массив, а
+// не словарь по имени: в именах точки и слэши («Fanta / Фанта»), ключами
+// документа им быть неудобно. c — раздел меню: напитки от еды и добавок
+// бот отличает по нему (справочника разделов у него нет)
+export function menuPricesFrom(products) {
+  const out = [];
+  for (const p of products || []) {
+    const name = p.product_name || p.name;
+    if (!name) continue;
+    const price = menuPriceOf(p);
+    if (!price) continue;
+    out.push({ n: String(name), min: price.min, max: price.max, s: price.bySpot, c: String(p.category_name || "") });
+  }
+  return out;
 }
 
 // Итог одного дня из чеков transactions.getTransactions.
