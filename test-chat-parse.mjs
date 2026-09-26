@@ -240,8 +240,20 @@ section("Подсказки под ответом: без двойного пе�
   ok(Object.keys(FOLLOW_UP).includes("staff"), "у бариста свои подсказки");
 
   // Точка сохраняется, сравнение — «сентябрь с августом»
-  const d = followUpsFor(await ask("касса дубай вчера"));
+  const d = followUpsFor(await ask("касса дубай за сентябрь"));
   ok(d.some((q) => /^Сравнить \S+ с \S+ Дубай$/.test(q)), `сравнение месяцев с точкой: ${d.join(" | ")}`);
+
+  // Касса за один прошедший день — что за ним стояло, а не «тренд за 3
+  // месяца»; каждая подсказка разбирается в свой смысл
+  const day = followUpsFor(await ask("касса дубай вчера"));
+  eq(day, ["Почему такая касса вчера Дубай", "Кто работал вчера Дубай", "Касса по часам вчера Дубай"], "за вчера — почему, кто работал, по часам");
+  const kinds = [];
+  for (const q of day) { const x = await ask(q); kinds.push([x?.operation === "why" ? "why" : x?.metric === "staff" ? "staff" : x?.operation, x?.spot?.posterName, x?.period?.from === x?.period?.to]); }
+  eq(kinds, [["why", "Dubai", true], ["staff", "Dubai", true], ["byHour", "Dubai", true]], "и разбираются: разбор дня, бариста, часы — по Дубаю за тот же день");
+  const today = followUpsFor(await ask("касса сегодня"));
+  eq(today[0], "Сколько сделаем сегодня", "за сегодня — первым прогноз до конца дня");
+  eq((await ask(today[0])).operation, "forecast", "и он разбирается как прогноз");
+  eq((await ask("почему такая касса вчера"))?.product ?? null, null, "«такая» — не товар");
 }
 
 section("«Спешл» — категория меню, а не товар");

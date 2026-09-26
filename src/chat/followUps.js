@@ -46,10 +46,21 @@ const FOLLOW_UP_OP = {
   forecast: ["Что не так сейчас", "Открытые чеки", "Касса сегодня по точкам"],
 };
 
+// Касса за один день: «тренд за 3 месяца» и «прогноз на месяц» к нему не
+// идут. За прошедший день — что за ним стояло, за сегодня — чем кончится
+const FOLLOW_UP_DAY = {
+  past: ["Почему такая касса", "Кто работал", "Касса по часам"],
+  today: ["Сколько сделаем сегодня", "Касса по часам сегодня", "Что не так сейчас"],
+};
+
 export function followUpsFor(parsed) {
   if (!parsed) return [];
   const { metric, spot, period } = parsed;
-  const byOp = FOLLOW_UP_OP[parsed.operation];
+  const oneDay = period?.from && period.from === period.to && ["cash", "checks", "avgCheck"].includes(metric)
+    && (!parsed.operation || ["sum", "count"].includes(parsed.operation) || (metric === "avgCheck" && parsed.operation === "average")) && !parsed.status && !parsed.hours && !parsed.period2;
+  const todayIso = new Date().toLocaleDateString("sv-SE");
+  const dayKind = oneDay && period.from < todayIso ? "past" : oneDay && period.from === todayIso ? "today" : null;
+  const byOp = FOLLOW_UP_OP[parsed.operation] || FOLLOW_UP_DAY[dayKind];
   if (byOp) {
     const spotName = spot && spot.branchId !== "all"
       ? (spotNameByPosterId(spot.spotId, "") || spot.posterName || String(spot.branchId).replace("Aura02_", ""))
@@ -57,10 +68,10 @@ export function followUpsFor(parsed) {
     // Тот же день, что в вопросе: «вчера», «25 сентября»
     const td = new Date(); const y = new Date(td); y.setDate(y.getDate() - 1);
     const iso = (d) => d.toLocaleDateString("sv-SE");
-    const when = parsed.operation === "forecast" ? "" : period?.from === period?.to
+    const when = parsed.operation === "forecast" || dayKind === "today" ? "" : period?.from === period?.to
       ? (period.from === iso(y) ? " вчера" : period.from === iso(td) ? " сегодня" : ` ${Number(period.from.slice(8, 10))} ${MONTHS_GEN[Number(period.from.slice(5, 7)) - 1]}`)
       : " за неделю";
-    return byOp.map((q) => `${q}${/сегодня|сейчас/.test(q) ? "" : when}${spotName && !/сейчас|по точкам/.test(q) ? ` ${spotName}` : ""}`.trim());
+    return byOp.map((q) => `${q}${/сегодня|сейчас/.test(q) ? "" : when}${spotName && !/сейчас|по точкам|сколько сделаем/i.test(q) ? ` ${spotName}` : ""}`.trim());
   }
   const ups = FOLLOW_UP[metric] || FOLLOW_UP.default;
 
