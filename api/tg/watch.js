@@ -20,6 +20,7 @@ import { openSpots, windingDown, buildLateAlerts, buildStaleShiftAlerts, buildCl
 import { countAlerts, mergeLog } from "../_lib/alertLog.js";
 import { summarizeDay, formatBriefing, formatDayLabel, baselineLine, spotBaselines, usualShares, briefingWhy, weeklyWhy, formatWeeklyDigest, formatMonthlyDigest } from "../_lib/briefing.js";
 import { BRANCHES } from "../_lib/branches.js";
+import { closedOnDay } from "../_lib/salesRollup.js";
 import { CHAT_LOG_KEEP_DAYS } from "../_lib/chatLog.js";
 import { sendMessage, siteUrl, questionKeyboard, getWebhookInfo, webhookNeedsFix, setWebhook } from "../_lib/telegram.js";
 
@@ -117,10 +118,14 @@ export default async function handler(req, res) {
     if (config.briefingEnabled && config.lastBriefingDate !== today && nowHM >= config.briefingTime) {
       const yesterday = shiftYmd(today, -1);
       const before = shiftYmd(today, -2);
-      const [yRows, bRows] = await Promise.all([
-        dashTransactions(toPoster(yesterday)),
-        dashTransactions(toPoster(before)),
-      ]);
+      // Сутки — по Алматы, по времени закрытия чека: как на сайте и в
+      // ночных итогах. Poster режет сутки по Москве (02:00–02:00 у нас), и
+      // ночные чеки Гагарины и Рамса уезжали в соседний день: сводка за
+      // 20.09 писала 1 663 914 ₸, а сайт — 1 719 365 (живая проверка
+      // 27.09.2026). Три суток Poster покрывают вчера и позавчера целиком
+      const rows3 = await dashTransactions(toPoster(shiftYmd(yesterday, -2)), toPoster(yesterday));
+      const yRows = closedOnDay(rows3, yesterday);
+      const bRows = closedOnDay(rows3, before);
 
       // Накладные за тот же день — из того, что накопил бот
       let supplies = null;

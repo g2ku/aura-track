@@ -257,6 +257,25 @@ section("Сообщение не превращается в стену");
   ok(!t || !t.includes("Чеки висят открытыми"), "из одних пустых чеков тревоги не рождается");
 }
 
+section("Утренняя сводка — сутки по Алматы, как на сайте");
+{
+  // Poster режет сутки по Москве: у нас это 02:00–02:00. Сводка брала
+  // «сутки Poster», и ночные чеки уезжали в соседний день: за 20.09 —
+  // 1 663 914 ₸ против 1 719 365 ₸ на сайте (27.09.2026)
+  const { closedOnDay } = await import("./api/_lib/salesRollup.js");
+  const at = (s) => String(new Date(s + "+05:00").getTime());
+  const rows = [
+    { status: "2", spot_id: "1", payed_sum: "100000", date_close: at("2026-09-20T00:30:00") },   // сутки Poster 19-е, у нас 20-е
+    { status: "2", spot_id: "1", payed_sum: "200000", date_close: at("2026-09-20T14:00:00") },
+    { status: "2", spot_id: "1", payed_sum: "400000", date_close: at("2026-09-21T01:10:00") },   // сутки Poster 20-е, у нас 21-е
+    { status: "1", spot_id: "1", sum: "900000", date_start: at("2026-09-20T15:00:00") },
+  ];
+  const d = summarizeDay(closedOnDay(rows, "2026-09-20"));
+  eq([d.total, d.checks], [3000, 2], "20-е по Алматы: ночной чек 00:30 — наш, 01:10 следующей ночи — нет, открытый — не касса");
+  const code = readFileSync("api/tg/watch.js", "utf8");
+  ok(/closedOnDay\(rows3, yesterday\)/.test(code) && /closedOnDay\(rows3, before\)/.test(code), "сводка бота берёт вчера и позавчера по Алматы");
+}
+
 section("Утренняя сводка");
 
 {
