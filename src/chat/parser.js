@@ -1305,6 +1305,19 @@ export async function parseQuestion(text) {
     }
   }
 
+  // «Как вчера по сравнению с прошлой пятницей», «касса 24-го против
+  // прошлого четверга» — день против того же дня недели раньше. Раньше
+  // слово «сравнение» уводило в сравнение точек (26.09.2026)
+  const vsWd = lower.match(/(?:сравнени[а-яё]*\s+с|против|чем|(?:^|\s)к)\s+прошл[а-яё]*\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)/);
+  if (vsWd && period.from === period.to && period.to < fmtDate(new Date())) {
+    const idx = { "воскресень": 0, "понедельник": 1, "вторник": 2, "сред": 3, "четверг": 4, "пятниц": 5, "суббот": 6 }[vsWd[1]];
+    const d = new Date(period.from + "T00:00:00");
+    do { d.setDate(d.getDate() - 1); } while (d.getDay() !== idx);
+    period2 = { from: fmtDate(d), to: fmtDate(d), label: "прошлый такой день" };
+    operation = "percentChange";
+    if (!metric || metric === "compareBranches") metric = "cash";
+  }
+
   // Окно по часам: «до обеда», «после 18:00», «с 8 до 11», «утром»
   const hours = parseHours(lower);
   // «Топ 5», «5 лучших», «10 худших» — сколько строк показать
