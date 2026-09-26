@@ -138,6 +138,20 @@ section("Минусовые остатки — отдельным списком
 }
 
 {
+  // Абая, 25.09.2026: крышек −1 725 шт. по 25 ₸ и пачек кофе −430 шт. по
+  // 9 500 ₸. Первым должен быть кофе — это 4 млн, а не 43 тысячи
+  const neg = negativeStock(buildMovementTable({
+    "Абая": normalizeMovement([
+      { ingredient_id: "1", ingredient_name: "Крышка гор. Д90", write_offs: 900, end: -1725, cost_end: 25 },
+      { ingredient_id: "2", ingredient_name: "Кофе Mantiqueira 1кг", write_offs: 3, end: -430, cost_end: 9500 },
+      { ingredient_id: "3", ingredient_name: "Лед", write_offs: 50, end: -157.93, cost_end: 400 },
+    ]),
+  }));
+  eq(neg["Абая"].map((x) => x.name), ["Кофе Mantiqueira 1кг", "Лед", "Крышка гор. Д90"], "первым — самый дорогой минус, а не самый большой в штуках");
+  eq(collapseNegative(neg)[0].worst, "Кофе Mantiqueira 1кг", "и в тревоге «хуже всего» — он");
+}
+
+{
   eq(negativeStock([]), {}, "нет минусов — пустой объект");
   eq(negativeStock(null), {}, "и на null не падаем");
 }

@@ -2584,7 +2584,9 @@ async function handleStock(spot, period, product, raw = "") {
       .sort((a, b) => a.money - b.money);
     if (!neg.length) return { text: `Минусовых остатков${where} нет — приход проводят.`, data: { negative: 0 } };
     const lines = neg.map(({ b, items, money }) => {
-      const top = items.slice(0, 3).map((i) => `${i.name} ${qtyRu(i.end)} ${unitRu(i.unit)}`).join(", ");
+      // Самые дорогие минусы — с деньгами: по количеству «−430 шт.» кофе
+      // в пачках и «−1 725 шт.» крышек не сравнить
+      const top = items.slice(0, 3).map((i) => `${i.name} ${qtyRu(i.end)} ${unitRu(i.unit)}${i.money ? ` (${fmt(Math.abs(i.money))})` : ""}`).join(", ");
       return `• ${b}: ${items.length} поз. на ${fmt(Math.abs(money))} — ${top}${items.length > 3 ? "…" : ""}`;
     });
     return {

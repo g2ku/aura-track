@@ -132,7 +132,11 @@ export function negativeStock(table) {
       });
     }
   }
-  for (const list of Object.values(byBranch)) list.sort((a, b) => a.end - b.end);
+  // Первым — самый дорогой минус, а не самый большой по количеству:
+  // единицы разные, и «Крышка −1 725 шт.» стояла выше, чем «Кофе
+  // Mantiqueira 1 кг −430 шт.» на 4 085 000 ₸ (Абая, живая проверка
+  // 26.09.2026). Цены нет — тогда по глубине минуса
+  for (const list of Object.values(byBranch)) list.sort((a, b) => a.money - b.money || a.end - b.end);
   return byBranch;
 }
 
