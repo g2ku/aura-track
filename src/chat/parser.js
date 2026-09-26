@@ -1232,6 +1232,17 @@ export async function parseQuestion(text) {
       period.from = period.to = td;
     }
   }
+  // «Что лучше продаётся — латте или капучино», «круассан против пончика» —
+  // два товара рядом. Раньше отвечал только про второй
+  let products2 = null;
+  const pair = lower.split(/\s(?:или|vs|против)\s/);
+  if (pair.length === 2 && !category) {
+    // Не нашлось в словаре — слово рядом с «или»: «пончика» → «пончик»
+    // словарь не знает, а незнакомое слово — почти наверняка товар
+    const near = (t, last) => { const w = unknownWords(t); return w.length ? w[last ? w.length - 1 : 0].replace(/(?:а|у|ом|ов|ы|и)$/, "") : null; };
+    const a = parseProduct(pair[0]) || near(pair[0], true), b = parseProduct(pair[1]) || near(pair[1], false);
+    if (a && b && a !== b) { products2 = [a, b]; product = null; metric = "products"; operation = "compareProducts"; }
+  }
   // «План на месяц» — это прогноз: метрика узнана, операция тоже
   if (metric === "forecast" && operation === "sum") operation = "forecast";
   // «У кого самый большой средний чек» — «средний» перебивал «самый
@@ -1322,6 +1333,7 @@ export async function parseQuestion(text) {
     ...(person ? { person } : {}),
     ...(limit ? { limit } : {}),
     ...(spot2 ? { spot2 } : {}),
+    ...(products2 ? { products2 } : {}),
     // «Как дела», «как торгуем» — сводка «как идём», а не касса одной цифрой
     ...(askingNow && !explicitPeriod ? { status: true } : {}),
     product,

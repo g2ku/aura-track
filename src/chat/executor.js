@@ -346,6 +346,7 @@ async function executeInner(parsed, userBranch) {
       case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
       case "products":
         if (parsed.spot2) return await handleProductsVsSpot(spot, parsed.spot2, period, parsed.limit || null);
+        if (parsed.products2) return await handleProductPair(effectiveSpot, period, parsed.products2, ipGroup);
         if (category) return await handleCategory(operation, effectiveSpot, period, category, ipGroup);
         if (/не\s+прода[её]|не\s+продава|не\s+продал|нет\s+продаж|без\s+продаж|мёртв|мертв/.test(String(parsed.raw || "").toLowerCase())) return await handleNotSold(effectiveSpot, period, ipGroup);
         return await handleProducts(operation, effectiveSpot, period, product, ipGroup, parsed.limit || null);
@@ -414,6 +415,45 @@ async function handleTodayForecast(spot, ipGroup) {
   ];
   if (f.share < 0.25) lines.push("Рано: утром доля дня скачет — прогноз точнее после обеда.");
   return { text: lines.join("\n"), data: f };
+}
+
+// ─── Два товара рядом ────────────────────────────────────────────
+//
+// «Что лучше продаётся — латте или капучино»: штуки, деньги, во сколько
+// раз один берут чаще. Все размеры товара вместе («Латте 350», «Латте 450»),
+// и по точкам — где соотношение другое.
+async function handleProductPair(spot, period, pair, ipGroup) {
+  const data = await fetchPosterSales(period.from, period.to);
+  const pl = formatPeriodLabel(period);
+  const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
+  const acc = pair.map((name) => ({ name, qty: 0, sum: 0, bySpot: {} }));
+  for (const r of data.rows || []) {
+    if (!matchesRowSpot(r, spot)) continue;
+    if (groupBranches && !matchesIPGroup(r.spotName, groupBranches)) continue;
+    for (const a of acc) {
+      if (!productMatches(r.productName, a.name)) continue;
+      a.qty += r.qty || 0; a.sum += r.sum || 0;
+      const k = sn(r);
+      (a.bySpot[k] ||= 0);
+      a.bySpot[k] += r.qty || 0;
+    }
+  }
+  const [x, y] = acc;
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  if (!x.qty && !y.qty) return { text: `Ни «${x.name}», ни «${y.name}» ${label(spot)} за ${pl} не продавались.`, data: null };
+  const [lead, other] = x.qty >= y.qty ? [x, y] : [y, x];
+  const ratio = other.qty ? (lead.qty / other.qty).toFixed(1).replace(".", ",") : null;
+  const lines = [
+    `${cap(lead.name)} берут ${ratio ? `в ${ratio} раза чаще` : "а второй не брали вовсе"}, чем ${other.name} — ${label(spot)}, ${pl}.`,
+    `• ${cap(x.name)}: ${x.qty} шт / ${fmt(Math.round(x.sum))}`,
+    `• ${cap(y.name)}: ${y.qty} шт / ${fmt(Math.round(y.sum))}`,
+  ];
+  // Точки, где соотношение обратное — это интереснее среднего
+  if (isAll(spot)) {
+    const flip = Object.keys({ ...lead.bySpot, ...other.bySpot }).filter((k) => (other.bySpot[k] || 0) > (lead.bySpot[k] || 0));
+    if (flip.length) lines.push("", `Зато ${other.name} берут чаще на: ${flip.join(", ")}.`);
+  }
+  return { text: lines.join("\n"), data: { pair: acc } };
 }
 
 // ─── Почему: разбор причин ───────────────────────────────────────
