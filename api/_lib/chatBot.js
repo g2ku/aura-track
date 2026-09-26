@@ -25,6 +25,8 @@ import { calcRecipeCost } from "../../src/recipeCost.js";
 import { explainChange, usualWeekday } from "../../src/chat/why.js";
 import { todayForecast, monthForecast } from "../../src/chat/forecast.js";
 import { rankPrices, priceText, priceNotes, priceScope } from "../../src/chat/prices.js";
+import { headToHead } from "../../src/chat/compare.js";
+import { nChecks } from "../../src/utils.js";
 import { isFoodCategoryName, isAddonCategoryName, isBeansCategoryName } from "../../src/chat/categories.js";
 
 const fmt = (n) => new Intl.NumberFormat("ru-RU").format(Math.round(Number(n) || 0)) + " ₸";
@@ -414,11 +416,27 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
   }
 
   if (parsed.metric === "compareBranches" || (parsed.operation === "compare" && !spots)) {
-    const rows = Object.entries(s.cash).map(([spot, total]) => ({ name: spotNameByPosterId(spot), total, tx: s.tx[spot] || 0 }))
-      .sort((a, b) => b.total - a.total);
+    // Названы точки — только они; две — один на один, как на сайте
+    // (src/chat/compare.js). Раньше — рейтинг всех восьми
+    const named = (parsed.spots || []).map((x) => String(x.spotId)).filter(Boolean);
+    const row = (spot) => ({ id: spot, name: spotNameByPosterId(spot), total: s.cash[spot] || 0, tx: s.tx[spot] || 0 });
+    if (named.length === 2) {
+      const h = headToHead(row(named[0]), row(named[1]), { fmt, checks: (n) => nChecks(n, int(n)), when });
+      return [`<b>${escapeHtml(row(named[0]).name)} и ${escapeHtml(row(named[1]).name)} ${escapeHtml(when)}</b>`,
+        `• ${escapeHtml(h.lines[0])}`, `• ${escapeHtml(h.lines[1])}`, "", escapeHtml(h.tail)].join("\n");
+    }
+    // «Чеки по точкам» — по чекам, а не по кассе
+    const byChecks = /(?:^|[^а-яё])чек(?:и|ов|ам)?(?![а-яё])/.test(String(parsed.raw || "").toLowerCase()) && !/средн/.test(String(parsed.raw || "").toLowerCase());
+    const ids = named.length > 2 ? named : Object.keys(s.cash);
+    const rows = ids.map(row).filter((r) => r.total > 0 || named.length > 2)
+      .sort((a, b) => (byChecks ? b.tx - a.tx : b.total - a.total));
     if (!rows.length) return `Продаж ${when} не нашёл.`;
-    const lines = rows.map((r, i) => `${i + 1}. ${escapeHtml(r.name)} — ${fmt(r.total)} · ${int(r.tx)} чек.`);
-    return [`<b>Точки по кассе ${escapeHtml(when)}</b>`, ...lines, "", `Итого: ${fmt(s.total)}`].join("\n");
+    const lines = rows.map((r, i) => (byChecks
+      ? `${i + 1}. ${escapeHtml(r.name)} — ${nChecks(r.tx, int(r.tx))} · ${fmt(r.total)}`
+      : `${i + 1}. ${escapeHtml(r.name)} — ${fmt(r.total)} · ${int(r.tx)} чек.`));
+    const sumTx = rows.reduce((n, r) => n + r.tx, 0), sumCash = rows.reduce((n, r) => n + r.total, 0);
+    return [`<b>Точки по ${byChecks ? "чекам" : "кассе"} ${escapeHtml(when)}</b>`, ...lines, "",
+      byChecks ? `Итого: ${nChecks(sumTx, int(sumTx))} · ${fmt(sumCash)}` : `Итого: ${fmt(sumCash)}`].join("\n");
   }
 
   // «Что на Абае берут чаще, чем на Дубае» — доли позиций двух точек

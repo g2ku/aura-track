@@ -36,6 +36,7 @@ function missingNote() {
 }
 import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTitle, findCategory, categoryLabel, addonProductNames, categoryNamed, resolveFoodCategories, isBeansCategoryName } from "./categories.js";
 import { rankPrices, priceText, priceNotes, priceScope } from "./prices.js";
+import { headToHead } from "./compare.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt, describeDayList, nChecks, plural } from "../utils.js";
@@ -2655,24 +2656,10 @@ async function handleCompareBranches(operation, spot, period, ipGroup, only = nu
   // чек и откуда разница (люди или покупки)
   if (only?.length >= 2) {
     const picked = only.map((o) => filtered.find((d) => matchesSpot(d, o)) || { spotId: o.spotId, spotName: o.posterName, total: 0, txCount: 0 });
-    const avg = (d) => (d.txCount ? d.total / d.txCount : 0);
-    const line = (d) => `• ${sn(d)}: ${fmt(Math.round(d.total))} · ${nChecks(d.txCount)} · ср.чек ${fmt(Math.round(avg(d)))}`;
     if (picked.length === 2) {
       const [a, b] = picked;
-      const [hi, lo] = a.total >= b.total ? [a, b] : [b, a];
-      const p = (x, y) => (y ? Math.round(((x - y) / y) * 100) : null);
-      const pc = p(hi.total, lo.total), pt = p(hi.txCount, lo.txCount), pa = p(avg(hi), avg(lo));
-      const why = pt != null && pa != null
-        ? (Math.abs(pt) >= Math.abs(pa)
-          ? `чеков ${pt >= 0 ? "больше" : "меньше"} на ${Math.abs(pt)} %, средний чек ${pa === 0 ? "такой же" : `${pa > 0 ? "выше" : "ниже"} на ${Math.abs(pa)} %`}`
-          : `средний чек ${pa > 0 ? "выше" : "ниже"} на ${Math.abs(pa)} %, чеков ${pt === 0 ? "столько же" : `${pt > 0 ? "больше" : "меньше"} на ${Math.abs(pt)} %`}`)
-        : "";
-      const tail = !lo.total ? `${sn(lo)} за ${pl} продаж не было.` : hi.total === lo.total ? "Касса одинаковая." : `${sn(hi)} больше на ${fmt(Math.round(hi.total - lo.total))} (+${pc} %)${why ? `: ${why}` : ""}.`;
-      return { text: `${sn(a)} и ${sn(b)}${ipLabel} за ${pl}:
-${line(a)}
-${line(b)}
-
-${tail}`, data: { picked } };
+      const h = headToHead({ name: sn(a), total: a.total, tx: a.txCount }, { name: sn(b), total: b.total, tx: b.txCount }, { fmt, checks: nChecks, when: `за ${pl}` });
+      return { text: `${sn(a)} и ${sn(b)}${ipLabel} за ${pl}:\n• ${h.lines[0]}\n• ${h.lines[1]}\n\n${h.tail}`, data: { picked } };
     }
     filtered = picked.filter((d) => d.total > 0);
   }
