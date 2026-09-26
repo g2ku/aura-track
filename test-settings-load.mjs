@@ -35,6 +35,7 @@ writeFileSync(fsStub, `
   export const getFirestore = () => ({ kind: "memory" });
   export const persistentLocalCache = (o) => ({ cache: "persistent", ...o });
   export const persistentMultipleTabManager = () => ({ tabs: "multi" });
+  export const persistentSingleTabManager = () => ({ tabs: "single" });
   export const terminate = async (db) => { fb().calls.push("terminate:" + db.kind); };
   export const clearIndexedDbPersistence = async (db) => { fb().calls.push("clear:" + db.kind); if (fb().clearThrows) throw new Error("failed-precondition"); };
   const fn = () => () => {};
@@ -157,9 +158,16 @@ section("Зарплата: прайс и ставки при сбое — оши
   ok(/onClick=\{loadBooks\}/.test(view), "есть «Повторить»");
 }
 
+// localStorage как в браузере: через него вкладки делят кэш Firestore
+function fakeLocalStorage() {
+  const m = new Map();
+  return { get length() { return m.size; }, key: (i) => [...m.keys()][i] ?? null, getItem: (k) => m.get(k) ?? null, setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } };
+}
+
 section("Локальный кэш базы: включён, а при выходе стирается");
 {
   reset(offline);
+  globalThis.localStorage = fakeLocalStorage();
   const fbOut = await bundle("fb1", `export { getDb, logoutUser, subscribeRecipes, subscribeReports } from "../../../src/firebase.js";`, false);
   const F = await import(new URL(`./${fbOut}`, import.meta.url).href);
 
@@ -198,6 +206,17 @@ section("Локальный кэш базы: включён, а при выхо�
 
   eq(await F.logoutUser(), true, "выход сообщает, что кэш стёрт — нужна перезагрузка");
   eq(globalThis.__fb.calls, ["signOut", "terminate:persistent", "clear:persistent"], "сначала выход, потом остановка базы и стирание кэша");
+  delete globalThis.localStorage;
+}
+{
+  // localStorage нет или он забит (26.09.2026: QuotaExceededError и
+  // «INTERNAL ASSERTION FAILED» при входе) — кэш на одну вкладку: ему
+  // localStorage не нужен
+  const fbOut = await bundle("fb0", `export { getDb } from "../../../src/firebase.js";`, false);
+  reset(offline);
+  const F = await import(new URL(`./${fbOut}?nols`, import.meta.url).href);
+  eq(globalThis.__fb.init[0]?.localCache, { cache: "persistent", tabManager: { tabs: "single" } }, "без localStorage — кэш на одну вкладку, а не падение");
+  eq(F.getDb().kind, "persistent", "и база работает");
 }
 {
   // Вторая вкладка держит кэш — стереть нельзя, но выход всё равно проходит

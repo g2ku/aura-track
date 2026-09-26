@@ -410,6 +410,7 @@ export function LoginGate({ children }) {
           className="login-input"
           autoFocus
           type="email"
+          autoComplete="username"
           placeholder="Email"
           value={email}
           onChange={e => { setEmail(e.target.value); setErr(""); }}
@@ -417,6 +418,7 @@ export function LoginGate({ children }) {
         <input
           className="login-input"
           type="password"
+          autoComplete="current-password"
           placeholder="Пароль"
           value={password}
           onChange={e => { setPassword(e.target.value); setErr(""); }}

@@ -9,6 +9,7 @@ import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  persistentSingleTabManager,
   terminate,
   clearIndexedDbPersistence,
   collection,
@@ -31,6 +32,7 @@ import {
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
+import { prepareStorage } from "./storageHygiene.js";
 
 const cfg = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -64,10 +66,22 @@ if (isFirebaseConfigured()) {
 // изменения — быстрее и меньше чтений. Вкладок может быть несколько —
 // им нужен общий менеджер. Если IndexedDB нет (приватный режим, старый
 // WebView) — работаем как раньше, без кэша.
+//
+// Вкладкам менеджер нужен общий, а общаются они через localStorage. Он
+// был забит нашими же кэшами — Firestore не мог записать туда номер
+// последовательности, первый же запрос (профиль при входе) падал, и
+// следом «INTERNAL ASSERTION FAILED» (26.09.2026). Поэтому сначала
+// порядок в localStorage; места нет и после — кэш на одну вкладку: ему
+// localStorage не нужен, вторая вкладка просто пойдёт без кэша.
 function openDb(app) {
+  let room = "none";
+  try { room = prepareStorage(typeof localStorage !== "undefined" ? localStorage : null); } catch (_) {}
+  if (room === "freed") console.warn("[firebase] localStorage был забит — сбросил кэш дней, он соберётся заново");
+  if (room === "full") console.warn("[firebase] localStorage забит — кэш Firestore только для этой вкладки");
   try {
+    const tabManager = room === "ok" || room === "freed" ? persistentMultipleTabManager() : persistentSingleTabManager({});
     return initializeFirestore(app, {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      localCache: persistentLocalCache({ tabManager }),
     });
   } catch (e) {
     // Горячая перезагрузка в разработке: экземпляр уже создан

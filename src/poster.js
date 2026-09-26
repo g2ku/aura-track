@@ -27,6 +27,7 @@ import {
   QUIET_SPOT_MIN, collectLastOrders, collectOpenChecks, groupOpenChecks, emptyOpenChecks,
 } from "./openChecks.js";
 import { BRANCHES } from "./branches.js";
+import { SALES_DAY_KEY, PAY_DAY_KEY, fitDayCache } from "./storageHygiene.js";
 
 // Реэкспорт: экраны берут это из poster.js вместе с остальными данными
 export {
@@ -42,7 +43,7 @@ const UA = "Poster (http://joinposter.com)";
 
 // v15 (25.09.2026): в кэше дней лежали ложные метки «два метода Poster
 // разошлись» — оплаты считались вместе с открытыми и удалёнными чеками
-const CACHE_KEY = "supply-track.poster.salesByDay.v15";
+const CACHE_KEY = SALES_DAY_KEY;
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const PER_PAGE = 200;          // max для transactions.getTransactions
@@ -298,7 +299,7 @@ function todayYmd() {
 // v3 (25.09.2026): оплаты — только закрытых чеков и по дню закрытия по
 // Алматы. Старый кэш держал оплаты с чеками следующей ночи (+2 % к
 // кассе) до 30 дней
-const PAY_DAY_KEY = "supply-track.poster.payByDay.v3";
+// Ключ — в storageHygiene.js: там же чистятся прошлые версии
 const PAY_DAY_TTL = 30 * 24 * 60 * 60 * 1000;
 
 function readPayDays() {
@@ -651,7 +652,9 @@ function setCachedDay(yyyymmdd, payload) {
       }
     }
 
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+    // И не до упора: забитый localStorage ломал вход — Firestore держит в
+    // нём общее состояние вкладок (26.09.2026). Кэш дней — в бюджете
+    localStorage.setItem(CACHE_KEY, fitDayCache(cache, yyyymmdd));
   } catch (_) {
     // Место кончилось даже после чистки: полгода дней с товарами — это
     // мегабайты. Выкидываем самые старые дни половинами, пока не влезет;

@@ -6,6 +6,8 @@
 //
 // Запуск: node test-poster-cache.mjs
 
+import { pathToFileURL } from "node:url";
+import { resolve as resolvePath } from "node:path";
 import { cacheHeaderFor } from "./api/poster/[...path].js";
 import { readFileSync } from "node:fs";
 
@@ -183,7 +185,10 @@ section("Кэш продаж вытесняет старые дни");
   const src = readFileSync("src/poster.js", "utf8");
   const a = src.indexOf("const CACHE_KEY");
   const b = src.indexOf("export function clearPosterCache");
-  const mod = src.slice(a, b).replace(/^function (setCachedDay|readCache)/gm, "export function $1");
+  // Ключ и бюджет кэша живут в storageHygiene.js — подключаем его по пути
+  const hygiene = pathToFileURL(resolvePath("src/storageHygiene.js")).href;
+  const mod = `import { SALES_DAY_KEY, PAY_DAY_KEY, fitDayCache } from ${JSON.stringify(hygiene)};\n`
+    + src.slice(a, b).replace(/^function (setCachedDay|readCache)/gm, "export function $1");
   const { setCachedDay } = await import("data:text/javascript," + encodeURIComponent(mod));
 
   const KEY = "supply-track.poster.salesByDay.v15";

@@ -120,6 +120,7 @@ export default function RegistrationPage() {
           className="login-input"
           autoFocus
           type="text"
+          autoComplete="name"
           placeholder="Ваше имя"
           value={name}
           onChange={e => setName(e.target.value)}
@@ -127,6 +128,7 @@ export default function RegistrationPage() {
         <input
           className="login-input"
           type="email"
+          autoComplete="username"
           placeholder="Email"
           value={email}
           onChange={e => setEmail(e.target.value)}
@@ -134,6 +136,7 @@ export default function RegistrationPage() {
         <input
           className="login-input"
           type="password"
+          autoComplete="new-password"
           placeholder="Пароль (минимум 6 символов)"
           value={password}
           onChange={e => setPassword(e.target.value)}
