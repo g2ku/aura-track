@@ -1093,13 +1093,22 @@ function parseOperation(text) {
 
 // ─── Парсинг товара ───────────────────────────────────────────────
 
+// Объём после названия — часть товара: «капучино 450» — это «Капучино
+// 450 мл», а не все капучино (живая проверка 27.09.2026: 2 510 шт. всех
+// вместо 1 285 шт. на 450). «0,5» и «0.5» в названиях Poster — оба
+function withSize(canonical, lower, alias) {
+  const esc = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = lower.match(new RegExp(`${esc}[а-яё]*\\s+(\\d{3}|0[.,]\\d)(?![\\d])`));
+  return m ? `${canonical} ${m[1]}` : canonical;
+}
+
 function parseProduct(text) {
   const lower = text.toLowerCase();
 
   // Check product aliases first — sort by length descending so longer matches win
   const sortedAliases = Object.entries(PRODUCT_ALIASES).sort((a, b) => b[0].length - a[0].length);
   for (const [alias, canonical] of sortedAliases) {
-    if (lower.includes(alias)) return canonical;
+    if (lower.includes(alias)) return withSize(canonical, lower, alias);
   }
 
   // "продаж O2 за неделю" / "сколько O2 за июнь"
