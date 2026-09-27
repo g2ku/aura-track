@@ -1338,6 +1338,18 @@ section("Короче недели — те же дни неделей рань�
   eq(ten.prev, { from: "2026-08-31", to: "2026-09-09" }, "десять дней — с предыдущими десятью");
 }
 
+section("«По неделям» — разрез по неделям, а не тренд по месяцам");
+{
+  // 27.09.2026: «касса по неделям за сентябрь» — июнь–август по месяцам
+  const w = await parseQuestion("касса по неделям за сентябрь");
+  eq([w.operation, w.period.from, w.period.to], ["byWeek", "2026-09-01", "2026-09-30"], "«по неделям за сентябрь» — недели сентября");
+  const c = await parseQuestion("чеки по неделям на абая за август");
+  eq([c.metric, c.operation, c.period.from], ["checks", "byWeek", "2026-08-01"], "чеки по неделям за август");
+  const d = await parseQuestion("касса по неделям");
+  eq([d.operation, d.period.from, d.period.to], ["byWeek", "2026-07-27", "2026-09-20"], "без срока — восемь недель с текущей");
+  eq((await parseQuestion("касса по месяцам")).operation, "trend", "«по месяцам» — тренд, как было");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

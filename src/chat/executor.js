@@ -38,6 +38,7 @@ import { resolveSpecialCategory, resolveCategoryIntent, productNamesIn, seasonTi
 import { rankPrices, priceText, priceNotes, priceScope } from "./prices.js";
 import { headToHead } from "./compare.js";
 import { workingHour } from "./hours.js";
+import { weeklyBreakdown } from "./weeks.js";
 import { productMatches, closestNames, matchPhrase } from "./normalize.js";
 import { baselinePeriods, formatContext, averageOf } from "./context.js";
 import { fmt, describeDayList, nChecks, plural } from "../utils.js";
@@ -353,6 +354,7 @@ async function executeInner(parsed, userBranch) {
     if (operation === "forecast" && period.from <= businessToday() && period.to >= businessToday()) return await handleMonthForecast(effectiveSpot, period, ipGroup);
     if (operation === "forecast") return await handleForecast(metric, effectiveSpot, period, ipGroup);
     if (operation === "bestDays" || operation === "worstDays") return await handleTopDays(metric, effectiveSpot, period, ipGroup, operation === "worstDays", parsed.limit || 3);
+    if (operation === "byWeek") return await handleByWeek(metric, effectiveSpot, period, ipGroup);
     if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
     if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
     if (operation === "anomaly") return await handleAnomaly(metric, effectiveSpot, period, ipGroup);
@@ -2518,6 +2520,33 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   return {
     text: `${useChecks ? "Чеки" : "Касса"} ${scope} ${sl}${ipLabel} за ${pl}:\n${lines}${tail}`,
     data: { weekdayData: indexed, bestDay: best.name, worstDay: worst.name, only },
+  };
+}
+
+// ─── По неделям ─────────────────────────────────────────────────
+//
+// «Касса по неделям за сентябрь» — weeks.js, одно с ботом. Раньше «по
+// неделям» было трендом по месяцам и отвечало июнем–августом (27.09.2026)
+async function handleByWeek(metric, spot, period, ipGroup) {
+  const todayIso = businessToday();
+  const to = period.to > todayIso ? todayIso : period.to;
+  if (period.from > to) return { text: "Этот срок ещё не наступил.", data: null };
+  let rows = (await fetchCashPerDay(period.from, to)).filter((d) => matchesSpot(d, spot));
+  rows = await filterByIPGroup(rows, ipGroup);
+  const byDay = {};
+  for (const r of rows) {
+    const d = `${r.date.slice(0, 4)}-${r.date.slice(4, 6)}-${r.date.slice(6, 8)}`;
+    const x = (byDay[d] ||= { total: 0, tx: 0 });
+    x.total += r.total || 0;
+    x.tx += r.txCount || 0;
+  }
+  const r = weeklyBreakdown({ byDay, from: period.from, to: period.to, today: todayIso, metric, fmt, checks: nChecks });
+  if (!r) return { text: `Продаж ${label(spot)} за ${formatPeriodLabel(period)} не нашёл.`, data: null };
+  const what = metric === "checks" ? "Чеки" : metric === "avgCheck" ? "Средний чек" : "Касса";
+  const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
+  return {
+    text: `${what} по неделям ${label(spot)}${ipLabel} за ${formatPeriodLabel(period)}:\n${r.lines.join("\n")}${r.tail ? `\n\n${r.tail}` : ""}\n\n${r.note}`,
+    data: { weeks: r.weeks },
   };
 }
 

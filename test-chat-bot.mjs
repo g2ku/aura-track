@@ -611,6 +611,15 @@ section("Пик: тихие часы — когда сеть открыта, а 
   ok(/₸\/день/.test(week) && /Среднее за 7 дн\./.test(week), "за неделю — среднее «/день», как было");
 }
 
+section("Бот: «касса по неделям» — недели, как на сайте");
+{
+  const r = nb((await answerQuestion("касса по неделям за прошлый месяц", deps)).text);
+  ok(/<b>Касса по неделям/.test(r) && (r.match(/^• /gm) || []).length >= 4, `недели списком:\n${r}`);
+  ok(/Перемена — к неделе выше/.test(r), "с подписью, к чему перемена");
+  const t = nb((await answerQuestion("чеки по неделям за прошлый месяц", deps)).text);
+  ok(/<b>Чеки по неделям/.test(t) && /чеков · /.test(t), "чеки — первыми");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

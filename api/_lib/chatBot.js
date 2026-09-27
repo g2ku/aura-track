@@ -27,6 +27,7 @@ import { todayForecast, monthForecast } from "../../src/chat/forecast.js";
 import { rankPrices, priceText, priceNotes, priceScope } from "../../src/chat/prices.js";
 import { headToHead } from "../../src/chat/compare.js";
 import { workingHour } from "../../src/chat/hours.js";
+import { weeklyBreakdown } from "../../src/chat/weeks.js";
 import { nChecks } from "../../src/utils.js";
 import { isFoodCategoryName, isAddonCategoryName, isBeansCategoryName } from "../../src/chat/categories.js";
 
@@ -111,6 +112,21 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
   const s = sumDays(days, spots);
 
   if (!SUPPORTED.has(parsed.metric)) return null;
+
+  // «Касса по неделям за сентябрь» — как на сайте (src/chat/weeks.js)
+  if (parsed.operation === "byWeek" && ["cash", "checks", "avgCheck"].includes(parsed.metric)) {
+    const byDay = {};
+    for (const d of days || []) {
+      if (!d?.date) continue;
+      const x = sumDays([d], spots);
+      byDay[d.date] = { total: x.total, tx: x.checks };
+    }
+    const r = weeklyBreakdown({ byDay, from: parsed.period.from, to: parsed.period.to, today, metric: parsed.metric, fmt, checks: (n) => nChecks(n, int(n)) });
+    if (!r) return `Продаж ${escapeHtml(when)} не нашёл.`;
+    const what = parsed.metric === "checks" ? "Чеки" : parsed.metric === "avgCheck" ? "Средний чек" : "Касса";
+    return [`<b>${what} по неделям${escapeHtml(where)} ${escapeHtml(when)}</b>`, ...r.lines.map(escapeHtml),
+      ...(r.tail ? ["", escapeHtml(r.tail)] : []), "", `<i>${escapeHtml(r.note)}</i>`].join("\n");
+  }
 
   // «Почему просела касса» — тот же разбор, что у ассистента сайта
   // (src/chat/why.js), по ночным итогам: касса, чеки, товары, часы
