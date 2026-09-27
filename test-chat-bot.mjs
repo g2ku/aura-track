@@ -620,6 +620,15 @@ section("Бот: «касса по неделям» — недели, как н�
   ok(/<b>Чеки по неделям/.test(t) && /чеков · /.test(t), "чеки — первыми");
 }
 
+section("Бот: доля точки в кассе сети");
+{
+  const r = nb((await answerQuestion("доля абая в кассе за прошлую неделю", deps)).text);
+  ok(/Доля в кассе сети: 58,8 % \(сеть — 1 190 000 ₸\), 1-е место из 3/.test(r), `процент от сети и место:\n${r}`);
+  const c = nb((await answerQuestion("доля дубая в чеках за прошлую неделю", deps)).text);
+  ok(/Доля в чеках сети: 28,6 %/.test(c) && /2-е место из 3/.test(c), `и в чеках:\n${c}`);
+  ok(!/Доля/.test(nb((await answerQuestion("касса абая за прошлую неделю", deps)).text)), "без вопроса о доле — как было");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

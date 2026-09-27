@@ -554,6 +554,18 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
   const unit = parsed.metric === "checks" ? int : fmt;
   const lines = [`<b>${label(parsed.metric)}${escapeHtml(where)} ${escapeHtml(when)}</b>`, `<b>${unit(value)}</b>`];
   if (parsed.metric === "cash") lines.push(`Чеков — ${int(s.checks)} · средний чек — ${fmt(s.avg)}`);
+  // «Доля Атакента в кассе» — процент от сети и место, как на сайте
+  if (parsed.share && spots && ["cash", "checks"].includes(parsed.metric)) {
+    const all = sumDays(days, null);
+    const pick = (x) => (parsed.metric === "checks" ? x.tx : x.cash);
+    const netV = parsed.metric === "checks" ? all.checks : all.total;
+    if (netV > 0) {
+      const ranked = Object.entries(pick(all)).sort((a, b) => b[1] - a[1]);
+      const place = spots.size === 1 ? ranked.findIndex(([id]) => spots.has(String(id))) + 1 : 0;
+      const p = String(Math.round((value / netV) * 1000) / 10).replace(".", ",");
+      lines.push(`Доля в ${parsed.metric === "checks" ? "чеках" : "кассе"} сети: ${p} % (сеть — ${unit(netV)})${place ? `, ${place}-е место из ${ranked.length}` : ""}`);
+    }
+  }
 
   // Опора — как на сайте: тот же день недели, среднее за 4 недели
   const base = baselinePeriods(parsed.period, { today });

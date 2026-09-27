@@ -1360,6 +1360,14 @@ section("«Сравни … по чекам» — чеки, а не касса")
   eq((await parseQuestion("сравни сентябрь и август")).metric, "cash", "без метрики — касса, как было");
 }
 
+section("«Доля Атакента в кассе» — процент от сети");
+{
+  ok((await parseQuestion("доля атакента в кассе за неделю")).share, "«доля» — флаг доли");
+  ok((await parseQuestion("какую часть кассы даёт коктем")).share, "«какую часть» — тоже");
+  ok((await parseQuestion("сколько процентов кассы у рамса")).share, "«сколько процентов» — тоже");
+  ok(!(await parseQuestion("касса атакента за неделю")).share, "просто касса — без доли");
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

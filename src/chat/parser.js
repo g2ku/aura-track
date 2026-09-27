@@ -1522,6 +1522,9 @@ export async function parseQuestion(text) {
     ...(cmpSpots && metric === "compareBranches" ? { spots: cmpSpots } : {}),
     ...(products2 ? { products2 } : {}),
     ...(priceRank ? { priceRank } : {}),
+    // «Доля Атакента в кассе», «какую часть кассы даёт Рамс» — процент от
+    // сети. Раньше отвечало кассой точки без доли (27.09.2026)
+    ...(/(?:^|[^а-яё])дол[яиюеь](?![а-яё])|какую\s+часть|сколько\s+процент|процент[а-яё]*\s+от\s|%\s*от\s/.test(lower) ? { share: true } : {}),
     // «Как дела», «как торгуем» — сводка «как идём», а не касса одной цифрой
     // «Как Дубай сегодня» — то же самое: «сегодня» не делает сводку кассой
     ...(askingNow && (!explicitPeriod || (explicitPeriod.from === fmtDate(bizNow()) && explicitPeriod.to === explicitPeriod.from)) ? { status: true } : {}),

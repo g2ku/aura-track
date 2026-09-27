@@ -364,7 +364,7 @@ async function executeInner(parsed, userBranch) {
     if (metric === "math") return handleMath(parsed);
 
     switch (metric) {
-      case "cash": return await handleCash(operation, effectiveSpot, period, ipGroup);
+      case "cash": return await handleCash(operation, effectiveSpot, period, ipGroup, !!parsed.share);
       case "checks": return await handleChecks(operation, effectiveSpot, period, ipGroup, parsed.raw);
       case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
       case "products":
@@ -753,7 +753,7 @@ function handleMath(parsed) {
 
 // ─── Касса ────────────────────────────────────────────────────────
 
-async function handleCash(operation, spot, period, ipGroup) {
+async function handleCash(operation, spot, period, ipGroup, share = false) {
   // For large date ranges (year), fetch month by month to avoid hanging
   const d1 = new Date(period.from + "T00:00:00");
   const d2 = new Date(period.to + "T00:00:00");
@@ -859,12 +859,26 @@ async function handleCash(operation, spot, period, ipGroup) {
     };
   }
 
+  // Доля в кассе сети и место среди точек — от всей сети за тот же срок
+  const net = data.reduce((a, d) => a + (d.total || 0), 0);
+  const pctOf = (v) => (net ? `${(Math.round((v / net) * 1000) / 10).toString().replace(".", ",")} %` : "—");
+
   if (!isAll(spot) && filtered.length === 1) {
     const d = filtered[0];
+    const ranked = [...data].sort((a, b) => b.total - a.total);
+    const place = ranked.findIndex((x) => String(x.spotId) === String(d.spotId)) + 1;
+    const shareLine = share && net ? `\nДоля в кассе сети: ${pctOf(d.total)} (сеть — ${fmt(net)}), ${place}-е место из ${ranked.length}` : "";
     return withContext({
-      text: `Касса ${sn(d)}${ipLabel} за ${pl}:\n${fmt(d.total)}\nЧеков: ${d.txCount.toLocaleString("ru-RU")}\nСредний чек: ${fmt(d.avgCheck)}`,
-      data: d,
+      text: `Касса ${sn(d)}${ipLabel} за ${pl}:\n${fmt(d.total)}\nЧеков: ${d.txCount.toLocaleString("ru-RU")}\nСредний чек: ${fmt(d.avgCheck)}${shareLine}`,
+      data: share ? { ...d, share: net ? d.total / net : null, place } : d,
     }, d.total, period, spot, ipGroup, sumCash);
+  }
+
+  // «Доля точек в кассе» — от большей к меньшей, с процентом
+  if (share && filtered.length > 1) {
+    const sorted = [...filtered].sort((a, b) => b.total - a.total);
+    const lines = sorted.map((d) => `• ${sn(d)}: ${pctOf(d.total)} — ${fmt(d.total)}`).join("\n");
+    return { text: `Доля точек в кассе${ipLabel} за ${pl}:\n${lines}\n\nСеть — ${fmt(net)}`, data: { sorted, net } };
   }
 
   const lines = filtered.map(d => `• ${sn(d)}: ${fmt(d.total)} (${nChecks(d.txCount)})`).join("\n");
