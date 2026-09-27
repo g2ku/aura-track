@@ -1212,10 +1212,18 @@ export async function parseQuestion(text) {
   if (compPeriods) {
     const spot = parseSpot(lower);
     const hoursInCompare = parseHours(lower);
-    // «Сравни эту неделю с прошлой» — сравнение периодов, а не филиалов
-    const m = parseMetric(lower, product);
+    // «Сравни эту неделю с прошлой» — сравнение периодов, а не филиалов.
+    // Метрика — без самого «сравни»: оно перебивало «чеки» и «средний
+    // чек», и «сравни сентябрь и август по чекам» сравнивало кассу (27.09.2026)
+    let m = parseMetric(lower, product);
+    if (m === "compareBranches") {
+      // Только то, что правда метрика сравнения: «в это же время» — окно
+      // часов, а не разрез по часам
+      const named = parseMetric(lower.replace(/сравн[а-яё]*|разниц[а-яё]*|отлич[а-яё]*/g, " "), product);
+      if (["checks", "avgCheck", "products", "margin", "profit"].includes(named)) m = named;
+    }
     return {
-      metric: m === "compareBranches" ? "cash" : m,
+      metric: !m || m === "compareBranches" ? "cash" : m,
       operation: "percentChange",
       spot: spot || { branchId: "all", spotId: "all", posterName: "all" },
       period: compPeriods[0],

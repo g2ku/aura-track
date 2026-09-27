@@ -208,8 +208,10 @@ function fullDaysOnly(p1, p2) {
 }
 
 function changeEmoji(pct) {
-  if (pct > 0) return `📈 +${pct.toFixed(1)}%`;
-  if (pct < 0) return `📉 ${pct.toFixed(1)}%`;
+  // Знак — от округлённого: −0,04 % — это «0 %», а не «📉 -0.0%»
+  const r = Math.round((pct || 0) * 10) / 10;
+  if (r > 0) return `📈 +${r.toFixed(1)}%`;
+  if (r < 0) return `📉 ${r.toFixed(1)}%`;
   return `➡️ 0%`;
 }
 
@@ -696,25 +698,37 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
     for (const d of f2) spotMap2[d.spotId] = d;
 
     const allSpotIds = new Set([...Object.keys(spotMap1), ...Object.keys(spotMap2)]);
+    // По чем сравниваем: «сравни сентябрь и август по чекам» — чеки,
+    // «…средний чек…» — средний чек. Раньше всегда касса (27.09.2026)
+    const kind = metric === "checks" ? "checks" : metric === "avgCheck" ? "avgCheck" : "cash";
+    const val = (d) => (!d ? 0 : kind === "checks" ? (d.txCount || 0) : kind === "avgCheck" ? (d.txCount ? d.total / d.txCount : 0) : (d.total || 0));
+    const show = (v) => (kind === "checks" ? Math.round(v).toLocaleString("ru-RU") : fmt(Math.round(v)));
     const rows = [];
     for (const sid of allSpotIds) {
       const a = spotMap1[sid];
       const b = spotMap2[sid];
-      const c1 = a?.total || 0;
-      const c2 = b?.total || 0;
+      const c1 = val(a);
+      const c2 = val(b);
       rows.push({ name: sn(a || b || { spotId: sid, spotName: sid }), c1, c2, p: pctChange(c1, c2) });
     }
     // Сначала те, кто просел сильнее, — ради них и спрашивают
     rows.sort((x, y) => x.p - y.p);
-    const lines = rows.map((r) => `• ${r.name}: ${fmt(r.c2)} → ${fmt(r.c1)}  ${changeEmoji(r.p)}`);
+    const lines = rows.map((r) => `• ${r.name}: ${show(r.c2)} → ${show(r.c1)}  ${changeEmoji(r.p)}`);
     const down = rows.filter((r) => r.p < -0.05);
     const verdict = down.length
       ? `Просели ${down.length} из ${rows.length}: ${down.map((r) => `${r.name} ${r.p.toFixed(1).replace(".", ",")} %`).join(", ")}`
       : `Не просел никто из ${rows.length}`;
+    const what = kind === "checks" ? "чеков" : kind === "avgCheck" ? "среднего чека" : "кассы";
+    const perDay = (n, d) => (d > 0 ? Math.round(n / d) : n);
+    const totals = kind === "checks"
+      ? `Итого: ${nChecks(tx2, tx2.toLocaleString("ru-RU"))} → ${nChecks(tx1, tx1.toLocaleString("ru-RU"))}  ${changeEmoji(txPct)}\nВ день: ${perDay(tx2, days2).toLocaleString("ru-RU")} → ${perDay(tx1, days1).toLocaleString("ru-RU")}  ${changeEmoji(pctChange(perDay(tx1, days1), perDay(tx2, days2)))}`
+      : kind === "avgCheck"
+        ? `По сети: ${fmt(avgCheck2)} → ${fmt(avgCheck1)}  ${changeEmoji(avgCheckPct)}`
+        : `Итого: ${fmt(cash2)} → ${fmt(cash1)}  ${changeEmoji(cashPct)}\nСреднее/день: ${fmt(avgCash2)} → ${fmt(avgCash1)}  ${changeEmoji(avgPct)}`;
 
     return {
-      text: `Сравнение кассы филиалов${ipLabel} (было → стало):\n${withDays(pl2, days2)} → ${withDays(pl1, days1)}\n${verdict}\n\n${lines.join("\n")}\n\nИтого: ${fmt(cash2)} → ${fmt(cash1)}  ${changeEmoji(cashPct)}\nСреднее/день: ${fmt(avgCash2)} → ${fmt(avgCash1)}  ${changeEmoji(avgPct)}`,
-      data: { period1, period2, cash1, cash2, cashPct, txPct, avgPct, days1, days2 },
+      text: `Сравнение ${what} филиалов${ipLabel} (было → стало):\n${withDays(pl2, days2)} → ${withDays(pl1, days1)}\n${verdict}\n\n${lines.join("\n")}\n\n${totals}`,
+      data: { period1, period2, cash1, cash2, cashPct, txPct, avgPct, avgCheckPct, days1, days2, kind },
     };
   }
 
