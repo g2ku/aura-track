@@ -2466,17 +2466,27 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
     const shown = keys.slice(-62);
     const todayKey = businessToday().replace(/-/g, "");
     const useTx = metric === "checks";
+    const useAvgD = metric === "avgCheck";
     const rows = shown.map((k) => {
       const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
       return { key: k, dow: new Date(iso + "T00:00:00").getDay(), dm: `${iso.slice(8, 10)}.${iso.slice(5, 7)}`, ...byDate[k] };
     });
-    const lines = rows.map((r) => `• ${weekdayNames[r.dow]} ${r.dm}: ${useTx ? `${nChecks(r.tx)} (${fmt(r.total)})` : `${fmt(r.total)} (${nChecks(r.tx)})`}${r.key === todayKey ? " — день ещё идёт" : ""}`);
+    const lines = rows.map((r) => `• ${weekdayNames[r.dow]} ${r.dm}: ${useAvgD ? `ср.чек ${fmt(r.tx ? Math.round(r.total / r.tx) : 0)} (${nChecks(r.tx)})` : useTx ? `${nChecks(r.tx)} (${fmt(r.total)})` : `${fmt(r.total)} (${nChecks(r.tx)})`}${r.key === todayKey ? " — день ещё идёт" : ""}`);
     // Среднее, лучший и худший — по закончившимся дням: сегодняшний
     // неполный всегда выходил бы «худшим»
     const done = rows.filter((r) => r.key !== todayKey);
     const total = rows.reduce((n, r) => n + r.total, 0);
     const tail = [`Итого: ${fmt(total)} за ${rows.length} дн.`];
-    if (done.length > 1) {
+    if (done.length > 1 && useAvgD) {
+      const val = (r) => (r.tx ? r.total / r.tx : 0);
+      const best = done.reduce((a, b) => (val(b) > val(a) ? b : a));
+      const worst = done.reduce((a, b) => (val(b) < val(a) ? b : a));
+      const txs = done.reduce((n, r) => n + r.tx, 0);
+      tail.length = 0;
+      tail.push(`Средний чек за срок: ${fmt(txs ? Math.round(done.reduce((n, r) => n + r.total, 0) / txs) : 0)}`);
+      tail.push(`🏆 Выше всего: ${weekdayNames[best.dow]} ${best.dm} — ${fmt(Math.round(val(best)))}`);
+      tail.push(`📉 Ниже всего: ${weekdayNames[worst.dow]} ${worst.dm} — ${fmt(Math.round(val(worst)))}`);
+    } else if (done.length > 1) {
       const val = (r) => (useTx ? r.tx : r.total);
       const best = done.reduce((a, b) => (val(b) > val(a) ? b : a));
       const worst = done.reduce((a, b) => (val(b) < val(a) ? b : a));
@@ -2487,7 +2497,7 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
     }
     const cut = keys.length > shown.length ? `\n\nПоказаны последние ${shown.length} дн. из ${keys.length}.` : "";
     return {
-      text: `${useTx ? "Чеки" : "Касса"} по дням ${sl}${ipLabel} за ${pl}:\n${lines.join("\n")}\n\n${tail.join("\n")}${cut}`,
+      text: `${useAvgD ? "Средний чек" : useTx ? "Чеки" : "Касса"} по дням ${sl}${ipLabel} за ${pl}:\n${lines.join("\n")}\n\n${tail.join("\n")}${cut}`,
       data: { days: rows },
     };
   }
@@ -2512,9 +2522,13 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
   if (!indexed.length) return { text: `Продаж ${sl}${ipLabel} за ${pl} не нашёл.`, data: null };
 
   const useChecks = metric === "checks";
+  // Средний чек — касса дня недели на его чеки. Раньше «средний чек в
+  // выходные» отвечал кассой (живая проверка 27.09.2026). «В выходные»
+  // одно — это тоже сравнение с буднями: иначе не с чем сопоставить
+  const useAvg = metric === "avgCheck";
 
   // Будни против выходных — две строки вместо семи
-  if (both) {
+  if (both || (useAvg && only)) {
     const group = (isWeekend) => {
       const rows = acc.filter((d, i) => WEEKEND.has(i) === isWeekend && d.days > 0);
       const days = rows.reduce((n, d) => n + d.days, 0);
@@ -2522,31 +2536,48 @@ async function handleByWeekday(metric, spot, period, ipGroup, raw = "") {
       const tx = rows.reduce((n, d) => n + d.tx, 0);
       return { days, total, tx, avg: days ? Math.round(total / days) : 0, avgTx: days ? Math.round(tx / days) : 0 };
     };
-    const wd = group(false), we = group(true);
+    // Средний чек — по всем дням группы, а не по дням недели с фильтром
+    const groupAll = (isWeekend) => {
+      let total = 0, tx = 0, days = 0;
+      for (const [k, v] of Object.entries(byDate)) {
+        if (k.replace(/-/g, "") === todayKeyW) continue;
+        const iso = k.length === 8 ? `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}` : k;
+        if (WEEKEND.has(new Date(iso + "T00:00:00").getDay()) !== isWeekend) continue;
+        total += v.total; tx += v.tx; days++;
+      }
+      return { days, total, tx, avg: days ? Math.round(total / days) : 0, avgTx: days ? Math.round(tx / days) : 0, check: tx ? Math.round(total / tx) : 0 };
+    };
+    const wd = useAvg ? groupAll(false) : group(false), we = useAvg ? groupAll(true) : group(true);
     if (!wd.days || !we.days) return { text: `За ${pl} ${sl} нет ${wd.days ? "выходных" : "будних"} дней с продажами.`, data: null };
-    const pick = (g) => (useChecks ? g.avgTx : g.avg);
+    const pick = (g) => (useAvg ? g.check : useChecks ? g.avgTx : g.avg);
     const pct = Math.round(((pick(we) - pick(wd)) / (pick(wd) || 1)) * 1000) / 10;
-    const unit = (v) => (useChecks ? `${nChecks(v)}/день` : `${fmt(v)}/день`);
+    const unit = (v) => (useAvg ? fmt(v) : useChecks ? `${nChecks(v)}/день` : `${fmt(v)}/день`);
     const sign = pct > 0 ? `📈 выходные выше на ${String(pct).replace(".", ",")} %` : pct < 0 ? `📉 выходные ниже на ${String(Math.abs(pct)).replace(".", ",")} %` : "➡️ поровну";
+    const extra = (g) => (useAvg ? `, ${nChecks(g.avgTx)}/день` : "");
     return {
-      text: `${useChecks ? "Чеки" : "Касса"} — будни против выходных ${sl}${ipLabel} за ${pl}:\n• Будни: ${unit(pick(wd))} (${wd.days} дн.)\n• Выходные: ${unit(pick(we))} (${we.days} дн.)\n\n${sign}`,
+      text: `${useAvg ? "Средний чек" : useChecks ? "Чеки" : "Касса"} — будни против выходных ${sl}${ipLabel} за ${pl}:\n• Будни: ${unit(pick(wd))} (${wd.days} дн.${extra(wd)})\n• Выходные: ${unit(pick(we))} (${we.days} дн.${extra(we)})\n\n${sign}`,
       data: { weekdays: wd, weekend: we, pct },
     };
   }
 
-  indexed.sort((a, b) => (useChecks ? b.avgTx - a.avgTx : b.avg - a.avg));
+  const checkOf = (d) => (d.tx ? d.total / d.tx : 0);
+  indexed.sort((a, b) => (useAvg ? checkOf(b) - checkOf(a) : useChecks ? b.avgTx - a.avgTx : b.avg - a.avg));
   const lines = indexed.map((d, i) => {
     const emoji = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "•";
-    return useChecks
+    return useAvg
+      ? `${emoji} ${d.name}: ${fmt(Math.round(checkOf(d)))} (${nChecks(d.avgTx)}/день, ${d.days} дн.)`
+      : useChecks
       ? `${emoji} ${d.name}: ${nChecks(d.avgTx)}/день (${d.days} дн.)`
       : `${emoji} ${d.name}: ${fmt(d.avg)}/день (${nChecks(d.avgTx)}, ${d.days} дн.)`;
   }).join("\n");
 
   const best = indexed[0], worst = indexed[indexed.length - 1];
   const scope = only === "weekdays" ? "по будням" : only === "weekend" ? "в выходные" : "по дням недели";
-  const tail = indexed.length > 1 ? `\n\n🏆 Лучший день: ${best.name}\n📉 Худший день: ${worst.name}` : "";
+  const tail = indexed.length > 1
+    ? (useAvg ? `\n\n🏆 Выше всего: ${best.name}\n📉 Ниже всего: ${worst.name}` : `\n\n🏆 Лучший день: ${best.name}\n📉 Худший день: ${worst.name}`)
+    : "";
   return {
-    text: `${useChecks ? "Чеки" : "Касса"} ${scope} ${sl}${ipLabel} за ${pl}:\n${lines}${tail}`,
+    text: `${useAvg ? "Средний чек" : useChecks ? "Чеки" : "Касса"} ${scope} ${sl}${ipLabel} за ${pl}:\n${lines}${tail}`,
     data: { weekdayData: indexed, bestDay: best.name, worstDay: worst.name, only },
   };
 }
