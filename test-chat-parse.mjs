@@ -1419,6 +1419,25 @@ section("Прогон 28.09.2026: периоды, сокращения, срав
   eq(smallTalk("касса"), null, "обычный вопрос — не разговор");
 }
 
+section("Уточнения в диалоге: разрез, пара точек, цены, «за месяц»");
+{
+  // Прогон 28.09.2026: уточнения теряли то, о чём шёл разговор
+  const { understand } = await import("./src/chat/understand.js");
+  const chain = async (...qs) => { let ctx = null, p = null; for (const q of qs) { p = (await understand(q, { context: ctx, hasHistory: !!ctx })).parsed; ctx = p; } return p; };
+  const a = await chain("сравни абая и дубай за неделю", "а за месяц?");
+  eq([a.metric, a.spots?.length, a.period.from], ["compareBranches", 2, "2026-09-01"], "«сравни Абая и Дубай» → «а за месяц?» — те же две точки за месяц");
+  const b = await chain("касса на абае вчера", "а за месяц?");
+  eq([b.metric, b.spot?.posterName, b.period.from, b.period.to], ["cash", "Abaya", "2026-09-01", "2026-09-30"], "«касса на Абае вчера» → «а за месяц?» — Абая за месяц");
+  const c = await chain("касса по неделям за сентябрь", "а чеки?");
+  eq([c.metric, c.operation], ["checks", "byWeek"], "«касса по неделям» → «а чеки?» — чеки по неделям");
+  const d = await chain("самый дорогой напиток", "а самый дешёвый?");
+  eq(d.priceRank, "asc", "«самый дорогой напиток» → «а самый дешёвый?» — от дешёвых");
+  const e = await chain("средний чек за неделю", "а в выходные?");
+  eq([e.metric, e.operation], ["avgCheck", "byWeekday"], "«средний чек» → «а в выходные?» — средний чек по дням, а не новая метрика");
+  const f = await chain("касса вчера", "а в выходные?");
+  ok(f.operation === "byWeekday" && f.period.from < f.period.to, `«касса вчера» → «а в выходные?» — за несколько недель, а не за день (${f.period.from}..${f.period.to})`);
+}
+
 console.log("\n══════════════════════════════════════════════════");
 if (failures.length) { console.log("\nПРОВАЛЕНО:\n"); console.log(failures.join("\n")); console.log(""); }
 console.log(`✅ Пройдено: ${passed}`);

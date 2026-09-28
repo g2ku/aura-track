@@ -595,7 +595,10 @@ function parsePeriodExplicit(rawText) {
   }
 
   // "за текущий месяц"
-  if (text.includes("текущий месяц") || text.includes("этот месяц") || text.includes("этого месяца")) {
+  // И «за месяц», «в этом месяце»: без этого «а за месяц?» после «касса
+  // на Абае вчера» не считалось уточнением и теряло точку (28.09.2026)
+  if (text.includes("текущий месяц") || text.includes("этот месяц") || text.includes("этого месяца")
+    || /(?:^|\s)(?:за|в)\s+(?:этом\s+|текущем\s+)?месяц[а-яё]*(?![а-яё])/.test(text)) {
     return currentMonthPeriod(now);
   }
 
@@ -1643,12 +1646,19 @@ export async function mergeFollowUp(prev, text) {
 
   if (spot) { next.spot = spot; changed.push("spot"); }
   if (period) { next.period = period; changed.push("period"); }
-  if (metric) {
+  // «А в выходные?», «а утром?» после кассы или среднего чека — это разрез
+  // той же метрики, а не новая метрика «день недели» (28.09.2026)
+  const shapeWord = ["weekday", "hourly"].includes(metric) && ["cash", "checks", "avgCheck"].includes(prev.metric);
+  if (metric && !shapeWord) {
     next.metric = metric;
-    // Сменилась тема — операция прошлой («прогноз», «почему») ей чужая
-    if (metric !== prev.metric && !opWord) next.operation = parseOperation(lower);
+    // Сменилась тема — операция прошлой («прогноз», «почему») ей чужая.
+    // Но разрез («по неделям», «по дням недели», «по часам») остаётся:
+    // «касса по неделям» → «а чеки?» — чеки по неделям
+    const SHAPES = ["byWeek", "byWeekday", "byHour", "trend"];
+    const keepShape = SHAPES.includes(prev.operation) && ["cash", "checks", "avgCheck"].includes(metric);
+    if (metric !== prev.metric && !opWord && !keepShape) next.operation = parseOperation(lower);
     changed.push("metric");
-  }
+  } else if (shapeWord) changed.push("metric");
   if (category) { next.category = category; next.product = null; next.metric = "products"; changed.push("category"); }
   else if (product) { next.product = product; next.category = null; next.metric = "products"; changed.push("product"); }
   if (ipGroup) { next.ipGroup = ipGroup; changed.push("ipGroup"); }
@@ -1660,6 +1670,8 @@ export async function mergeFollowUp(prev, text) {
     changed.push("byBranch");
   }
   if (opWord) { next.operation = parseOperation(lower); changed.push("operation"); }
+  // «Самый дорогой напиток» → «а самый дешёвый?» — цены от дешёвых
+  if (prev.priceRank && /дешев|дешёв|дорог/.test(lower)) next.priceRank = /дешев|дешёв/.test(lower) ? "asc" : "desc";
   // «А после 18?», «а до обеда?» — новое окно по часам к тому же вопросу
   const hours = parseHours(lower);
   if (hours) { next.hours = hours; changed.push("hours"); }
@@ -1673,6 +1685,14 @@ export async function mergeFollowUp(prev, text) {
       next.product = rest.join(" "); next.category = null; next.metric = "products";
       changed.push("product");
     }
+  }
+
+  // «Касса вчера» → «а в выходные?»: разрез по дням недели за один день
+  // не имеет смысла — как у вопроса без срока, четыре полные недели
+  if (next.operation === "byWeekday" && !period && next.period?.from === next.period?.to) {
+    const y = bizNow(); y.setDate(y.getDate() - 1);
+    const f = new Date(y); f.setDate(f.getDate() - 27);
+    next.period = { from: fmtDate(f), to: fmtDate(y) };
   }
 
   // Реплика ничего не назвала — это не продолжение, а что-то другое
