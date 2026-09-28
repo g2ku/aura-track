@@ -331,7 +331,8 @@ export function answerFrom(parsed, days, { today, baseDays = {}, margin = null, 
         if (spots && !spots.has(String(spot))) continue;
         for (let h = 0; h < 24; h++) {
           cash[h] += hs.cash?.[h] || 0; tx[h] += hs.tx?.[h] || 0;
-          if (hs.tx?.[h] > 0) { hourSpots[h].add(String(spot)); allSpots.add(String(spot)); }
+          // «День|точка»: рабочим час делают дни, когда в нём продавали
+          if (hs.tx?.[h] > 0) { hourSpots[h].add(`${d.date}|${spot}`); allSpots.add(`${d.date}|${spot}`); }
         }
       }
       for (const [spot, v] of Object.entries(d.cashBySpot || {})) {

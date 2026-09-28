@@ -5,6 +5,7 @@ import { reloadForNewBuild } from "../staleBuild.js";
 import { understand } from "../chat/understand.js";
 import { executeQuery } from "../chat/executor.js";
 import { smartParse, shareToTelegram } from "../chat/smart.js";
+import { smallTalk } from "../chat/smallTalk.js";
 import { alternatives, understoodLine, periodPhrase } from "../chat/clarify.js";
 import { remember, recallEntry, shareLearned, syncShared, forgetShared, LINK_WINDOW_MS } from "../chat/memory.js";
 import { addPin, isPinned, ASK_KEY } from "../chat/pins.js";
@@ -423,6 +424,15 @@ export default function DataChat() {
           ? `Забыл: «${forgetCmd[1]}» больше не подставляется — ни у вас, ни у остальных.`
           : `У вас забыл, но общую память править может только админ.`,
       }]);
+      setLoading(false);
+      return;
+    }
+    // «Привет», «спасибо», «что ты умеешь» — не вопрос о цифрах: ответить
+    // по-человечески, а не «Не распознал вопрос» (smallTalk.js)
+    const talk = smallTalk(q);
+    if (talk) {
+      if (talk.kind === "help" || talk.kind === "hello") setSuggestions(initialExamples.slice(0, 8));
+      setMessages(prev => [...prev, { id: Date.now() + 1, role: "assistant", text: talk.text }]);
       setLoading(false);
       return;
     }

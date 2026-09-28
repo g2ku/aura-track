@@ -390,7 +390,7 @@ function parsePeriodExplicit(rawText) {
   // без этого период съезжал на неделю
   // «Лучший день недели» — тоже разрез, не срок
   // «По неделям» — тоже разрез: «касса по неделям за сентябрь» — сентябрь
-  const text = String(rawText).replace(/(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ").replace(/по\s+недел[а-яё]*|понедельно|каждую\s+неделю|неделя\s+к\s+неделе/g, " ");
+  const text = String(rawText).replace(/(?<![а-яё])(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ").replace(/по\s+недел[а-яё]*|понедельно|каждую\s+неделю|неделя\s+к\s+неделе/g, " ");
   const now = bizNow();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -477,6 +477,25 @@ function parsePeriodExplicit(rawText) {
   // им не зацепить. Из-за этого «за последние 14 дней» проваливалось до
   // проверки месяцев и превращалось в весь август. Тот же капкан уже был
   // в разборе зарплатных листов.
+  // «Первая неделя сентября», «вторую неделю августа», «последняя неделя
+  // месяца» — дни 1–7, 8–14… месяца. Раньше — последние семь дней
+  const nthWeek = text.match(/(перв|втор|трет|четв[её]рт|пят|последн)[а-яё]*\s+недел[а-яё]*(?:\s+(январ|феврал|март|апрел|ма[йея]|июн|июл|август|сентябр|октябр|ноябр|декабр)[а-яё]*|\s+(?:этого|текущего|прошлого)\s+месяц[а-яё]*|\s+месяц[а-яё]*)?/);
+  if (nthWeek && (nthWeek[2] || /месяц/.test(nthWeek[0]))) {
+    let y = currentYear, m = currentMonth;
+    if (nthWeek[2]) {
+      m = MONTH_NAMES[Object.keys(MONTH_NAMES).find((k) => nthWeek[2].startsWith(k) || k.startsWith(nthWeek[2]))] || currentMonth;
+      if (m > currentMonth) y -= 1;
+    } else if (/прошлого\s+месяц/.test(nthWeek[0])) { m -= 1; if (m === 0) { m = 12; y -= 1; } }
+    const last = new Date(y, m, 0).getDate();
+    const n = { перв: 1, втор: 2, трет: 3, четв: 4, "четвёрт": 4, четверт: 4, пят: 5 }[nthWeek[1]] || (/^четв/.test(nthWeek[1]) ? 4 : null);
+    const startDay = nthWeek[1] === "последн" ? last - 6 : ((n || 1) - 1) * 7 + 1;
+    if (startDay <= last) {
+      const endDay = Math.min(startDay + 6, last);
+      const mm = String(m).padStart(2, "0");
+      return { from: `${y}-${mm}-${String(startDay).padStart(2, "0")}`, to: `${y}-${mm}-${String(endDay).padStart(2, "0")}` };
+    }
+  }
+
   const weeksMatch = text.match(/за\s+(?:последн[а-яё]+\s+)?(\d+)\s*недел/);
   if (weeksMatch) {
     const n = parseInt(weeksMatch[1]) * 7;
@@ -651,15 +670,24 @@ function parsePeriodExplicit(rawText) {
     return { from: fmtDate(start), to: fmtDate(now) };
   }
 
-  // "за квартал"
+  // «За квартал» — текущий; «за прошлый квартал» — предыдущий (раньше тоже
+  // текущий); «за 2 квартал», «за второй квартал» — названный этого года
   if (text.includes("квартал")) {
-    const quarter = Math.ceil(currentMonth / 3);
+    let year = currentYear;
+    let quarter = Math.ceil(currentMonth / 3);
+    const WORDS = { перв: 1, втор: 2, трет: 3, четв: 4 };
+    const named = text.match(/(?:^|\s)([1-4])(?:-?(?:й|м|го|ый|ой))?\s+квартал/) || text.match(/(перв|втор|трет|четв)[а-яё]*\s+квартал/);
+    if (named) quarter = Number(named[1]) || WORDS[named[1]];
+    else if (new RegExp(`${PREV_ADJ}\\s+квартал|предыдущ[а-яё]*\\s+квартал`).test(text)) {
+      quarter -= 1;
+      if (quarter === 0) { quarter = 4; year -= 1; }
+    }
     const qStart = (quarter - 1) * 3 + 1;
     const qEnd = qStart + 2;
-    const lastDay = new Date(currentYear, qEnd, 0).getDate();
+    const lastDay = new Date(year, qEnd, 0).getDate();
     return {
-      from: `${currentYear}-${String(qStart).padStart(2, "0")}-01`,
-      to: `${currentYear}-${String(qEnd).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+      from: `${year}-${String(qStart).padStart(2, "0")}-01`,
+      to: `${year}-${String(qEnd).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
     };
   }
 
@@ -1093,6 +1121,15 @@ function parseOperation(text) {
 
 // ─── Парсинг товара ───────────────────────────────────────────────
 
+// Сокращение — с начала слова и не перед цифрой: «о 2» находилось в «по
+// 20 сентября», и «продажи с 10 по 20 сентября» считали один O2 (прогон
+// 28.09.2026); «чай» — в «случайно»
+const ALIAS_RE = {};
+function aliasIn(text, alias) {
+  const re = (ALIAS_RE[alias] ||= new RegExp(`(?:^|[^а-яёa-z0-9])${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${/\d$/.test(alias) ? "(?![\\d])" : ""}`));
+  return re.test(text);
+}
+
 // Объём после названия — часть товара: «капучино 450» — это «Капучино
 // 450 мл», а не все капучино (живая проверка 27.09.2026: 2 510 шт. всех
 // вместо 1 285 шт. на 450). «0,5» и «0.5» в названиях Poster — оба
@@ -1108,7 +1145,7 @@ function parseProduct(text) {
   // Check product aliases first — sort by length descending so longer matches win
   const sortedAliases = Object.entries(PRODUCT_ALIASES).sort((a, b) => b[0].length - a[0].length);
   for (const [alias, canonical] of sortedAliases) {
-    if (lower.includes(alias)) return withSize(canonical, lower, alias);
+    if (aliasIn(lower, alias)) return withSize(canonical, lower, alias);
   }
 
   // "продаж O2 за неделю" / "сколько O2 за июнь"
@@ -1131,13 +1168,15 @@ function parseProduct(text) {
       if (!words.length) continue;
       const word = words.join(" ");
       // «Напиток в сентябре» — «сентябре» не товар, а месяц
-      if (words.every((w) => STOP_WORDS.has(w) || findMonth(w) || /^(?:вчера|сегодня|позавчера|недел|месяц|год|квартал|выходн|будн)/.test(w))) continue;
+      if (words.every((w) => STOP_WORDS.has(w) || findMonth(w) || /^\d+$/.test(w) || /^(?:вчера|сегодня|позавчера|недел|месяц|год|квартал|выходн|будн)/.test(w))) continue;
       // Check aliases again for the extracted word
       for (const [alias, canonical] of Object.entries(PRODUCT_ALIASES)) {
-        if (word === alias || word.includes(alias)) return canonical;
+        if (word === alias || aliasIn(word, alias)) return canonical;
       }
       // Skip short or generic words
       if (word.length < 2) continue;
+      // Число — не товар: «продажи с 10 по 20 сентября» — это даты
+      if (/^[\d\s.,:-]+$/.test(word)) continue;
       // Опечатка в ключевом слове или название филиала — не товар
       if (words.every((w) => looksLikeKeyword(w) || isSpotWord(w))) continue;
       return word;
@@ -1180,7 +1219,8 @@ export async function parseQuestion(text) {
 
   // Математика: "сколько будет 2+2*3" / "посчитай 45 / 5" / "420 + 30"
   const mathLead = lower.match(/(?:сколько\s+будет|посчита[йть]*|вычисли|счита[йть]*|реши)\s+([\d\s+\-*/x.,()]+)/);
-  const mathPure = /^[\d\s+\-*/x.,()]{3,}$/.test(text.trim());
+  // Нужен знак действия: «1234» — не пример, а просто число
+  const mathPure = /^[\d\s+\-*/x.,()]{3,}$/.test(text.trim()) && /\d\s*[+\-*/x]\s*\d/.test(text.trim());
   if (mathLead || mathPure) {
     const expr = (mathLead ? mathLead[1] : text).trim();
     return {
@@ -1325,7 +1365,7 @@ export async function parseQuestion(text) {
   const period = explicitPeriod || (askingNow ? { from: fmtDate(bizNow()), to: fmtDate(bizNow()) } : currentMonthPeriod());
   // «Лучший день недели», «по дням недели» без срока — четыре полные
   // недели: за текущую неделю каждого дня по одному, сравнивать нечего
-  const periodWords = lower.replace(/(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ");
+  const periodWords = lower.replace(/(?<![а-яё])(?:дн[а-яё]*|день)\s+недел[а-яё]*/g, " ");
   // «Касса по неделям» без срока — восемь недель, с текущей
   if (!explicitPeriod && operation === "byWeek") {
     const n = bizNow();
@@ -1344,7 +1384,7 @@ export async function parseQuestion(text) {
   const dayWord = /(?:^|[^а-яё])(?:день|дни|дня|дней|дате|дату|даты)(?![а-яё])/;
   const rank = /(?:топ|лучш|худш|сильн|слаб|прибыльн|рекордн|удачн|неудачн|провальн|кассов|плох)[а-яё]*|сам[а-яё]+\s+(?:больш|маленьк|высок|низк)[а-яё]*|(?:больше|меньше)\s+всего/;
   // Рейтинг точек, товаров, людей или часов «за день» — не про даты
-  if (dayWord.test(lower) && rank.test(lower) && !/(?:дн[а-яё]*|день)\s+недел|по\s+дням|будн|выходн|точ(?:к|ек)|филиал|товар|позици|бариста|врем|час|(?:^|\s)кто\s/.test(lower) && !product && !category
+  if (dayWord.test(lower) && rank.test(lower) && !/(?<![а-яё])(?:дн[а-яё]*|день)\s+недел|по\s+дням|будн|выходн|точ(?:к|ек)|филиал|товар|позици|бариста|врем|час|(?:^|\s)кто\s/.test(lower) && !product && !category
     && ["cash", "checks", "avgCheck", "weekday"].includes(metric)) {
     operation = /худш|слаб|неудачн|провальн|плох|маленьк|низк|меньше\s+всего/.test(lower) ? "worstDays" : "bestDays";
     if (!["checks", "avgCheck"].includes(metric)) metric = "cash";
@@ -1357,7 +1397,9 @@ export async function parseQuestion(text) {
   }
   // «Что было в этот день год назад», «как прошлый вторник» — назван
   // конкретный день, а не разрез: слова «день»/«час» здесь не метрика
-  if (["weekday", "hourly"].includes(metric) && explicitPeriod && period.from === period.to) metric = "cash";
+  // Но «какой час самый слабый вчера» — про часы: слово «час» названо прямо
+  const aboutHours = metric === "hourly" && /(?:^|[^а-яё])(?:час(?:ы|ов|а)?|время)(?![а-яё])/.test(lower);
+  if (["weekday", "hourly"].includes(metric) && explicitPeriod && period.from === period.to && !aboutHours) metric = "cash";
   // «Сколько в среднем в день делает Рамс», «сколько в день зарабатываем» —
   // средняя касса за день: «день» здесь мера, а не день недели. Отвечало
   // разбивкой по дням недели (живая проверка 27.09.2026)
@@ -1461,11 +1503,14 @@ export async function parseQuestion(text) {
   // «Как вчера по сравнению с прошлой пятницей», «касса 24-го против
   // прошлого четверга» — день против того же дня недели раньше. Раньше
   // слово «сравнение» уводило в сравнение точек (26.09.2026)
-  const vsWd = lower.match(/(?:сравнени[а-яё]*\s+с|против|чем|(?:^|\s)к)\s+прошл[а-яё]*\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)/);
+  // И «сравни вчера с прошлой пятницей», «…по сравнению с позапрошлой
+  // пятницей» — раньше это был рейтинг точек за вчера (прогон 28.09.2026)
+  const vsWd = lower.match(/(?:сравн[а-яё]*(?:\s+[а-яё0-9]+){0,5}?\s+(?:с|со)|против|чем|(?:^|\s)к)\s+(поза)?прошл[а-яё]*\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)/);
   if (vsWd && period.from === period.to && period.to < fmtDate(bizNow())) {
-    const idx = { "воскресень": 0, "понедельник": 1, "вторник": 2, "сред": 3, "четверг": 4, "пятниц": 5, "суббот": 6 }[vsWd[1]];
+    const idx = { "воскресень": 0, "понедельник": 1, "вторник": 2, "сред": 3, "четверг": 4, "пятниц": 5, "суббот": 6 }[vsWd[2]];
     const d = new Date(period.from + "T00:00:00");
     do { d.setDate(d.getDate() - 1); } while (d.getDay() !== idx);
+    if (vsWd[1]) d.setDate(d.getDate() - 7);
     period2 = { from: fmtDate(d), to: fmtDate(d), label: "прошлый такой день" };
     operation = "percentChange";
     if (!metric || metric === "compareBranches") metric = "cash";
@@ -1481,6 +1526,15 @@ export async function parseQuestion(text) {
       period2 = weekEarlier(period);
       if (metric === "compareBranches") metric = "cash";
     }
+  }
+
+  // Срок целиком впереди — «сколько сделаем в октябре», «касса в
+  // октябре» 28 сентября: это прогноз, а не «0 ₸» (прогон 28.09.2026)
+  // Прогноз строится на следующий месяц — только его и отдаём прогнозу
+  const nextMonth = (() => { const n = bizNow(); const d = new Date(n.getFullYear(), n.getMonth() + 1, 1); return fmtDate(d).slice(0, 7); })();
+  if (["cash", "checks"].includes(metric) && period.from > fmtDate(bizNow()) && period.from.slice(0, 7) === nextMonth && !["forecast", "percentChange"].includes(operation) && !period2) {
+    operation = "forecast";
+    metric = "cash";
   }
 
   // Окно по часам: «до обеда», «после 18:00», «с 8 до 11», «утром»

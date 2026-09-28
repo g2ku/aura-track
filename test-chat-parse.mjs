@@ -9,6 +9,7 @@
 // Запуск: node test-chat-parse.mjs
 
 import { parseQuestion } from "./src/chat/parser.js";
+import { smallTalk } from "./src/chat/smallTalk.js";
 import { seasonFor, parseCategoryIntent, resolveSpecialCategory, productNamesIn, monthInAlmaty, findCategory, resolveFoodCategories, resolveCategoryIntent } from "./src/chat/categories.js";
 import { QuerySchema, toExecutorQuery, historyLine, SYSTEM_PROMPT, todayLine } from "./api/_lib/chatSchema.js";
 import { smartParse } from "./src/chat/smart.js";
@@ -1377,6 +1378,45 @@ section("Объём после названия — часть товара: «�
   eq((await parseQuestion("раф 0,5 за месяц")).product, "раф 0,5", "«0,5» — тоже объём");
   eq((await parseQuestion("капучино за неделю")).product, "капучино", "без объёма — все, как было");
   eq((await parseQuestion("топ 3 самых дорогих рафа")).product, "раф", "число перед названием — не объём");
+}
+
+section("Прогон 28.09.2026: периоды, сокращения, сравнения, разговор");
+{
+  const per = async (q) => { const p = await parseQuestion(q); return p ? [p.period.from, p.period.to] : null; };
+  // «о 2» в «по 20» — не товар O2
+  const sales = await parseQuestion("продажи с 10 по 20 сентября");
+  ok(sales.product !== "o2" && !sales.product, `«продажи с 10 по 20 сентября» — без товара (${sales.product})`);
+  eq((await parseQuestion("о2 вчера")).product, "o2", "«о2» — O2, как было");
+  eq((await parseQuestion("продажи o2 за неделю")).product, "o2", "«o2» латиницей — тоже");
+  ok(!(await parseQuestion("продажи за 15 сентября")).product, "«продажи за 15 сентября» — число с месяцем не товар");
+  // Кварталы
+  eq(await per("касса за квартал"), ["2026-07-01", "2026-09-30"], "квартал — текущий");
+  eq(await per("касса за прошлый квартал"), ["2026-04-01", "2026-06-30"], "прошлый квартал — предыдущий (было — текущий)");
+  eq(await per("касса за 2 квартал"), ["2026-04-01", "2026-06-30"], "«2 квартал» — второй");
+  eq(await per("касса за первый квартал"), ["2026-01-01", "2026-03-31"], "«первый квартал»");
+  // N-я неделя месяца
+  eq(await per("касса за первую неделю сентября"), ["2026-09-01", "2026-09-07"], "первая неделя сентября — 1–7 (было — последние 7 дней)");
+  eq(await per("касса за вторую неделю августа"), ["2026-08-08", "2026-08-14"], "вторая неделя августа — 8–14");
+  eq(await per("последняя неделя августа"), ["2026-08-25", "2026-08-31"], "последняя неделя августа — 25–31 (было — весь август)");
+  eq(await per("касса за последнюю неделю"), await per("касса за неделю"), "«за последнюю неделю» — как было");
+  // Сравнение с днём недели
+  const vs = await parseQuestion("сравни вчера с прошлой пятницей");
+  eq([vs.operation, vs.period.from, vs.period2?.from], ["percentChange", "2026-09-19", "2026-09-18"], "«сравни вчера с прошлой пятницей» — вчера против пятницы");
+  const vs2 = await parseQuestion("сколько мы вчера заработали на абая по сравнению с позапрошлой пятницей");
+  eq([vs2.operation, vs2.period2?.from], ["percentChange", "2026-09-11"], "«позапрошлой пятницей» — на неделю раньше");
+  // Арифметика — только со знаком действия
+  eq(await parseQuestion("1234"), null, "«1234» — не пример");
+  eq((await parseQuestion("1500*30")).metric, "math", "«1500*30» — пример");
+  // Будущий месяц — прогноз
+  const oct = await parseQuestion("сколько сделаем в октябре");
+  eq([oct.metric, oct.operation], ["cash", "forecast"], "«сколько сделаем в октябре» — прогноз, а не 0 ₸");
+  // Разговор
+  eq(smallTalk("что ты умеешь?")?.kind, "help", "«что ты умеешь» — справка, а не товар «ты умеешь»");
+  eq(smallTalk("Помощь")?.kind, "help", "«помощь» — справка");
+  eq(smallTalk("привет!")?.kind, "hello", "«привет» — приветствие");
+  eq(smallTalk("спасибо большое")?.kind, "thanks", "«спасибо» — пожалуйста");
+  eq(smallTalk("привет, касса вчера"), null, "с вопросом внутри — это вопрос");
+  eq(smallTalk("касса"), null, "обычный вопрос — не разговор");
 }
 
 console.log("\n══════════════════════════════════════════════════");

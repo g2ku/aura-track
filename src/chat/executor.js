@@ -171,8 +171,17 @@ function formatPeriodLabel(period) {
     return `${f} — ${t} (${diffDays} дн.)`;
   }
   // Full month
-  if (from.getDate() === 1 && to.getDate() === new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate()) {
+  const fullMonths = from.getDate() === 1 && to.getDate() === new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate();
+  if (fullMonths && from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear()) {
     return from.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+  }
+  // Несколько целых месяцев — «июль — сентябрь 2026 г.». Раньше квартал
+  // подписывался первым месяцем: «за июль», а сумма — за три (28.09.2026)
+  if (fullMonths) {
+    const f = from.getFullYear() === to.getFullYear()
+      ? from.toLocaleDateString("ru-RU", { month: "long" })
+      : from.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+    return `${f} — ${to.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}`;
   }
   // Other ranges
   const f = from.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
@@ -358,7 +367,7 @@ async function executeInner(parsed, userBranch) {
     if (operation === "bestDays" || operation === "worstDays") return await handleTopDays(metric, effectiveSpot, period, ipGroup, operation === "worstDays", parsed.limit || 3);
     if (operation === "byWeek") return await handleByWeek(metric, effectiveSpot, period, ipGroup);
     if (operation === "byWeekday") return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
-    if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
+    if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup, operation);
     if (operation === "anomaly") return await handleAnomaly(metric, effectiveSpot, period, ipGroup);
     if (metric === "compareBranches") return await handleCompareBranches(operation, effectiveSpot, period, ipGroup, parsed.spots);
     if (metric === "math") return handleMath(parsed);
@@ -378,7 +387,7 @@ async function executeInner(parsed, userBranch) {
       case "margin":
       case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup, product);
       case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup, parsed.raw);
-      case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup);
+      case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup, operation);
 
       case "stock": return await handleStock(effectiveSpot, period, product, parsed.raw);
       default: return await handleCash(operation, effectiveSpot, period, ipGroup);
@@ -754,6 +763,10 @@ function handleMath(parsed) {
 // ─── Касса ────────────────────────────────────────────────────────
 
 async function handleCash(operation, spot, period, ipGroup, share = false) {
+  // Срок ещё не начался — «касса в ноябре» в сентябре. Не «0 ₸», а прямо
+  if (period?.from > businessToday()) {
+    return { text: `За ${formatPeriodLabel(period)} продаж ещё нет — срок не наступил. Прогноз есть на этот и следующий месяц: «прогноз на конец месяца», «сколько сделаем в следующем месяце».`, data: null };
+  }
   // For large date ranges (year), fetch month by month to avoid hanging
   const d1 = new Date(period.from + "T00:00:00");
   const d2 = new Date(period.to + "T00:00:00");
@@ -781,7 +794,7 @@ async function handleCash(operation, spot, period, ipGroup, share = false) {
       ...d,
       avgCheck: d.txCount > 0 ? Math.round(d.total / d.txCount) : 0,
       daysCount: totalDays,
-    }));
+    })).sort((a, b) => b.total - a.total);
   } else {
     data = await fetchCashBySpot(period.from, period.to);
   }
@@ -2611,14 +2624,15 @@ async function handleByWeek(metric, spot, period, ipGroup) {
 
 // ─── По часам ───────────────────────────────────────────────────
 
-async function handleByHour(metric, spot, period, ipGroup) {
+async function handleByHour(metric, spot, period, ipGroup, operation = "byHour") {
   const pl = formatPeriodLabel(period);
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
   const hourTotals = Array(24).fill(0);
   const hourCounts = Array(24).fill(0);
-  // Какие точки продавали в каждый час — для «тихих часов» (hours.js)
+  // Какие точки в какие дни продавали в каждый час — для «тихих часов»
+  // (hours.js): пары «день|точка»
   const hourSpots = Array.from({ length: 24 }, () => new Set());
   const allSpots = new Set();
   const groupBranches = ipGroup ? await resolveIPGroupBranches(ipGroup) : null;
@@ -2633,7 +2647,9 @@ async function handleByHour(metric, spot, period, ipGroup) {
       if (!spotOk(spotId)) continue;
       for (let h = 0; h < 24; h++) {
         hourTotals[h] += hs.cash?.[h] || 0; hourCounts[h] += hs.tx?.[h] || 0;
-        if (hs.tx?.[h] > 0) { hourSpots[h].add(String(spotId)); allSpots.add(String(spotId)); }
+        // Пара «день|точка»: за месяц у восьми точек найдётся по чеку и
+        // в полночь — рабочим час делают дни, когда в нём продавали
+        if (hs.tx?.[h] > 0) { hourSpots[h].add(`${d.date}|${spotId}`); allSpots.add(`${d.date}|${spotId}`); }
       }
     }
   }
@@ -2653,7 +2669,7 @@ async function handleByHour(metric, spot, period, ipGroup) {
       const hour = Number(m[1]);
       hourTotals[hour] += Number(r.sum) || 0;
       hourCounts[hour]++;
-      if (r.spotId) { hourSpots[hour].add(String(r.spotId)); allSpots.add(String(r.spotId)); }
+      if (r.spotId) { hourSpots[hour].add(`${day}|${r.spotId}`); allSpots.add(`${day}|${r.spotId}`); }
     }
   }
 
@@ -2684,6 +2700,15 @@ async function handleByHour(metric, spot, period, ipGroup) {
   const quietHours = working.length ? working.slice(-3).reverse() : [];
   const quietLines = quietHours.map(h => `• ${h.label}: ${fmt(h.total)} (${nChecks(h.count)})`).join("\n");
 
+  // «Какой час самый слабый» — сначала ответ: раньше шли пики, а слабый
+  // час терялся внизу (прогон 28.09.2026)
+  if (operation === "min" && quietHours.length) {
+    const q = quietHours[0];
+    return {
+      text: `Слабее всего ${sl}${ipLabel} за ${pl} — ${q.label}: ${fmt(q.total)} (${nChecks(q.count)}), среди часов, когда ${isAll(spot) ? "открыта большая часть точек" : "точка обычно работает"}.\n\n💤 Тихие часы:\n${quietLines}\n\n🔥 Для сравнения, пик — ${peakHours[0].label}: ${fmt(peakHours[0].total)}.`,
+      data: { peakHours, quietHours, hourData: indexed },
+    };
+  }
   return {
     text: `Пиковые часы ${sl}${ipLabel} за ${pl}:\n\n🔥 Топ-3 часа:\n${lines}${quietLines ? `\n\n💤 Тихие часы (когда точки работали):\n${quietLines}` : ""}`,
     data: { peakHours, quietHours, hourData: indexed },
