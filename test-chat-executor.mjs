@@ -77,6 +77,16 @@ globalThis.__poster = {
     const r = salesFor(from, to);
     return Object.keys(SPOTS).map((sid) => ({ spotId: sid, spotName: SPOTS[sid], total: r.cashBySpot[sid], txCount: r.txBySpot[sid], daysCount: r.daysCount, avgPerDay: Math.round(r.cashBySpot[sid] / (r.daysCount || 1)), avgCheck: Math.round(r.cashBySpot[sid] / (r.txBySpot[sid] || 1)) })).sort((a, b) => b.total - a.total);
   },
+  // Сводка /api/supply-status: как её сворачивает api/_lib/supplyStatus.js
+  async fetchSupplyStatus() {
+    if (this.suppliesDown) return {};
+    const e = (spotId, spotName, branch, days, date, last, week, month) => ({ spotId, spotName, branch, daysSinceLastSupply: days, lastSupplyDate: date, lastSupplySum: last, totalSupplies: month.count, week, month });
+    return {
+      "4": e("4", "Aura02_Abaya", "Абая", 0, "20.09.2026", 150000, { count: 3, sum: 400000 }, { count: 12, sum: 1500000 }),
+      "9": e("9", "Aura02_Dubai", "Дубай", 5, "15.09.2026", 90000, { count: 0, sum: 0 }, { count: 4, sum: 380000 }),
+      "1": e("1", "Aura02_Gagarina", "Гагарина", 1, "19.09.2026", 70000, { count: 2, sum: 120000 }, { count: 9, sum: 900000 }),
+    };
+  },
   async fetchCashPerDay(from, to) {
     this.calls.push(["perDay", from, to]);
     const out = [];
@@ -206,6 +216,7 @@ writeFileSync(posterStub, `
   export const fetchPaymentBreakdown = (...a) => P.fetchPaymentBreakdown(...a);
   export const getPaymentMethodName = (...a) => P.getPaymentMethodName(...a);
   export const fetchCups = (...a) => P.fetchCups(...a);
+  export const fetchSupplyStatus = (...a) => P.fetchSupplyStatus(...a);
   export const fetchHoursByDay = (...a) => P.fetchHoursByDay(...a);
   export const fetchPosterSalesMultiple = async () => [];
   export const getMenuIndex = async () => ({});
@@ -864,6 +875,27 @@ section("Сбой — понятными словами, месяцы — пар
   ].map(([e, k]) => [errorKind(e), k]);
   ok(kinds.every((x) => x[0] === x[1]), `виды сбоев различаются верно: ${kinds.map((x) => x.join("/")).join(", ")}`);
   ok(errorKind(new Error("что-то"), { online: false }) === "offline", "браузер сам говорит «офлайн» — значит сеть");
+}
+
+section("Поставки: когда заводили и сколько — а не товар «накладные»");
+{
+  const net = plain(await ask("накладные за неделю"));
+  ok(/^Давно без поставок: Дубай \(5 дн\.\)/.test(net), `сверху — куда давно не заводили: ${net.split("\n")[0]}`);
+  has(net, "⚠️ Дубай: 5 дней назад (15.09) · за 7 дней: 0", "строка Дубая с предупреждением");
+  has(net, "• Абая: сегодня", "Абая — сегодня");
+  has(net, "За 7 дней по сети: 5 поставок на 520 000 ₸", "итог за неделю");
+  const one = plain(await ask("когда была последняя поставка на гагарина"));
+  ok(/^Гагарина: последняя поставка вчера \(19\.09\.2026\) на 70 000 ₸/.test(one), `по точке — дата и сумма: ${one.split("\n")[0]}`);
+  has(one, "За 30 дней: 9 поставок на 900 000 ₸", "срок по умолчанию — честно «за 30 дней»");
+  ok(!/⚠️/.test(one), "вчерашняя поставка — не тревога");
+  const d = plain(await ask("когда была поставка на дубае"));
+  has(d, "⚠️ 5 дней без поставок", "пять дней — тревога и её смысл");
+  const debt = plain(await ask("долги поставщикам"));
+  ok(/пока не считает/.test(debt) && !/Давно без поставок/.test(debt), "долги — честно «пока не считаю», а не список поставок");
+  globalThis.__poster.suppliesDown = true;
+  const down = plain(await ask("накладные за неделю"));
+  has(down, "Poster не отдал поставки", "Poster молчит — так и сказано");
+  globalThis.__poster.suppliesDown = false;
 }
 
 section("Бариста: имена из сводки сервера, а не из чеков без имён");

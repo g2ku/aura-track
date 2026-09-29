@@ -46,6 +46,9 @@ export function supplyStatusBySpot(rows, now = Date.now()) {
       daysSinceLastSupply: null,
       totalSupplies: 0,
       lastSupplySum: null,
+      // Для ассистента: «накладные за неделю», «сколько завезли за месяц»
+      week: { count: 0, sum: 0 },
+      month: { count: 0, sum: 0 },
     };
   }
 
@@ -59,6 +62,12 @@ export function supplyStatusBySpot(rows, now = Date.now()) {
 
     const ms = posterStringToMs(s.date);
     if (!ms) continue;
+    // Сегодня и шесть дней до — неделя; то же с 29 днями — месяц.
+    // По календарным дням Алматы, как и «сколько дней без поставок»
+    const ago = daysBetween(localDateStr(ms), today);
+    const sum = Math.round(Number(s.supply_sum || 0) / 100);
+    if (ago != null && ago >= 0 && ago < 7) { entry.week.count++; entry.week.sum += sum; }
+    if (ago != null && ago >= 0 && ago < 30) { entry.month.count++; entry.month.sum += sum; }
     if (lastMs[b.spotId] == null || ms > lastMs[b.spotId]) {
       lastMs[b.spotId] = ms;
       entry.lastSupplyDate = ddmmyyyy(localDateStr(ms));

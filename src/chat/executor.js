@@ -364,6 +364,7 @@ async function executeInner(parsed, userBranch) {
     if (metric === "openChecks") return await handleOpenChecks(effectiveSpot);
     if (metric === "alerts") return await handleAlerts();
     if (metric === "cups") return await handleCups(effectiveSpot);
+    if (metric === "supplies") return await handleSupplies(effectiveSpot, period, parsed.raw);
     if (metric === "discounts") return await handleDiscounts(effectiveSpot, period, ipGroup);
     if (metric === "staff") return await handleStaff(effectiveSpot, period, ipGroup, parsed);
     if (metric === "deleted") return await handleDeleted(effectiveSpot, period, ipGroup);
@@ -1858,6 +1859,58 @@ async function handleHoursCompare(metric, spot, p1, p2, hours, ipGroup) {
 //
 // «Когда возили стаканы на Абая», «на сколько хватит» — из того же
 // /api/cups, что и плитка на главной: склад, последний завоз, прогноз.
+// ─── Поставки ─────────────────────────────────────────────────────
+//
+// «Когда последний раз была поставка на Коктем», «накладные за неделю»,
+// «где давно не возили». Считает сервер (/api/supply-status) по Poster:
+// последняя поставка на точку и счёт за 7 и 30 дней. Календарный месяц
+// сервер не считает — поэтому и в ответе честно «за 30 дней».
+const SUPPLY_LATE_DAYS = 3;
+async function handleSupplies(spot, period, raw = "") {
+  const q = String(raw).toLowerCase();
+  if (/долг|задолж|должн|не оплач|оплат/.test(q)) {
+    return { text: "Долги по накладным ассистент пока не считает — они на экране оплат поставщикам. Здесь могу сказать, когда и на сколько завозили.", data: null };
+  }
+  const { fetchSupplyStatus } = await import("../poster.js");
+  const status = await fetchSupplyStatus(null);
+  let rows = Object.values(status || {});
+  if (!rows.length) return { text: "Poster не отдал поставки — спросите ещё раз через минуту.", data: null };
+  if (!isAll(spot)) rows = rows.filter((r) => String(r.spotId) === String(spot.spotId));
+  if (!rows.length) return { text: `Поставок ${label(spot)} не нашёл.`, data: null };
+
+  const days = daysInPeriod(period.from, period.to);
+  const win = days <= 7 ? { key: "week", word: "за 7 дней" } : { key: "month", word: "за 30 дней" };
+  const name = (r) => sn({ spotId: r.spotId, spotName: r.branch || r.spotName });
+  const ago = (n) => (n == null ? "не было ни разу за 4 месяца" : n === 0 ? "сегодня" : n === 1 ? "вчера" : `${n} ${plural(n, "день", "дня", "дней")} назад`);
+  const count = (r) => r[win.key]?.count || 0;
+  const sum = (r) => r[win.key]?.sum || 0;
+  const nNakl = (n) => `${n} ${plural(n, "поставка", "поставки", "поставок")}`;
+
+  if (rows.length === 1) {
+    const r = rows[0];
+    const last = r.lastSupplyDate ? `последняя поставка ${ago(r.daysSinceLastSupply)} (${r.lastSupplyDate})${r.lastSupplySum ? ` на ${fmt(r.lastSupplySum)}` : ""}` : "поставок за 4 месяца не было";
+    const late = r.daysSinceLastSupply != null && r.daysSinceLastSupply >= SUPPLY_LATE_DAYS ? `\n⚠️ ${r.daysSinceLastSupply} ${plural(r.daysSinceLastSupply, "день", "дня", "дней")} без поставок — продажи идут, а приход не заведён, отсюда и минусы на складе.` : "";
+    return {
+      text: `${name(r)}: ${last}.\n${win.word[0].toUpperCase() + win.word.slice(1)}: ${nNakl(count(r))}${sum(r) ? ` на ${fmt(sum(r))}` : ""}.${late}`,
+      data: { rows },
+    };
+  }
+
+  // Сеть: сверху те, куда дольше всего не заводили
+  const sorted = [...rows].sort((a, b) => (b.daysSinceLastSupply ?? 999) - (a.daysSinceLastSupply ?? 999));
+  const late = sorted.filter((r) => r.daysSinceLastSupply == null || r.daysSinceLastSupply >= SUPPLY_LATE_DAYS);
+  const totalN = rows.reduce((a, r) => a + count(r), 0);
+  const totalSum = rows.reduce((a, r) => a + sum(r), 0);
+  const head = late.length
+    ? `Давно без поставок: ${late.map((r) => `${name(r)} (${r.daysSinceLastSupply == null ? "ни разу" : `${r.daysSinceLastSupply} дн.`})`).join(", ")}.`
+    : "Поставки заводят везде — дольше двух дней без них нет ни одной точки.";
+  const lines = sorted.map((r) => `${late.includes(r) ? "⚠️" : "•"} ${name(r)}: ${ago(r.daysSinceLastSupply)}${r.lastSupplyDate ? ` (${r.lastSupplyDate.slice(0, 5)})` : ""} · ${win.word}: ${count(r)}${sum(r) ? ` на ${fmt(sum(r))}` : ""}`);
+  return {
+    text: `${head}\n\n${lines.join("\n")}\n\n${win.word[0].toUpperCase() + win.word.slice(1)} по сети: ${nNakl(totalN)}${totalSum ? ` на ${fmt(totalSum)}` : ""}.`,
+    data: { rows: sorted, late: late.map((r) => r.spotId) },
+  };
+}
+
 async function handleCups(spot) {
   const { fetchCups } = await import("../poster.js");
   const d = await fetchCups();
