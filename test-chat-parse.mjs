@@ -746,7 +746,8 @@ section("Вопрос → плитка на дашборде");
   eq((exe.match(/\$\{\w+\.spotName\}/g) || []).length, 0, "в ответах ассистента — русские имена точек, не Aura02_*");
   const dc = readFileSync("src/components/DataChat.jsx", "utf8");
   ok(dc.includes("addPin(") && dc.includes("ASK_KEY"), "в чате — «Закрепить», и плитка умеет вернуть в чат");
-  ok(/pinnable: !!result\.data && !parsed\.followUpOf/.test(dc), "продолжение диалога плиткой не становится");
+  ok(/pinnable: !!result\.data && (?:!result\.data\.errorKind && )?!parsed\.followUpOf/.test(dc), "продолжение диалога плиткой не становится");
+  ok(/pinnable: [^\n]*!result\.data\.errorKind/.test(dc), "и ответ-сбой — тоже: закреплять нечего");
   ok(dc.includes("chat-skeleton") && !dc.includes("Загрузка…"), "вместо спиннера — скелетон ответа");
 }
 

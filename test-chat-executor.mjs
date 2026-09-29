@@ -69,6 +69,11 @@ globalThis.__poster = {
   async fetchPosterSales(from, to) { this.calls.push(["sales", from, to]); return salesFor(from, to); },
   async fetchCashBySpot(from, to) {
     this.calls.push(["cash", from, to]);
+    // Для проверок сбоя и параллельности: ошибка по заказу и задержка сети
+    if (this.failWith) throw this.failWith;
+    this.inflight = (this.inflight || 0) + 1;
+    this.maxInflight = Math.max(this.maxInflight || 0, this.inflight);
+    try { if (this.delayMs) await new Promise((r) => setTimeout(r, this.delayMs)); } finally { this.inflight--; }
     const r = salesFor(from, to);
     return Object.keys(SPOTS).map((sid) => ({ spotId: sid, spotName: SPOTS[sid], total: r.cashBySpot[sid], txCount: r.txBySpot[sid], daysCount: r.daysCount, avgPerDay: Math.round(r.cashBySpot[sid] / (r.daysCount || 1)), avgCheck: Math.round(r.cashBySpot[sid] / (r.txBySpot[sid] || 1)) })).sort((a, b) => b.total - a.total);
   },
@@ -817,6 +822,50 @@ section("«По дням» — список по датам, «по дням н�
   ok(!/Касса по дням все/.test(best), "«какой день лучший» — тоже разрез, не список");
 }
 
+section("Сбой — понятными словами, месяцы — параллельно");
+{
+  const P = globalThis.__poster;
+  const quietErr = console.error; console.error = () => {};
+  // Poster лёг: раньше «Ошибка: Не удалось подключиться к Poster (TypeError…)»
+  P.failWith = new Error("Не удалось подключиться к Poster (Failed to fetch). Возможно, блокирует CORS или нет интернета.");
+  const p = await parseQuestion("касса за вчера");
+  const off = await executeQuery(p, null);
+  ok(off.data?.errorKind === "offline", "пропала сеть — так и названо");
+  ok(/Нет связи с интернетом/.test(off.text) && !/TypeError|Failed to fetch|CORS/.test(off.text), `без служебных слов: ${off.text}`);
+  P.failWith = Object.assign(new Error("ошибка Poster (код 42)"), { code: 42 });
+  const down = await executeQuery(p, null);
+  ok(down.data?.errorKind === "poster" && /Poster сейчас не отвечает/.test(down.text), `Poster не ответил: ${down.text}`);
+  P.failWith = new TypeError("Cannot read properties of undefined (reading 'total')");
+  const bug = await executeQuery(p, null);
+  ok(bug.data?.errorKind === "internal" && !/Cannot read|undefined/.test(bug.text), `внутренний сбой — без стектрейса: ${bug.text}`);
+  ok(bug.data?.error === "Cannot read properties of undefined (reading 'total')", "исходный текст сохранён для разбора");
+  P.failWith = null;
+  console.error = quietErr;
+
+  // Прогноз на полгода, тренд, касса за год — месяцы грузятся разом, но
+  // не больше четырёх одновременно
+  for (const q of ["тренд за 6 месяцев", "касса за год"]) {
+    P.delayMs = 20; P.maxInflight = 0;
+    const t0 = Date.now();
+    const r = await ask(q);
+    const took = Date.now() - t0;
+    ok(P.maxInflight >= 2 && P.maxInflight <= 4, `«${q}»: месяцев в работе одновременно — ${P.maxInflight} (от 2 до 4)`);
+    ok(r && !/Нет связи|не отвечает|сбой/.test(r), `«${q}»: ответ есть (${took} мс)`);
+  }
+  P.delayMs = 0;
+}
+{
+  const { errorKind } = await import("./src/chat/errors.js");
+  const kinds = [
+    [new TypeError("Failed to fetch"), "offline"], [new Error("Load failed"), "offline"],
+    [new Error("Сессия истекла — обновите страницу и войдите заново"), "auth"],
+    [new Error("Poster вернул не-JSON (HTTP 502)"), "poster"], [new Error("HTTP 504"), "poster"],
+    [Object.assign(new Error("x"), { name: "AbortError" }), "aborted"], [new RangeError("Invalid time value"), "internal"],
+  ].map(([e, k]) => [errorKind(e), k]);
+  ok(kinds.every((x) => x[0] === x[1]), `виды сбоев различаются верно: ${kinds.map((x) => x.join("/")).join(", ")}`);
+  ok(errorKind(new Error("что-то"), { online: false }) === "offline", "браузер сам говорит «офлайн» — значит сеть");
+}
+
 section("Бариста: имена из сводки сервера, а не из чеков без имён");
 {
   // В бою 25.09.2026: «Кто работал вчера» → «нет имён бариста — Poster их
@@ -843,7 +892,7 @@ section("Бариста: имена из сводки сервера, а не и
   P.baristasError = "timeout";
   const fail = await ask("кто работал вчера");
   ok(!/Чеков .* нет/.test(fail), `сбой Poster — не «чеков нет»: ${fail.split("\n")[0]}`);
-  ok(/Poster не ответил|не получилось|ошибк/i.test(fail), "а честная ошибка");
+  ok(/Poster не ответил|Poster сейчас не отвечает|не получилось|ошибк/i.test(fail), `а честная ошибка: ${fail.split("\n")[0]}`);
   P.baristasError = null;
 }
 

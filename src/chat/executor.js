@@ -47,6 +47,7 @@ import { BRANCHES, spotNameByPosterId } from "../auth.jsx";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
 import { evaluateMath } from "./parser.js";
 import { isStaleChunkError } from "../staleBuild.js";
+import { friendlyError } from "./errors.js";
 
 // Точка в конце фразы — если период уже не кончается ею: «за 25 сентября
 // 2026 г.» давало «г..» в конце ответа
@@ -261,6 +262,24 @@ async function withContext(result, value, period, spot, ipGroup, pick) {
 }
 
 const sumCash = (rows) => rows.reduce((s, d) => s + (d.total || 0), 0);
+
+// Месяцы — не по одному: прогноз на полгода ждал шесть загрузок подряд,
+// каждая — свой круг до Poster. Но и не все разом: за год это двенадцать
+// пачек запросов одновременно. Четыре в работе — и порядок сохраняется.
+// Сбой любой — сбой всего, как и было при загрузке по очереди.
+export async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+const MONTHS_AT_ONCE = 4;
 const sumTx = (rows) => rows.reduce((s, d) => s + (d.txCount || 0), 0);
 const avgCheckOf = (rows) => { const t = sumTx(rows); return t ? sumCash(rows) / t : null; };
 
@@ -396,7 +415,12 @@ async function executeInner(parsed, userBranch) {
     // Сайт обновился, пока вкладка была открыта: куска старой сборки нет.
     // Не «ошибка», а перезагрузка — чат после неё задаст вопрос сам
     if (isStaleChunkError(e)) return { text: "Сайт обновился — перезагружаю страницу и спрошу ещё раз…", data: { staleBuild: true } };
-    return { text: `Ошибка: ${e.message || "не удалось загрузить данные"}`, data: null };
+    // Сбой — по-человечески: что случилось и что делать. Исходный текст —
+    // в консоль и в data, на экран он не идёт
+    const online = typeof navigator !== "undefined" ? navigator.onLine : undefined;
+    const f = friendlyError(e, { online });
+    console.error("[ассистент] сбой ответа:", f.kind, e);
+    return { text: f.text, data: { error: f.detail, errorKind: f.kind } };
   }
 }
 
@@ -776,19 +800,21 @@ async function handleCash(operation, spot, period, ipGroup, share = false) {
   if (totalDays > 62) {
     // More than 2 months — fetch month by month, then aggregate by spot
     const bySpot = {};
+    const ranges = [];
     let cur = new Date(d1);
     while (cur <= d2) {
       const monthStart = new Date(cur.getFullYear(), cur.getMonth(), 1);
       const monthEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
-      const from = fmtDateJS(monthStart < d1 ? d1 : monthStart);
-      const to = fmtDateJS(monthEnd > d2 ? d2 : monthEnd);
-      const monthData = await fetchCashBySpot(from, to);
+      ranges.push({ from: fmtDateJS(monthStart < d1 ? d1 : monthStart), to: fmtDateJS(monthEnd > d2 ? d2 : monthEnd) });
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+    const perMonth = await mapLimit(ranges, MONTHS_AT_ONCE, (m) => fetchCashBySpot(m.from, m.to));
+    for (const monthData of perMonth) {
       for (const d of monthData) {
         if (!bySpot[d.spotId]) bySpot[d.spotId] = { spotId: d.spotId, spotName: d.spotName, total: 0, txCount: 0 };
         bySpot[d.spotId].total += d.total;
         bySpot[d.spotId].txCount += d.txCount;
       }
-      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
     }
     data = Object.values(bySpot).map(d => ({
       ...d,
@@ -2197,12 +2223,8 @@ async function handleTrend(metric, spot, period, ipGroup) {
     for (let i = 3; i >= 1; i--) months.push(monthOf(new Date(currentYear, currentMonth - i, 1)));
   }
 
-  // Fetch month by month to avoid large-range API failures
-  const results = [];
-  for (const m of months) {
-    const r = await fetchCashBySpot(m.from, m.to);
-    results.push(r);
-  }
+  // По месяцу за запрос — большой отрезок Poster не тянет; месяцы — параллельно
+  const results = await mapLimit(months, MONTHS_AT_ONCE, (m) => fetchCashBySpot(m.from, m.to));
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 
@@ -2297,12 +2319,8 @@ async function handleForecast(metric, spot, period, ipGroup) {
     });
   }
 
-  // Fetch month by month to avoid large-range API failures
-  const results = [];
-  for (const m of months) {
-    const r = await fetchCashBySpot(m.from, m.to);
-    results.push(r);
-  }
+  // По месяцу за запрос — большой отрезок Poster не тянет; месяцы — параллельно
+  const results = await mapLimit(months, MONTHS_AT_ONCE, (m) => fetchCashBySpot(m.from, m.to));
   const sl = label(spot);
   const ipLabel = ipGroup ? ` (${ipGroup.name})` : "";
 

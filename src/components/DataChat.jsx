@@ -479,6 +479,7 @@ export default function DataChat() {
     }
     // Незнакомое слово искали как товар и не нашли — это тоже «не понял»:
     // следующий понятный вопрос станет исправлением и запомнится
+    // Сбой связи — не «не понял»: такой вопрос исправлением не запоминаем
     if (parsed.assumed?.product && !result.data) lastFailRef.current = { q, at: Date.now() };
     else if (parsed.assumed?.product) lastFailRef.current = null;
     // Как поняли вопрос — только когда додумали или продолжили предыдущий:
@@ -496,6 +497,8 @@ export default function DataChat() {
       followUps = result.data.suggestions.map((n) => `Продажи «${n}» ${when}`.trim());
     }
     if (!followUps.length) followUps = generateFollowUps(parsed, result);
+    // Сбой связи или Poster — первым делом «спросить ещё раз» тем же вопросом
+    if (["offline", "poster"].includes(result.data?.errorKind)) followUps = [q, ...followUps.filter((f) => f !== q)].slice(0, 3);
     // Ответ пришёл из памяти исправлений — админ может её поправить одним касанием
     if (learnedHit && isAdmin()) followUps = [`Забыть подсказку «${learnedHit.key}»`, ...followUps];
     setSuggestions(followUps);
@@ -512,7 +515,7 @@ export default function DataChat() {
       // поэтому плиткой становится понятый смысл, а не «а сегодня?»
       question: parsed.followUpOf ? null : q,
       parsed,
-      pinnable: !!result.data && !parsed.followUpOf && parsed.metric !== "math",
+      pinnable: !!result.data && !result.data.errorKind && !parsed.followUpOf && parsed.metric !== "math",
     }]);
     setLoading(false);
   }
