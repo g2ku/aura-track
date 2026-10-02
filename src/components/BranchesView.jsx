@@ -28,7 +28,7 @@ const SORT_OPTIONS = [
   { v: "reports", label: "По отчётам (убыв.)" },
 ];
 
-export default function BranchesView({ docs, canEdit, onOpen, onPayBranch }) {
+export default function BranchesView({ docs, canEdit, onOpen }) {
   const agg = useMemo(() => aggregateDocs(docs), [docs]);
   const userBranch = useUserBranch();
   const [q, setQ] = useState("");

@@ -1,9 +1,9 @@
 // PosterCompareView — сравнение продаж филиалов по разным периодам.
 //
 // Позволяет выбрать 2–4 периода и показывает:
-//   • Таблицу: строки = филиалы, колонки = периоды + среднее
-//   • Таблицу по товарам внутри каждого филиала
-//   • Среднее значение (сумма / кол-во дней периода)
+//   • Ленту cl-spot по филиалам с cl-line по периодам (среднее/день + итого)
+//   • Расширение кликом → детали по товарам внутри филиала
+//   • cl-total «Итого · сеть» по всем периодам
 
 import { useMemo, useRef, useState } from "react";
 import {
@@ -35,17 +35,34 @@ function makeDefaultPeriods() {
   ];
 }
 
-const inputStyle = {
-  padding: "8px 10px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "var(--bg-card)",
-  color: "var(--text-primary)",
-  fontFamily: "inherit",
-  fontSize: 14,
-};
+const PERIOD_COLORS = [
+  "var(--text-accent)",
+  "#22c55e",
+  "#f59e0b",
+  "#8b5cf6",
+];
+
+function pctChange(a, b) {
+  if (!b) return a > 0 ? 100 : 0;
+  return ((a - b) / Math.abs(b)) * 100;
+}
 
 const dateLabelStyle = { fontSize: 13, color: "var(--text-secondary)" };
+
+const headBtnStyle = {
+  display: "flex",
+  alignItems: "baseline",
+  justifyContent: "space-between",
+  gap: 10,
+  width: "100%",
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  margin: 0,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  textAlign: "left",
+};
 
 export default function PosterCompareView() {
   const toast = useToast();
@@ -56,8 +73,6 @@ export default function PosterCompareView() {
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
   const abortRef = useRef(null);
-
-  // ─── Управление периодами ────────────────────────────────────────────
 
   function updatePeriod(idx, field, value) {
     setPeriods((prev) => {
@@ -80,8 +95,6 @@ export default function PosterCompareView() {
       return prev.filter((_, i) => i !== idx);
     });
   }
-
-  // ─── Загрузка ────────────────────────────────────────────────────────
 
   async function load() {
     if (loading) return;
@@ -123,18 +136,13 @@ export default function PosterCompareView() {
     setProgress(null);
   }
 
-  // ─── Расчёт сравнительных данных ─────────────────────────────────────
-
   const comparison = useMemo(() => {
     if (!data) return null;
     const { periods: periodResults, spotIds, productNames, spotNames } = data;
 
-    // Для каждого филиала: [периодIdx][spotId][productName] -> {qty, sum}
-    // Агрегация: сумма по филиалу за период
-    const spotPeriodTotals = {}; // spotId -> [periodIdx] -> { qty, sum, daysCount, avgPerDay }
-
+    const spotPeriodTotals = {};
     for (const spotId of spotIds) {
-      spotPeriodTotals[spotId] = periodResults.map((pr, pIdx) => {
+      spotPeriodTotals[spotId] = periodResults.map((pr) => {
         const products = pr.spotMap.get(spotId) || {};
         let qty = 0;
         let sum = 0;
@@ -154,8 +162,7 @@ export default function PosterCompareView() {
       });
     }
 
-    // Детали по товарам для каждого филиала
-    const spotProductDetails = {}; // spotId -> [productNames] -> [periodIdx] -> {qty, sum}
+    const spotProductDetails = {};
     for (const spotId of spotIds) {
       spotProductDetails[spotId] = {};
       for (const pName of productNames) {
@@ -166,7 +173,6 @@ export default function PosterCompareView() {
       }
     }
 
-    // Итоги по периодам
     const periodTotals = periodResults.map((pr) => {
       let qty = 0;
       let sum = 0;
@@ -199,7 +205,6 @@ export default function PosterCompareView() {
     };
   }, [data]);
 
-  // Фильтрация по поиску
   const filteredSpots = useMemo(() => {
     if (!comparison) return [];
     const q = query.trim().toLowerCase();
@@ -210,14 +215,12 @@ export default function PosterCompareView() {
     });
   }, [comparison, query]);
 
-  // ─── Рендер ──────────────────────────────────────────────────────────
-
   return (
     <div className="view-wrap">
       <div className="view-header">
         <div>
           <h1 className="view-title">
-            <i className="ti ti-compare" aria-hidden="true" /> Сравнение периодов Poster
+            <i className="ti ti-compare" aria-hidden="true" /> Сравнение периодов
           </h1>
           <div className="view-sub">
             Токен: <code style={{ color: "var(--text-accent)" }}>серверный</code>
@@ -228,7 +231,6 @@ export default function PosterCompareView() {
         </button>
       </div>
 
-      {/* Форма выбора периодов */}
       <form className="card" style={{ padding: 16 }} onSubmit={(e) => { e.preventDefault(); load(); }}>
         <div style={{ display: "grid", gap: 12 }}>
           {periods.map((p, idx) => (
@@ -245,37 +247,37 @@ export default function PosterCompareView() {
                 border: "1px solid var(--border)",
               }}
             >
-              <label style={{ display: "grid", gap: 4, minWidth: 160 }}>
-                <span style={dateLabelStyle}>Название</span>
+              <label style={{ display: "grid", gap: 4, minWidth: 160, flex: "1 1 120px" }}>
+                <span className="form-label" style={dateLabelStyle}>Название</span>
                 <input
+                  className="form-control"
                   type="text"
                   value={p.label}
                   onChange={(e) => updatePeriod(idx, "label", e.target.value)}
                   disabled={loading}
-                  style={{ ...inputStyle, width: "100%" }}
                 />
               </label>
               <label style={{ display: "grid", gap: 4 }}>
-                <span style={dateLabelStyle}>Дата с</span>
+                <span className="form-label" style={dateLabelStyle}>С</span>
                 <input
+                  className="form-control"
                   type="date"
                   value={p.from}
                   max={p.to}
                   onChange={(e) => updatePeriod(idx, "from", e.target.value)}
                   disabled={loading}
-                  style={inputStyle}
                 />
               </label>
               <label style={{ display: "grid", gap: 4 }}>
-                <span style={dateLabelStyle}>Дата по</span>
+                <span className="form-label" style={dateLabelStyle}>По</span>
                 <input
+                  className="form-control"
                   type="date"
                   value={p.to}
                   min={p.from}
                   max={today()}
                   onChange={(e) => updatePeriod(idx, "to", e.target.value)}
                   disabled={loading}
-                  style={inputStyle}
                 />
               </label>
               {periods.length > 2 && (
@@ -339,7 +341,6 @@ export default function PosterCompareView() {
         </div>
       </form>
 
-      {/* Ошибка */}
       {error && (
         <div className="card err-box" style={{ padding: 14, marginTop: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--danger)" }}>
@@ -351,7 +352,6 @@ export default function PosterCompareView() {
         </div>
       )}
 
-      {/* Ожидание */}
       {!data && !error && !loading && (
         <div className="card empty-state" style={{ marginTop: 16 }}>
           <i className="ti ti-compare" aria-hidden="true" />
@@ -360,20 +360,21 @@ export default function PosterCompareView() {
         </div>
       )}
 
-      {/* Результат сравнения */}
       {comparison && (
         <>
-          {/* Сводка */}
-          <div className="card" style={{ padding: 14, marginTop: 16, marginBottom: 12 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 24, fontSize: 14 }}>
-              <Kpi label="Филиалов" value={comparison.spotIds.length} />
-              <Kpi label="Товаров" value={comparison.productNames.length} />
+          {/* Сводка за периоды */}
+          <div className="card" style={{ padding: "14px 16px", marginTop: 16, marginBottom: 12 }}>
+            <div className="cl-kicker">Сравнение · {comparison.periodResults.length} периодов</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "18px 30px", marginTop: 8 }}>
+              <Stat label="Филиалов" value={comparison.spotIds.length} />
+              <Stat label="Товаров" value={comparison.productNames.length} />
               {comparison.periodTotals.map((pt, idx) => (
-                <Kpi
+                <Stat
                   key={idx}
                   label={pt.label}
-                  value={fmt(pt.sum)}
-                  sub={`${pt.daysCount} дн. · ${fmt(pt.avgPerDay)}/день`}
+                  value={fmt(pt.avgPerDay)}
+                  sub={`${pt.daysCount} дн. · итого ${fmt(pt.sum)}`}
+                  color={PERIOD_COLORS[idx % PERIOD_COLORS.length]}
                 />
               ))}
             </div>
@@ -387,11 +388,12 @@ export default function PosterCompareView() {
             <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
               <i className="ti ti-search" aria-hidden="true" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
               <input
+                className="form-control"
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Поиск по филиалу…"
-                style={{ ...inputStyle, width: "100%", paddingLeft: 32 }}
+                style={{ width: "100%", paddingLeft: 32 }}
               />
               {query && (
                 <button
@@ -410,8 +412,8 @@ export default function PosterCompareView() {
             </div>
           </div>
 
-          {/* Таблица сравнения */}
-          <CompareTable
+          {/* Лента филиалов */}
+          <LedgerCompare
             comparison={comparison}
             filteredSpots={filteredSpots}
             periodTotals={comparison.periodTotals}
@@ -422,17 +424,18 @@ export default function PosterCompareView() {
   );
 }
 
-// ─── Компоненты ──────────────────────────────────────────────────────
+// ─── Подкомпоненты ────────────────────────────────────────────────────
 
-function Kpi({ label, value, sub }) {
+function Stat({ label, value, sub, color }) {
   return (
     <div>
       <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{label}</div>
       <div
         style={{
-          fontWeight: 600,
+          fontWeight: 700,
           fontSize: 18,
-          color: "var(--text-primary)",
+          letterSpacing: "-0.01em",
+          color: color || "var(--text-primary)",
           fontVariantNumeric: "tabular-nums",
         }}
       >
@@ -443,8 +446,18 @@ function Kpi({ label, value, sub }) {
   );
 }
 
-function CompareTable({ comparison, filteredSpots, periodTotals }) {
-  const [expandedSpot, setExpandedSpot] = useState(null);
+// ─── Лента сравнения ────────────────────────────────────────────────
+
+function LedgerCompare({ comparison, filteredSpots, periodTotals }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = (sid) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(sid)) next.delete(sid);
+      else next.add(sid);
+      return next;
+    });
+  };
 
   if (filteredSpots.length === 0) {
     return (
@@ -456,9 +469,8 @@ function CompareTable({ comparison, filteredSpots, periodTotals }) {
     );
   }
 
-  const spotName = (sid) => comparison.spotNames.get(sid) || sid;
-  const colName = (sid) => {
-    const n = spotName(sid);
+  const spotName = (sid) => {
+    const n = comparison.spotNames.get(sid) || sid;
     return n.replace(/^Aura02[_-]?/i, "");
   };
 
@@ -472,194 +484,131 @@ function CompareTable({ comparison, filteredSpots, periodTotals }) {
   })();
 
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ overflowX: "auto", maxHeight: "80vh", overflowY: "auto" }}>
-        <table className="data-table" style={{ width: "100%", minWidth: 600 }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", position: "sticky", top: 0, background: "var(--bg-elevated)", zIndex: 2, minWidth: 180 }}>
-                Филиал
-              </th>
-              {periodTotals.map((pt, idx) => (
-                <th key={idx} style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-elevated)", zIndex: 2, minWidth: 130 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{pt.label}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{pt.daysCount} дн.</div>
-                </th>
-              ))}
-              <th style={{ textAlign: "right", position: "sticky", top: 0, background: "var(--bg-elevated)", zIndex: 2, minWidth: 100 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>Δ%</div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>изм.</div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredSpots.map((spotId, idx) => {
-              const isExpanded = expandedSpot === spotId;
-              const totals = comparison.spotPeriodTotals[spotId];
+    <div className="cl-zone">
+      <div className="cl-zone-title"><i className="ti ti-building-store" aria-hidden="true" /> Точки · сравнение периодов</div>
 
-              return (
-                <ComparisonRow
-                  key={spotId}
-                  spotId={spotId}
-                  spotName={colName(spotId)}
-                  totals={totals}
-                  isExpanded={isExpanded}
-                  onToggle={() => setExpandedSpot(isExpanded ? null : spotId)}
-                  details={comparison.spotProductDetails[spotId]}
-                  productNames={comparison.productNames}
-                  periodResults={comparison.periodResults}
-                  isLast={idx === filteredSpots.length - 1}
-                />
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: "var(--bg-elevated)" }}>
-              <td style={{ fontWeight: 600, position: "sticky", left: 0, background: "var(--bg-elevated)" }}>Итого</td>
-              {periodTotals.map((pt, idx) => (
-                <td key={idx} style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{fmt(pt.avgPerDay)}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>итого {fmt(pt.sum)}</div>
-                </td>
-              ))}
-              <td style={{ textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                {footerTrend !== null ? (
-                  <span style={{ color: footerTrend >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)", fontSize: 14, fontWeight: 700 }}>
-                    {footerTrend >= 0 ? "↑" : "↓"}{Math.abs(footerTrend).toFixed(1)}%
+      {filteredSpots.map((spotId) => {
+        const isOpen = expanded.has(spotId);
+        const totals = comparison.spotPeriodTotals[spotId];
+        const details = comparison.spotProductDetails[spotId];
+
+        // Тренд для филиала
+        let trend = null;
+        if (totals.length >= 2) {
+          const currAvg = totals[0].avgPerDay;
+          const baseAvg = totals[1].avgPerDay;
+          if (baseAvg === 0) trend = currAvg > 0 ? 100 : 0;
+          else trend = ((currAvg - baseAvg) / baseAvg) * 100;
+        }
+
+        return (
+          <div key={spotId} className="cl-spot">
+            <button type="button" className="cl-spot-head" style={headBtnStyle} onClick={() => toggle(spotId)}>
+              <span className="cl-spot-name">
+                <i className={`ti ${isOpen ? "ti-chevron-down" : "ti-chevron-right"}`} aria-hidden="true" style={{ fontSize: 12, color: "var(--text-muted)", flex: "none" }} />
+                <span className="cl-spot-name-text">{spotName(spotId)}</span>
+              </span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexShrink: 0 }}>
+                {totals.map((t, idx) => (
+                  <span key={idx} style={{ fontWeight: 600, fontSize: 14, color: PERIOD_COLORS[idx % PERIOD_COLORS.length], fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                    {fmt(t.avgPerDay)}<span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>/д</span>
                   </span>
-                ) : (
-                  <span style={{ color: "var(--text-muted)" }}>—</span>
+                ))}
+                {trend !== null && (
+                  <span style={{ fontWeight: 700, fontSize: 13, color: trend >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                    {trend >= 0 ? "↑" : "↓"}{Math.abs(trend).toFixed(1)}%
+                  </span>
                 )}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+              </div>
+            </button>
+
+            {totals.map((t, idx) => (
+              <div key={idx} className="cl-line">
+                <span className="cl-line-label" style={{ color: PERIOD_COLORS[idx % PERIOD_COLORS.length] }}>{t.label}</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmtQty(t.qty)} шт · {t.daysCount} дн. · итого {fmt(t.sum)}</span>
+              </div>
+            ))}
+
+            {isOpen && details && (
+              <div style={{ borderTop: "1px dashed var(--border)", marginTop: 6, paddingTop: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>
+                  Товары · детали
+                </div>
+                {comparison.productNames.map((pName) => {
+                  const items = details[pName] || [];
+                  const hasAny = items.some((v) => v.sum > 0);
+                  if (!hasAny) return null;
+
+                  // Тренд для товара
+                  const avgPerDayItems = items.map((v, idx) => {
+                    const days = comparison.periodResults[idx]?.daysCount || 1;
+                    return v.sum / days;
+                  });
+                  let productTrend = null;
+                  if (avgPerDayItems.length >= 2) {
+                    const curr = avgPerDayItems[0];
+                    const base = avgPerDayItems[1];
+                    if (base > 0) productTrend = ((curr - base) / base) * 100;
+                    else if (curr > 0) productTrend = 100;
+                  }
+
+                  return (
+                    <div key={pName} style={{ borderTop: "1px solid var(--border)", paddingTop: 4 }}>
+                      <div className="cl-line" style={{ fontWeight: 600 }}>
+                        <span className="cl-line-label">{pName}{items[0]?.qty > 1 ? ` ×${fmtQty(items[0].qty)}` : ""}</span>
+                        <span className="cl-line-dots" />
+                        <span className="cl-line-value" style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {items.map((v, idx) => (
+                            <span key={idx} style={{ fontSize: 12, color: PERIOD_COLORS[idx % PERIOD_COLORS.length] }}>
+                              {v.sum > 0 ? fmt(avgPerDayItems[idx]) : "—"}
+                            </span>
+                          ))}
+                          {productTrend !== null && (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: productTrend >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                              {productTrend >= 0 ? "↑" : "↓"}{Math.abs(productTrend).toFixed(1)}%
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="cl-total">
+        <div className="cl-line cl-total-line">
+          <span className="cl-line-label cl-total-label">Итого · сеть</span>
+          <span className="cl-line-dots" />
+          <span className="cl-line-value cl-total-value" style={{ display: "flex", alignItems: "baseline", gap: 10, justifyContent: "flex-end" }}>
+            {periodTotals.map((pt, idx) => (
+              <span key={idx} style={{ color: PERIOD_COLORS[idx % PERIOD_COLORS.length] }}>
+                {fmt(pt.avgPerDay)}<span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>/д</span>
+              </span>
+            ))}
+            {footerTrend !== null && (
+              <span style={{ fontWeight: 700, color: footerTrend >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
+                {footerTrend >= 0 ? "↑" : "↓"}{Math.abs(footerTrend).toFixed(1)}%
+              </span>
+            )}
+          </span>
+        </div>
+        {periodTotals.map((pt, idx) => (
+          <div key={idx} className="cl-line">
+            <span className="cl-line-label" style={{ color: PERIOD_COLORS[idx % PERIOD_COLORS.length] }}>{pt.label}</span>
+            <span className="cl-line-dots" />
+            <span className="cl-line-value">{fmtQty(pt.qty)} шт · {pt.daysCount} дн. · итого {fmt(pt.sum)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function ComparisonRow({ spotId, spotName, totals, isExpanded, onToggle, details, productNames, periodResults, isLast }) {
-  const trend = useMemo(() => {
-    if (totals.length < 2) return null;
-    const currAvg = totals[0].avgPerDay;
-    const baseAvg = totals[1].avgPerDay;
-    if (baseAvg === 0) return currAvg > 0 ? 100 : 0;
-    return ((currAvg - baseAvg) / baseAvg) * 100;
-  }, [totals]);
-
-  return (
-    <>
-      <tr
-        className="rh"
-        style={{
-          cursor: "pointer",
-          borderBottom: isExpanded ? "1px solid var(--border)" : (isLast ? "none" : "1px solid var(--border)"),
-          background: isExpanded ? "var(--bg-elevated)" : "transparent",
-        }}
-        onClick={onToggle}
-      >
-        <td style={{ textAlign: "left", fontWeight: 500 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <i
-              className={`ti ${isExpanded ? "ti-chevron-down" : "ti-chevron-right"}`}
-              aria-hidden="true"
-              style={{ color: "var(--text-muted)", transition: "transform 150ms", fontSize: 12 }}
-            />
-            <i className="ti ti-building-store" aria-hidden="true" style={{ color: "var(--text-accent)" }} />
-            {spotName}
-          </div>
-        </td>
-        {totals.map((t, idx) => (
-          <td key={idx} style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-            <div style={{ fontWeight: 600, fontSize: 15, color: "var(--text-primary)" }}>{fmt(t.avgPerDay)}</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              итого {fmt(t.sum)}
-            </div>
-          </td>
-        ))}
-        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-          {trend !== null ? (
-            <span style={{ color: trend >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)", fontSize: 15, fontWeight: 700 }}>
-              {trend >= 0 ? "↑" : "↓"}{Math.abs(trend).toFixed(1)}%
-            </span>
-          ) : (
-            <span style={{ color: "var(--text-muted)" }}>—</span>
-          )}
-        </td>
-      </tr>
-
-      {/* Детали: таблица товаров филиала */}
-      {isExpanded && (
-        <tr>
-          <td colSpan={totals.length + 2} style={{ padding: 0, borderBottom: isLast ? "none" : "1px solid var(--border)" }}>
-            <div style={{ padding: "8px 12px 12px 24px", background: "var(--bg-card)" }}>
-              <table className="data-table" style={{ width: "100%", fontSize: 13 }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: "left", fontSize: 12 }}>Товар</th>
-                    {periodResults.map((pr, idx) => (
-                      <th key={idx} style={{ textAlign: "right", fontSize: 12, minWidth: 100 }}>
-                        {pr.label}
-                      </th>
-                    ))}
-                    <th style={{ textAlign: "right", fontSize: 12, minWidth: 80 }}>Δ%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {productNames.map((pName) => {
-                    const items = details[pName] || [];
-                    const hasAny = items.some((v) => v.sum > 0);
-                    if (!hasAny) return null;
-
-                    // Средняя за день для каждого периода
-                    const avgPerDayItems = items.map((v, idx) => {
-                      const days = periodResults[idx]?.daysCount || 1;
-                      return v.sum / days;
-                    });
-
-                    // Тренд для товара: текущий (0) относительно эталона (1)
-                    let productTrend = null;
-                    if (avgPerDayItems.length >= 2) {
-                      const curr = avgPerDayItems[0];
-                      const base = avgPerDayItems[1];
-                      if (base > 0) productTrend = ((curr - base) / base) * 100;
-                      else if (curr > 0) productTrend = 100;
-                    }
-
-                    return (
-                      <tr key={pName} className="rh" style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ textAlign: "left", fontWeight: 500, whiteSpace: "nowrap" }}>{pName}</td>
-                        {items.map((v, idx) => (
-                          <td key={idx} style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                            {v.sum > 0 ? (
-                              <>
-                                <div style={{ fontWeight: 500 }}>{fmt(avgPerDayItems[idx])}</div>
-                                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>итого {fmt(v.sum)}</div>
-                              </>
-                            ) : (
-                              <span style={{ color: "var(--text-muted)" }}>—</span>
-                            )}
-                          </td>
-                        ))}
-                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                          {productTrend !== null ? (
-                            <span style={{ color: productTrend >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)", fontWeight: 600 }}>
-                              {productTrend >= 0 ? "↑" : "↓"}{Math.abs(productTrend).toFixed(1)}%
-                            </span>
-                          ) : (
-                            <span style={{ color: "var(--text-muted)" }}>—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
+function fmtQty(n) {
+  return Number.isInteger(n) ? n : n.toFixed(1);
 }

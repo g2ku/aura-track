@@ -5,27 +5,30 @@ import { mergeTranscript, voiceErrorText } from "../chat/voice.js";
 import { getUserBranch, getSpotNameForBranch, BRANCHES, isAdmin } from "../auth.jsx";
 
 const EXAMPLES_ALL = [
-  "Средняя касса за июнь",
+  "Сколько денег в кассе за неделю",
   "Сколько чеков за июль",
   "Спешл за неделю",
   "Касса Дубай за июль",
-  "Сравнение филиалов за июнь",
+  "Кто хуже всех по кассе за месяц",
   "Средний чек всех филиалов за июнь",
   "Как изменилась касса Гагарина июнь к июлю",
-  "Касса вчера",
+  "Выручка с 1 июня по 10 июня",
+  "Касса за последние 14 дней",
   "Тренд кассы за 3 месяца",
   "Прогноз на август",
   "Какой день недели самый прибыльный?",
   "В какое время пик продаж?",
+  "Аномальные дни за месяц",
   "Маржа за июнь",
   "Рейтинг филиалов за июнь",
+  "Сколько будет 420 + 30?",
 ];
 
 const EXAMPLES_BRANCH = [
-  "Средняя касса за июнь",
+  "Сколько денег в кассе за неделю",
   "Сколько чеков за июль",
   "Спешл за неделю",
-  "Касса вчера",
+  "Касса за последние 14 дней",
   "Тренд кассы за 3 месяца",
   "Прогноз на август",
   "Какой день недели самый прибыльный?",
@@ -86,6 +89,7 @@ export default function DataChat() {
   const [context, setContext] = useState(null); // last parsed query for follow-ups
   const [suggestions, setSuggestions] = useState(initialExamples);
   const endRef = useRef(null);
+  const messagesRef = useRef(null);
   const inputRef = useRef(null);
   const sugRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -155,7 +159,10 @@ export default function DataChat() {
   }, [stopListening]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Прокручиваем только ленту сообщений, страницу не дёргаем.
+    const el = messagesRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
 
   useEffect(() => {
@@ -319,7 +326,7 @@ export default function DataChat() {
       </div>
 
       {/* Messages */}
-      <div className="chat-messages">
+      <div ref={messagesRef} className="chat-messages">
         {messages.length === 0 && !loading && (
           <div className="chat-empty">
             <i className="ti ti-message-chatbot" style={{ fontSize: 36, opacity: 0.3 }} />

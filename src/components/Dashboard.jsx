@@ -40,7 +40,7 @@ function daysAgoStr(n) {
 
 export default function Dashboard({
   docs, agg: aggProp, canEdit, userBranch,
-  onAddReport, onSelectBranch, onPayBranch, onOpenGlobalPayment,
+  onAddReport, onSelectBranch,
 }) {
   const agg = useMemo(
     () => aggProp || { global: { total: 0, paid: 0, debt: 0, reportCount: 0, branchCount: 0 }, byBranch: {}, branches: [] },
@@ -502,14 +502,14 @@ export default function Dashboard({
               <div className="kpi-icon"><i className="ti ti-cash" /></div>
               <div className="kpi-info">
                 <div className="kpi-label">Общая касса</div>
-                <div className="kpi-value">{fmt(totalCash)} ₸</div>
+                <div className="kpi-value">{fmt(totalCash)}</div>
               </div>
             </div>
             <div className="kpi-card kpi-indigo">
               <div className="kpi-icon"><i className="ti ti-chart-bar" /></div>
               <div className="kpi-info">
                 <div className="kpi-label">Средняя касса/день</div>
-                <div className="kpi-value">{fmt(avgCashPerDay)} ₸</div>
+                <div className="kpi-value">{fmt(avgCashPerDay)}</div>
               </div>
             </div>
             <div className="kpi-card kpi-emerald">
@@ -523,7 +523,7 @@ export default function Dashboard({
               <div className="kpi-icon"><i className="ti ti-chart-dots" /></div>
               <div className="kpi-info">
                 <div className="kpi-label">Средний чек</div>
-                <div className="kpi-value">{fmt(avgCheck)} ₸</div>
+                <div className="kpi-value">{fmt(avgCheck)}</div>
               </div>
             </div>
           </div>
@@ -550,20 +550,20 @@ export default function Dashboard({
                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelectBranch(c.spotName)}
                   >
                     <td className="text-left fw-600">{c.spotName}</td>
-                    <td className="text-right fw-600">{fmt(c.total)} ₸</td>
+                    <td className="text-right fw-600">{fmt(c.total)}</td>
                     <td className="text-right">{c.txCount.toLocaleString("ru-RU")}</td>
-                    <td className="text-right text-accent">{fmt(c.avgCheck)} ₸</td>
-                    <td className="text-right text-muted">{fmt(c.avgPerDay)} ₸</td>
+                    <td className="text-right text-accent">{fmt(c.avgCheck)}</td>
+                    <td className="text-right text-muted">{fmt(c.avgPerDay)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="tfoot-row">
                   <td className="fw-600">Итого</td>
-                  <td className="text-right fw-600">{fmt(totalCash)} ₸</td>
+                  <td className="text-right fw-600">{fmt(totalCash)}</td>
                   <td className="text-right fw-600">{totalTx.toLocaleString("ru-RU")}</td>
-                  <td className="text-right fw-600 text-accent">{fmt(avgCheck)} ₸</td>
-                  <td className="text-right fw-600 text-muted">{fmt(avgCashPerDay)} ₸</td>
+                  <td className="text-right fw-600 text-accent">{fmt(avgCheck)}</td>
+                  <td className="text-right fw-600 text-muted">{fmt(avgCashPerDay)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -651,15 +651,11 @@ export default function Dashboard({
           <div className="stats-row">
             <div className="stat-card">
               <div className="stat-label">Общая поставка</div>
-              <div className="stat-value">{fmt(totalSupply)} ₸</div>
+              <div className="stat-value">{fmt(totalSupply)}</div>
             </div>
             <div className="stat-card">
               <div className="stat-label">Средняя поставка</div>
-              <div className="stat-value text-accent">{fmt(avgSupplyPerBranch)} ₸</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Долг</div>
-              <div className="stat-value text-danger">{fmt(agg.global.debt || 0)} ₸</div>
+              <div className="stat-value text-accent">{fmt(avgSupplyPerBranch)}</div>
             </div>
           </div>
 
@@ -711,9 +707,9 @@ export default function Dashboard({
                         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelectBranch(b)}
                       >
                         <td className="text-left fw-600">{b}</td>
-                        <td className="text-right fw-600">{fmt(x.total)} ₸</td>
+                        <td className="text-right fw-600">{fmt(x.total)}</td>
                         <td className="text-right">{x.reports}</td>
-                        <td className="text-right text-accent">{fmt(avg)} ₸</td>
+                        <td className="text-right text-accent">{fmt(avg)}</td>
                       </tr>
                     );
                   })}
@@ -721,9 +717,9 @@ export default function Dashboard({
                 <tfoot>
                   <tr className="tfoot-row">
                     <td className="fw-600">Итого</td>
-                    <td className="text-right fw-600">{fmt(totalSupply)} ₸</td>
+                    <td className="text-right fw-600">{fmt(totalSupply)}</td>
                     <td className="text-right fw-600">{agg.global.reportCount}</td>
-                    <td className="text-right fw-600 text-accent">{fmt(avgSupplyPerBranch)} ₸</td>
+                    <td className="text-right fw-600 text-accent">{fmt(avgSupplyPerBranch)}</td>
                   </tr>
                 </tfoot>
               </table>

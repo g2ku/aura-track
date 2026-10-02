@@ -302,7 +302,7 @@ export default function ReceiptsView() {
           </div>
 
           {/* Таблица чеков */}
-          <div className="card table-card" style={{ marginTop: 12 }}>
+          <div className="card table-card receipts-table" style={{ marginTop: 12 }}>
             <div style={{ overflowX: "auto" }}>
               <table className="data-table" style={{ width: "100%", fontSize: 13 }}>
                 <thead>

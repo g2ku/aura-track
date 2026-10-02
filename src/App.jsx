@@ -8,6 +8,7 @@ import { useUpload } from "./hooks/useUpload";
 import { usePayments } from "./hooks/usePayments";
 import { useReports } from "./hooks/useReports";
 import { useRouteContent } from "./hooks/useRouteContent";
+import { resolveDesignV2 } from "./designV2";
 import { prefetchCashBySpot } from "./poster";
 
 import Sidebar from "./components/Sidebar";
@@ -88,10 +89,36 @@ function MainApp() {
   const openModal = useAppStore((s) => s.openModal);
   const closeModal = useAppStore((s) => s.closeModal);
 
+  const designV2 = useAppStore((s) => s.designV2);
+  const setDesignV2 = useAppStore((s) => s.setDesignV2);
+
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useRememberRoute();
   useEffect(() => { initStore(); }, [initStore]);
+
+  // ─── Дизайн v2: гейт по роли + ручной override ────────────────────
+  // sessionStorage "aura-design-v2": "1" — принудительно вкл, "0" — выкл.
+  // По умолчанию новый дизайн видит только admin. При релизе — true всем.
+  useEffect(() => {
+    setDesignV2(resolveDesignV2(role, window.sessionStorage));
+  }, [role, setDesignV2]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("design-v2", designV2);
+  }, [designV2]);
+
+  // Применяем сохранённую тему при загрузке (и при каждом переключении)
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  // Тема: применяем на <html> при монтировании и при смене.
+  // (Раньше data-theme ставился только по клику в палитре —
+  // сохранённая тема не применялась до первого переключения.)
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   // Prefetch кассы при загрузке приложения — данные будут готовы к моменту открытия дашборда
   useEffect(() => {
@@ -157,6 +184,12 @@ function MainApp() {
         )}
         <div className="content">{content}</div>
       </div>
+
+      {designV2 && (
+        <div className="v2-indicator" title="Новый дизайн (beta) — виден только admin">
+          <i className="ti ti-sparkles" aria-hidden="true" /> Дизайн v2 · beta
+        </div>
+      )}
 
       <Suspense fallback={null}>
         <UploadModal

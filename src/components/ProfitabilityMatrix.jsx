@@ -167,8 +167,10 @@ export default function ProfitabilityMatrix() {
 
       {/* Insights */}
       {stats.losersList.length > 0 && (
-        <div className="card" style={{ padding: 16, marginBottom: 12, borderLeft: "3px solid #ef4444" }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, color: "#ef4444", marginBottom: 8 }}>⚠️ Убыточные позиции</h4>
+        <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "#ef4444" }}>
+          <div className="status-block-head" style={{ borderLeftColor: "#ef4444", color: "#ef4444", fontWeight: 700 }}>
+            <i className="ti ti-alert-triangle" aria-hidden="true" /> Убыточные позиции
+          </div>
           {stats.losersList.map((l) => (
             <div key={l.name} style={{ fontSize: 13, marginBottom: 4 }}>
               {l.name}: маржа {l.marginPct?.toFixed(1)}%, продано {l.qty} шт
@@ -178,8 +180,10 @@ export default function ProfitabilityMatrix() {
       )}
 
       {stats.gemsList.length > 0 && (
-        <div className="card" style={{ padding: 16, marginBottom: 12, borderLeft: "3px solid #f59e0b" }}>
-          <h4 style={{ fontSize: 14, fontWeight: 600, color: "#f59e0b", marginBottom: 8 }}>💡 Скрытые gems</h4>
+        <div className="status-block" style={{ marginBottom: 12, borderLeftColor: "#f59e0b" }}>
+          <div className="status-block-head" style={{ borderLeftColor: "#f59e0b", color: "#f59e0b", fontWeight: 700 }}>
+            <i className="ti ti-bulb" aria-hidden="true" /> Скрытые gems
+          </div>
           {stats.gemsList.map((g) => (
             <div key={g.name} style={{ fontSize: 13, marginBottom: 4 }}>
               {g.name}: маржа {g.marginPct?.toFixed(1)}%, продано {g.qty} шт — стоит продвигать
@@ -188,7 +192,7 @@ export default function ProfitabilityMatrix() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Позиции — лента как на дашборде */}
       {loading ? (
         <div className="card empty-state" style={{ padding: 48 }}>
           <div className="empty-state-title">Загрузка...</div>
@@ -199,35 +203,38 @@ export default function ProfitabilityMatrix() {
           <div className="empty-state-sub">Добавьте рецепты в разделе Маржа</div>
         </div>
       ) : (
-        <div className="table-card">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Позиция</th>
-                <th>Категория</th>
-                <th className="text-right">Продано</th>
-                <th className="text-right">Выручка</th>
-                <th className="text-right">Себестоимость</th>
-                <th className="text-right">Маржа</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matrix.map((m, idx) => (
-                <tr key={m.name}>
-                  <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{idx + 1}</td>
-                  <td style={{ fontWeight: 600 }}>{m.name}</td>
-                  <td style={{ color: "var(--text-secondary)" }}>{m.category}</td>
-                  <td className="text-right">{m.qty} шт</td>
-                  <td className="text-right">{fmt(m.revenue)}</td>
-                  <td className="text-right">{m.totalCost > 0 ? fmt(Math.round(m.totalCost)) : "—"}</td>
-                  <td className="text-right" style={{ color: getMarginColor(m.marginPct), fontWeight: 700 }}>
-                    {m.marginPct !== null ? `${m.marginPct.toFixed(1)}%` : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="cl-zone">
+          <div className="cl-zone-title"><i className="ti ti-chart-pie" aria-hidden="true" /> Позиции · маржа</div>
+          {matrix.map((m) => (
+            <div key={m.name} className="cl-spot">
+              <div className="cl-spot-head">
+                <span className="cl-spot-name-text">{m.name}</span>
+                <div className="cl-spot-cash" style={{ color: getMarginColor(m.marginPct), fontWeight: 700 }}>
+                  {m.marginPct !== null ? `${m.marginPct.toFixed(1)}%` : "—"}
+                </div>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Категория</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{m.category || "—"}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Продано</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{m.qty} шт</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Выручка</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{fmt(m.revenue)}</span>
+              </div>
+              <div className="cl-line">
+                <span className="cl-line-label">Себестоимость</span>
+                <span className="cl-line-dots" />
+                <span className="cl-line-value">{m.totalCost > 0 ? `${fmt(Math.round(m.totalCost))}` : "—"}</span>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

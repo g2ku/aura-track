@@ -1,12 +1,11 @@
 // PosterView — продажи по филиалам за выбранный период.
 //
 // Три режима отображения (переключаются табами):
-//   • «По филиалам» — сворачиваемые карточки. В каждой таблица товаров с
-//     количеством/суммой, отсортированная по сумме (desc). Топ-1 филиал
-//     развёрнут по умолчанию, остальные свёрнуты — общая картина видна
-//     сразу, детали — по клику.
-//   • «Сводная таблица» — колонки = филиалы, строки = товары, в ячейке
-//     «кол-во / сумма». Удобно сравнивать один товар между филиалами.
+//   • «По филиалам» — лента cl-spot по филиалам: имя + касса, разворот по
+//     клику на позиции (термолента-стиль).
+//   • «Сводная таблица» — лента по товарам: название + сумма, разворот на
+//     строки по филиалам «кол-во / сумма». Удобно сравнивать один товар
+//     между филиалами.
 //   • «Топ товаров» — все товары за период, отсортированные по сумме.
 //
 // Поверх всех режимов — поиск по названию товара.
@@ -56,17 +55,10 @@ function applyPreset(setFrom, setTo, days) {
   setTo(fmtDate(to));
 }
 
-// ─── Стили в духе остального UI ───────────────────────────────────────
-
-const inputStyle = {
-  padding: "8px 10px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "var(--bg-card)",
-  color: "var(--text-primary)",
-  fontFamily: "inherit",
-  fontSize: 14,
-};
+// Кол-во: целые — как есть, дробные — с одной десятой.
+function fmtQty(n) {
+  return Number.isInteger(n) ? n : n.toFixed(1);
+}
 
 const dateLabelStyle = { fontSize: 13, color: "var(--text-secondary)" };
 
@@ -266,12 +258,12 @@ export default function PosterView() {
       <form className="card" style={{ padding: 16 }} onSubmit={load}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
           <label style={{ display: "grid", gap: 4 }}>
-            <span style={dateLabelStyle}>Дата с</span>
-            <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} disabled={loading} style={inputStyle} />
+            <span className="form-label" style={dateLabelStyle}>Дата с</span>
+            <input className="form-control" type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} disabled={loading} />
           </label>
           <label style={{ display: "grid", gap: 4 }}>
-            <span style={dateLabelStyle}>Дата по</span>
-            <input type="date" value={to} min={from} max={today()} onChange={(e) => setTo(e.target.value)} disabled={loading} style={inputStyle} />
+            <span className="form-label" style={dateLabelStyle}>Дата по</span>
+            <input className="form-control" type="date" value={to} min={from} max={today()} onChange={(e) => setTo(e.target.value)} disabled={loading} />
           </label>
 
           <div style={{ display: "flex", gap: 6 }}>
@@ -350,24 +342,16 @@ export default function PosterView() {
 
       {data && data.rows.length > 0 && (
         <>
-          {/* Сводка */}
-          <div className="card" style={{ padding: 14, marginTop: 16, marginBottom: 12 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 24, fontSize: 14 }}>
-              <Kpi label="Филиалов" value={grouped.length} />
-              <Kpi label="Позиций" value={data.rows.length} sub={query ? `отфильтровано: ${grouped.reduce((s, g) => s + g.items.length, 0)}` : null} />
-              <Kpi label="Чеков" value={data.transactionsCount} />
-              <Kpi label="Сумма" value={fmt(grandTotal.sum)} accent />
+          {/* Сводка за период */}
+          <div className="card" style={{ padding: "14px 16px", marginTop: 16, marginBottom: 12 }}>
+            <div className="cl-kicker">Период {from} — {to}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "18px 30px", marginTop: 8 }}>
+              <Stat label="Филиалов" value={grouped.length} />
+              <Stat label="Позиций" value={data.rows.length} />
+              <Stat label="Чеков" value={data.transactionsCount} />
+              <Stat label="Сумма" value={fmt(grandTotal.sum)} accent />
             </div>
           </div>
-
-          {/* Топ товаров — превью */}
-          {topProducts.length > 0 && (
-            <TopProductsPreview
-              items={topProducts}
-              grandTotal={grandTotal}
-              onShowAll={() => setView("top")}
-            />
-          )}
 
           {/* Панель видов и поиск */}
           <div
@@ -383,11 +367,12 @@ export default function PosterView() {
             <div style={{ flex: 1, minWidth: 200, position: "relative" }}>
               <i className="ti ti-search" aria-hidden="true" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
               <input
+                className="form-control"
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Поиск по товару…"
-                style={{ ...inputStyle, width: "100%", paddingLeft: 32 }}
+                style={{ width: "100%", paddingLeft: 32 }}
               />
               {query && (
                 <button
@@ -410,15 +395,15 @@ export default function PosterView() {
           </div>
 
           {view === "branches" && (
-            <BranchesView grouped={grouped} isCollapsed={isCollapsed} onToggle={toggleCollapse} />
+            <LedgerBranches grouped={grouped} isCollapsed={isCollapsed} onToggle={toggleCollapse} grandTotal={grandTotal} />
           )}
 
           {view === "matrix" && matrix && (
-            <MatrixView matrix={matrix} spotNameById={spotNameById} />
+            <LedgerMatrix matrix={matrix} spotNameById={spotNameById} />
           )}
 
           {view === "top" && (
-            <TopProductsView items={topProducts} grandTotal={grandTotal} />
+            <LedgerTop items={topProducts} grandTotal={grandTotal} />
           )}
         </>
       )}
@@ -428,115 +413,21 @@ export default function PosterView() {
 
 // ─── Подкомпоненты ────────────────────────────────────────────────────
 
-function Kpi({ label, value, sub, accent }) {
+function Stat({ label, value, accent }) {
   return (
     <div>
       <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{label}</div>
       <div
         style={{
-          fontWeight: 600,
+          fontWeight: 700,
           fontSize: 18,
+          letterSpacing: "-0.01em",
           color: accent ? "var(--text-accent)" : "var(--text-primary)",
           fontVariantNumeric: "tabular-nums",
         }}
       >
         {value}
       </div>
-      {sub && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{sub}</div>}
-    </div>
-  );
-}
-
-const TOP_PREVIEW_COUNT = 5;
-
-function TopProductsPreview({ items, grandTotal, onShowAll }) {
-  const [expanded, setExpanded] = useState(false);
-  const preview = items.slice(0, TOP_PREVIEW_COUNT);
-  const hasMore = items.length > TOP_PREVIEW_COUNT;
-
-  return (
-    <div className="card" style={{ padding: 0, marginTop: 12, marginBottom: 12, overflow: "hidden" }}>
-      <div style={{ padding: "10px 16px", background: "var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 14 }}>
-          <i className="ti ti-trophy" aria-hidden="true" style={{ color: "var(--text-accent)" }} />
-          Топ товаров
-        </div>
-        {hasMore && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => setExpanded(!expanded)}
-            style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}
-          >
-            {expanded ? "Свернуть" : `Ещё ${items.length - TOP_PREVIEW_COUNT}`}
-            <i className={`ti ${expanded ? "ti-chevron-up" : "ti-chevron-down"}`} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-
-      <div style={{ display: "grid", gap: 0 }}>
-        {(expanded ? items : preview).map((it, idx) => {
-          const share = grandTotal.sum > 0 ? (it.sum / grandTotal.sum) * 100 : 0;
-          return (
-            <div
-              key={it.productName}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "10px 16px",
-                borderBottom: idx < (expanded ? items : preview).length - 1 ? "1px solid var(--border)" : "none",
-              }}
-            >
-              <span style={{ width: 24, textAlign: "right", fontSize: 12, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
-                {idx + 1}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {it.productName}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  {Number.isInteger(it.qty) ? it.qty : it.qty.toFixed(1)} шт. · {it.spotsCount} филиалов
-                </div>
-              </div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums" }}>
-                  {fmt(it.sum)}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
-                  {share.toFixed(1)}%
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {hasMore && !expanded && (
-        <button
-          type="button"
-          onClick={onShowAll}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            width: "100%",
-            padding: "10px 16px",
-            background: "transparent",
-            border: "none",
-            borderTop: "1px solid var(--border)",
-            color: "var(--text-accent)",
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          <i className="ti ti-trophy" aria-hidden="true" />
-          Показать все ({items.length})
-        </button>
-      )}
     </div>
   );
 }
@@ -568,7 +459,24 @@ function TabBtn({ active, onClick, icon, label }) {
   );
 }
 
-function BranchesView({ grouped, isCollapsed, onToggle }) {
+const headBtnStyle = {
+  display: "flex",
+  alignItems: "baseline",
+  justifyContent: "space-between",
+  gap: 10,
+  width: "100%",
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  margin: 0,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  textAlign: "left",
+};
+
+// ─── «По филиалам» — лента точек ─────────────────────────────────────
+
+function LedgerBranches({ grouped, isCollapsed, onToggle, grandTotal }) {
   if (grouped.length === 0) {
     return (
       <div className="card empty-state" style={{ marginTop: 8 }}>
@@ -579,85 +487,69 @@ function BranchesView({ grouped, isCollapsed, onToggle }) {
     );
   }
 
+  const totalQty = grouped.reduce((s, g) => s + g.totalQty, 0);
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+    <div className="cl-zone">
+      <div className="cl-zone-title"><i className="ti ti-building-store" aria-hidden="true" /> Точки · продажи</div>
       {grouped.map((g) => {
         const collapsed = isCollapsed(g.spotId);
-        const topItem = g.items[0];
         return (
-          <div
-            key={g.spotId}
-            className="card"
-            style={{
-              padding: 0,
-              overflow: "hidden",
-              cursor: "pointer",
-              transition: "box-shadow 0.15s",
-            }}
-            onClick={() => onToggle(g.spotId)}
-          >
-            <div style={{ padding: "12px 14px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <i className="ti ti-building-store" aria-hidden="true" style={{ color: "var(--text-accent)", fontSize: 14 }} />
-                <span style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {g.spotName.replace(/^Aura02[_-]?/i, "")}
-                </span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{g.items.length} поз.</span>
-                <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums" }}>
-                  {fmt(g.totalSum)}
-                </span>
-              </div>
-              {topItem && (
-                <div style={{ fontSize: 11, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  <i className="ti ti-trophy" aria-hidden="true" style={{ fontSize: 10, marginRight: 3 }} />
-                  {topItem.productName} · {fmt(topItem.sum)}
-                </div>
-              )}
+          <div key={g.spotId} className="cl-spot">
+            <button type="button" className="cl-spot-head" style={headBtnStyle} onClick={() => onToggle(g.spotId)}>
+              <span className="cl-spot-name">
+                <i className={`ti ${collapsed ? "ti-chevron-right" : "ti-chevron-down"}`} aria-hidden="true" style={{ fontSize: 12, color: "var(--text-muted)", flex: "none" }} />
+                <span className="cl-spot-name-text">{g.spotName.replace(/^Aura02[_-]?/i, "")}</span>
+              </span>
+              <span className="cl-spot-cash">{fmt(g.totalSum)}</span>
+            </button>
+            <div className="cl-line">
+              <span className="cl-line-label">Позиции · штук</span>
+              <span className="cl-line-dots" />
+              <span className="cl-line-value">{g.items.length} · {fmtQty(g.totalQty)}</span>
             </div>
-
             {!collapsed && (
-              <div
-                style={{ borderTop: "1px solid var(--border)", overflowX: "auto", maxHeight: 280, overflowY: "auto" }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <table className="data-table" style={{ width: "100%", fontSize: 12 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: "left", fontSize: 11 }}>Товар</th>
-                      <th style={{ textAlign: "right", width: 70, fontSize: 11 }}>Кол-во</th>
-                      <th style={{ textAlign: "right", width: 100, fontSize: 11 }}>Сумма</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {g.items.map((it, idx) => (
-                      <tr
-                        key={`${g.spotId}-${idx}`}
-                        className="rh"
-                        style={{ borderBottom: idx < g.items.length - 1 ? "1px solid var(--border)" : "none" }}
-                      >
-                        <td style={{ textAlign: "left", fontWeight: 500, whiteSpace: "nowrap" }}>{it.productName}</td>
-                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                          {Number.isInteger(it.qty) ? it.qty : it.qty.toFixed(1)}
-                        </td>
-                        <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                          {fmt(it.sum)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              g.items.map((it, idx) => (
+                <div key={`${g.spotId}-${idx}`} className="cl-line">
+                  <span className="cl-line-label">{it.productName}{it.qty > 1 ? ` ×${fmtQty(it.qty)}` : ""}</span>
+                  <span className="cl-line-dots" />
+                  <span className="cl-line-value">{fmt(it.sum)}</span>
+                </div>
+              ))
             )}
           </div>
         );
       })}
+
+      <div className="cl-total">
+        <div className="cl-line cl-total-line">
+          <span className="cl-line-label cl-total-label">Итого · сеть</span>
+          <span className="cl-line-dots" />
+          <span className="cl-line-value cl-total-value">{fmt(grandTotal.sum)}</span>
+        </div>
+        <div className="cl-line">
+          <span className="cl-line-label">Штук · точек</span>
+          <span className="cl-line-dots" />
+          <span className="cl-line-value">{fmtQty(totalQty)} · {grouped.length}</span>
+        </div>
+      </div>
     </div>
   );
 }
 
-function MatrixView({ matrix, spotNameById }) {
+// ─── «Сводная» — товары × точки ──────────────────────────────────────
+
+function LedgerMatrix({ matrix, spotNameById }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = (name) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   if (matrix.products.length === 0) {
     return (
       <div className="card empty-state" style={{ marginTop: 8 }}>
@@ -666,82 +558,72 @@ function MatrixView({ matrix, spotNameById }) {
       </div>
     );
   }
+
   // Имя колонки филиала — компактное: оставляем "Aura02_" префикс в стороне.
   const colName = (sid) => {
     const n = spotNameById[sid] || sid;
     return n.replace(/^Aura02[_-]?/i, "");
   };
 
+  const grandQty = matrix.colTotals.reduce((s, t) => s + t.qty, 0);
+  const grandSum = matrix.colTotals.reduce((s, t) => s + t.sum, 0);
+
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ overflowX: "auto", maxHeight: "70vh", overflowY: "auto" }}>
-        <table className="data-table" style={{ width: "100%", minWidth: 600 }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", position: "sticky", top: 0, background: "var(--bg-elevated)", zIndex: 1 }}>Товар</th>
-              {matrix.spotIds.map((sid) => (
-                <th key={sid} style={{ textAlign: "right", minWidth: 110, position: "sticky", top: 0, background: "var(--bg-elevated)" }}>
-                  <i className="ti ti-building-store" aria-hidden="true" style={{ display: "block", fontSize: 11, color: "var(--text-muted)" }} />
-                  {colName(sid)}
-                </th>
-              ))}
-              <th style={{ textAlign: "right", minWidth: 130, background: "var(--bg-elevated)", position: "sticky", top: 0 }}>
-                Итого
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.products.map((p, idx) => (
-              <tr key={p.name} className="rh" style={{ borderBottom: idx < matrix.products.length - 1 ? "1px solid var(--border)" : "none" }}>
-                <td style={{ textAlign: "left", fontWeight: 500, position: "sticky", left: 0, background: "var(--bg-card)" }}>{p.name}</td>
-                {matrix.spotIds.map((sid) => {
-                  const cell = p.bySpot[sid];
-                  if (!cell || cell.qty === 0) {
-                    return <td key={sid} style={{ textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>—</td>;
-                  }
-                  return (
-                    <td key={sid} style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                      <div>{Number.isInteger(cell.qty) ? cell.qty : cell.qty.toFixed(2)}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-accent)" }}>{fmt(cell.sum)}</div>
-                    </td>
-                  );
-                })}
-                <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", background: "var(--bg-elevated)" }}>
-                  <div>{Number.isInteger(p.total.qty) ? p.total.qty : p.total.qty.toFixed(2)}</div>
-                  <div style={{ fontSize: 11 }}>{fmt(p.total.sum)}</div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: "var(--bg-elevated)" }}>
-              <td style={{ fontWeight: 600, position: "sticky", left: 0, background: "var(--bg-elevated)" }}>Итого</td>
-              {matrix.colTotals.map((t, idx) => (
-                <td key={idx} style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                  {Number.isInteger(t.qty) ? t.qty : t.qty.toFixed(2)}<br />
-                  <span style={{ fontSize: 11 }}>{fmt(t.sum)}</span>
-                </td>
-              ))}
-              <td style={{ textAlign: "right", fontWeight: 600, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                {Number.isInteger(grandQty(matrix)) ? grandQty(matrix) : grandQty(matrix).toFixed(2)}<br />
-                <span style={{ fontSize: 11 }}>{fmt(grandSum(matrix))}</span>
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+    <div className="cl-zone">
+      <div className="cl-zone-title"><i className="ti ti-table" aria-hidden="true" /> Товары · по точкам</div>
+      {matrix.products.map((p, idx) => {
+        const isOpen = expanded.has(p.name);
+        return (
+          <div key={p.name} className="cl-spot">
+            <button type="button" className="cl-spot-head" style={headBtnStyle} onClick={() => toggle(p.name)}>
+              <span className="cl-spot-name">
+                <span style={{ minWidth: 22, fontSize: 12, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums", flex: "none" }}>{idx + 1}</span>
+                <i className={`ti ${isOpen ? "ti-chevron-down" : "ti-chevron-right"}`} aria-hidden="true" style={{ fontSize: 12, color: "var(--text-muted)", flex: "none" }} />
+                <span className="cl-spot-name-text">{p.name}</span>
+              </span>
+              <span className="cl-spot-cash">{fmt(p.total.sum)}</span>
+            </button>
+            <div className="cl-line">
+              <span className="cl-line-label">Штук · точек</span>
+              <span className="cl-line-dots" />
+              <span className="cl-line-value">{fmtQty(p.total.qty)} · {matrix.spotIds.filter((sid) => (p.bySpot[sid]?.qty || 0) > 0).length}</span>
+            </div>
+            {isOpen && (
+              matrix.spotIds.map((sid) => {
+                const cell = p.bySpot[sid];
+                if (!cell || cell.qty === 0) return null;
+                return (
+                  <div key={sid} className="cl-line">
+                    <span className="cl-line-label">{colName(sid)}{cell.qty > 1 ? ` ×${fmtQty(cell.qty)}` : ""}</span>
+                    <span className="cl-line-dots" />
+                    <span className="cl-line-value">{fmt(cell.sum)}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        );
+      })}
+
+      <div className="cl-total">
+        <div className="cl-line cl-total-line">
+          <span className="cl-line-label cl-total-label">Итого · сеть</span>
+          <span className="cl-line-dots" />
+          <span className="cl-line-value cl-total-value">{fmt(grandSum)}</span>
+        </div>
+        <div className="cl-line">
+          <span className="cl-line-label">Товаров · штук</span>
+          <span className="cl-line-dots" />
+          <span className="cl-line-value">{matrix.products.length} · {fmtQty(grandQty)}</span>
+        </div>
       </div>
     </div>
   );
 }
 
-function grandQty(matrix) {
-  return matrix.colTotals.reduce((s, t) => s + t.qty, 0);
-}
-function grandSum(matrix) {
-  return matrix.colTotals.reduce((s, t) => s + t.sum, 0);
-}
+// ─── «Топ товаров» ───────────────────────────────────────────────────
 
-function TopProductsView({ items, grandTotal }) {
+function LedgerTop({ items, grandTotal }) {
   if (items.length === 0) {
     return (
       <div className="card empty-state" style={{ marginTop: 8 }}>
@@ -750,47 +632,48 @@ function TopProductsView({ items, grandTotal }) {
       </div>
     );
   }
+
+  const totalQty = items.reduce((s, it) => s + it.qty, 0);
+
   return (
-    <div className="card table-card">
-      <div style={{ overflowX: "auto" }}>
-        <table className="data-table" style={{ width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", width: 40 }}>#</th>
-              <th style={{ textAlign: "left" }}>Товар</th>
-              <th style={{ textAlign: "right", width: 110 }}>Кол-во</th>
-              <th style={{ textAlign: "right", width: 130 }}>Сумма</th>
-              <th style={{ textAlign: "right", width: 110 }}>Доля</th>
-              <th style={{ textAlign: "right", width: 80 }}>Филиалов</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it, idx) => {
-              const share = grandTotal.sum > 0 ? (it.sum / grandTotal.sum) * 100 : 0;
-              return (
-                <tr key={it.productName} className="rh" style={{ borderBottom: idx < items.length - 1 ? "1px solid var(--border)" : "none" }}>
-                  <td style={{ textAlign: "left", color: "var(--text-muted)" }}>{idx + 1}</td>
-                  <td style={{ textAlign: "left", fontWeight: 500 }}>{it.productName}</td>
-                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                    {Number.isInteger(it.qty) ? it.qty : it.qty.toFixed(2)}
-                  </td>
-                  <td style={{ textAlign: "right", fontWeight: 500, color: "var(--text-accent)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                    {fmt(it.sum)}
-                  </td>
-                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
-                      <div style={{ width: 50, height: 6, background: "var(--bg-elevated)", borderRadius: 3, overflow: "hidden" }}>
-                        <div style={{ width: `${share}%`, height: "100%", background: "var(--text-accent)" }} />
-                      </div>
-                      <span style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 40, textAlign: "right" }}>{share.toFixed(1)}%</span>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{it.spotsCount}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div className="cl-zone">
+      <div className="cl-zone-title"><i className="ti ti-trophy" aria-hidden="true" /> Топ товаров</div>
+      {items.map((it, idx) => {
+        const share = grandTotal.sum > 0 ? (it.sum / grandTotal.sum) * 100 : 0;
+        return (
+          <div key={it.productName} className="cl-spot">
+            <div className="cl-spot-head">
+              <span className="cl-spot-name">
+                <span style={{ minWidth: 22, fontSize: 12, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums", flex: "none" }}>{idx + 1}</span>
+                <span className="cl-spot-name-text">{it.productName}</span>
+              </span>
+              <span className="cl-spot-cash">{fmt(it.sum)}</span>
+            </div>
+            <div className="cl-line">
+              <span className="cl-line-label">Штук · точек</span>
+              <span className="cl-line-dots" />
+              <span className="cl-line-value">{fmtQty(it.qty)} · {it.spotsCount}</span>
+            </div>
+            <div className="cl-line">
+              <span className="cl-line-label">Доля в выручке</span>
+              <span className="cl-line-dots" />
+              <span className="cl-line-value">{share.toFixed(1)}%</span>
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="cl-total">
+        <div className="cl-line cl-total-line">
+          <span className="cl-line-label cl-total-label">Итого · сеть</span>
+          <span className="cl-line-dots" />
+          <span className="cl-line-value cl-total-value">{fmt(grandTotal.sum)}</span>
+        </div>
+        <div className="cl-line">
+          <span className="cl-line-label">Товаров · штук</span>
+          <span className="cl-line-dots" />
+          <span className="cl-line-value">{items.length} · {fmtQty(totalQty)}</span>
+        </div>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 import { fetchCashBySpot, fetchPosterSales, fetchReceipts, fetchCashPerDay } from "../poster.js";
 import { fmt } from "../utils.js";
 import { loadIPGroups, getBranchIPGroup } from "../ipGroups.js";
+import { evaluateMath } from "./parser.js";
 
 // ─── Утилиты ──────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ export async function executeQuery(parsed, userBranch) {
     if (operation === "byHour") return await handleByHour(metric, effectiveSpot, period, ipGroup);
     if (operation === "anomaly") return await handleAnomaly(metric, effectiveSpot, period, ipGroup);
     if (metric === "compareBranches") return await handleCompareBranches(operation, effectiveSpot, period, ipGroup);
+    if (metric === "math") return handleMath(parsed);
 
     switch (metric) {
       case "cash": return await handleCash(operation, effectiveSpot, period, ipGroup);
@@ -149,7 +151,10 @@ export async function executeQuery(parsed, userBranch) {
       case "avgCheck": return await handleAvgCheck(operation, effectiveSpot, period, ipGroup);
       case "products": return await handleProducts(operation, effectiveSpot, period, product, ipGroup);
       case "tax": return await handleTax(operation, effectiveSpot, period, ipGroup);
-      case "margin": return await handleMargin(operation, effectiveSpot, period, ipGroup);
+      case "margin":
+      case "profit": return await handleMargin(operation, effectiveSpot, period, ipGroup);
+      case "weekday": return await handleByWeekday(metric, effectiveSpot, period, ipGroup);
+      case "hourly": return await handleByHour(metric, effectiveSpot, period, ipGroup);
       default: return await handleCash(operation, effectiveSpot, period, ipGroup);
     }
   } catch (e) {
@@ -320,6 +325,14 @@ async function handlePercentChange(metric, spot, period1, period2, productName, 
     text: `Сравнение ${sl}${ipLabel}:\n${pl1} (${days1} дн.): ${fmt(cash1)} / ${tx1.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck1)}\n${pl2} (${days2} дн.): ${fmt(cash2)} / ${tx2.toLocaleString("ru-RU")} чеков / ср.чек ${fmt(avgCheck2)}\n\n${changeEmoji(cashPct)} касса\n${changeEmoji(txPct)} чеки\n${changeEmoji(avgPct)} среднее/день\n${changeEmoji(avgCheckPct)} средний чек`,
     data: { period1, period2, cash1, cash2, tx1, tx2, cashPct, txPct, avgPct, avgCheckPct, days1, days2 },
   };
+}
+
+// ─── Математика ───────────────────────────────────────────────────
+
+function handleMath(parsed) {
+  const result = evaluateMath(parsed.expr);
+  if (result === null) return { text: "Не удалось посчитать выражение. Используйте цифры и + − × ÷.", data: null };
+  return { text: `${parsed.expr.trim()} = ${result}`, data: { expr: parsed.expr, result } };
 }
 
 // ─── Касса ────────────────────────────────────────────────────────

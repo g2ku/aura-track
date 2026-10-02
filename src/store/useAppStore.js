@@ -62,6 +62,12 @@ export const useAppStore = create((set, get) => ({
   period: loadPeriod(),
   modal: null, // { kind, payload }
 
+  // ─── Дизайн v2 (beta) ───────────────────────────────────────────────
+  // Флаг включает новый дизайн. Решает App.jsx: по умолчанию — только
+  // для admin, можно принудительно вкл/выкл через sessionStorage
+  // (aura-design-v2 = 1 | 0). Когда дизайн одобрен — ставим true всем.
+  designV2: false,
+
   // ─── Подписки (инициализируются один раз) ─────────────────────────
   _init() {
     if (get()._initialized) return;
@@ -113,6 +119,10 @@ export const useAppStore = create((set, get) => ({
   setPeriod(p) {
     try { sessionStorage.setItem(PERIOD_KEY, JSON.stringify(p)); } catch (_) {}
     set({ period: p });
+  },
+
+  setDesignV2(v) {
+    set({ designV2: Boolean(v) });
   },
 
   openModal(kind, payload = null) {

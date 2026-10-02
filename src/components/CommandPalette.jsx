@@ -133,28 +133,11 @@ export default function CommandPalette() {
           },
         },
         {
-          key: "action-globalPay",
-          icon: "ti-cash",
-          label: "Общая оплата",
-          sub: "Распределить по филиалам",
-          action: () => {
-            setOpen(false);
-            window.dispatchEvent(new CustomEvent("supply-track:open-modal", { detail: { kind: "globalPay" } }));
-          },
-        },
-        {
           key: "action-reports",
           icon: "ti-file-text",
           label: "Перейти к отчётам",
           sub: "Все загруженные накладные",
           action: () => go("/reports"),
-        },
-        {
-          key: "action-debts",
-          icon: "ti-alert-triangle",
-          label: "Долги",
-          sub: "Сводка по долгам системы",
-          action: () => go("/debts"),
         },
         {
           key: "action-inventory",

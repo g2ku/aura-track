@@ -143,8 +143,8 @@ export default function PostUploadModal({ open, parsed, fileName, onConfirm, onC
                   />
                   <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{b}</span>
                   <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {checkedCount > 0 && <span style={{ color: "var(--text-success)" }}>Оплачено: {fmt(checkedTotal)} ₸</span>}
-                    {" / "}{fmt(branchTotal)} ₸
+                    {checkedCount > 0 && <span style={{ color: "var(--text-success)" }}>Оплачено: {fmt(checkedTotal)}</span>}
+                    {" / "}{fmt(branchTotal)}
                   </span>
                 </div>
                 <div style={{ maxHeight: 160, overflow: "auto" }}>
@@ -161,7 +161,7 @@ export default function PostUploadModal({ open, parsed, fileName, onConfirm, onC
                         style={{ cursor: "pointer" }}
                       />
                       <span style={{ flex: 1 }}>{it.name}</span>
-                      <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{fmt(it.amount)} ₸</span>
+                      <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{fmt(it.amount)}</span>
                     </label>
                   ))}
                 </div>
