@@ -350,6 +350,10 @@ section("Кнопки под ответом не повторяют заданн
 
   const md = await btns("маржа за вчера");
   ok(md.includes("маржа за месяц"), "со вчера зовём в месяц");
+  // Не зависит от календаря: 2-го числа «вчера» — это 1-е, и один день
+  // принимался за месяц (живой прогон 03.10.2026)
+  const first = botFollowUps({ metric: "margin", period: { from: "2026-10-01", to: "2026-10-01" } }, { today: "2026-10-02" });
+  ok(first.includes("маржа за месяц") && first.includes("товары вчера"), `1-е число — это «вчера», а не месяц: ${first.join(" · ")}`);
   ok(!md.includes("маржа вчера"), "и не повторяем себя");
 
   const cash = await btns("касса вчера");
@@ -531,6 +535,12 @@ section("Прогноз на месяц, который идёт — как на
   ok(/Прогноз на конец [а-я]+: ~[\d\u00a0 ]+₸/.test(t) && !/умеет только сайт/.test(t), "считает сам");
   const abaya = (await answerQuestion("сколько сделает абая в этом месяце", deps))?.text || "";
   ok(abaya.includes("Прогноз Абая на конец"), `по точке: ${abaya.split("\n")[0]}`);
+  // Последний день месяца: остался один день — сегодняшний. 30.09.2026 бот
+  // отдавал «Касса за сентябрь» без прогноза
+  const now = new Date();
+  const lastDay = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0)).toISOString().slice(0, 10);
+  const lastT = ((await answerQuestion("прогноз на конец месяца", { ...deps, today: lastDay }))?.text || "").replace(/\u00a0/g, " ");
+  ok(/^<b>Прогноз на конец [а-я]+: ~/.test(lastT) && lastT.includes("Осталось 1 дн. с сегодняшним"), `в последний день месяца — тоже прогноз: ${lastT.split("\n").slice(0, 3).join(" | ")}`);
 }
 
 section("Бот: цены — по меню, а не топ по выручке");

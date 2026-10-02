@@ -739,7 +739,10 @@ export async function answerQuestion(text, deps) {
   // который идёт: сделанное по вчера + оставшиеся дни по обычной кассе
   // своего дня недели, как на сайте. Раньше бот отдавал кассу месяца по
   // сегодня без всякого прогноза (живая проверка 27.09.2026)
-  if (parsed.operation === "forecast" && parsed.period?.from <= today && parsed.period?.to > today) {
+  // В последний день месяца сегодня — его последний день, и прогноз — это
+  // сделанное плюс сегодняшний день; со строгим «>» 30.09.2026 бот отдавал
+  // кассу месяца без прогноза
+  if (parsed.operation === "forecast" && parsed.period?.from <= today && parsed.period?.to >= today) {
     const spots = spotsFor(parsed);
     const where = spots && spots.size === 1 ? ` ${spotNameByPosterId([...spots][0])}` : parsed.ipGroup?.name ? ` (${parsed.ipGroup.name})` : "";
     const yest = shiftYmd(today, -1);
@@ -863,7 +866,9 @@ export function botFollowUps(parsed, { today } = {}) {
   const p = parsed.period || {};
   const single = p.from && p.from === p.to;
   const MONTHS_ACC = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
-  const fullMonth = /^\d{4}-\d{2}-01$/.test(p.from || "") && p.to && p.to.slice(0, 7) === p.from.slice(0, 7);
+  // Один день — не месяц, даже если это 1-е число: 2 октября «вчера»
+  // начиналось с «-01», и кнопки предлагали «маржа за неделю» вместо месяца
+  const fullMonth = !single && /^\d{4}-\d{2}-01$/.test(p.from || "") && p.to && p.to.slice(0, 7) === p.from.slice(0, 7);
   const whenWord = single
     ? (p.from === today ? "сегодня" : p.from === shiftYmd(today || p.from, -1) ? "вчера" : `за ${Number(p.from.slice(8, 10))} ${MONTHS_GEN[Number(p.from.slice(5, 7)) - 1]}`)
     : (p.label === "по месяцам" ? "" : fullMonth ? (today && p.from.slice(0, 7) === today.slice(0, 7) ? "за месяц" : `за ${MONTHS_ACC[Number(p.from.slice(5, 7)) - 1]}`) : "за неделю");
